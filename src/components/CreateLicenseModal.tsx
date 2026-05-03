@@ -4,9 +4,10 @@ import { useState, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
-import { revalidateLicensesPage } from '@/app/actions/licenses'
+import { revalidateLicensesPage, createLicenseForAgency } from '@/app/actions/licenses'
 import { Loader2, Upload, X, FileText } from 'lucide-react'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
@@ -26,9 +27,21 @@ interface CreateLicenseModalProps {
   isOpen: boolean
   onClose: () => void
   onSuccess: () => void
+  /** When provided, the modal operates in agency mode: license is created via
+   *  server action (admin client) and attached to the agency instead of the
+   *  current user. Used by admin/expert on the agency detail page. */
+  agencyId?: string
+  agencyName?: string
 }
 
-export default function CreateLicenseModal({ isOpen, onClose, onSuccess }: CreateLicenseModalProps) {
+export default function CreateLicenseModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  agencyId,
+  agencyName,
+}: CreateLicenseModalProps) {
+  const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -78,8 +91,67 @@ export default function CreateLicenseModal({ isOpen, onClose, onSuccess }: Creat
     }
     setIsSubmitting(true)
     setSubmitError(null)
+
     try {
       const supabase = createClient()
+
+      // ── Agency mode (admin/expert) ──────────────────────────────────────
+      if (agencyId) {
+        let docPayload: { url: string; name: string; type: string | null; expiry_date?: string } | undefined
+
+        if (selectedFile && documentName.trim()) {
+          const fileExt = selectedFile.name.split('.').pop()
+          const fileName = `agency-${agencyId}/${Date.now()}.${fileExt}`
+          const { error: uploadError } = await supabase.storage
+            .from('application-documents')
+            .upload(fileName, selectedFile, {
+              upsert: false,
+              contentType: selectedFile.type || `application/${fileExt}`,
+              cacheControl: '3600',
+            })
+          if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('application-documents')
+            .getPublicUrl(fileName)
+
+          docPayload = {
+            url: publicUrl,
+            name: documentName.trim(),
+            type: documentType || null,
+          }
+          if (data.expiry_date) docPayload.expiry_date = data.expiry_date
+        }
+
+        const result = await createLicenseForAgency({
+          agencyId,
+          license_name: data.license_name,
+          license_number: data.license_number || undefined,
+          state: data.state,
+          activated_date: data.activated_date,
+          expiry_date: data.expiry_date,
+          renewal_due_date: data.renewal_due_date || undefined,
+          document: docPayload,
+        })
+
+        if (result.error) {
+          // Clean up uploaded file if server action failed
+          if (docPayload?.url) {
+            const path = docPayload.url.split('/application-documents/')[1]
+            if (path) await supabase.storage.from('application-documents').remove([path])
+          }
+          throw new Error(result.error)
+        }
+
+        reset()
+        handleRemoveFile()
+        router.refresh()
+        onClose()
+        onSuccess()
+        return
+      }
+
+      // ── Owner mode (agency-owner creates for themselves) ─────────────────
       const { data: { user: authUser } } = await supabase.auth.getUser()
       if (!authUser) {
         setSubmitError('You must be logged in to create a license')
@@ -149,8 +221,10 @@ export default function CreateLicenseModal({ isOpen, onClose, onSuccess }: Creat
     onClose()
   }
 
+  const title = agencyId && agencyName ? `Add License — ${agencyName}` : 'Create License'
+
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Create License" size="lg">
+    <Modal isOpen={isOpen} onClose={handleClose} title={title} size="lg">
       <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
         {submitError && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
@@ -208,7 +282,6 @@ export default function CreateLicenseModal({ isOpen, onClose, onSuccess }: Creat
           )}
         </div>
 
-        
         {/* Optional document upload */}
         <div className="border-t border-gray-200 pt-4">
           <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -314,7 +387,6 @@ export default function CreateLicenseModal({ isOpen, onClose, onSuccess }: Creat
           )}
         </div>
 
-
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="activated_date" className="block text-sm font-semibold text-gray-700 mb-1">
@@ -343,7 +415,6 @@ export default function CreateLicenseModal({ isOpen, onClose, onSuccess }: Creat
           </div>
         </div>
 
-        
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
           <button
             type="button"
@@ -360,10 +431,10 @@ export default function CreateLicenseModal({ isOpen, onClose, onSuccess }: Creat
             {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Creating...
+                {agencyId ? 'Adding…' : 'Creating...'}
               </>
             ) : (
-              'Create License'
+              agencyId ? 'Add License' : 'Create License'
             )}
           </button>
         </div>

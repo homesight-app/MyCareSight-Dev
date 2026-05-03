@@ -418,6 +418,15 @@ export async function getApplicationsByStatus(supabase: Supabase, status: string
     .order('created_at', { ascending: false })
 }
 
+/** Get all applications for an agency (agency-centric view for admin/expert). */
+export async function getApplicationsByAgencyId(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('applications')
+    .select('*')
+    .eq('agency_id', agencyId)
+    .order('created_at', { ascending: false })
+}
+
 /** Get applications by statuses, ordered by created_at desc. */
 export async function getApplicationsByStatuses(supabase: Supabase, statuses: string[]) {
   if (statuses.length === 0) return { data: [], error: null }

@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { 
-  Users, 
-  LogOut, 
+import {
+  Users,
+  LogOut,
   ChevronLeft,
   Menu,
-  X
+  X,
+  Building2
 } from 'lucide-react'
 import { signOut } from '@/app/actions/auth'
 import LoadingSpinner from './LoadingSpinner'
@@ -58,6 +59,7 @@ export default function ExpertDashboardLayout({
 
   const menuItems = [
     { href: '/pages/expert/clients', label: 'Licenses', icon: Users },
+    { href: '/pages/expert/agencies', label: 'Agency', icon: Building2 },
     // { href: '/pages/expert/messages', label: 'Messages', icon: MessageSquare },
   ]
 

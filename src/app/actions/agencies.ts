@@ -1,8 +1,11 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import * as q from '@/lib/supabase/query'
+import { getSession } from '@/lib/auth'
+import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
   CACHE_TAG_AGENCIES_ID_NAME,
@@ -76,6 +79,7 @@ export async function createAgency(data: AgencyFormData) {
     }
 
     revalidatePath('/pages/admin/agencies')
+    revalidatePath('/pages/expert/agencies')
     revalidateAgencyListCaches()
     return { error: null, data: { success: true } }
   } catch (err: any) {
@@ -143,6 +147,7 @@ export async function updateAgency(
     }
 
     revalidatePath('/pages/admin/agencies')
+    revalidatePath('/pages/expert/agencies')
     revalidateAgencyListCaches()
     return { error: null, data: { success: true } }
   } catch (err: any) {
@@ -233,5 +238,81 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
     return { error: null, data: { success: true } }
   } catch (err: any) {
     return { error: err?.message || 'Failed to save company details', data: null }
+  }
+}
+
+function revalidateAgencyDetailPages() {
+  revalidatePath('/pages/admin/agencies/[id]', 'page')
+  revalidatePath('/pages/expert/agencies/[id]', 'page')
+}
+
+/** Admin/expert: assign an existing agency_admin to this agency. */
+export async function addAdminToAgency(agencyId: string, adminId: string) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+
+  const supabaseAdmin = createAdminClient()
+  try {
+    const { data: agency, error: fetchErr } = await q.getAgencyById(supabaseAdmin, agencyId)
+    if (fetchErr || !agency) return { error: 'Agency not found', data: null }
+
+    const currentIds = normalizeAgencyAdminIds(agency.agency_admin_ids as string[] | string | null)
+    if (currentIds.includes(adminId)) return { error: null, data: { success: true } }
+
+    // Strip this admin from any other agency they're currently assigned to
+    const { data: otherAgencies } = await q.getAgenciesExceptId(supabaseAdmin, agencyId)
+    for (const other of otherAgencies ?? []) {
+      const otherIds = normalizeAgencyAdminIds(other.agency_admin_ids as string[] | string | null)
+      if (otherIds.includes(adminId)) {
+        await q.updateAgencyAdminIds(supabaseAdmin, other.id, otherIds.filter((id) => id !== adminId))
+      }
+    }
+
+    const newIds = [...currentIds, adminId]
+    const { error: updateAgencyErr } = await q.updateAgencyAdminIds(supabaseAdmin, agencyId, newIds)
+    if (updateAgencyErr) return { error: updateAgencyErr.message, data: null }
+
+    const { error: updateAdminErr } = await q.updateClientCompanyAndAgencyForIds(supabaseAdmin, [adminId], {
+      company_name: agency.name,
+      agency_id: agencyId,
+    })
+    if (updateAdminErr) console.error('Failed to update agency_admins record:', updateAdminErr)
+
+    revalidateAgencyDetailPages()
+    revalidateAgencyListCaches()
+    return { error: null, data: { success: true } }
+  } catch (err: any) {
+    return { error: err?.message || 'Failed to add admin', data: null }
+  }
+}
+
+/** Admin/expert: remove an agency_admin from this agency. */
+export async function removeAdminFromAgency(agencyId: string, adminId: string) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+
+  const supabaseAdmin = createAdminClient()
+  try {
+    const { data: agency, error: fetchErr } = await q.getAgencyById(supabaseAdmin, agencyId)
+    if (fetchErr || !agency) return { error: 'Agency not found', data: null }
+
+    const currentIds = normalizeAgencyAdminIds(agency.agency_admin_ids as string[] | string | null)
+    const newIds = currentIds.filter((id) => id !== adminId)
+
+    const { error: updateAgencyErr } = await q.updateAgencyAdminIds(supabaseAdmin, agencyId, newIds)
+    if (updateAgencyErr) return { error: updateAgencyErr.message, data: null }
+
+    const { error: clearErr } = await q.updateClientClearAgencyForIds(supabaseAdmin, [adminId])
+    if (clearErr) console.error('Failed to clear agency_admins record:', clearErr)
+
+    revalidateAgencyDetailPages()
+    revalidateAgencyListCaches()
+    return { error: null, data: { success: true } }
+  } catch (err: any) {
+    return { error: err?.message || 'Failed to remove admin', data: null }
   }
 }

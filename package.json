@@ -4,19 +4,14 @@
 
   "private": true,
 
-  "scripts": {
-
-    "dev": "next dev",
-
-    "build": "next build",
-
-    "start": "next start",
-
-    "lint": "next lint",
-
-    "sitemap": "next-sitemap --config next-sitemap.config.ts"
-
-  },
+"scripts": {
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start",
+  "lint": "eslint",
+  "typecheck": "tsc --noEmit",
+  "sitemap": "next-sitemap --config next-sitemap.config.ts"
+},
 
   "keywords": [],
 
@@ -86,7 +81,7 @@
 
     "eslint-config-next": "^15.5.9",
 
-    "postcss": "^8.5.3",
+    "postcss": "^8.5.10",
 
     "prettier-plugin-tailwindcss": "^0.6.9",
 
@@ -102,7 +97,14 @@
 
   "main": "src/app/page.tsx",
 
-  "license": "MIT"
+  "license": "MIT",
+
+  "overrides": {
+    "brace-expansion": "^2.0.1",
+    "next": {
+      "postcss": "^8.5.10"
+    }
+  }
 
 }
 

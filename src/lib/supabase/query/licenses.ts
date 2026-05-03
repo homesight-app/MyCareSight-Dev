@@ -79,6 +79,15 @@ export async function getLicenseByIdAndOwner(supabase: Supabase, licenseId: stri
     .single()
 }
 
+/** Get all licenses for an agency (agency-centric view for admin/expert). */
+export async function getLicensesByAgencyId(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('licenses')
+    .select('*')
+    .eq('agency_id', agencyId)
+    .order('created_at', { ascending: false })
+}
+
 /** Get license_documents by license_id. */
 export async function getLicenseDocumentsByLicenseId(supabase: Supabase, licenseId: string) {
   return supabase

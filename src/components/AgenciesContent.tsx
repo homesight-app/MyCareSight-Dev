@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Plus, Pencil } from 'lucide-react'
+import Link from 'next/link'
+import { Plus, Pencil, Eye } from 'lucide-react'
 import AddAgencyModal, { type AgencyAdminOption } from './AddAgencyModal'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 
@@ -30,12 +31,14 @@ interface AgenciesContentProps {
   agencies: Agency[]
   agencyAdmins: AgencyAdminOption[]
   agencyAdminsForSelect: AgencyAdminOption[]
+  detailBasePath?: string
 }
 
 export default function AgenciesContent({
   agencies,
   agencyAdmins,
   agencyAdminsForSelect,
+  detailBasePath,
 }: AgenciesContentProps) {
   const [modalOpen, setModalOpen] = useState(false)
   const [editAgency, setEditAgency] = useState<Agency | null>(null)
@@ -141,15 +144,27 @@ export default function AgenciesContent({
                       {formatDate(agency.created_at)}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(agency)}
-                        className="inline-flex items-center gap-1.5 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                        aria-label="Edit agency"
-                      >
-                        <Pencil className="w-4 h-4" />
-                        Edit
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        {detailBasePath && (
+                          <Link
+                            href={`${detailBasePath}/${agency.id}`}
+                            className="inline-flex items-center gap-1.5 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                            aria-label="View agency details"
+                          >
+                            <Eye className="w-4 h-4" />
+                            License
+                          </Link>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => openEdit(agency)}
+                          className="inline-flex items-center gap-1.5 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                          aria-label="Edit agency"
+                        >
+                          <Pencil className="w-4 h-4" />
+                          Edit
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

@@ -1,21 +1,25 @@
-import { requireAdmin } from '@/lib/auth-helpers'
+import { getSession } from '@/lib/auth'
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import { getCachedAgenciesOrdered } from '@/lib/server-cache/reference-lists'
-import AdminLayout from '@/components/AdminLayout'
+import ExpertDashboardLayout from '@/components/ExpertDashboardLayout'
 import AgenciesContent from '@/components/AgenciesContent'
 import { Building2 } from 'lucide-react'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 
-export default async function AgenciesPage() {
-  const { user, profile } = await requireAdmin()
+export default async function ExpertAgenciesPage() {
+  const session = await getSession()
+  if (!session) redirect('/pages/auth/login')
+  if (session.profile?.role !== 'expert') redirect('/pages/expert/clients')
+
+  const { user, profile } = session
   const supabase = await createClient()
   const supabaseAdmin = createAdminClient()
 
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const { data: agencies } = await getCachedAgenciesOrdered()
-  // agency_admins RLS does not expose rows to platform admins — use service role (same as cached agencies).
   const { data: agencyAdminsWithUser } = await q.getClientsWithCompanyOwner(supabaseAdmin)
 
   const referencedAdminIds: string[] = []
@@ -47,7 +51,6 @@ export default async function AgenciesPage() {
     (a.contact_name || a.contact_email).localeCompare(b.contact_name || b.contact_email, undefined, { sensitivity: 'base' })
   )
 
-  // One agency admin can only be in one agency: show only those not in any agency's agency_admin_ids
   const assignedAdminIds = new Set<string>()
   for (const a of agencies || []) {
     normalizeAgencyAdminIds(a.agency_admin_ids as string[] | string | null).forEach((id) =>
@@ -58,7 +61,7 @@ export default async function AgenciesPage() {
   const agencyAdminsForSelect = allAdmins.filter((a) => !assignedAdminIds.has(String(a.id)))
 
   return (
-    <AdminLayout
+    <ExpertDashboardLayout
       user={user}
       profile={profile}
       unreadNotifications={unreadNotifications || 0}
@@ -86,9 +89,9 @@ export default async function AgenciesPage() {
             contact_name: a.contact_name ?? '',
             contact_email: a.contact_email ?? '',
           }))}
-          detailBasePath="/pages/admin/agencies"
+          detailBasePath="/pages/expert/agencies"
         />
       </div>
-    </AdminLayout>
+    </ExpertDashboardLayout>
   )
 }

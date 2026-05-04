@@ -42,7 +42,8 @@ export async function closeApplicationUpdate(supabase: Supabase, applicationId: 
 export async function insertApplication(
   supabase: Supabase,
   data: {
-    company_owner_id: string
+    company_owner_id?: string | null
+    agency_id?: string | null
     application_name: string
     state: string
     license_type_id?: string | null

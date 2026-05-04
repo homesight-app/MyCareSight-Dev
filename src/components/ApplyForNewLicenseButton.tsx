@@ -7,7 +7,13 @@ import SelectLicenseTypeModal from './SelectLicenseTypeModal'
 import ReviewLicenseRequestModal from './ReviewLicenseRequestModal'
 import { LicenseType } from '@/types/license'
 
-export default function ApplyForNewLicenseButton() {
+interface ApplyForNewLicenseButtonProps {
+  agencyId?: string
+  agencyName?: string
+  label?: string
+}
+
+export default function ApplyForNewLicenseButton({ agencyId, agencyName, label }: ApplyForNewLicenseButtonProps = {}) {
   const [isStateModalOpen, setIsStateModalOpen] = useState(false)
   const [isLicenseTypeModalOpen, setIsLicenseTypeModalOpen] = useState(false)
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false)
@@ -51,7 +57,7 @@ export default function ApplyForNewLicenseButton() {
         className="w-full text-center py-2.5 px-4 bg-black hover:bg-gray-800 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
       >
         <FileText className="w-4 h-4" />
-        Apply for New License
+        {label ?? 'Apply for New License'}
       </button>
 
       {/* State Selection Modal */}
@@ -80,6 +86,7 @@ export default function ApplyForNewLicenseButton() {
           state={selectedState}
           licenseType={selectedLicenseType}
           onBack={handleBackToLicenseTypes}
+          agencyId={agencyId}
         />
       )}
     </>

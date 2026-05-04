@@ -7,6 +7,7 @@ import { Heart, Users, MapPin, DollarSign, Clock, RefreshCw, CheckCircle2, Arrow
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { LicenseType } from '@/types/license'
+import { createApplicationForAgency } from '@/app/actions/applications'
 
 interface ReviewLicenseRequestModalProps {
   isOpen: boolean
@@ -14,6 +15,8 @@ interface ReviewLicenseRequestModalProps {
   state: string
   licenseType: LicenseType
   onBack: () => void
+  /** When provided, the application is created for the agency (admin/expert mode). */
+  agencyId?: string
 }
 
 const getStateAbbr = (state: string) => {
@@ -25,7 +28,8 @@ export default function ReviewLicenseRequestModal({
   onClose,
   state,
   licenseType,
-  onBack
+  onBack,
+  agencyId,
 }: ReviewLicenseRequestModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -36,18 +40,31 @@ export default function ReviewLicenseRequestModal({
     setError(null)
 
     try {
-      const supabase = createClient()
-      
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setError('You must be logged in to submit a license request')
-        setIsLoading(false)
+      // ── Agency mode (admin/expert creating on behalf of agency) ──────────
+      if (agencyId) {
+        const result = await createApplicationForAgency(agencyId, {
+          application_name: licenseType.name,
+          state,
+          license_type_id: licenseType.id,
+        })
+        if (result.error) {
+          setError(result.error)
+          return
+        }
+        onClose()
+        router.refresh()
         return
       }
 
-      const today = new Date()
-      const todayStr = today.toISOString().split('T')[0]
+      // ── Owner mode (agency owner creating for themselves) ─────────────────
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setError('You must be logged in to submit a license request')
+        return
+      }
+
+      const todayStr = new Date().toISOString().split('T')[0]
 
       const { data: application, error: insertError } = await q.insertApplication(supabase, {
         company_owner_id: user.id,
@@ -63,7 +80,6 @@ export default function ReviewLicenseRequestModal({
 
       if (insertError) {
         setError(insertError.message || 'Failed to create application. Please try again.')
-        setIsLoading(false)
         return
       }
 
@@ -75,7 +91,6 @@ export default function ReviewLicenseRequestModal({
       )
       if (rpcError) {
         setError(rpcError.message || 'Failed to set up application steps. Please try again.')
-        setIsLoading(false)
         return
       }
 

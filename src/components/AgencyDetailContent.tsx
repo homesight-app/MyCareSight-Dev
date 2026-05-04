@@ -15,9 +15,11 @@ import {
   Briefcase,
   FileText,
   Users,
+  Calendar,
 } from 'lucide-react'
 import CreateLicenseModal from './CreateLicenseModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
+import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
 
 interface Agency {
   id: string
@@ -56,6 +58,8 @@ interface Application {
   status: string
   progress_percentage?: number | null
   submitted_date?: string | null
+  started_date?: string | null
+  last_updated_date?: string | null
   created_at: string
 }
 
@@ -325,9 +329,18 @@ export default function AgencyDetailContent({
 
       {/* Applications section */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
-          <FileText className="w-5 h-5 text-purple-600" />
-          <h2 className="text-base font-semibold text-gray-900">License Applications</h2>
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-purple-600" />
+            <h2 className="text-base font-semibold text-gray-900">License Applications</h2>
+          </div>
+          <div className="w-auto">
+            <ApplyForNewLicenseButton
+              agencyId={agency.id}
+              agencyName={agency.name}
+              label="New Application"
+            />
+          </div>
         </div>
 
         {applications.length === 0 ? (
@@ -335,44 +348,78 @@ export default function AgencyDetailContent({
             No license applications found for this agency.
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
-            {applications.map((app) => (
-              <div key={app.id} className="px-6 py-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <FileText className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                      <span className="text-sm font-medium text-gray-900">{app.application_name}</span>
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
-                        {app.state}
-                      </span>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
-                          APP_STATUS_COLORS[app.status] ?? 'bg-gray-100 text-gray-600'
-                        }`}
-                      >
-                        {app.status.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {app.submitted_date
-                        ? `Application submitted on ${formatDate(app.submitted_date)}`
-                        : 'Application in progress'}
-                    </p>
-                    {/* Progress bar */}
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="flex-1 bg-gray-200 rounded-full h-1.5 max-w-xs">
-                        <div
-                          className="bg-gray-900 h-1.5 rounded-full transition-all"
-                          style={{ width: `${app.progress_percentage ?? 0}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-gray-400">{app.progress_percentage ?? 0}%</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Application Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">State</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Progress</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Started</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Last Updated</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {applications.map((app) => {
+                  const pct = app.progress_percentage ?? 0
+                  const appDetailPath = `${backPath.startsWith('/pages/admin') ? '/pages/expert' : '/pages/expert'}/applications/${app.id}`
+                  return (
+                    <tr key={app.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                          <span className="text-sm font-medium text-gray-900">{app.application_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                          <MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                          {app.state}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${APP_STATUS_COLORS[app.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {app.status.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 min-w-[120px]">
+                          <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                            <div
+                              className="bg-blue-600 h-1.5 rounded-full transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500 w-8 text-right">{pct}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+                          <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
+                          {formatDate(app.started_date)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+                          <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                          {formatDate(app.last_updated_date)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <Link
+                          href={appDetailPath}
+                          className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                          View Details
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

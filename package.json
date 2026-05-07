@@ -19,7 +19,7 @@
     "sitemap": "next-sitemap --config next-sitemap.config.ts",
 
     "test": "jest",
-    
+
     "test:ci": "jest --ci --passWithNoTests"
 
   },
@@ -79,6 +79,8 @@
     "@testing-library/jest-dom": "^6.9.1",
 
     "@testing-library/react": "^16.3.2",
+
+    "@types/jest": "^30.0.0",
 
     "@types/node": "^22.10.5",
 

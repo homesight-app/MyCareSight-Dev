@@ -52,13 +52,13 @@ export default function CaseTabs({ caseId, checklistItems, documents, activityLo
 
   const formatDate = (date: string | Date | null | undefined) => {
     if (!date) return 'N/A'
-    const d = typeof date === 'string' ? new Date(date) : date
+    const d = typeof date === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00') : new Date(date)) : date
     return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
   }
 
   const formatDateTime = (date: string | Date | null | undefined) => {
     if (!date) return 'N/A'
-    const d = typeof date === 'string' ? new Date(date) : date
+    const d = typeof date === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00') : new Date(date)) : date
     return d.toLocaleString('en-US', { 
       month: 'short', 
       day: 'numeric', 

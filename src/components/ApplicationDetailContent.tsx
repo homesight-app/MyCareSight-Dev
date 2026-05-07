@@ -33,6 +33,7 @@ import {
   Search,
   Lock,
   Info,
+  Building2,
 } from 'lucide-react'
 import { closeApplication } from '@/app/actions/applications'
 import UploadDocumentModal from './UploadDocumentModal'
@@ -119,6 +120,7 @@ interface ApplicationDetailContentProps {
   activeTab?: 'overview' | 'checklist' | 'documents' |  'next-steps' | 'requirements' | 'templates' | 'message' | 'expert-process'
   onTabChange?: (tab:  'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process') => void
   showInlineTabs?: boolean // If true, show tabs under summary blocks instead of in sidebar
+  agencyName?: string | null
 }
 
 type TabType =  'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process'
@@ -128,7 +130,8 @@ export default function ApplicationDetailContent({
   documents: initialDocuments,
   activeTab: externalActiveTab,
   onTabChange,
-  showInlineTabs = false
+  showInlineTabs = false,
+  agencyName,
 }: ApplicationDetailContentProps) {
   const [infoModalStep, setInfoModalStep] = useState<any | null>(null)
   const router = useRouter()
@@ -246,7 +249,7 @@ export default function ApplicationDetailContent({
 
   const formatDate = (date: string | Date | null) => {
     if (!date) return 'N/A'
-    const d = typeof date === 'string' ? new Date(date) : date
+    const d = typeof date === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00') : new Date(date)) : date
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
@@ -878,24 +881,14 @@ export default function ApplicationDetailContent({
             convId = existingConvId
             setConversationId(convId)
           } else {
-            if (!application.company_owner_id) {
-              setMessages([])
-              setConversationId(null)
-              setIsLoadingConversation(false)
-              return
-            }
-            const { data: clientRow, error: clientErr } = await q.getClientByCompanyOwnerId(supabase, application.company_owner_id)
-
-            if (clientErr || !clientRow?.id) {
-              console.error('Error resolving client for conversation:', clientErr || 'No client record')
-              setMessages([])
-              setConversationId(null)
-              setIsLoadingConversation(false)
-              return
-            }
+            // Resolve client_id if there is a company owner; null is allowed
+            // for admin/expert-created applications (agency_id takes over for access control)
+            const clientId = application.company_owner_id
+              ? ((await q.getClientByCompanyOwnerId(supabase, application.company_owner_id)).data?.id ?? null)
+              : null
 
             const { data: newConv, error: convError } = await q.insertConversation(supabase, {
-              client_id: clientRow.id,
+              client_id: clientId,
               application_id: application.id,
             })
 
@@ -1080,17 +1073,12 @@ export default function ApplicationDetailContent({
           convId = existingConvId
           setConversationId(convId)
         } else {
-          if (!application.company_owner_id) {
-            throw new Error('Could not resolve client for conversation. Please try again.')
-          }
-          const { data: clientRow, error: clientErr } = await q.getClientByCompanyOwnerId(supabase, application.company_owner_id)
-
-          if (clientErr || !clientRow?.id) {
-            throw new Error('Could not resolve client for conversation. Please try again.')
-          }
+          const clientId = application.company_owner_id
+            ? ((await q.getClientByCompanyOwnerId(supabase, application.company_owner_id)).data?.id ?? null)
+            : null
 
           const { data: newConv, error: convError } = await q.insertConversation(supabase, {
-            client_id: clientRow.id,
+            client_id: clientId,
             application_id: application.id,
           })
 
@@ -1488,6 +1476,21 @@ export default function ApplicationDetailContent({
             </div>
           </div>
         )
+      )}
+
+      {/* Agency Block */}
+      {agencyName && (
+        <div className="mb-6 bg-purple-50 border border-purple-200 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Building2 className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-purple-900 mb-1">Agency</div>
+              <div className="text-base font-medium text-gray-900">{agencyName}</div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Summary Cards */}
@@ -1912,7 +1915,7 @@ export default function ApplicationDetailContent({
                                   }`}>
                                     {status}
                                   </span>
-                                  {currentUserRole === 'company_owner' && (
+                                  {(currentUserRole === 'company_owner' || currentUserRole === 'expert') && (
                                     <button
                                       onClick={() => {
                                         setUploadForRequirementDoc(reqDoc)
@@ -2882,6 +2885,7 @@ export default function ApplicationDetailContent({
         licenseRequirementDocumentId={uploadForRequirementDoc?.id ?? undefined}
         defaultDocumentName={uploadForRequirementDoc?.document_name ?? undefined}
         defaultDocumentType={uploadForRequirementDoc?.document_type ?? undefined}
+        autoApprove={currentUserRole === 'expert'}
       />
 
       {/* Document Review Modal for Experts */}

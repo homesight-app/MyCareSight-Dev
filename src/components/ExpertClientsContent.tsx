@@ -2,14 +2,15 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { 
-  Clock, 
-  MapPin, 
+import {
+  Clock,
+  MapPin,
   FileText,
   Search,
   Calendar,
   AlertCircle,
-  Loader2
+  Loader2,
+  Building2,
 } from 'lucide-react'
 
 interface Application {
@@ -26,6 +27,7 @@ interface Application {
   assigned_expert_id: string | null
   license_type_id: string | null
   revision_reason?: string | null
+  agency_id?: string | null
 }
 
 interface ExpertClientsContentProps {
@@ -33,13 +35,15 @@ interface ExpertClientsContentProps {
   totalApplications: number
   activeApplications: number
   pendingReviews: number
+  agencyNames?: Record<string, string>
 }
 
 export default function ExpertClientsContent({
   applications: applicationsProp,
   totalApplications,
   activeApplications,
-  pendingReviews
+  pendingReviews,
+  agencyNames = {},
 }: ExpertClientsContentProps) {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
@@ -50,7 +54,7 @@ export default function ExpertClientsContent({
 
   const formatDate = (date: string | Date | null) => {
     if (!date) return 'N/A'
-    const d = typeof date === 'string' ? new Date(date) : date
+    const d = typeof date === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00') : new Date(date)) : date
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
@@ -88,7 +92,8 @@ export default function ExpertClientsContent({
     const query = searchQuery.toLowerCase()
     const name = (app.application_name || '').toLowerCase()
     const state = (app.state || '').toLowerCase()
-    return name.includes(query) || state.includes(query)
+    const agency = (app.agency_id ? (agencyNames[app.agency_id] || '') : '').toLowerCase()
+    return name.includes(query) || state.includes(query) || agency.includes(query)
   })
 
   return (
@@ -158,6 +163,7 @@ export default function ExpertClientsContent({
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Application Name</th>
+                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Agency</th>
                   <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">State</th>
                   <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
                   <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Progress</th>
@@ -175,6 +181,14 @@ export default function ExpertClientsContent({
                   >
                     <td className="px-4 md:px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-semibold text-gray-900">{application.application_name}</div>
+                    </td>
+                    <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <span className="text-sm text-gray-900">
+                          {(application.agency_id && agencyNames[application.agency_id]) || '—'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 md:px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">

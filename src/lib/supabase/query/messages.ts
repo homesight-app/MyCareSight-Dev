@@ -10,7 +10,7 @@ export async function getConversationByApplicationId(supabase: Supabase, applica
 
 export async function insertConversation(
   supabase: Supabase,
-  data: { client_id: string; application_id: string }
+  data: { client_id?: string | null; application_id: string }
 ) {
   return supabase.from('conversations').insert(data).select().single()
 }

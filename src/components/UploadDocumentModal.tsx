@@ -15,6 +15,7 @@ interface UploadDocumentModalProps {
   licenseRequirementDocumentId?: string
   defaultDocumentName?: string
   defaultDocumentType?: string
+  autoApprove?: boolean
 }
 
 export default function UploadDocumentModal({
@@ -24,7 +25,8 @@ export default function UploadDocumentModal({
   onSuccess,
   licenseRequirementDocumentId,
   defaultDocumentName,
-  defaultDocumentType
+  defaultDocumentType,
+  autoApprove = false,
 }: UploadDocumentModalProps) {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -129,7 +131,7 @@ export default function UploadDocumentModal({
           document_url: publicUrl,
           document_type: documentType || null,
           description: description.trim() || null,
-          status: 'draft'
+          status: autoApprove ? 'approved' : 'draft'
         }
         if (licenseRequirementDocumentId) {
           insertPayload.license_requirement_document_id = licenseRequirementDocumentId

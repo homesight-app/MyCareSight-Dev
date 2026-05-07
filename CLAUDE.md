@@ -59,10 +59,14 @@ if (session.profile?.role !== 'expert') redirect('/pages/expert/clients')
 | Client | File | When to use |
 |--------|------|-------------|
 | `createClient()` | `src/lib/supabase/server.ts` | All normal server-side reads/writes; respects RLS |
-| `createAdminClient()` | `src/lib/supabase/admin.ts` | Bypasses RLS — use only when RLS would block a legitimate server operation (e.g. reading `agency_admins` for admin/expert views) |
+| `createAdminClient()` | `src/lib/supabase/admin.ts` | Bypasses RLS — only for genuine service-level operations (creating data on behalf of another user, cross-agency admin operations) |
 | Browser client | `src/lib/supabase/client.ts` | Client components that need live subscriptions |
 
 Never expose `createAdminClient()` output to the browser.
+
+**`createAdminClient()` is not a workaround for missing RLS policies.** If a role legitimately needs access to a table but RLS blocks it, write a migration to add the policy — do not reach for the admin client. Using the admin client to paper over an RLS gap leaves the gap permanently unfixed and creates a false sense of security.
+
+**RLS-blocked mutations fail silently.** Supabase returns `{ error: null }` when an UPDATE or DELETE is blocked by RLS if the query has no `.select()` after it — 0 rows are affected but no error is raised. Always verify mutations by adding `.select()` or checking affected row count, especially in server actions used by non-admin roles.
 
 ### Query layer (`src/lib/supabase/query/`)
 
@@ -124,3 +128,13 @@ Use **React Hook Form** + **Zod** for all forms. Schemas live co-located with th
 1. Read the relevant existing files first.
 2. Identify any DB, auth, RLS, or API surface impact.
 3. Do not rename tables, columns, routes, or shared types unless explicitly asked.
+
+### RLS policy guidelines
+
+RLS is the primary access control layer. Keep it correct rather than working around it.
+
+- Every table must have explicit SELECT/INSERT/UPDATE/DELETE policies for each role that legitimately needs access.
+- When adding a new feature that reads from a table a role hasn't accessed before, check whether an RLS SELECT policy exists for that role. If not, write a migration — do not use `createAdminClient()`.
+- When writing a server action that mutates data and is called by a non-admin role, use `createClient()` (RLS client). If RLS blocks it, determine whether the role *should* have access (fix the policy) or *should not* (add an explicit server-side role guard instead of bypassing).
+- `createAdminClient()` is appropriate when: creating/modifying data on behalf of another user (e.g. admin creating an application for an agency), reading data the role has UI access to but whose RLS is not yet defined (temporary, must be paired with a migration ticket), or operations that inherently span multiple users.
+- Migration files live in `supabase/migrations/phase_two/`. Increment the prefix number. Run them in the Supabase SQL editor. The `is_platform_staff()` function (covers `admin` and `expert` roles) and `is_agency_member(agency_id)` are available for use in policies.

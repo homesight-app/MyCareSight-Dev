@@ -92,7 +92,12 @@ export async function updateAgency(
   data: AgencyFormData,
   previousAgencyAdminIds: string[]
 ) {
-  const supabase = await createClient()
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+
+  const supabase = createAdminClient()
   try {
     const newIds = (data.agencyAdminIds || []).filter(Boolean)
     const newSet = new Set(newIds)

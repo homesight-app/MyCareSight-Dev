@@ -30,11 +30,13 @@ interface Document {
 interface ExpertApplicationDetailWrapperProps {
   application: Application
   documents: Document[]
+  agencyName?: string | null
 }
 
 export default function ExpertApplicationDetailWrapper({
   application,
-  documents
+  documents,
+  agencyName,
 }: ExpertApplicationDetailWrapperProps) {
   const searchParams = useSearchParams()
   const fromNotification = searchParams?.get('fromNotification') === 'true'
@@ -56,6 +58,7 @@ export default function ExpertApplicationDetailWrapper({
       activeTab={activeTab}
       onTabChange={setActiveTab}
       showInlineTabs={true}
+      agencyName={agencyName}
     />
   )
 }

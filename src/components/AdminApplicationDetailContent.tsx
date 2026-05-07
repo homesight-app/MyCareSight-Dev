@@ -8,6 +8,7 @@ import { copyExpertStepsFromRequirementToApplication } from '@/app/actions/licen
 import {
   FileText,
   Download,
+  Upload,
   Calendar,
   MapPin,
   User,
@@ -21,8 +22,10 @@ import {
   Send,
   Copy,
   Plus,
+  Building2,
 } from 'lucide-react'
 import Modal from './Modal'
+import UploadDocumentModal from './UploadDocumentModal'
 
 interface Application {
   id: string
@@ -102,6 +105,7 @@ interface AdminApplicationDetailContentProps {
   application: Application
   documents: Document[]
   adminUserId: string
+  agencyName?: string | null
 }
 
 type TabType = 'steps' | 'documents' | 'messages' | 'expert-process'
@@ -109,7 +113,8 @@ type TabType = 'steps' | 'documents' | 'messages' | 'expert-process'
 export default function AdminApplicationDetailContent({
   application,
   documents: initialDocuments,
-  adminUserId
+  adminUserId,
+  agencyName,
 }: AdminApplicationDetailContentProps) {
   const searchParams = useSearchParams()
   const fromNotification = searchParams?.get('fromNotification') === 'true'
@@ -137,11 +142,18 @@ export default function AdminApplicationDetailContent({
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [isLoadingConversation, setIsLoadingConversation] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  const [uploadForRequirementDoc, setUploadForRequirementDoc] = useState<RequirementDocument | null>(null)
   const supabase = createClient()
+
+  const refreshDocuments = useCallback(async () => {
+    const { data } = await q.getApplicationDocumentsByApplicationId(supabase, application.id)
+    if (data) setDocuments(data)
+  }, [supabase, application.id])
 
   const formatDate = (date: string | Date | null) => {
     if (!date) return 'N/A'
-    const d = typeof date === 'string' ? new Date(date) : date
+    const d = typeof date === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00') : new Date(date)) : date
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
@@ -484,18 +496,15 @@ export default function AdminApplicationDetailContent({
             convId = existingConvId
             setConversationId(convId)
           } else {
-            const { data: clientRow, error: clientErr } = await q.getClientByCompanyOwnerId(supabase, application.company_owner_id)
-
-            if (clientErr || !clientRow?.id) {
-              console.error('Error resolving client for conversation:', clientErr || 'No client record')
-              setIsLoadingConversation(false)
-              return
-            }
+            // client_id is optional — null for admin/expert-created applications
+            const clientId = application.company_owner_id
+              ? ((await q.getClientByCompanyOwnerId(supabase, application.company_owner_id)).data?.id ?? null)
+              : null
 
             const { data: newConv, error: convError } = await q.insertConversation(supabase, {
-                client_id: clientRow.id,
-                application_id: application.id,
-              })
+              client_id: clientId,
+              application_id: application.id,
+            })
 
             if (convError) {
               if (convError.code === '23505') {
@@ -935,6 +944,17 @@ export default function AdminApplicationDetailContent({
           </div>
         )}
 
+        {/* Agency Information */}
+        {agencyName && (
+          <div className="bg-purple-50 rounded-lg p-4 mt-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+              <Building2 className="w-4 h-4" />
+              Agency
+            </h3>
+            <div className="text-sm text-gray-900 font-medium">{agencyName}</div>
+          </div>
+        )}
+
         {/* Revision Reason (if needs_revision) */}
         {application.status === 'needs_revision' && application.revision_reason && (
           <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mt-4">
@@ -1058,7 +1078,16 @@ export default function AdminApplicationDetailContent({
 
       {activeTab === 'documents' && (
         <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Application Documents</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Application Documents</h2>
+            <button
+              onClick={() => { setUploadForRequirementDoc(null); setIsUploadModalOpen(true) }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm font-medium"
+            >
+              <Upload className="w-4 h-4" />
+              Add Document
+            </button>
+          </div>
           {isLoadingRequirementDocuments ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
@@ -1098,15 +1127,30 @@ export default function AdminApplicationDetailContent({
                       </span>
                     </div>
                     {linked ? (
-                      <button
-                        onClick={() => handleDownload(linked.document_url, linked.document_name)}
-                        className="ml-4 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2 flex-shrink-0"
-                      >
-                        <Download className="w-4 h-4" />
-                        Download
-                      </button>
+                      <div className="ml-4 flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => handleDownload(linked.document_url, linked.document_name)}
+                          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
+                        >
+                          <Download className="w-4 h-4" />
+                          Download
+                        </button>
+                        <button
+                          onClick={() => { setUploadForRequirementDoc(reqDoc); setIsUploadModalOpen(true) }}
+                          className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        >
+                          <Upload className="w-4 h-4" />
+                          Replace
+                        </button>
+                      </div>
                     ) : (
-                      <span className="ml-4 text-sm text-gray-400 flex-shrink-0">Not uploaded</span>
+                      <button
+                        onClick={() => { setUploadForRequirementDoc(reqDoc); setIsUploadModalOpen(true) }}
+                        className="ml-4 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 flex-shrink-0"
+                      >
+                        <Upload className="w-4 h-4" />
+                        Upload
+                      </button>
                     )}
                   </div>
                 )
@@ -1503,6 +1547,17 @@ export default function AdminApplicationDetailContent({
           </div>
         </div>
       </Modal>
+
+      <UploadDocumentModal
+        isOpen={isUploadModalOpen}
+        onClose={() => { setIsUploadModalOpen(false); setUploadForRequirementDoc(null) }}
+        applicationId={application.id}
+        onSuccess={refreshDocuments}
+        licenseRequirementDocumentId={uploadForRequirementDoc?.id ?? undefined}
+        defaultDocumentName={uploadForRequirementDoc?.document_name ?? undefined}
+        defaultDocumentType={uploadForRequirementDoc?.document_type ?? undefined}
+        autoApprove={true}
+      />
     </div>
   )
 }

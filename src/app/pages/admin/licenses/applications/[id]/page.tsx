@@ -42,6 +42,10 @@ export default async function AdminApplicationDetailPage({
       : Promise.resolve({ data: null, error: null })
   ])
 
+  const { data: agencyData } = (application as any).agency_id
+    ? await q.getAgencyNameById(supabase, (application as any).agency_id)
+    : { data: null }
+
   // Merge owner profile with application
   const applicationWithOwner = {
     ...application,
@@ -67,6 +71,7 @@ export default async function AdminApplicationDetailPage({
           application={applicationWithOwner}
           documents={documents || []}
           adminUserId={user.id}
+          agencyName={agencyData?.name ?? null}
         />
       </div>
     </AdminLayout>

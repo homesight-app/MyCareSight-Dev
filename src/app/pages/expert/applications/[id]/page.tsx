@@ -26,13 +26,21 @@ export default async function ExpertApplicationDetailPage({
   const { id } = await params
   const supabase = await createClient()
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
-  const { data: application } = await q.getApplicationByIdForOwnerOrExpert(supabase, id, session.user.id)
+  const { data: application } = await q.getApplicationById(supabase, id)
   if (!application) redirect('/pages/expert/clients')
-  const { data: documents } = await q.getApplicationDocumentsByApplicationId(supabase, id)
+  const [
+    { data: documents },
+    { data: agencyData },
+  ] = await Promise.all([
+    q.getApplicationDocumentsByApplicationId(supabase, id),
+    (application as any).agency_id
+      ? q.getAgencyNameById(supabase, (application as any).agency_id)
+      : Promise.resolve({ data: null }),
+  ])
 
   return (
-    <ExpertDashboardLayout 
-      user={{ id: session.user.id, email: session.user.email }} 
+    <ExpertDashboardLayout
+      user={{ id: session.user.id, email: session.user.email }}
       profile={session.profile}
       unreadNotifications={unreadNotifications || 0}
     >
@@ -47,6 +55,7 @@ export default async function ExpertApplicationDetailPage({
         <ExpertApplicationDetailWrapper
           application={application}
           documents={documents ?? []}
+          agencyName={(agencyData as any)?.name ?? null}
         />
       </div>
     </ExpertDashboardLayout>

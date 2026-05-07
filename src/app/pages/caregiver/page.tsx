@@ -186,14 +186,14 @@ export default async function StaffDashboardPage() {
   // Format date helper (for display in cards)
   const formatDate = (date: string | Date | null) => {
     if (!date) return 'N/A'
-    const d = typeof date === 'string' ? new Date(date) : date
+    const d = typeof date === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00') : new Date(date)) : date
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
   // Format date for table (MM/DD/YYYY)
   const formatTableDate = (date: string | Date | null) => {
     if (!date) return 'N/A'
-    const d = typeof date === 'string' ? new Date(date) : date
+    const d = typeof date === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00') : new Date(date)) : date
     return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
   }
 

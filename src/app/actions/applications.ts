@@ -85,6 +85,49 @@ export async function createApplicationForAgency(
   )
   if (rpcError) return { error: rpcError.message, data: null }
 
+  // Copy non-expert template steps. Admin/expert apps start directly as
+  // 'in_progress', bypassing the DB trigger that normally seeds these steps
+  // on the requested → in_progress transition.
+  const { data: requirement } = await q.getLicenseRequirementByStateAndType(
+    supabaseAdmin,
+    data.state,
+    data.application_name
+  )
+  if (requirement) {
+    const { data: templateSteps } = await supabaseAdmin
+      .from('license_requirement_steps')
+      .select('step_name, step_order, description, instructions, phase')
+      .eq('license_requirement_id', requirement.id)
+      .or('is_expert_step.is.null,is_expert_step.eq.false')
+      .order('step_order')
+
+    if (templateSteps && templateSteps.length > 0) {
+      const { data: existing } = await supabaseAdmin
+        .from('application_steps')
+        .select('step_order')
+        .eq('application_id', application.id)
+        .order('step_order', { ascending: false })
+        .limit(1)
+
+      let nextOrder = (existing?.[0]?.step_order ?? 0) + 1
+
+      await supabaseAdmin
+        .from('application_steps')
+        .insert(
+          templateSteps.map((s) => ({
+            application_id: application.id,
+            step_name: s.step_name,
+            step_order: nextOrder++,
+            description: s.description,
+            instructions: s.instructions,
+            phase: s.phase,
+            is_expert_step: false,
+            is_completed: false,
+          }))
+        )
+    }
+  }
+
   revalidatePath('/pages/admin/agencies/[id]', 'page')
   revalidatePath('/pages/expert/agencies/[id]', 'page')
   return { error: null, data: { id: application.id } }

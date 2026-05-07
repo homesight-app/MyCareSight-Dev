@@ -80,6 +80,11 @@ export async function getAgencyNameById(supabase: Supabase, agencyId: string) {
   return supabase.from('agencies').select('name').eq('id', agencyId).single()
 }
 
+export async function getAgenciesByIds(supabase: Supabase, ids: string[]) {
+  if (ids.length === 0) return { data: [] as { id: string; name: string }[], error: null }
+  return supabase.from('agencies').select('id, name').in('id', ids)
+}
+
 /** Full agency admin row by id. */
 export async function getClientById(supabase: Supabase, adminId: string) {
   return supabase.from('agency_admins').select('*').eq('id', adminId).single()

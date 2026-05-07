@@ -20,7 +20,7 @@ export default async function ApplicationDetailPage({
 
   const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
-  const { data: application } = await q.getApplicationByIdForOwnerOrExpert(supabase, id, session.user.id)
+  const { data: application } = await q.getApplicationById(supabase, id)
 
   if (!application) {
     if (profile?.role === 'expert') redirect('/pages/expert/clients')

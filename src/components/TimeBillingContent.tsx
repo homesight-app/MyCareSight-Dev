@@ -111,8 +111,7 @@ export default function TimeBillingContent({ rows, loadError }: Props) {
     return {
       awaitingApproval: pending.length,
       approvedHours: approved.reduce((sum, r) => sum + (r.billableHours || 0), 0),
-      totalPayroll: approved.reduce((sum, r) => sum + (r.payAmount || 0), 0),
-      totalBilling: approved.reduce((sum, r) => sum + (r.billAmount || 0), 0),
+      totalMileage: approved.reduce((sum, r) => sum + (r.mileageMiles || 0), 0),
     }
   }, [rowsMatchingFilters])
 
@@ -161,20 +160,7 @@ export default function TimeBillingContent({ rows, loadError }: Props) {
       approved: rows.filter((r) => r.status === 'approved').length,
       voided: rows.filter((r) => r.status === 'voided').length,
     }
-    console.groupCollapsed('[TimeBillingContent] rows status/rate debug')
-    console.log('total rows:', rows.length, byStatus)
-    console.table(
-      rows.map((r) => ({
-        id: r.id,
-        scheduledVisitId: r.scheduledVisitId,
-        status: r.status,
-        date: r.date,
-        clientName: r.clientName,
-        billRate: r.billRate,
-        billAmount: r.billAmount,
-      }))
-    )
-    console.groupEnd()
+    console.log('[TimeBillingContent] rows:', rows.length, byStatus)
   }, [rows])
 
   return (
@@ -196,12 +182,8 @@ export default function TimeBillingContent({ rows, loadError }: Props) {
           <div className="text-xs text-gray-500">Approved Hours</div>
         </div>
         <div className="rounded-xl border bg-white p-4">
-          <div className="text-2xl font-bold">{money(summary.totalPayroll)}</div>
-          <div className="text-xs text-gray-500">Total Payroll</div>
-        </div>
-        <div className="rounded-xl border bg-white p-4">
-          <div className="text-2xl font-bold">{money(summary.totalBilling)}</div>
-          <div className="text-xs text-gray-500">Total Billing</div>
+          <div className="text-2xl font-bold">{summary.totalMileage.toFixed(1)} mi</div>
+          <div className="text-xs text-gray-500">Approved Mileage</div>
         </div>
       </div>
 
@@ -363,10 +345,7 @@ export default function TimeBillingContent({ rows, loadError }: Props) {
                 <th className="text-left px-3 py-2">Actual Hours</th>
                 <th className="text-left px-3 py-2">Billable Hours</th>
                 <th className="text-left px-3 py-2">Service Type</th>
-                <th className="text-left px-3 py-2">Pay Rate</th>
-                <th className="text-left px-3 py-2">Pay Amt</th>
-                <th className="text-left px-3 py-2">Bill Rate</th>
-                <th className="text-left px-3 py-2">Bill Amt</th>
+                <th className="text-left px-3 py-2">Miles</th>
                 <th className="text-left px-3 py-2">Note * if edited</th>
                 <th className="text-left px-3 py-2">{activeTab === 'pending' ? 'Actions' : 'Status'}</th>
               </tr>
@@ -378,14 +357,8 @@ export default function TimeBillingContent({ rows, loadError }: Props) {
                 const billableHoursNum = Number(edit.billableHours)
                 const isHoursEdited = hoursEditedForRow(row)
                 const requiresNoteForApprove = isHoursEdited && edit.note.trim() === ''
-                const displayPay =
-                  activeTab === 'pending' && Number.isFinite(actualHoursNum)
-                    ? estLineAmount(actualHoursNum, row.payRate)
-                    : row.payAmount
-                const displayBill =
-                  activeTab === 'pending' && Number.isFinite(billableHoursNum)
-                    ? estLineAmount(billableHoursNum, row.billRate)
-                    : row.billAmount
+                const mileageEdit = edit as typeof edit & { mileageMiles?: string }
+                const editedMiles = mileageEdit.mileageMiles ?? String(row.mileageMiles ?? 0)
 
                 return (
                   <tr key={row.id} className="border-t">
@@ -515,10 +488,35 @@ export default function TimeBillingContent({ rows, loadError }: Props) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2">{money(row.payRate)}/hr</td>
-                    <td className="px-3 py-2 text-emerald-600 font-medium">{money(displayPay)}</td>
-                    <td className="px-3 py-2">{money(row.billRate)}/hr</td>
-                    <td className="px-3 py-2 text-fuchsia-600 font-medium">{money(displayBill)}</td>
+                    <td className="px-3 py-2 group">
+                      {activeTab === 'pending' ? (
+                        <div className="flex items-center gap-1.5 min-h-[36px]">
+                          <input
+                            value={editedMiles}
+                            onChange={(e) =>
+                              setPendingEdits((prev) => ({
+                                ...prev,
+                                [row.id]: { ...edit, mileageMiles: e.target.value } as typeof edit,
+                              }))
+                            }
+                            onBlur={async () => {
+                              const miles = parseFloat(editedMiles)
+                              const newMiles = Number.isFinite(miles) && miles >= 0 ? miles : null
+                              if (newMiles !== row.mileageMiles) {
+                                const { updateVisitMileageAction } = await import('@/app/actions/time-billing')
+                                await updateVisitMileageAction(row.scheduledVisitId, newMiles)
+                              }
+                            }}
+                            className="w-20 rounded border border-gray-200 px-2 py-1 text-sm"
+                            inputMode="decimal"
+                            placeholder="0"
+                          />
+                          <span className="text-xs text-gray-400">mi</span>
+                        </div>
+                      ) : (
+                        <span className="tabular-nums">{row.mileageMiles > 0 ? `${row.mileageMiles} mi` : '—'}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       {activeTab === 'pending' ? (
                         <input

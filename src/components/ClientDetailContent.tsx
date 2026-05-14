@@ -390,6 +390,8 @@ export default function ClientDetailContent({ client, allClients, representative
     bill_rate: '',
     end_date: '',
     note: '',
+    bill_mileage: false,
+    mileage_bill_rate_per_mile: '',
   })
   const [billingCodeOptions, setBillingCodeOptions] = useState<BillingCodeOption[]>([])
   /** Set when billing_codes query fails or returns no active rows (empty <select> otherwise looks like a UI bug). */
@@ -405,6 +407,8 @@ export default function ClientDetailContent({ client, allClients, representative
     effective_date: toLocalDateString(new Date()),
     end_date: '',
     note: '',
+    bill_mileage: false,
+    mileage_bill_rate_per_mile: '',
   })
   const [scheduleHover, setScheduleHover] = useState<{ dateStr: string; startHour: number; endHourExclusive: number } | null>(null)
   const [scheduleLoading, setScheduleLoading] = useState(false)
@@ -2996,6 +3000,10 @@ export default function ClientDetailContent({ client, allClients, representative
         effective_date: serviceContractForm.effective_date,
         end_date: serviceContractForm.end_date || null,
         note: serviceContractForm.note || null,
+        bill_mileage: serviceContractForm.bill_mileage,
+        mileage_bill_rate_per_mile: serviceContractForm.mileage_bill_rate_per_mile
+          ? Number(serviceContractForm.mileage_bill_rate_per_mile)
+          : null,
       })
       if (error || !data) {
         setServiceContractError(error?.message ?? 'Failed to save contract.')
@@ -3050,6 +3058,10 @@ export default function ClientDetailContent({ client, allClients, representative
       bill_rate: row.bill_rate != null ? String(Number(row.bill_rate)) : '',
       end_date: row.end_date ?? '',
       note: row.note ?? '',
+      bill_mileage: row.bill_mileage ?? false,
+      mileage_bill_rate_per_mile: row.mileage_bill_rate_per_mile != null
+        ? String(Number(row.mileage_bill_rate_per_mile))
+        : '',
     })
     setServiceContractEditError(null)
     setEditServiceContractModalOpen(true)
@@ -3090,6 +3102,10 @@ export default function ClientDetailContent({ client, allClients, representative
         contract_name: serviceContractEditForm.contract_name.trim() || null,
         end_date: nextEnd || null,
         note: serviceContractEditForm.note.trim() || null,
+        bill_mileage: serviceContractEditForm.bill_mileage,
+        mileage_bill_rate_per_mile: serviceContractEditForm.mileage_bill_rate_per_mile.trim()
+          ? Number(serviceContractEditForm.mileage_bill_rate_per_mile)
+          : null,
       })
       if (res.error) {
         setServiceContractEditError(res.error.message || 'Failed to save contract details.')
@@ -7759,6 +7775,31 @@ export default function ClientDetailContent({ client, allClients, representative
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
               <textarea value={serviceContractForm.note} onChange={(e) => setServiceContractForm((p) => ({ ...p, note: e.target.value }))} className="w-full rounded border border-gray-300 px-3 py-2 text-sm" rows={2} />
             </div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={serviceContractForm.bill_mileage}
+                  onChange={(e) => setServiceContractForm((p) => ({ ...p, bill_mileage: e.target.checked }))}
+                  className="w-4 h-4 text-blue-600 rounded"
+                />
+                <span className="text-sm font-medium text-gray-700">Bill mileage to this client</span>
+              </label>
+              {serviceContractForm.bill_mileage && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mileage rate per mile (leave blank to use agency default)</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0"
+                    placeholder="e.g. 0.67"
+                    value={serviceContractForm.mileage_bill_rate_per_mile}
+                    onChange={(e) => setServiceContractForm((p) => ({ ...p, mileage_bill_rate_per_mile: e.target.value }))}
+                    className="w-40 rounded border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              )}
+            </div>
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               For the same contract type and service type, saving a new effective date closes the previous open-ended row on that date and starts the new row.
             </div>
@@ -7944,6 +7985,31 @@ export default function ClientDetailContent({ client, allClients, representative
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
               placeholder="Optional"
             />
+          </div>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={serviceContractEditForm.bill_mileage}
+                onChange={(e) => setServiceContractEditForm((p) => ({ ...p, bill_mileage: e.target.checked }))}
+                className="w-4 h-4 text-blue-600 rounded"
+              />
+              <span className="text-sm font-medium text-gray-700">Bill mileage to this client</span>
+            </label>
+            {serviceContractEditForm.bill_mileage && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mileage rate per mile (leave blank to use agency default)</label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  placeholder="e.g. 0.67"
+                  value={serviceContractEditForm.mileage_bill_rate_per_mile}
+                  onChange={(e) => setServiceContractEditForm((p) => ({ ...p, mileage_bill_rate_per_mile: e.target.value }))}
+                  className="w-40 rounded border border-gray-300 px-3 py-2 text-sm"
+                />
+              </div>
+            )}
           </div>
           {serviceContractEditError ? <p className="text-sm text-red-600">{serviceContractEditError}</p> : null}
           <div className="flex justify-end gap-2">

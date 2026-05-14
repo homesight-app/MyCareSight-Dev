@@ -209,3 +209,37 @@ export async function getClientsByCompanyOwnerIds(
   if (companyOwnerIds.length === 0) return { data: [], error: null }
   return supabase.from('agency_admins').select(select).in('user_id', companyOwnerIds)
 }
+
+/** Get the agency_id for the currently logged-in user via agency_admins. */
+export async function getAgencyIdByUserId(supabase: Supabase, userId: string) {
+  return supabase
+    .from('agency_admins')
+    .select('agency_id')
+    .eq('user_id', userId)
+    .maybeSingle()
+}
+
+/** Get the payroll configuration for an agency. Returns null if not yet configured. */
+export async function getAgencyConfiguration(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('agency_configurations')
+    .select('*')
+    .eq('agency_id', agencyId)
+    .maybeSingle()
+}
+
+/** Create or update the payroll configuration for an agency (upsert on agency_id). */
+export async function upsertAgencyConfiguration(
+  supabase: Supabase,
+  agencyId: string,
+  payload: Record<string, unknown>
+) {
+  return supabase
+    .from('agency_configurations')
+    .upsert(
+      { ...payload, agency_id: agencyId, updated_at: new Date().toISOString() },
+      { onConflict: 'agency_id' }
+    )
+    .select()
+    .single()
+}

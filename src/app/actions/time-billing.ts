@@ -164,3 +164,42 @@ export async function voidTimeBillingRowAction(input: PendingPayload) {
   revalidatePath(REPORT_PAYROLL_PATH)
   return { ok: true }
 }
+
+export async function updateVisitMileageAction(
+  scheduledVisitId: string,
+  mileageMiles: number | null
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: 'Not authenticated' }
+
+  // Read current value for audit log
+  const { data: current } = await supabase
+    .from('scheduled_visits')
+    .select('mileage_miles')
+    .eq('id', scheduledVisitId)
+    .single()
+
+  const { error } = await supabase
+    .from('scheduled_visits')
+    .update({ mileage_miles: mileageMiles })
+    .eq('id', scheduledVisitId)
+
+  if (error) return { ok: false, error: error.message }
+
+  // Record in audit_logs
+  await supabase.from('audit_logs').insert({
+    user_id: user.id,
+    action: 'UPDATE',
+    table_name: 'scheduled_visits',
+    record_id: scheduledVisitId,
+    old_values: { mileage_miles: current?.mileage_miles ?? null },
+    new_values: { mileage_miles: mileageMiles },
+  })
+
+  revalidatePath(PATH)
+  revalidatePath(REPORT_PAYROLL_PATH)
+  return { ok: true }
+}

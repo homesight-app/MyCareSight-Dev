@@ -157,40 +157,64 @@ export default function PayrollBillingReportContent({
   }, [filtered])
 
   const payrollByCaregiver = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; hours: number; pay: number; payRate: number }
-    >()
+    const map = new Map<string, {
+      name: string; payRate: number
+      hours: number; regHours: number; otHours: number; holidayHours: number; weekendHours: number
+      regPay: number; otPay: number; holidayPay: number; weekendPay: number
+      mileageMiles: number; mileagePayAmount: number; pay: number
+    }>()
     for (const r of filtered) {
       if (!r.caregiverId) continue
-      const cur = map.get(r.caregiverId) ?? { name: r.caregiverName, hours: 0, pay: 0, payRate: r.payRate }
-      cur.hours += r.actualHours
-      cur.pay += r.payAmount
-      cur.payRate = r.payRate
+      const cur = map.get(r.caregiverId) ?? {
+        name: r.caregiverName, payRate: r.payRate,
+        hours: 0, regHours: 0, otHours: 0, holidayHours: 0, weekendHours: 0,
+        regPay: 0, otPay: 0, holidayPay: 0, weekendPay: 0,
+        mileageMiles: 0, mileagePayAmount: 0, pay: 0,
+      }
       cur.name = r.caregiverName
+      cur.payRate = r.payRate
+      cur.hours += r.actualHours
+      cur.regHours += r.regHours ?? 0
+      cur.otHours += r.otHours ?? 0
+      cur.holidayHours += r.holidayHours ?? 0
+      cur.weekendHours += r.weekendHours ?? 0
+      cur.regPay += r.regPay ?? 0
+      cur.otPay += r.otPay ?? 0
+      cur.holidayPay += r.holidayPay ?? 0
+      cur.weekendPay += r.weekendPay ?? 0
+      cur.mileageMiles += r.mileageMiles ?? 0
+      cur.mileagePayAmount += r.mileagePayAmount ?? 0
+      cur.pay += r.payAmount
       map.set(r.caregiverId, cur)
     }
-    const list: { id: string; name: string; hours: number; pay: number; payRate: number }[] = []
-    map.forEach((v, id) => {
-      list.push({ id, ...v })
-    })
+    type PayrollRow = { id: string; name: string; payRate: number; hours: number; regHours: number; otHours: number; holidayHours: number; weekendHours: number; regPay: number; otPay: number; holidayPay: number; weekendPay: number; mileageMiles: number; mileagePayAmount: number; pay: number }
+    const list: PayrollRow[] = []
+    map.forEach((v, id) => list.push({ id, ...v }))
     return list
   }, [filtered])
 
   const billingByClient = useMemo(() => {
-    const map = new Map<string, { name: string; hours: number; bill: number; billRate: number }>()
+    const map = new Map<string, {
+      name: string; billRate: number
+      hours: number; hoursBill: number; mileageMiles: number; mileageBill: number; bill: number
+    }>()
     for (const r of filtered) {
-      const cur = map.get(r.clientId) ?? { name: r.clientName, hours: 0, bill: 0, billRate: r.billRate }
-      cur.hours += r.billableHours
-      cur.bill += r.billAmount
-      cur.billRate = r.billRate
+      const cur = map.get(r.clientId) ?? {
+        name: r.clientName, billRate: r.billRate,
+        hours: 0, hoursBill: 0, mileageMiles: 0, mileageBill: 0, bill: 0,
+      }
       cur.name = r.clientName
+      cur.billRate = r.billRate
+      cur.hours += r.billableHours
+      cur.mileageMiles += r.mileageMiles ?? 0
+      cur.mileageBill += r.mileageBillAmount ?? 0
+      cur.bill += r.billAmount
+      cur.hoursBill = cur.bill - cur.mileageBill
       map.set(r.clientId, cur)
     }
-    const list: { id: string; name: string; hours: number; bill: number; billRate: number }[] = []
-    map.forEach((v, id) => {
-      list.push({ id, ...v })
-    })
+    type BillingRow = { id: string; name: string; billRate: number; hours: number; hoursBill: number; mileageMiles: number; mileageBill: number; bill: number }
+    const list: BillingRow[] = []
+    map.forEach((v, id) => list.push({ id, ...v }))
     return list
   }, [filtered])
 
@@ -198,33 +222,21 @@ export default function PayrollBillingReportContent({
     downloadCsv(
       `payroll-billing-detail-${dateFrom}-${dateTo}.csv`,
       [
-        'Client',
-        'Caregiver',
-        'Service Type',
-        'Service Date',
-        'Start',
-        'End',
-        'Actual Hrs',
-        'Billable Hrs',
-        'Pay Rate',
-        'Pay Amount',
-        'Bill Rate',
-        'Bill Amount',
-        'Billing status',
+        'Client', 'Caregiver', 'Service Type', 'Service Date', 'Start', 'End',
+        'Actual Hrs', 'Billable Hrs',
+        'REG Hrs', 'OT Hrs', 'Holiday Hrs', 'Weekend Hrs',
+        'Pay Rate', 'REG Pay', 'OT Pay', 'Holiday Pay', 'Weekend Pay',
+        'Miles', 'Mileage Pay $', 'Total Pay',
+        'Bill Rate', 'Hours Bill', 'Mileage Bill $', 'Total Bill',
+        'Status',
       ],
       filtered.map((r) => [
-        r.clientName,
-        r.caregiverName,
-        r.serviceTypeLabel,
-        r.visitDate,
-        r.startTime,
-        r.endTime,
-        r.actualHours,
-        r.billableHours,
-        r.payRate,
-        r.payAmount,
-        r.billRate,
-        r.billAmount,
+        r.clientName, r.caregiverName, r.serviceTypeLabel, r.visitDate, r.startTime, r.endTime,
+        r.actualHours, r.billableHours,
+        r.regHours ?? 0, r.otHours ?? 0, r.holidayHours ?? 0, r.weekendHours ?? 0,
+        r.payRate, r.regPay ?? 0, r.otPay ?? 0, r.holidayPay ?? 0, r.weekendPay ?? 0,
+        r.mileageMiles ?? 0, r.mileagePayAmount ?? 0, r.payAmount,
+        r.billRate, (r.billAmount - (r.mileageBillAmount ?? 0)).toFixed(2), r.mileageBillAmount ?? 0, r.billAmount,
         r.billingState === 'pending' ? 'Pending' : r.billingState === 'voided' ? 'Voided' : 'Approved',
       ])
     )
@@ -233,16 +245,25 @@ export default function PayrollBillingReportContent({
   const exportPayrollCsv = () => {
     downloadCsv(
       `payroll-summary-${dateFrom}-${dateTo}.csv`,
-      ['Caregiver', 'Total Hours (Actual)', 'Total Pay Amount'],
-      payrollByCaregiver.map((r) => [r.name, r.hours.toFixed(2), r.pay.toFixed(2)])
+      ['Caregiver', 'Total Hrs', 'REG Hrs', 'OT Hrs', 'Holiday Hrs', 'Weekend Hrs',
+       'REG Pay', 'OT Pay', 'Holiday Pay', 'Weekend Pay', 'Miles', 'Mileage Pay $', 'Total Pay'],
+      payrollByCaregiver.map((r) => [
+        r.name, r.hours.toFixed(2),
+        r.regHours.toFixed(2), r.otHours.toFixed(2), r.holidayHours.toFixed(2), r.weekendHours.toFixed(2),
+        r.regPay.toFixed(2), r.otPay.toFixed(2), r.holidayPay.toFixed(2), r.weekendPay.toFixed(2),
+        r.mileageMiles.toFixed(1), r.mileagePayAmount.toFixed(2), r.pay.toFixed(2),
+      ])
     )
   }
 
   const exportBillingCsv = () => {
     downloadCsv(
       `client-billing-${dateFrom}-${dateTo}.csv`,
-      ['Client', 'Total Billable Hours', 'Total Bill Amount'],
-      billingByClient.map((r) => [r.name, r.hours.toFixed(2), r.bill.toFixed(2)])
+      ['Client', 'Billable Hrs', 'Hours Bill $', 'Mileage Mi', 'Mileage Bill $', 'Total Bill $'],
+      billingByClient.map((r) => [
+        r.name, r.hours.toFixed(2), r.hoursBill.toFixed(2),
+        r.mileageMiles.toFixed(1), r.mileageBill.toFixed(2), r.bill.toFixed(2),
+      ])
     )
   }
 
@@ -407,20 +428,28 @@ export default function PayrollBillingReportContent({
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1100px] w-full text-sm">
+            <table className="min-w-[1600px] w-full text-sm">
               <thead className="bg-gray-50 text-gray-600">
                 <tr>
                   <th className="text-left px-3 py-2 font-semibold">Client</th>
                   <th className="text-left px-3 py-2 font-semibold">Caregiver</th>
-                  <th className="text-left px-3 py-2 font-semibold">Service Type</th>
-                  <th className="text-left px-3 py-2 font-semibold">Service Date</th>
-                  <th className="text-left px-3 py-2 font-semibold">Start / End</th>
-                  <th className="text-right px-3 py-2 font-semibold">Actual Hrs</th>
-                  <th className="text-right px-3 py-2 font-semibold">Billable Hrs</th>
-                  <th className="text-right px-3 py-2 font-semibold">Pay Rate</th>
-                  <th className="text-right px-3 py-2 font-semibold">Pay Amount</th>
+                  <th className="text-left px-3 py-2 font-semibold">Service</th>
+                  <th className="text-left px-3 py-2 font-semibold">Date</th>
+                  <th className="text-left px-3 py-2 font-semibold">Time</th>
+                  <th className="text-right px-3 py-2 font-semibold">REG Hrs</th>
+                  <th className="text-right px-3 py-2 font-semibold">OT Hrs</th>
+                  <th className="text-right px-3 py-2 font-semibold">Hol Hrs</th>
+                  <th className="text-right px-3 py-2 font-semibold">Wknd Hrs</th>
+                  <th className="text-right px-3 py-2 font-semibold">REG Pay</th>
+                  <th className="text-right px-3 py-2 font-semibold">OT Pay</th>
+                  <th className="text-right px-3 py-2 font-semibold">Hol Pay</th>
+                  <th className="text-right px-3 py-2 font-semibold">Wknd Pay</th>
+                  <th className="text-right px-3 py-2 font-semibold">Miles</th>
+                  <th className="text-right px-3 py-2 font-semibold">Pay Mile $</th>
+                  <th className="text-right px-3 py-2 font-semibold text-emerald-700">Total Pay</th>
                   <th className="text-right px-3 py-2 font-semibold">Bill Rate</th>
-                  <th className="text-right px-3 py-2 font-semibold">Bill Amount</th>
+                  <th className="text-right px-3 py-2 font-semibold">Bill Mile $</th>
+                  <th className="text-right px-3 py-2 font-semibold text-violet-700">Total Bill</th>
                   <th className="text-left px-3 py-2 font-semibold">Status</th>
                 </tr>
               </thead>
@@ -430,21 +459,25 @@ export default function PayrollBillingReportContent({
                     <td className="px-3 py-3 text-gray-900">{r.clientName}</td>
                     <td className="px-3 py-3 text-gray-900">{r.caregiverName}</td>
                     <td className="px-3 py-3">
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${serviceBadgeClass(r.serviceTypeLabel)}`}
-                      >
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${serviceBadgeClass(r.serviceTypeLabel)}`}>
                         {r.serviceTypeLabel}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-gray-700">{r.visitDate}</td>
-                    <td className="px-3 py-3 text-gray-700">
-                      {r.startTime} to {r.endTime}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums">{r.actualHours.toFixed(2)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums">{r.billableHours.toFixed(2)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums">{money(r.payRate)}</td>
+                    <td className="px-3 py-3 text-gray-700">{r.startTime}–{r.endTime}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-700">{(r.regHours ?? 0).toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-orange-600">{(r.otHours ?? 0) > 0 ? (r.otHours ?? 0).toFixed(2) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-blue-600">{(r.holidayHours ?? 0) > 0 ? (r.holidayHours ?? 0).toFixed(2) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-purple-600">{(r.weekendHours ?? 0) > 0 ? (r.weekendHours ?? 0).toFixed(2) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{money(r.regPay ?? 0)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-orange-600">{(r.otPay ?? 0) > 0 ? money(r.otPay ?? 0) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-blue-600">{(r.holidayPay ?? 0) > 0 ? money(r.holidayPay ?? 0) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-purple-600">{(r.weekendPay ?? 0) > 0 ? money(r.weekendPay ?? 0) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-500">{(r.mileageMiles ?? 0) > 0 ? `${(r.mileageMiles ?? 0).toFixed(1)} mi` : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{(r.mileagePayAmount ?? 0) > 0 ? money(r.mileagePayAmount ?? 0) : '—'}</td>
                     <td className="px-3 py-3 text-right font-semibold text-emerald-700 tabular-nums">{money(r.payAmount)}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{money(r.billRate)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{(r.mileageBillAmount ?? 0) > 0 ? money(r.mileageBillAmount ?? 0) : '—'}</td>
                     <td className="px-3 py-3 text-right font-semibold text-violet-700 tabular-nums">{money(r.billAmount)}</td>
                     <td className="px-3 py-3">
                       {r.billingState === 'pending' ? (
@@ -465,7 +498,7 @@ export default function PayrollBillingReportContent({
                 ))}
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-3 py-10 text-center text-gray-500">
+                    <td colSpan={20} className="px-3 py-10 text-center text-gray-500">
                       No approved or pending visits in this date range.
                     </td>
                   </tr>
@@ -492,47 +525,73 @@ export default function PayrollBillingReportContent({
               Export CSV
             </button>
           </div>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="min-w-[900px] w-full text-sm">
             <thead className="bg-gray-50 text-gray-600">
               <tr>
                 <th className="text-left px-4 py-3 font-semibold">Caregiver</th>
-                <th className="text-right px-4 py-3 font-semibold">Total Hours (Actual)</th>
-                <th className="text-right px-4 py-3 font-semibold">Total Pay Amount</th>
+                <th className="text-right px-4 py-3 font-semibold">REG Hrs</th>
+                <th className="text-right px-4 py-3 font-semibold">OT Hrs</th>
+                <th className="text-right px-4 py-3 font-semibold">Hol Hrs</th>
+                <th className="text-right px-4 py-3 font-semibold">Wknd Hrs</th>
+                <th className="text-right px-4 py-3 font-semibold">REG Pay</th>
+                <th className="text-right px-4 py-3 font-semibold">OT Pay</th>
+                <th className="text-right px-4 py-3 font-semibold">Hol Pay</th>
+                <th className="text-right px-4 py-3 font-semibold">Wknd Pay</th>
+                <th className="text-right px-4 py-3 font-semibold">Miles</th>
+                <th className="text-right px-4 py-3 font-semibold">Mile Pay $</th>
+                <th className="text-right px-4 py-3 font-semibold text-emerald-700">Total Pay</th>
               </tr>
             </thead>
             <tbody>
               {payrollByCaregiver.map((r) => (
                 <tr key={r.id} className="border-t border-gray-100">
-                  <td className="px-4 py-4">
+                  <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-700">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700">
                         {initials(r.name)}
                       </div>
-                      <div>
-                        <div className="font-semibold text-gray-900">{r.name}</div>
-                        <div className="text-xs text-gray-500">Pay rate: {money(r.payRate)}/hr</div>
-                      </div>
+                      <span className="font-semibold text-gray-900">{r.name}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-right text-gray-700 tabular-nums">{r.hours.toFixed(2)} hrs</td>
-                  <td className="px-4 py-4 text-right font-bold text-emerald-700 tabular-nums">{money(r.pay)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{r.regHours.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-orange-600">{r.otHours > 0 ? r.otHours.toFixed(2) : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-blue-600">{r.holidayHours > 0 ? r.holidayHours.toFixed(2) : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-purple-600">{r.weekendHours > 0 ? r.weekendHours.toFixed(2) : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{money(r.regPay)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-orange-600">{r.otPay > 0 ? money(r.otPay) : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-blue-600">{r.holidayPay > 0 ? money(r.holidayPay) : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-purple-600">{r.weekendPay > 0 ? money(r.weekendPay) : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-500">{r.mileageMiles > 0 ? `${r.mileageMiles.toFixed(1)} mi` : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{r.mileagePayAmount > 0 ? money(r.mileagePayAmount) : '—'}</td>
+                  <td className="px-4 py-3 text-right font-bold text-emerald-700 tabular-nums">{money(r.pay)}</td>
                 </tr>
               ))}
               {payrollByCaregiver.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={12} className="px-4 py-10 text-center text-gray-500">
                     No data for this range.
                   </td>
                 </tr>
               ) : (
                 <tr className="border-t border-emerald-100 bg-emerald-50/60">
                   <td className="px-4 py-3 font-semibold text-gray-900">TOTALS · {summary.caregiverCount} caregivers</td>
-                  <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">{summary.totalHours.toFixed(2)} hrs</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums">{payrollByCaregiver.reduce((s,r)=>s+r.regHours,0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-orange-600">{payrollByCaregiver.reduce((s,r)=>s+r.otHours,0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-blue-600">{payrollByCaregiver.reduce((s,r)=>s+r.holidayHours,0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-purple-600">{payrollByCaregiver.reduce((s,r)=>s+r.weekendHours,0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(payrollByCaregiver.reduce((s,r)=>s+r.regPay,0))}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-orange-600">{money(payrollByCaregiver.reduce((s,r)=>s+r.otPay,0))}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-blue-600">{money(payrollByCaregiver.reduce((s,r)=>s+r.holidayPay,0))}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-purple-600">{money(payrollByCaregiver.reduce((s,r)=>s+r.weekendPay,0))}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-gray-500">{payrollByCaregiver.reduce((s,r)=>s+r.mileageMiles,0).toFixed(1)} mi</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(payrollByCaregiver.reduce((s,r)=>s+r.mileagePayAmount,0))}</td>
                   <td className="px-4 py-3 text-right font-bold text-emerald-700 tabular-nums">{money(summary.totalPay)}</td>
                 </tr>
               )}
             </tbody>
           </table>
+          </div>
           {payrollByCaregiver.length > 0 ? (
             <div className="border-t border-gray-100 px-4 py-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Hours Distribution</h3>
@@ -582,8 +641,11 @@ export default function PayrollBillingReportContent({
             <thead className="bg-gray-50 text-gray-600">
               <tr>
                 <th className="text-left px-4 py-3 font-semibold">Client</th>
-                <th className="text-center px-4 py-3 font-semibold">Total Billable Hours</th>
-                <th className="text-right px-4 py-3 font-semibold">Total Bill Amount</th>
+                <th className="text-right px-4 py-3 font-semibold">Billable Hrs</th>
+                <th className="text-right px-4 py-3 font-semibold">Hours Bill</th>
+                <th className="text-right px-4 py-3 font-semibold">Mileage Mi</th>
+                <th className="text-right px-4 py-3 font-semibold">Mileage Bill $</th>
+                <th className="text-right px-4 py-3 font-semibold text-violet-700">Total Bill</th>
               </tr>
             </thead>
             <tbody>
@@ -600,22 +662,28 @@ export default function PayrollBillingReportContent({
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-center text-gray-700 tabular-nums">{r.hours.toFixed(2)} hrs</td>
+                  <td className="px-4 py-4 text-right text-gray-700 tabular-nums">{r.hours.toFixed(2)} hrs</td>
+                  <td className="px-4 py-4 text-right tabular-nums">{money(r.hoursBill)}</td>
+                  <td className="px-4 py-4 text-right tabular-nums text-gray-500">{r.mileageMiles > 0 ? `${r.mileageMiles.toFixed(1)} mi` : '—'}</td>
+                  <td className="px-4 py-4 text-right tabular-nums">{r.mileageBill > 0 ? money(r.mileageBill) : '—'}</td>
                   <td className="px-4 py-4 text-right font-bold text-violet-700 tabular-nums">{money(r.bill)}</td>
                 </tr>
               ))}
               {billingByClient.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={6} className="px-4 py-10 text-center text-gray-500">
                     No data for this range.
                   </td>
                 </tr>
               ) : (
                 <tr className="border-t border-violet-100 bg-violet-50/50">
                   <td className="px-4 py-3 font-semibold text-gray-900">TOTALS · {summary.clientCount} clients</td>
-                  <td className="px-4 py-3 text-center font-semibold text-gray-900 tabular-nums">
+                  <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">
                     {billingByClient.reduce((acc, row) => acc + row.hours, 0).toFixed(2)} hrs
                   </td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(billingByClient.reduce((s,r)=>s+r.hoursBill,0))}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-gray-500">{billingByClient.reduce((s,r)=>s+r.mileageMiles,0).toFixed(1)} mi</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(billingByClient.reduce((s,r)=>s+r.mileageBill,0))}</td>
                   <td className="px-4 py-3 text-right font-bold text-violet-700 tabular-nums">{money(summary.totalBill)}</td>
                 </tr>
               )}

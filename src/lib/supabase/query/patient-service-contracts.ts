@@ -16,6 +16,8 @@ export type PatientServiceContractRow = {
   note: string | null
   created_at: string
   updated_at?: string
+  bill_mileage?: boolean
+  mileage_bill_rate_per_mile?: number | null
 }
 
 async function getPatientAgencyId(supabase: Supabase, patientId: string): Promise<string | null> {
@@ -49,6 +51,8 @@ export async function insertPatientServiceContract(
     effective_date: string
     end_date?: string | null
     note?: string | null
+    bill_mileage?: boolean
+    mileage_bill_rate_per_mile?: number | null
   }
 ) {
   const agencyId = await getPatientAgencyId(supabase, data.patient_id)
@@ -69,6 +73,17 @@ export async function insertPatientServiceContract(
   })
   if (insertErr) return { data: null, error: insertErr }
   if (!insertedId) return { data: null, error: { message: 'Insert did not return row id' } }
+
+  // Set mileage billing fields via direct UPDATE (not in RPC signature)
+  if (data.bill_mileage !== undefined || data.mileage_bill_rate_per_mile !== undefined) {
+    await supabase
+      .from('patient_service_contracts')
+      .update({
+        bill_mileage: data.bill_mileage ?? false,
+        mileage_bill_rate_per_mile: data.mileage_bill_rate_per_mile ?? null,
+      })
+      .eq('id', insertedId)
+  }
 
   return supabase.from('patient_service_contracts').select('*').eq('id', insertedId).single()
 }
@@ -91,14 +106,18 @@ export async function updatePatientServiceContractDetails(
     contract_name?: string | null
     end_date?: string | null
     note?: string | null
+    bill_mileage?: boolean
+    mileage_bill_rate_per_mile?: number | null
   }
 ) {
-  const patch: Record<string, string | null> = {
+  const patch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   }
   if (data.contract_name !== undefined) patch.contract_name = data.contract_name
   if (data.end_date !== undefined) patch.end_date = data.end_date
   if (data.note !== undefined) patch.note = data.note
+  if (data.bill_mileage !== undefined) patch.bill_mileage = data.bill_mileage
+  if (data.mileage_bill_rate_per_mile !== undefined) patch.mileage_bill_rate_per_mile = data.mileage_bill_rate_per_mile
   return supabase.from('patient_service_contracts').update(patch).eq('id', id).select('*').single()
 }
 

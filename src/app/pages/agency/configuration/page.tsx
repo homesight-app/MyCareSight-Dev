@@ -19,9 +19,9 @@ export default async function AgencyConfigurationPage() {
   const supabase = await createClient()
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
 
-  const { data: agencyAdmin } = await q.getAgencyIdByUserId(supabase, session.user.id)
-  const config = agencyAdmin?.agency_id
-    ? (await q.getAgencyConfiguration(supabase, agencyAdmin.agency_id)).data
+  const agencyId = (profile as { agency_id?: string | null } | null)?.agency_id ?? null
+  const config = agencyId
+    ? (await q.getAgencyConfiguration(supabase, agencyId)).data
     : null
 
   return (

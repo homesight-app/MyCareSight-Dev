@@ -164,6 +164,15 @@ export async function getUserProfileFull(supabase: Supabase, userId: string) {
   return supabase.from('user_profiles').select('*').eq('id', userId).single()
 }
 
+/** Get agency_id directly from user_profiles — works for all agency-scoped roles. */
+export async function getAgencyIdFromProfile(supabase: Supabase, userId: string) {
+  return supabase
+    .from('user_profiles')
+    .select('agency_id')
+    .eq('id', userId)
+    .maybeSingle()
+}
+
 /** Get staff members by company_owner_id (optional status filter), ordered by created_at desc. */
 export async function getStaffMembersByCompanyOwnerId(
   supabase: Supabase,

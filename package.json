@@ -20,7 +20,11 @@
 
     "test": "jest",
 
-    "test:ci": "jest --ci --passWithNoTests"
+    "test:ci": "jest --ci --passWithNoTests",
+
+    "test:e2e": "playwright test",
+
+    "test:e2e:ui": "playwright test --ui"
 
   },
 

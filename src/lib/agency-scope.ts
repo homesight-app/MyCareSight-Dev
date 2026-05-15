@@ -23,14 +23,11 @@ export async function resolveEffectiveCompanyOwnerUserId(
     return userId
   }
 
-  if (profile.role === 'care_coordinator') {
-    const { data: coordinator } = await q.getCareCoordinatorByUserId(supabase, userId)
-    if (!coordinator?.agency_id) return null
+  if (profile.role === 'care_coordinator' || profile.role === 'staff_member') {
+    const { data: up } = await q.getAgencyIdFromProfile(supabase, userId)
+    if (!up?.agency_id) return null
 
-    const { data: ownerUid } = await q.getRepresentativeOwnerUserIdForAgency(
-      supabase,
-      coordinator.agency_id
-    )
+    const { data: ownerUid } = await q.getRepresentativeOwnerUserIdForAgency(supabase, up.agency_id)
     return ownerUid
   }
 

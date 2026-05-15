@@ -38,15 +38,8 @@ export async function saveAgencyConfiguration(
 
   const supabase = await createClient()
 
-  // company_owner → agency_admins; care_coordinator → care_coordinators
-  let agencyId: string | null = null
-  const { data: agencyAdmin } = await q.getAgencyIdByUserId(supabase, session.user.id)
-  if (agencyAdmin?.agency_id) {
-    agencyId = agencyAdmin.agency_id
-  } else {
-    const { data: coordinator } = await q.getCareCoordinatorByUserId(supabase, session.user.id)
-    agencyId = coordinator?.agency_id ?? null
-  }
+  const { data: profile } = await q.getAgencyIdFromProfile(supabase, session.user.id)
+  const agencyId = profile?.agency_id ?? null
   if (!agencyId) return { error: 'No agency found for this user' }
 
   const { error } = await q.upsertAgencyConfiguration(supabase, agencyId, {

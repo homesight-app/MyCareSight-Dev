@@ -210,15 +210,6 @@ export async function getClientsByCompanyOwnerIds(
   return supabase.from('agency_admins').select(select).in('user_id', companyOwnerIds)
 }
 
-/** Get the agency_id for the currently logged-in user via agency_admins. */
-export async function getAgencyIdByUserId(supabase: Supabase, userId: string) {
-  return supabase
-    .from('agency_admins')
-    .select('agency_id')
-    .eq('user_id', userId)
-    .maybeSingle()
-}
-
 /** Get the payroll configuration for an agency. Returns null if not yet configured. */
 export async function getAgencyConfiguration(supabase: Supabase, agencyId: string) {
   return supabase

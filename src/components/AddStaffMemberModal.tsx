@@ -8,7 +8,6 @@ import * as z from 'zod'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { createStaffUserAccount } from '@/app/actions/users'
-import { resolveEffectiveCompanyOwnerUserId } from '@/lib/agency-scope'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 
@@ -67,27 +66,17 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
         return
       }
 
-      const { data: profile } = await q.getUserProfileFull(supabase, user.id)
-      const effectiveOwnerId = await resolveEffectiveCompanyOwnerUserId(supabase, profile, user.id)
-      if (!effectiveOwnerId) {
-        setError('Could not determine your organization scope. Please contact the administrator.')
-        setIsLoading(false)
-        return
-      }
-
-      const { data: client, error: clientError } = await q.getClientByCompanyOwnerIdWithAgency(supabase, effectiveOwnerId)
-
-      if (clientError || !client) {
-        setError('Client record not found. Please contact the administrator.')
+      const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
+      const agencyId = up?.agency_id ?? null
+      if (!agencyId) {
+        setError('Your account is not linked to an agency. Please contact the administrator.')
         setIsLoading(false)
         return
       }
 
       let agencyName = ''
-      if (client.agency_id) {
-        const { data: agency } = await q.getAgencyNameById(supabase, client.agency_id)
-        agencyName = agency?.name ?? ''
-      }
+      const { data: agency } = await q.getAgencyNameById(supabase, agencyId)
+      agencyName = agency?.name ?? ''
 
       // Create user account and send login link; server generates a random bootstrap password.
       const result = await createStaffUserAccount(
@@ -125,8 +114,7 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
       }
 
       const { data: staffMember, error: insertError } = await q.insertStaffMemberReturning(supabase, {
-        company_owner_id: client.id,
-        agency_id: client.agency_id ?? null,
+        agency_id: agencyId,
         user_id: userIdToUse,
         first_name: data.first_name,
         last_name: data.last_name,

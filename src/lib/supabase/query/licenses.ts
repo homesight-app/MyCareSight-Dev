@@ -88,6 +88,25 @@ export async function getLicensesByAgencyId(supabase: Supabase, agencyId: string
     .order('created_at', { ascending: false })
 }
 
+/** Get licenses by agency_id ordered by expiry_date asc. */
+export async function getLicensesByAgencyIdOrdered(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('licenses')
+    .select('*')
+    .eq('agency_id', agencyId)
+    .order('expiry_date', { ascending: true })
+}
+
+/** Get license by id and agency_id (for detail page authorization). */
+export async function getLicenseByIdAndAgencyId(supabase: Supabase, licenseId: string, agencyId: string) {
+  return supabase
+    .from('licenses')
+    .select('*')
+    .eq('id', licenseId)
+    .eq('agency_id', agencyId)
+    .single()
+}
+
 /** Get license_documents by license_id. */
 export async function getLicenseDocumentsByLicenseId(supabase: Supabase, licenseId: string) {
   return supabase

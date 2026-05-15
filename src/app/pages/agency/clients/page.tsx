@@ -4,8 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import DashboardLayout from '@/components/DashboardLayout'
 import ClientsContent from '@/components/ClientsContent'
-import { resolveEffectiveCompanyOwnerUserId } from '@/lib/agency-scope'
-
 export default async function ClientsPage() {
   const session = await getSession()
 
@@ -19,24 +17,16 @@ export default async function ClientsPage() {
   if (profile?.role === 'admin') redirect('/pages/admin')
   if (profile?.role === 'expert') redirect('/pages/expert/clients')
 
-  const effectiveOwnerId = await resolveEffectiveCompanyOwnerUserId(supabase, profile, session.user.id)
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
+  const [{ data: up }, { count: unreadNotifications }] = await Promise.all([
+    q.getAgencyIdFromProfile(supabase, session.user.id),
+    q.getUnreadNotificationsCount(supabase, session.user.id),
+  ])
+  const agencyId = up?.agency_id ?? null
 
-  const { data: clientContext } = effectiveOwnerId
-    ? await q.getClientByCompanyOwnerIdWithAgency(supabase, effectiveOwnerId)
-    : { data: null }
-
-  let clients: NonNullable<Awaited<ReturnType<typeof q.getPatientsByAgencyId>>['data']>
-
-  if (clientContext?.agency_id) {
-    const patientsResult = await q.getPatientsByAgencyId(supabase, clientContext.agency_id)
-    clients = patientsResult.data ?? []
-  } else if (effectiveOwnerId) {
-    const patientsResult = await q.getPatientsByOwnerId(supabase, effectiveOwnerId)
-    clients = patientsResult.data ?? []
-  } else {
-    clients = []
-  }
+  const { data: clientsData } = agencyId
+    ? await q.getPatientsByAgencyId(supabase, agencyId)
+    : { data: [] }
+  const clients = clientsData ?? []
 
   return (
     <DashboardLayout

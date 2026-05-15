@@ -173,20 +173,6 @@ export async function getAgencyIdFromProfile(supabase: Supabase, userId: string)
     .maybeSingle()
 }
 
-/** Get staff members by company_owner_id (optional status filter), ordered by created_at desc. */
-export async function getStaffMembersByCompanyOwnerId(
-  supabase: Supabase,
-  companyOwnerId: string,
-  options?: { status?: string }
-) {
-  let query = supabase
-    .from('caregiver_members')
-    .select('*')
-    .eq('company_owner_id', companyOwnerId)
-    .order('created_at', { ascending: false })
-  if (options?.status) query = query.eq('status', options.status)
-  return query
-}
 
 /** Get staff members visible to an agency client (agency-wide with owner fallback). */
 export async function getStaffMembersByAgencyOrCompanyOwner(

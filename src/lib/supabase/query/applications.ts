@@ -428,6 +428,27 @@ export async function getApplicationsByAgencyId(supabase: Supabase, agencyId: st
     .order('created_at', { ascending: false })
 }
 
+/** Get application ids for an agency (for notification scoping). */
+export async function getApplicationIdsByAgencyId(supabase: Supabase, agencyId: string) {
+  return supabase.from('applications').select('id').eq('agency_id', agencyId)
+}
+
+/** Get one application by agency_id and assigned_expert_id (for expert send message). */
+export async function getApplicationByAgencyAndExpert(
+  supabase: Supabase,
+  agencyId: string,
+  expertUserId: string
+) {
+  return supabase
+    .from('applications')
+    .select('id')
+    .eq('agency_id', agencyId)
+    .eq('assigned_expert_id', expertUserId)
+    .order('last_updated_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+}
+
 /** Get applications by statuses, ordered by created_at desc. */
 export async function getApplicationsByStatuses(supabase: Supabase, statuses: string[]) {
   if (statuses.length === 0) return { data: [], error: null }

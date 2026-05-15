@@ -17,19 +17,13 @@ export default async function ApplicationsPage() {
   const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
 
-  const { data: agencyRecord } = await q.getClientByCompanyOwnerIdWithAgency(supabase, session.user.id)
-  const agencyId = agencyRecord?.agency_id ?? null
+  const { data: up } = await q.getAgencyIdFromProfile(supabase, session.user.id)
+  const agencyId = up?.agency_id ?? null
 
-  const [ownResult, agencyResult] = await Promise.all([
-    q.getApplicationsByCompanyOwnerId(supabase, session.user.id),
-    agencyId ? q.getApplicationsByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
-  ])
-  const seenIds = new Set<string>()
-  const applications = [...(ownResult.data ?? []), ...(agencyResult.data ?? [])].filter((a) => {
-    if (seenIds.has(a.id)) return false
-    seenIds.add(a.id)
-    return true
-  })
+  const { data: applicationsData } = agencyId
+    ? await q.getApplicationsByAgencyId(supabase, agencyId)
+    : { data: [] }
+  const applications = applicationsData ?? []
 
   const appIds = applications.map((a: { id: string }) => a.id)
   const { data: docRows } = appIds.length > 0

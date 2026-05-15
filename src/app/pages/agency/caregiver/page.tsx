@@ -4,24 +4,20 @@ import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import DashboardLayout from '@/components/DashboardLayout'
 import StaffManagementClient from '@/components/StaffManagementClient'
-import { resolveEffectiveCompanyOwnerUserId } from '@/lib/agency-scope'
-
 export default async function StaffPage() {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
 
   const supabase = await createClient()
   const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
-  const effectiveOwnerId = await resolveEffectiveCompanyOwnerUserId(supabase, profile, session.user.id)
-  const { data: client } = effectiveOwnerId
-    ? await q.getClientByCompanyOwnerIdWithAgency(supabase, effectiveOwnerId)
-    : { data: null }
+  const [{ count: unreadNotifications }, { data: up }] = await Promise.all([
+    q.getUnreadNotificationsCount(supabase, session.user.id),
+    q.getAgencyIdFromProfile(supabase, session.user.id),
+  ])
+  const agencyId = up?.agency_id ?? null
 
-  const { data: staffMembersData } = client?.agency_id
-    ? await q.getStaffMembersByAgencyId(supabase, client.agency_id)
-    : client?.id
-      ? await q.getStaffMembersByCompanyOwnerId(supabase, client.id)
+  const { data: staffMembersData } = agencyId
+    ? await q.getStaffMembersByAgencyId(supabase, agencyId)
     : { data: [] }
   const staffMembers = staffMembersData ?? []
 

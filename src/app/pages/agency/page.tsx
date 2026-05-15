@@ -30,36 +30,20 @@ export default async function DashboardPage() {
   if (profile?.role === 'admin') redirect('/pages/admin')
   if (profile?.role === 'expert') redirect('/pages/expert/clients')
 
-  const { data: agencyRecord } = await q.getClientByCompanyOwnerIdWithAgency(supabase, session.user.id)
-  const agencyId = agencyRecord?.agency_id ?? null
+  const { data: up } = await q.getAgencyIdFromProfile(supabase, session.user.id)
+  const agencyId = up?.agency_id ?? null
 
-  const [ownLicensesResult, agencyLicensesResult, ownAppsResult, agencyAppsResult] = await Promise.all([
-    q.getLicensesByCompanyOwnerId(supabase, session.user.id),
+  const [licensesResult, applicationsResult, staffResult] = await Promise.all([
     agencyId ? q.getLicensesByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
-    q.getApplicationsByCompanyOwnerId(supabase, session.user.id),
     agencyId ? q.getApplicationsByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
+    agencyId ? q.getStaffMembersByAgencyId(supabase, agencyId, { status: 'active' }) : Promise.resolve({ data: [] }),
   ])
-  const seenLicIds = new Set<string>()
-  const licenses = [...(ownLicensesResult.data ?? []), ...(agencyLicensesResult.data ?? [])].filter((l) => {
-    if (seenLicIds.has(l.id)) return false
-    seenLicIds.add(l.id)
-    return true
-  })
-  const seenAppIds = new Set<string>()
-  const applicationsData = [...(ownAppsResult.data ?? []), ...(agencyAppsResult.data ?? [])].filter((a) => {
-    if (seenAppIds.has(a.id)) return false
-    seenAppIds.add(a.id)
-    return true
-  })
+  const licenses = licensesResult.data ?? []
+  const applicationsData = applicationsResult.data ?? []
   const applicationsForDashboard = applicationsData.filter(app =>
     ['requested', 'in_progress', 'under_review', 'needs_revision', 'approved'].includes(app.status ?? '')
   )
-  const { data: client } = agencyRecord?.id
-    ? { data: agencyRecord }
-    : await q.getClientByCompanyOwnerId(supabase, session.user.id)
-  const { data: staff } = client?.id
-    ? await q.getStaffMembersByCompanyOwnerId(supabase, session.user.id, { status: 'active' })
-    : { data: [] }
+  const staff = staffResult.data ?? []
   const staffIds = (staff || []).map((s: { id: string }) => s.id)
   const { data: staffLicensesData } = staffIds.length > 0
     ? await q.getApplicationsByStaffMemberIds(supabase, staffIds)

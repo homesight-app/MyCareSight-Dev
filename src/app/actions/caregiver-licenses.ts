@@ -4,7 +4,6 @@ import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveEffectiveCompanyOwnerUserId } from '@/lib/agency-scope'
 
 export type InsertCaregiverLicenseInput = {
   staffMemberId: string
@@ -31,20 +30,15 @@ export async function insertCaregiverLicenseApplicationAction(
   const userId = session.user.id
   const supabase = await createClient()
 
-  const { data: profile } = await q.getUserProfileFull(supabase, userId)
-  const effectiveOwnerId = await resolveEffectiveCompanyOwnerUserId(supabase, profile, userId)
-  if (!effectiveOwnerId) {
+  const { data: up } = await q.getAgencyIdFromProfile(supabase, userId)
+  const viewerAgencyId = up?.agency_id ?? null
+  if (!viewerAgencyId) {
     return { ok: false, error: 'No organization scope found for this user.' }
-  }
-
-  const { data: client, error: clientErr } = await q.getClientByCompanyOwnerIdWithAgency(supabase, effectiveOwnerId)
-  if (clientErr || !client?.id) {
-    return { ok: false, error: 'No client account found for this user.' }
   }
 
   const { data: staff, error: staffErr } = await supabase
     .from('caregiver_members')
-    .select('id, company_owner_id, agency_id, user_id')
+    .select('id, agency_id, user_id')
     .eq('id', input.staffMemberId)
     .maybeSingle()
 
@@ -56,13 +50,7 @@ export async function insertCaregiverLicenseApplicationAction(
     return { ok: false, error: 'Caregiver has no agency; cannot attach a credential.' }
   }
 
-  const sameClient = staff.company_owner_id === client.id
-  const sameAgency =
-    Boolean(client.agency_id) &&
-    Boolean(staff.agency_id) &&
-    client.agency_id === staff.agency_id
-
-  if (!sameClient && !sameAgency) {
+  if (staff.agency_id !== viewerAgencyId) {
     return {
       ok: false,
       error: 'You can only add licenses for caregivers in your organization.',

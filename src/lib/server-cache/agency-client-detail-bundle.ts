@@ -1,33 +1,19 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
-import { resolveEffectiveCompanyOwnerUserId } from '@/lib/agency-scope'
 
 async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUserId: string) {
   const supabase = createAdminClient()
 
-  const { data: profile } = await q.getUserProfileFull(supabase, viewerUserId)
-  if (!profile) return null
+  const { data: up } = await q.getAgencyIdFromProfile(supabase, viewerUserId)
+  const agencyId = up?.agency_id ?? null
+  if (!agencyId) return null
 
-  const effectiveOwnerId = await resolveEffectiveCompanyOwnerUserId(supabase, profile, viewerUserId)
-  const { data: clientContext } = effectiveOwnerId
-    ? await q.getClientByCompanyOwnerIdWithAgency(supabase, effectiveOwnerId)
-    : { data: null }
-
-  const { data: client } = clientContext?.agency_id
-    ? await q.getPatientByIdAndAgencyId(supabase, patientId, clientContext.agency_id)
-    : effectiveOwnerId
-      ? await q.getPatientByIdAndOwnerId(supabase, patientId, effectiveOwnerId)
-      : { data: null }
-
+  const { data: client } = await q.getPatientByIdAndAgencyId(supabase, patientId, agencyId)
   if (!client) return null
 
-  const agencyClient = clientContext ?? null
+  const agencyClient = null
 
-  const { data: allClients } = clientContext?.agency_id
-    ? await q.getPatientsByAgencyIdMinimal(supabase, clientContext.agency_id)
-    : effectiveOwnerId
-      ? await q.getPatientsByOwnerIdMinimal(supabase, effectiveOwnerId)
-      : { data: [] }
+  const { data: allClients } = await q.getPatientsByAgencyIdMinimal(supabase, agencyId)
 
   let representativesList: Awaited<ReturnType<typeof q.getRepresentativesByPatientId>>['data'] = []
   try {
@@ -67,14 +53,9 @@ async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUse
     adlSchedulesList = []
   }
 
-  let staffList: Awaited<ReturnType<typeof q.getStaffMembersByCompanyOwnerId>>['data'] = []
-  if (agencyClient?.agency_id) {
-    const res = await q.getStaffMembersByAgencyId(supabase, agencyClient.agency_id, { status: 'active' })
-    staffList = res.data ?? []
-  } else if (agencyClient?.id) {
-    const res = await q.getStaffMembersByCompanyOwnerId(supabase, agencyClient.id, { status: 'active' })
-    staffList = res.data ?? []
-  }
+  let staffList: Awaited<ReturnType<typeof q.getStaffMembersByAgencyId>>['data'] = []
+  const staffRes = await q.getStaffMembersByAgencyId(supabase, agencyId, { status: 'active' })
+  staffList = staffRes.data ?? []
 
   let contractedHoursList: Awaited<ReturnType<typeof q.getPatientContractedHoursByPatientId>>['data'] = []
   try {

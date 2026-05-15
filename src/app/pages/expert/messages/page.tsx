@@ -331,8 +331,8 @@ function ExpertMessagesContent() {
       const { data: client } = await q.getClientById(supabase, selectedClient)
       if (!client) throw new Error('Client not found')
 
-      const { data: application } = client.company_owner_id
-        ? await q.getApplicationByCompanyOwnerAndExpert(supabase, client.company_owner_id, currentUser.id)
+      const { data: application } = client.agency_id
+        ? await q.getApplicationByAgencyAndExpert(supabase, client.agency_id, currentUser.id)
         : { data: null }
       if (!application) {
         throw new Error('No application found for this client. Please ensure you are assigned to an application.')

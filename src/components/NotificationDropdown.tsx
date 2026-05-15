@@ -187,9 +187,13 @@ export default function NotificationDropdown({
         const { data: conversations } = await q.getConversationApplicationIds(supabase, 100)
         const uniqueAppIds = new Set(conversations?.map((c: { application_id: string }) => c.application_id).filter(Boolean) || [])
         applicationIds = Array.from(uniqueAppIds) as string[]
-      } else if (userRole === 'company_owner') {
-        const { data: apps } = await q.getApplicationIdsByCompanyOwnerId(supabase, userId)
-        applicationIds = apps?.map((a: { id: string }) => a.id) || []
+      } else if (userRole === 'company_owner' || userRole === 'care_coordinator') {
+        const { data: up } = await q.getAgencyIdFromProfile(supabase, userId)
+        const agencyId = up?.agency_id ?? null
+        if (agencyId) {
+          const { data: apps } = await q.getApplicationIdsByAgencyId(supabase, agencyId)
+          applicationIds = apps?.map((a: { id: string }) => a.id) || []
+        }
       } else if (userRole === 'expert') {
         const { data: apps } = await q.getApplicationIdsByAssignedExpertId(supabase, userId)
         applicationIds = apps?.map((a: { id: string }) => a.id) || []
@@ -323,9 +327,14 @@ export default function NotificationDropdown({
       if (userRole === 'admin') {
         const { data: conversations } = await q.getConversationIds(supabase, 500)
         conversationIds = conversations?.map((c: { id: string }) => c.id) || []
-      } else if (userRole === 'company_owner') {
-        const { data } = await q.getApplicationIdsByCompanyOwnerId(supabase, userId)
-        const applicationIds = data?.map((a: { id: string }) => a.id) || []
+      } else if (userRole === 'company_owner' || userRole === 'care_coordinator') {
+        const { data: up } = await q.getAgencyIdFromProfile(supabase, userId)
+        const agencyId = up?.agency_id ?? null
+        const applicationIds: string[] = []
+        if (agencyId) {
+          const { data } = await q.getApplicationIdsByAgencyId(supabase, agencyId)
+          applicationIds.push(...(data?.map((a: { id: string }) => a.id) || []))
+        }
         if (applicationIds.length === 0) {
           const { count: notificationsCount } = await q.getUnreadNotificationsCount(supabase, userId)
           setUnreadCount(notificationsCount ?? 0)

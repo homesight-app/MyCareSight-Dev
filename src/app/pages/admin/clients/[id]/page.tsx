@@ -46,8 +46,8 @@ export default async function ClientDetailPage({
     redirect('/pages/admin/clients')
   }
 
-  const { data: applications } = client.company_owner_id
-    ? await q.getApplicationsByCompanyOwnerId(supabase, client.company_owner_id)
+  const { data: applications } = client.agency_id
+    ? await q.getApplicationsByAgencyId(supabase, client.agency_id)
     : { data: [] }
   const { data: expertData } = client.expert_id
     ? await q.getLicensingExpertByUserId(supabase, client.expert_id)

@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import { resolveEffectiveCompanyOwnerUserId } from '@/lib/agency-scope'
 
 const REVAL_PATHS = ['/pages/agency/caregiver', '/pages/agency/time-billing', '/pages/agency/reports/payroll-billing']
 
@@ -13,15 +12,10 @@ function todayUtcDate(): string {
 
 async function getViewerAgencyId(): Promise<string | null> {
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const { data: profile } = await q.getUserProfileFull(supabase, user.id)
-  const ownerId = await resolveEffectiveCompanyOwnerUserId(supabase, profile, user.id)
-  if (!ownerId) return null
-  const { data: ctx } = await q.getClientByCompanyOwnerIdWithAgency(supabase, ownerId)
-  return ctx?.agency_id ?? null
+  const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
+  return up?.agency_id ?? null
 }
 
 /**

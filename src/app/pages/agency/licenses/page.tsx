@@ -14,23 +14,14 @@ export default async function LicensesPage() {
   const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
 
-  const { data: agencyRecord } = await q.getClientByCompanyOwnerIdWithAgency(supabase, session.user.id)
-  const agencyId = agencyRecord?.agency_id ?? null
+  const { data: up } = await q.getAgencyIdFromProfile(supabase, session.user.id)
+  const agencyId = up?.agency_id ?? null
 
-  const [ownLicensesResult, agencyLicensesResult, ownApplicationsResult, agencyApplicationsResult] =
-    await Promise.all([
-      q.getLicensesByCompanyOwnerIdOrdered(supabase, session.user.id),
-      agencyId ? q.getLicensesByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
-      q.getApplicationsByCompanyOwnerId(supabase, session.user.id),
-      agencyId ? q.getApplicationsByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
-    ])
-
-  const seenLicenseIds = new Set<string>()
-  const licenses = [...(ownLicensesResult.data ?? []), ...(agencyLicensesResult.data ?? [])].filter((l) => {
-    if (seenLicenseIds.has(l.id)) return false
-    seenLicenseIds.add(l.id)
-    return true
-  })
+  const [licensesResult, applicationsResult] = await Promise.all([
+    agencyId ? q.getLicensesByAgencyIdOrdered(supabase, agencyId) : Promise.resolve({ data: [] }),
+    agencyId ? q.getApplicationsByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
+  ])
+  const licenses = licensesResult.data ?? []
 
   const licenseIds = licenses.map(l => l.id)
   const { data: licenseDocsData } = licenseIds.length > 0
@@ -41,12 +32,7 @@ export default async function LicensesPage() {
     documentCounts[doc.license_id] = (documentCounts[doc.license_id] || 0) + 1
   })
 
-  const seenAppIds = new Set<string>()
-  const applications = [...(ownApplicationsResult.data ?? []), ...(agencyApplicationsResult.data ?? [])].filter((a) => {
-    if (seenAppIds.has(a.id)) return false
-    seenAppIds.add(a.id)
-    return true
-  })
+  const applications = applicationsResult.data ?? []
   const applicationIds = applications.map(a => a.id)
   const { data: appDocsData } = applicationIds.length > 0
     ? await q.getApplicationDocumentsApplicationIds(supabase, applicationIds)

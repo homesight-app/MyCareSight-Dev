@@ -38,6 +38,7 @@ import {
 import { closeApplication } from '@/app/actions/applications'
 import UploadDocumentModal from './UploadDocumentModal'
 import Modal from './Modal'
+import ExpertStepsPanel from './ExpertStepsPanel'
 
 interface Application {
   id: string
@@ -192,7 +193,6 @@ export default function ApplicationDetailContent({
   const [selectedBrowseExpertStepIds, setSelectedBrowseExpertStepIds] = useState<Set<string>>(new Set())
   const [isLoadingBrowseExpertSteps, setIsLoadingBrowseExpertSteps] = useState(false)
   const [browseExpertStepsError, setBrowseExpertStepsError] = useState<string | null>(null)
-  const [togglingExpertStepId, setTogglingExpertStepId] = useState<string | null>(null)
   // List selection and copy to another application (same as admin)
   const [selectedListExpertStepIds, setSelectedListExpertStepIds] = useState<Set<string>>(new Set())
   const [showCopyExpertStepsModal, setShowCopyExpertStepsModal] = useState(false)
@@ -758,27 +758,6 @@ export default function ApplicationDetailContent({
     }
   }
 
-  const handleToggleExpertStepComplete = async (step: Step) => {
-    if (!application.id || currentUserRole !== 'expert') return
-    setTogglingExpertStepId(step.id)
-    try {
-      const newCompleted = !step.is_completed
-      const { error } = await q.updateApplicationStepCompleteById(supabase, step.id, application.id, {
-        is_completed: newCompleted,
-        completed_at: newCompleted ? new Date().toISOString() : null,
-      })
-
-      if (error) throw error
-      setExpertSteps((prev) =>
-        prev.map((s) => (s.id === step.id ? { ...s, is_completed: newCompleted } : s))
-      )
-    } catch (error: any) {
-      console.error('Error toggling expert step:', error)
-      alert('Failed to update step: ' + (error.message || 'Unknown error'))
-    } finally {
-      setTogglingExpertStepId(null)
-    }
-  }
 
 
   // Fetch license type data
@@ -2595,89 +2574,13 @@ export default function ApplicationDetailContent({
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
               </div>
-            ) : expertSteps.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <p className="text-sm">No expert process steps found</p>
-                <p className="text-xs mt-1">Expert steps added by the assigned expert will appear here</p>
-              </div>
             ) : (
-              <div className="space-y-6">
-                {(() => {
-                  const phaseOrder = EXPERT_STEP_PHASES.map((p) => p.value)
-                  const byPhase = new Map<string, Step[]>()
-                  for (const step of expertSteps) {
-                    const phase = step.phase?.trim() || 'Other'
-                    if (!byPhase.has(phase)) byPhase.set(phase, [])
-                    byPhase.get(phase)!.push(step)
-                  }
-                  Array.from(byPhase.values()).forEach((steps) => {
-                    steps.sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0))
-                  })
-                  const orderedPhases = Array.from(byPhase.keys()).sort((a: string, b: string) => {
-                    const i = phaseOrder.indexOf(a)
-                    const j = phaseOrder.indexOf(b)
-                    if (i !== -1 && j !== -1) return i - j
-                    if (i !== -1) return -1
-                    if (j !== -1) return 1
-                    return a.localeCompare(b)
-                  })
-                  return orderedPhases.map((phase) => (
-                    <div key={phase}>
-                      <h4 className="text-lg font-semibold text-gray-900 mb-4">{phase}:</h4>
-                      <div className="space-y-3">
-                        {(byPhase.get(phase) ?? []).map((step, index) => (
-                          <div
-                            key={step.id}
-                            className={`flex items-start gap-4 p-4 border rounded-lg transition-colors ${
-                              step.is_completed
-                                ? 'bg-green-50 border-green-200'
-                                : 'bg-white border-gray-200 hover:bg-gray-50'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                              {currentUserRole === 'expert' ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleExpertStepComplete(step)}
-                                  disabled={togglingExpertStepId === step.id}
-                                  className="p-0.5 rounded-full hover:bg-black/5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title={step.is_completed ? 'Mark as not completed' : 'Mark as completed'}
-                                  aria-label={step.is_completed ? 'Uncomplete step' : 'Complete step'}
-                                >
-                                  {togglingExpertStepId === step.id ? (
-                                    <Loader2 className="w-5 h-5 text-gray-500 animate-spin" />
-                                  ) : step.is_completed ? (
-                                    <CheckCircle2 className="w-5 h-5 text-green-600" />
-                                  ) : (
-                                    <div className="w-5 h-5 border-2 border-gray-300 rounded-full" />
-                                  )}
-                                </button>
-                              ) : (
-                                <>
-                                  {step.is_completed ? (
-                                    <CheckCircle2 className="w-5 h-5 text-green-600" />
-                                  ) : (
-                                    <div className="w-5 h-5 border-2 border-gray-300 rounded-full" />
-                                  )}
-                                </>
-                              )}
-                              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                                <span className="text-sm font-semibold text-white">{index + 1}</span>
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-gray-900 mb-1">{step.step_name}</h4>
-                              {step.description && (
-                                <p className="text-sm text-gray-600">{step.description}</p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))
-                })()}
-              </div>
+              <ExpertStepsPanel
+                applicationId={application.id}
+                expertSteps={expertSteps}
+                canToggle={currentUserRole === 'expert'}
+                onStepsChanged={fetchExpertSteps}
+              />
             )}
 
             {/* Copy Expert Steps to Another Application modal (same as admin) */}

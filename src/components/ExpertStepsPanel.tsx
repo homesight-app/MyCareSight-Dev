@@ -1,0 +1,145 @@
+'use client'
+
+import { useState } from 'react'
+import { CheckCircle2, Loader2 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import * as q from '@/lib/supabase/query'
+import { EXPERT_STEP_PHASES } from '@/lib/constants'
+
+export interface ExpertStep {
+  id: string
+  step_name: string
+  step_order?: number | null
+  description?: string | null
+  is_completed?: boolean | null
+  phase?: string | null
+}
+
+interface ExpertStepsPanelProps {
+  applicationId: string
+  expertSteps: ExpertStep[]
+  /** When true the completion circle is a clickable toggle; when false it is read-only. */
+  canToggle: boolean
+  /** Called after a successful toggle so the parent can re-fetch. */
+  onStepsChanged: () => void
+}
+
+export default function ExpertStepsPanel({
+  applicationId,
+  expertSteps,
+  canToggle,
+  onStepsChanged,
+}: ExpertStepsPanelProps) {
+  const [togglingStepId, setTogglingStepId] = useState<string | null>(null)
+
+  const handleToggle = async (step: ExpertStep) => {
+    if (!canToggle || !applicationId) return
+    setTogglingStepId(step.id)
+    try {
+      const newCompleted = !step.is_completed
+      const { error } = await q.updateApplicationStepCompleteById(
+        createClient(),
+        step.id,
+        applicationId,
+        {
+          is_completed: newCompleted,
+          completed_at: newCompleted ? new Date().toISOString() : null,
+        }
+      )
+      if (error) throw error
+      onStepsChanged()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      alert('Failed to update step: ' + msg)
+    } finally {
+      setTogglingStepId(null)
+    }
+  }
+
+  if (expertSteps.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-500">
+        <p className="text-sm">No expert process steps found</p>
+        <p className="text-xs mt-1">Expert steps added by the assigned expert will appear here</p>
+      </div>
+    )
+  }
+
+  // Group steps by phase in canonical order
+  const phaseOrder = EXPERT_STEP_PHASES.map((p) => p.value)
+  const byPhase = new Map<string, ExpertStep[]>()
+  for (const step of expertSteps) {
+    const phase = step.phase?.trim() || 'Other'
+    if (!byPhase.has(phase)) byPhase.set(phase, [])
+    byPhase.get(phase)!.push(step)
+  }
+  Array.from(byPhase.values()).forEach((steps) => {
+    steps.sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0))
+  })
+  const orderedPhases = Array.from(byPhase.keys()).sort((a, b) => {
+    const i = phaseOrder.indexOf(a)
+    const j = phaseOrder.indexOf(b)
+    if (i !== -1 && j !== -1) return i - j
+    if (i !== -1) return -1
+    if (j !== -1) return 1
+    return a.localeCompare(b)
+  })
+
+  return (
+    <div className="space-y-6">
+      {orderedPhases.map((phase) => (
+        <div key={phase}>
+          <h4 className="text-lg font-semibold text-gray-900 mb-4">{phase}:</h4>
+          <div className="space-y-3">
+            {(byPhase.get(phase) ?? []).map((step, index) => (
+              <div
+                key={step.id}
+                className={`flex items-start gap-4 p-4 border rounded-lg transition-colors ${
+                  step.is_completed
+                    ? 'bg-green-50 border-green-200'
+                    : 'bg-white border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {canToggle ? (
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(step)}
+                      disabled={togglingStepId === step.id}
+                      className="p-0.5 rounded-full hover:bg-black/5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={step.is_completed ? 'Mark as not completed' : 'Mark as completed'}
+                      aria-label={step.is_completed ? 'Uncomplete step' : 'Complete step'}
+                    >
+                      {togglingStepId === step.id ? (
+                        <Loader2 className="w-5 h-5 text-gray-500 animate-spin" />
+                      ) : step.is_completed ? (
+                        <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      ) : (
+                        <div className="w-5 h-5 border-2 border-gray-300 rounded-full" />
+                      )}
+                    </button>
+                  ) : (
+                    step.is_completed ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <div className="w-5 h-5 border-2 border-gray-300 rounded-full" />
+                    )
+                  )}
+                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                    <span className="text-sm font-semibold text-white">{index + 1}</span>
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-gray-900 mb-1">{step.step_name}</h4>
+                  {step.description && (
+                    <p className="text-sm text-gray-600">{step.description}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}

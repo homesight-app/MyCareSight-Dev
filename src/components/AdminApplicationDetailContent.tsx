@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import Modal from './Modal'
 import UploadDocumentModal from './UploadDocumentModal'
+import ExpertStepsPanel from './ExpertStepsPanel'
 
 interface Application {
   id: string
@@ -127,7 +128,6 @@ export default function AdminApplicationDetailContent({
   const [isCompletingStep, setIsCompletingStep] = useState(false)
   const [expertSteps, setExpertSteps] = useState<ApplicationStep[]>([])
   const [isLoadingExpertSteps, setIsLoadingExpertSteps] = useState(false)
-  const [selectedExpertStepIds, setSelectedExpertStepIds] = useState<Set<string>>(new Set())
   const [isCopyingExpertSteps, setIsCopyingExpertSteps] = useState(false)
   const [showCopyExpertStepsModal, setShowCopyExpertStepsModal] = useState(false)
   const [availableApplications, setAvailableApplications] = useState<Array<{id: string, application_name: string, state: string}>>([])
@@ -424,59 +424,7 @@ export default function AdminApplicationDetailContent({
     }
   }
 
-  // Handle copying expert steps to another application
-  const handleCopyExpertSteps = async (targetApplicationId: string) => {
-    if (selectedExpertStepIds.size === 0 || !targetApplicationId || isCopyingExpertSteps) return
 
-    setIsCopyingExpertSteps(true)
-    try {
-      // Get the selected expert steps
-      const stepsToCopy = expertSteps.filter(step => selectedExpertStepIds.has(step.id))
-      
-      if (stepsToCopy.length === 0) {
-        alert('Please select at least one expert step to copy')
-        setIsCopyingExpertSteps(false)
-        return
-      }
-
-      const { data: existingStepsData } = await q.getMaxExpertStepOrderForApplication(supabase, targetApplicationId)
-      let nextOrder = existingStepsData?.length ? existingStepsData[0].step_order + 1 : 1
-
-      const stepsToInsert = stepsToCopy.map(step => ({
-        application_id: targetApplicationId,
-        step_name: step.step_name,
-        step_order: nextOrder++,
-        description: step.description,
-        is_expert_step: true,
-        is_completed: false,
-        created_by_expert_id: step.created_by_expert_id
-      }))
-
-      const { error: insertError } = await q.insertApplicationStepsRows(supabase, stepsToInsert)
-
-      if (insertError) throw insertError
-
-      alert(`Successfully copied ${stepsToCopy.length} expert step(s)`)
-      setSelectedExpertStepIds(new Set())
-    } catch (error: any) {
-      console.error('Error copying expert steps:', error)
-      alert('Failed to copy expert steps: ' + (error.message || 'Unknown error'))
-    } finally {
-      setIsCopyingExpertSteps(false)
-    }
-  }
-
-  const toggleExpertStepSelection = (stepId: string) => {
-    setSelectedExpertStepIds(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(stepId)) {
-        newSet.delete(stepId)
-      } else {
-        newSet.add(stepId)
-      }
-      return newSet
-    })
-  }
 
   // Set up conversation for application-based group chat
   useEffect(() => {
@@ -1326,25 +1274,6 @@ export default function AdminApplicationDetailContent({
                   <Plus className="w-4 h-4" />
                   Add Step
                 </button>
-                {selectedExpertStepIds.size > 0 && (
-                  <button
-                    onClick={async () => {
-                      setIsLoadingApplications(true)
-                      setShowCopyExpertStepsModal(true)
-                      // Get all applications for the admin to select target
-                      const { data: allApplications } = await q.getApplicationsListForDropdown(supabase, application.id)
-
-                      if (allApplications) {
-                        setAvailableApplications(allApplications)
-                      }
-                      setIsLoadingApplications(false)
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
-                  >
-                    <Copy className="w-4 h-4" />
-                    Copy Selected ({selectedExpertStepIds.size})
-                  </button>
-                )}
               </div>
             </div>
 
@@ -1415,138 +1344,18 @@ export default function AdminApplicationDetailContent({
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
               </div>
-            ) : expertSteps.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <p className="text-sm">No expert process steps found</p>
-                <p className="text-xs mt-1">Expert steps added by the assigned expert will appear here</p>
-              </div>
             ) : (
-              <div className="space-y-3">
-                {expertSteps.map((step) => (
-                  <div
-                    key={step.id}
-                    className={`flex items-start gap-3 p-4 border rounded-lg ${
-                      step.is_completed
-                        ? 'bg-green-50 border-green-200'
-                        : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <div className="mt-1">
-                      <input
-                        type="checkbox"
-                        checked={selectedExpertStepIds.has(step.id)}
-                        onChange={() => toggleExpertStepSelection(step.id)}
-                        className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-gray-900 mb-1">{step.step_name}</div>
-                      {step.description && (
-                        <div className="text-sm text-gray-600 mb-2">{step.description}</div>
-                      )}
-                      <div className="text-xs text-gray-500">
-                        Step {step.step_order} of {expertSteps.length}
-                      </div>
-                    </div>
-                    <div className="mt-1">
-                      {step.is_completed ? (
-                        <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      ) : (
-                        <div className="w-5 h-5 border-2 border-gray-300 rounded-full" />
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <ExpertStepsPanel
+                applicationId={application.id}
+                expertSteps={expertSteps}
+                canToggle={true}
+                onStepsChanged={fetchSteps}
+              />
             )}
           </div>
         </div>
       )}
 
-      {/* Copy Expert Steps Modal */}
-      <Modal
-        isOpen={showCopyExpertStepsModal}
-        onClose={() => {
-          setShowCopyExpertStepsModal(false)
-          setSelectedTargetApplicationId('')
-        }}
-        title="Copy Expert Steps to Another Application"
-        size="md"
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Target Application
-            </label>
-            {isLoadingApplications ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-              </div>
-            ) : availableApplications.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <p className="text-sm">No other applications found</p>
-              </div>
-            ) : (
-              <select
-                value={selectedTargetApplicationId}
-                onChange={(e) => setSelectedTargetApplicationId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">Select an application...</option>
-                {availableApplications.map((app) => (
-                  <option key={app.id} value={app.id}>
-                    {app.application_name} ({app.state})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
-            <p className="font-medium mb-1">Selected Steps:</p>
-            <p>{selectedExpertStepIds.size} expert step(s) will be copied</p>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={() => {
-                setShowCopyExpertStepsModal(false)
-                setSelectedTargetApplicationId('')
-              }}
-              className="px-6 py-2.5 text-gray-700 font-medium rounded-xl hover:bg-gray-100 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={async () => {
-                if (!selectedTargetApplicationId) {
-                  alert('Please select a target application')
-                  return
-                }
-                await handleCopyExpertSteps(selectedTargetApplicationId)
-                setShowCopyExpertStepsModal(false)
-                setSelectedTargetApplicationId('')
-                setSelectedExpertStepIds(new Set())
-              }}
-              disabled={isCopyingExpertSteps || !selectedTargetApplicationId}
-              className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isCopyingExpertSteps ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Copying...
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  Copy Steps
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </Modal>
 
       <UploadDocumentModal
         isOpen={isUploadModalOpen}

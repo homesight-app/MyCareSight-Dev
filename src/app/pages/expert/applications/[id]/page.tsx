@@ -8,9 +8,11 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 
 export default async function ExpertApplicationDetailPage({
-  params
+  params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ back?: string }>
 }) {
   const session = await getSession()
 
@@ -18,12 +20,19 @@ export default async function ExpertApplicationDetailPage({
     redirect('/pages/auth/login')
   }
 
-  // Check if user is an expert
   if (session.profile?.role !== 'expert') {
     redirect('/pages/agency')
   }
 
   const { id } = await params
+  const { back } = await searchParams
+
+  // Validate back path to prevent open redirect — must start with /pages/
+  const backHref = back && decodeURIComponent(back).startsWith('/pages/')
+    ? decodeURIComponent(back)
+    : '/pages/expert/clients'
+  const backLabel = back ? 'Back to Agency' : 'Back to Licenses'
+
   const supabase = await createClient()
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
   const { data: application } = await q.getApplicationById(supabase, id)
@@ -46,11 +55,11 @@ export default async function ExpertApplicationDetailPage({
     >
       <div className="space-y-6 mt-[6rem]">
         <Link
-          href="/pages/expert/clients"
+          href={backHref}
           className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to Licenses
+          {backLabel}
         </Link>
         <ExpertApplicationDetailWrapper
           application={application}

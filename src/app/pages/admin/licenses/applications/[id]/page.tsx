@@ -8,13 +8,22 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 
 export default async function AdminApplicationDetailPage({
-  params
+  params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ back?: string }>
 }) {
   const { user, profile } = await requireAdmin()
   const { id } = await params
+  const { back } = await searchParams
   const supabase = await createClient()
+
+  // Validate the back path to prevent open redirect — must start with /pages/
+  const backHref = back && decodeURIComponent(back).startsWith('/pages/')
+    ? decodeURIComponent(back)
+    : '/pages/admin/licenses'
+  const backLabel = back ? 'Back to Agency' : 'Back to License Applications'
 
   const [
     { count: unreadNotifications },
@@ -54,11 +63,11 @@ export default async function AdminApplicationDetailPage({
     >
       <div className="space-y-6">
         <Link
-          href="/pages/admin/licenses"
+          href={backHref}
           className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to License Applications
+          {backLabel}
         </Link>
         <ApplicationDetailContent
           application={application}

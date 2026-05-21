@@ -592,7 +592,9 @@ export default function AgencyDetailContent({
               <tbody className="bg-white divide-y divide-gray-200">
                 {applications.map((app) => {
                   const pct = app.progress_percentage ?? 0
-                  const appDetailPath = `${backPath.startsWith('/pages/admin') ? '/pages/admin/licenses' : '/pages/expert'}/applications/${app.id}`
+                  // Pass the current agency detail page as the `back` destination
+                  const agencyDetailHref = `${backPath}/${agency.id}`
+                  const appDetailPath = `${backPath.startsWith('/pages/admin') ? '/pages/admin/licenses' : '/pages/expert'}/applications/${app.id}?back=${encodeURIComponent(agencyDetailHref)}`
                   return (
                     <tr key={app.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 whitespace-nowrap">

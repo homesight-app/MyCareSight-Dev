@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Modal from './Modal'
 import { Upload, X, Loader2, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -28,7 +27,6 @@ export default function UploadDocumentModal({
   defaultDocumentType,
   autoApprove = false,
 }: UploadDocumentModalProps) {
-  const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFiles, setSelectedFiles] = useState<Array<{ id: string; file: File; name: string }>>([])
   const [documentName, setDocumentName] = useState('')
@@ -97,20 +95,17 @@ export default function UploadDocumentModal({
         return
       }
 
-      // For multiple files, upload sequentially and insert records
+      // Upload sequentially and insert records
       const uploadedPaths: string[] = []
       for (const fileItem of selectedFiles) {
-        // Upload file to Supabase Storage
         const fileExt = fileItem.file.name.split('.').pop()
-        const fileName = `${applicationId}/${Date.now()}-${fileItem.id}.${fileExt}`
-        const filePath = fileName
+        const filePath = `${applicationId}/${Date.now()}-${fileItem.id}.${fileExt}`
 
         const { error: uploadError } = await supabase.storage
           .from('application-documents')
           .upload(filePath, fileItem.file)
 
         if (uploadError) {
-          // rollback previous uploads
           if (uploadedPaths.length > 0) {
             await supabase.storage.from('application-documents').remove(uploadedPaths)
           }
@@ -119,12 +114,10 @@ export default function UploadDocumentModal({
 
         uploadedPaths.push(filePath)
 
-        // Get public URL
         const { data: { publicUrl } } = supabase.storage
           .from('application-documents')
           .getPublicUrl(filePath)
 
-        // Create document record in database (link to license requirement document when provided)
         const insertPayload: Record<string, unknown> = {
           application_id: applicationId,
           document_name: fileItem.name || documentName,
@@ -139,7 +132,6 @@ export default function UploadDocumentModal({
         const { error: insertError } = await q.insertApplicationDocument(supabase, insertPayload)
 
         if (insertError) {
-          // If insert fails, try to delete uploaded files
           if (uploadedPaths.length > 0) {
             await supabase.storage.from('application-documents').remove(uploadedPaths)
           }
@@ -202,9 +194,8 @@ export default function UploadDocumentModal({
         fileInputRef.current.value = ''
       }
 
-      // Close modal and refresh
+      // Close modal and notify parent
       onClose()
-      router.refresh()
       if (onSuccess) {
         onSuccess()
       }

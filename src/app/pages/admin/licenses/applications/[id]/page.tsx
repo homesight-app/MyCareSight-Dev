@@ -3,7 +3,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import AdminLayout from '@/components/AdminLayout'
-import AdminApplicationDetailContent from '@/components/AdminApplicationDetailContent'
+import ApplicationDetailContent from '@/components/ApplicationDetailContent'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 
@@ -46,17 +46,10 @@ export default async function AdminApplicationDetailPage({
     ? await q.getAgencyNameById(supabase, (application as any).agency_id)
     : { data: null }
 
-  // Merge owner profile with application
-  const applicationWithOwner = {
-    ...application,
-    user_profiles: ownerProfile || null,
-    expert_profile: expertProfile
-  }
-
   return (
-    <AdminLayout 
-      user={{ id: user.id, email: user.email }} 
-      profile={profile} 
+    <AdminLayout
+      user={{ id: user.id, email: user.email }}
+      profile={profile}
       unreadNotifications={unreadNotifications || 0}
     >
       <div className="space-y-6">
@@ -67,11 +60,13 @@ export default async function AdminApplicationDetailPage({
           <ArrowLeft className="w-4 h-4" />
           Back to License Applications
         </Link>
-        <AdminApplicationDetailContent
-          application={applicationWithOwner}
+        <ApplicationDetailContent
+          application={application}
           documents={documents || []}
-          adminUserId={user.id}
+          ownerProfile={ownerProfile}
+          assignedExpertProfile={expertProfile}
           agencyName={agencyData?.name ?? null}
+          showInlineTabs={true}
         />
       </div>
     </AdminLayout>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -16,10 +16,19 @@ import {
   FileText,
   Users,
   Calendar,
+  Download,
+  Upload,
+  Pencil,
+  Loader2,
+  X,
+  ChevronDown,
 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import * as q from '@/lib/supabase/query'
 import CreateLicenseModal from './CreateLicenseModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
 import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
+import Modal from './Modal'
 
 interface Agency {
   id: string
@@ -123,10 +132,87 @@ export default function AgencyDetailContent({
   backPath,
 }: AgencyDetailContentProps) {
   const [addLicenseOpen, setAddLicenseOpen] = useState(false)
+  const [editingLicense, setEditingLicense] = useState<License | null>(null)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expiring' | 'expired'>('all')
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [uploadDocLicense, setUploadDocLicense] = useState<License | null>(null)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadDocName, setUploadDocName] = useState('')
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false)
+  const [uploadDocError, setUploadDocError] = useState<string | null>(null)
+  const uploadFileRef = useRef<HTMLInputElement>(null)
 
   const activeLicenses = licenses.filter((l) => l.status === 'active' && !isExpiringSoon(l.expiry_date))
   const expiringSoon = licenses.filter((l) => l.status === 'active' && isExpiringSoon(l.expiry_date))
   const expiredLicenses = licenses.filter((l) => l.status === 'expired')
+
+  const displayedLicenses = licenses.filter((l) => {
+    if (statusFilter === 'all') return true
+    if (statusFilter === 'active') return l.status === 'active' && !isExpiringSoon(l.expiry_date)
+    if (statusFilter === 'expiring') return l.status === 'active' && isExpiringSoon(l.expiry_date)
+    if (statusFilter === 'expired') return l.status === 'expired'
+    return true
+  })
+
+  const handleDownloadLicense = async (license: License) => {
+    setDownloadingId(license.id)
+    try {
+      const supabase = createClient()
+      const { data } = await q.getLatestLicenseDocumentByLicenseId(supabase, license.id)
+      if (!data?.document_url) {
+        alert('No document has been uploaded for this license yet.')
+        return
+      }
+      const response = await fetch(data.document_url)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = data.document_name || license.license_name
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch {
+      alert('Failed to download document.')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  const handleUploadDoc = async () => {
+    if (!uploadFile || !uploadDocLicense) return
+    setIsUploadingDoc(true)
+    setUploadDocError(null)
+    try {
+      const supabase = createClient()
+      const fileExt = uploadFile.name.split('.').pop()
+      const filePath = `license-${uploadDocLicense.id}/${Date.now()}.${fileExt}`
+      const { error: uploadError } = await supabase.storage
+        .from('application-documents')
+        .upload(filePath, uploadFile, { upsert: false, contentType: uploadFile.type || `application/${fileExt}` })
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage.from('application-documents').getPublicUrl(filePath)
+      const { error: docError } = await q.insertLicenseDocument(supabase, {
+        license_id: uploadDocLicense.id,
+        document_name: uploadDocName.trim() || uploadFile.name,
+        document_url: publicUrl,
+        document_type: null,
+      })
+      if (docError) {
+        await supabase.storage.from('application-documents').remove([filePath])
+        throw docError
+      }
+      setUploadDocLicense(null)
+      setUploadFile(null)
+      setUploadDocName('')
+    } catch (err: any) {
+      setUploadDocError(err.message || 'Upload failed.')
+    } finally {
+      setIsUploadingDoc(false)
+    }
+  }
 
   const physicalAddress = [
     agency.physical_street_address,
@@ -256,24 +342,44 @@ export default function AgencyDetailContent({
 
       {/* Licenses section */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-purple-600" />
             <h2 className="text-base font-semibold text-gray-900">Client Licenses</h2>
           </div>
-          <button
-            type="button"
-            onClick={() => setAddLicenseOpen(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add License
-          </button>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Status filter */}
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                className="appearance-none pl-3 pr-8 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="all">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="expiring">Expiring Soon</option>
+                <option value="expired">Expired</option>
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+            </div>
+            <button
+              type="button"
+              onClick={() => setAddLicenseOpen(true)}
+              className="inline-flex items-center gap-2 px-3 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add License
+            </button>
+          </div>
         </div>
 
         {licenses.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-gray-500">
             No licenses yet. Click &quot;Add License&quot; to create one.
+          </div>
+        ) : displayedLicenses.length === 0 ? (
+          <div className="px-6 py-10 text-center text-sm text-gray-500">
+            No licenses match the selected filter.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -286,10 +392,11 @@ export default function AgencyDetailContent({
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Activated</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Expires</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {licenses.map((license) => (
+                {displayedLicenses.map((license) => (
                   <tr key={license.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
                       {license.license_name}
@@ -319,6 +426,42 @@ export default function AgencyDetailContent({
                           : license.status}
                       </span>
                     </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingLicense(license)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadLicense(license)}
+                          disabled={downloadingId === license.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                        >
+                          {downloadingId === license.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Download className="w-3.5 h-3.5" />}
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUploadDocLicense(license)
+                            setUploadFile(null)
+                            setUploadDocName('')
+                            setUploadDocError(null)
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          Upload
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -326,6 +469,91 @@ export default function AgencyDetailContent({
           </div>
         )}
       </div>
+
+      {/* Edit License Modal */}
+      {editingLicense && (
+        <CreateLicenseModal
+          isOpen={!!editingLicense}
+          onClose={() => setEditingLicense(null)}
+          onSuccess={() => setEditingLicense(null)}
+          agencyId={agency.id}
+          licenseToEdit={editingLicense}
+        />
+      )}
+
+      {/* Upload License Document Modal */}
+      <Modal
+        isOpen={!!uploadDocLicense}
+        onClose={() => { setUploadDocLicense(null); setUploadFile(null); setUploadDocName(''); setUploadDocError(null) }}
+        title={`Upload Document — ${uploadDocLicense?.license_name ?? ''}`}
+        size="md"
+      >
+        <div className="p-6 space-y-4">
+          {uploadDocError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{uploadDocError}</div>
+          )}
+          {!uploadFile ? (
+            <div
+              onClick={() => uploadFileRef.current?.click()}
+              className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-colors"
+            >
+              <Upload className="w-10 h-10 mx-auto mb-2 text-gray-400" />
+              <p className="text-gray-600 font-medium text-sm">Click to select a file</p>
+              <p className="text-xs text-gray-500 mt-0.5">PDF, DOC, DOCX, JPG, PNG</p>
+              <input
+                ref={uploadFileRef}
+                type="file"
+                className="hidden"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) { setUploadFile(f); setUploadDocName(f.name) }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="border border-gray-300 rounded-xl p-4 bg-gray-50 flex items-center gap-3">
+              <FileText className="w-8 h-8 text-blue-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{uploadFile.name}</p>
+                <p className="text-xs text-gray-500">{(uploadFile.size / 1024).toFixed(1)} KB</p>
+              </div>
+              <button type="button" onClick={() => { setUploadFile(null); setUploadDocName('') }} className="p-1.5 hover:bg-gray-200 rounded-lg">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+          )}
+          {uploadFile && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Document name</label>
+              <input
+                type="text"
+                value={uploadDocName}
+                onChange={(e) => setUploadDocName(e.target.value)}
+                className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+            <button
+              type="button"
+              onClick={() => { setUploadDocLicense(null); setUploadFile(null); setUploadDocName(''); setUploadDocError(null) }}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleUploadDoc}
+              disabled={!uploadFile || isUploadingDoc}
+              className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {isUploadingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              Upload
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Applications section */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">

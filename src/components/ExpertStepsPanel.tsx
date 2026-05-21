@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -30,13 +30,21 @@ export default function ExpertStepsPanel({
   canToggle,
   onStepsChanged,
 }: ExpertStepsPanelProps) {
+  const [optimisticSteps, setOptimisticSteps] = useState<ExpertStep[]>(expertSteps)
   const [togglingStepId, setTogglingStepId] = useState<string | null>(null)
+
+  useEffect(() => {
+    setOptimisticSteps(expertSteps)
+  }, [expertSteps])
 
   const handleToggle = async (step: ExpertStep) => {
     if (!canToggle || !applicationId) return
+    const newCompleted = !step.is_completed
+    setOptimisticSteps((prev) =>
+      prev.map((s) => (s.id === step.id ? { ...s, is_completed: newCompleted } : s))
+    )
     setTogglingStepId(step.id)
     try {
-      const newCompleted = !step.is_completed
       const { error } = await q.updateApplicationStepCompleteById(
         createClient(),
         step.id,
@@ -49,6 +57,9 @@ export default function ExpertStepsPanel({
       if (error) throw error
       onStepsChanged()
     } catch (err: unknown) {
+      setOptimisticSteps((prev) =>
+        prev.map((s) => (s.id === step.id ? { ...s, is_completed: step.is_completed } : s))
+      )
       const msg = err instanceof Error ? err.message : 'Unknown error'
       alert('Failed to update step: ' + msg)
     } finally {
@@ -56,7 +67,7 @@ export default function ExpertStepsPanel({
     }
   }
 
-  if (expertSteps.length === 0) {
+  if (optimisticSteps.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
         <p className="text-sm">No expert process steps found</p>
@@ -68,7 +79,7 @@ export default function ExpertStepsPanel({
   // Group steps by phase in canonical order
   const phaseOrder = EXPERT_STEP_PHASES.map((p) => p.value)
   const byPhase = new Map<string, ExpertStep[]>()
-  for (const step of expertSteps) {
+  for (const step of optimisticSteps) {
     const phase = step.phase?.trim() || 'Other'
     if (!byPhase.has(phase)) byPhase.set(phase, [])
     byPhase.get(phase)!.push(step)

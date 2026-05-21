@@ -5,7 +5,25 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
-import { getApplicationForClose, closeApplicationUpdate } from '@/lib/supabase/query'
+import { getApplicationForClose, closeApplicationUpdate, updateApplicationStatus } from '@/lib/supabase/query'
+
+/**
+ * Admin action to approve an application under review.
+ * Sets status to 'approved'. Only callable by admin role.
+ */
+export async function approveApplication(applicationId: string): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
+
+  const supabase = await createClient()
+  const { error } = await updateApplicationStatus(supabase, applicationId, { status: 'approved' })
+  if (error) return { error: error.message }
+
+  revalidatePath('/pages/admin/licenses/applications/[id]', 'page')
+  revalidatePath('/pages/admin/licenses', 'page')
+  return { error: null }
+}
 
 /**
  * Close an application. Allowed when progress is 100%.

@@ -32,6 +32,17 @@ interface CreateLicenseModalProps {
    *  current user. Used by admin/expert on the agency detail page. */
   agencyId?: string
   agencyName?: string
+  /** When provided, the modal operates in edit mode: pre-populates the form
+   *  and calls updateLicenseById on submit instead of inserting a new row. */
+  licenseToEdit?: {
+    id: string
+    license_name: string
+    license_number?: string | null
+    state: string
+    activated_date?: string | null
+    expiry_date?: string | null
+    renewal_due_date?: string | null
+  }
 }
 
 export default function CreateLicenseModal({
@@ -40,7 +51,9 @@ export default function CreateLicenseModal({
   onSuccess,
   agencyId,
   agencyName,
+  licenseToEdit,
 }: CreateLicenseModalProps) {
+  const isEditMode = !!licenseToEdit
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -58,12 +71,12 @@ export default function CreateLicenseModal({
   } = useForm<CreateLicenseFormData>({
     resolver: zodResolver(licenseSchema),
     defaultValues: {
-      license_name: '',
-      license_number: '',
-      state: '',
-      expiry_date: '',
-      activated_date: '',
-      renewal_due_date: '',
+      license_name: licenseToEdit?.license_name ?? '',
+      license_number: licenseToEdit?.license_number ?? '',
+      state: licenseToEdit?.state ?? '',
+      expiry_date: licenseToEdit?.expiry_date?.split('T')[0] ?? '',
+      activated_date: licenseToEdit?.activated_date?.split('T')[0] ?? '',
+      renewal_due_date: licenseToEdit?.renewal_due_date?.split('T')[0] ?? '',
     },
   })
 
@@ -94,6 +107,48 @@ export default function CreateLicenseModal({
 
     try {
       const supabase = createClient()
+
+      // ── Edit mode: update existing license ─────────────────────────────
+      if (isEditMode && licenseToEdit) {
+        const { error: updateError } = await q.updateLicenseById(supabase, licenseToEdit.id, {
+          license_name: data.license_name,
+          license_number: data.license_number || null,
+          state: data.state,
+          activated_date: data.activated_date || null,
+          expiry_date: data.expiry_date,
+          renewal_due_date: data.renewal_due_date || null,
+        })
+        if (updateError) throw updateError
+
+        // Optionally upload a new document version
+        if (selectedFile && documentName.trim()) {
+          const fileExt = selectedFile.name.split('.').pop()
+          const fileName = `license-${licenseToEdit.id}/${Date.now()}.${fileExt}`
+          const { error: uploadError } = await supabase.storage
+            .from('application-documents')
+            .upload(fileName, selectedFile, { upsert: false, contentType: selectedFile.type || `application/${fileExt}` })
+          if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
+
+          const { data: { publicUrl } } = supabase.storage.from('application-documents').getPublicUrl(fileName)
+          const { error: docError } = await q.insertLicenseDocument(supabase, {
+            license_id: licenseToEdit.id,
+            document_name: documentName.trim(),
+            document_url: publicUrl,
+            document_type: documentType || null,
+          })
+          if (docError) {
+            await supabase.storage.from('application-documents').remove([fileName])
+            throw new Error(`Document record failed: ${docError.message}`)
+          }
+        }
+
+        reset()
+        handleRemoveFile()
+        router.refresh()
+        onClose()
+        onSuccess()
+        return
+      }
 
       // ── Agency mode (admin/expert) ──────────────────────────────────────
       if (agencyId) {
@@ -221,7 +276,11 @@ export default function CreateLicenseModal({
     onClose()
   }
 
-  const title = agencyId && agencyName ? `Add License — ${agencyName}` : 'Create License'
+  const title = isEditMode
+    ? `Edit License — ${licenseToEdit!.license_name}`
+    : agencyId && agencyName
+    ? `Add License — ${agencyName}`
+    : 'Create License'
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title={title} size="lg">
@@ -434,7 +493,7 @@ export default function CreateLicenseModal({
                 {agencyId ? 'Adding…' : 'Creating...'}
               </>
             ) : (
-              agencyId ? 'Add License' : 'Create License'
+              isEditMode ? 'Save Changes' : agencyId ? 'Add License' : 'Create License'
             )}
           </button>
         </div>

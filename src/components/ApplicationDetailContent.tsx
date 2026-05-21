@@ -24,6 +24,8 @@ import {
   CheckSquare,
   Send,
   Users,
+  User,
+  Mail,
   Upload,
   X,
   Check,
@@ -35,7 +37,7 @@ import {
   Info,
   Building2,
 } from 'lucide-react'
-import { closeApplication } from '@/app/actions/applications'
+import { closeApplication, approveApplication } from '@/app/actions/applications'
 import UploadDocumentModal from './UploadDocumentModal'
 import Modal from './Modal'
 import ExpertStepsPanel from './ExpertStepsPanel'
@@ -122,6 +124,8 @@ interface ApplicationDetailContentProps {
   onTabChange?: (tab:  'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process') => void
   showInlineTabs?: boolean // If true, show tabs under summary blocks instead of in sidebar
   agencyName?: string | null
+  ownerProfile?: { id: string; full_name: string | null; email: string | null } | null
+  assignedExpertProfile?: { id: string; full_name: string | null; email: string | null } | null
 }
 
 type TabType =  'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process'
@@ -133,6 +137,8 @@ export default function ApplicationDetailContent({
   onTabChange,
   showInlineTabs = false,
   agencyName,
+  ownerProfile,
+  assignedExpertProfile,
 }: ApplicationDetailContentProps) {
   const [infoModalStep, setInfoModalStep] = useState<any | null>(null)
   const router = useRouter()
@@ -141,7 +147,10 @@ export default function ApplicationDetailContent({
   const activeTab = externalActiveTab ?? internalActiveTab
   const fromNotification = searchParams?.get('fromNotification') === 'true'
   
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0)
+
   const handleTabChange = (tab: TabType) => {
+    if (tab === 'message') setUnreadMessageCount(0)
     if (onTabChange) {
       onTabChange(tab)
     } else {
@@ -158,6 +167,7 @@ export default function ApplicationDetailContent({
   const [documentFilter, setDocumentFilter] = useState<'all' | 'pending' | 'drafts' | 'completed'>('all')
   const [licenseType, setLicenseType] = useState<any>(null)
   const [uploadForRequirementDoc, setUploadForRequirementDoc] = useState<RequirementDocument | null>(null)
+  const [replacingAdHocDocId, setReplacingAdHocDocId] = useState<string | null>(null)
   const [isLoadingLicenseType, setIsLoadingLicenseType] = useState(false)
   const [expertProfile, setExpertProfile] = useState<{ id: string; full_name: string | null; email: string | null } | null>(null)
   const [clientProfile, setClientProfile] = useState<{ id: string; full_name: string | null; email: string | null } | null>(null)
@@ -201,10 +211,24 @@ export default function ApplicationDetailContent({
   const [isLoadingApplications, setIsLoadingApplications] = useState(false)
   const [isCopyingExpertSteps, setIsCopyingExpertSteps] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
-  const canCloseApplication = currentUserRole === 'expert' && (application.progress_percentage ?? 0) === 100 && application.status !== 'closed'
+  // Unified progress — computed inline here so canClose/canApprove can use it at component init.
+  // The full calculations (completedSteps, etc.) are re-declared below in the render section;
+  // these early ones are for the button conditions only and use the same state sources.
+  const _useTemplate = !!(application?.license_type_id && application?.state)
+  const _earlyCompletedSteps = steps.filter(s => s.is_completed).length
+  const _earlyCompletedExpertSteps = expertSteps.filter(s => s.is_completed).length
+  const _earlyTotalDocs = _useTemplate ? requirementDocuments.length : documents.length
+  const _earlyTotalAll = steps.length + expertSteps.length + _earlyTotalDocs
+  const _earlyCompletedDocs = _useTemplate
+    ? requirementDocuments.filter(rd => documents.some(d => d.license_requirement_document_id === rd.id && (d.status === 'approved' || d.status === 'completed'))).length
+    : documents.filter(d => d.status === 'approved' || d.status === 'completed').length
+  const earlyComputedProgress = _earlyTotalAll === 0 ? (application.progress_percentage ?? 0) : Math.round((_earlyCompletedSteps + _earlyCompletedExpertSteps + _earlyCompletedDocs) / _earlyTotalAll * 100)
 
+  const canCloseApplication = currentUserRole === 'expert' && earlyComputedProgress === 100 && application.status !== 'closed'
+  const canApproveApplication = currentUserRole === 'admin' && application.status === 'under_review' && earlyComputedProgress === 100
 
   const handleCloseApplication = async () => {
     if (!canCloseApplication || isClosing) return
@@ -219,6 +243,19 @@ export default function ApplicationDetailContent({
       router.refresh()
     } finally {
       setIsClosing(false)
+    }
+  }
+
+  const handleApproveApplication = async () => {
+    if (!canApproveApplication || isApproving) return
+    if (!confirm('Approve this application? It will be marked as approved.')) return
+    setIsApproving(true)
+    try {
+      const { error } = await approveApplication(application.id)
+      if (error) { alert(error); return }
+      router.refresh()
+    } finally {
+      setIsApproving(false)
     }
   }
 
@@ -245,6 +282,35 @@ export default function ApplicationDetailContent({
       console.error('Error refreshing documents:', error)
     }
   }, [application.id, supabase])
+
+  const handleReplaceAdHocDocument = async (e: React.ChangeEvent<HTMLInputElement>, doc: Document) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setReplacingAdHocDocId(doc.id)
+    try {
+      const fileExt = file.name.split('.').pop()
+      const filePath = `${application.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+      const { error: uploadError } = await supabase.storage.from('application-documents').upload(filePath, file)
+      if (uploadError) throw uploadError
+      const { data: { publicUrl } } = supabase.storage.from('application-documents').getPublicUrl(filePath)
+      const { error: updateError } = await q.updateApplicationDocumentFile(supabase, doc.id, application.id, {
+        document_url: publicUrl,
+        document_name: doc.document_name,
+        document_type: doc.document_type,
+        description: doc.description ?? null,
+      })
+      if (updateError) {
+        await supabase.storage.from('application-documents').remove([filePath])
+        throw updateError
+      }
+      await refreshDocuments()
+    } catch (err: unknown) {
+      alert('Failed to replace document: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    } finally {
+      setReplacingAdHocDocId(null)
+    }
+  }
 
 
   const formatDate = (date: string | Date | null) => {
@@ -520,6 +586,33 @@ export default function ApplicationDetailContent({
     }
   }, [application.id, application.license_type_id, application.state, supabase])
 
+  const refreshExpertStepsSilently = useCallback(async () => {
+    if (!application.id) return
+    try {
+      const { data: allSteps, error } = await q.getApplicationStepsByApplicationId(supabase, application.id)
+      if (error || !allSteps) return
+      const expertStepsData = allSteps.filter((s: { is_expert_step?: boolean }) => s.is_expert_step)
+      setExpertSteps(expertStepsData.map((step: any) => ({
+        id: step.id,
+        step_name: step.step_name,
+        step_order: step.step_order,
+        description: step.description,
+        is_completed: step.is_completed,
+        is_expert_step: true,
+        created_by_expert_id: step.created_by_expert_id,
+        phase: step.phase ?? null,
+      })))
+    } catch {
+      // silent — optimistic update in ExpertStepsPanel already shows correct state
+    }
+  }, [application.id, supabase])
+
+  // Load expert steps on mount so progress percentage is accurate immediately
+  useEffect(() => {
+    fetchExpertSteps()
+  }, [fetchExpertSteps])
+
+  // Re-fetch when the Expert Process tab is opened (picks up any changes made elsewhere)
   useEffect(() => {
     if (activeTab === 'expert-process') {
       fetchExpertSteps()
@@ -940,11 +1033,15 @@ export default function ApplicationDetailContent({
 
           // Mark messages as read by adding current user ID to is_read array
           // Use RPC function to add user ID to array for all unread messages
-          const unreadMessages = messagesWithSenders.filter(msg => 
-            msg.sender_id !== currentUserId && 
+          const unreadMessages = messagesWithSenders.filter(msg =>
+            msg.sender_id !== currentUserId &&
             (!msg.is_read || !Array.isArray(msg.is_read) || !msg.is_read.includes(currentUserId))
           )
-          
+
+          if (activeTab !== 'message') {
+            setUnreadMessageCount(unreadMessages.length)
+          }
+
           if (unreadMessages.length > 0) {
             const ids = unreadMessages.map((m) => m.id).filter((id) => typeof id === 'string' && id.length > 0)
             if (ids.length > 0) {
@@ -1005,11 +1102,10 @@ export default function ApplicationDetailContent({
             )
           })
 
-          // DO NOT mark as read automatically when message arrives via real-time
-          // Messages should only be marked as read when:
-          // 1. User initially loads the conversation (handled in setupConversation)
-          // 2. User manually views/interacts with the conversation
-          // This ensures the notification badge updates correctly for unread messages
+          // Increment badge when message from another user arrives and Messages tab is not active
+          if (newMessage.sender_id !== currentUserId && activeTab !== 'message') {
+            setUnreadMessageCount(prev => prev + 1)
+          }
 
           // Scroll to bottom
           setTimeout(() => {
@@ -1285,6 +1381,8 @@ export default function ApplicationDetailContent({
   // Calculate statistics
   const completedSteps = steps.filter(s => s.is_completed).length
   const totalSteps = steps.length
+  const completedExpertSteps = expertSteps.filter(s => s.is_completed).length
+  const totalExpertSteps = expertSteps.length
   const pendingTasks = totalSteps - completedSteps
   // When we have requirement documents (template), count completed as requirement slots with an approved upload
   // Use template for Documents whenever current application has a license (state + license_type_id)
@@ -1293,6 +1391,8 @@ export default function ApplicationDetailContent({
   const completedDocuments = useTemplateForDocuments
     ? requirementDocuments.filter(rd => documents.some(d => d.license_requirement_document_id === rd.id && (d.status === 'approved' || d.status === 'completed'))).length
     : documents.filter(d => d.status === 'approved' || d.status === 'completed').length
+
+  const computedProgress = earlyComputedProgress
 
   // For template view: each row is a requirement doc; linked upload may exist. Filter rows by linked doc status.
   const getLinkedDocument = (requirementDocId: string) =>
@@ -1315,6 +1415,17 @@ export default function ApplicationDetailContent({
     if (documentFilter === 'drafts') return doc.status === 'draft' || doc.status === 'rejected'
     return true
   })
+
+  // Ad-hoc documents: uploaded by expert/admin without linking to a requirement slot
+  const filteredAdHocDocuments = documents
+    .filter(doc => !doc.license_requirement_document_id)
+    .filter(doc => {
+      if (documentFilter === 'all') return true
+      if (documentFilter === 'completed') return doc.status === 'approved' || doc.status === 'completed'
+      if (documentFilter === 'pending') return doc.status === 'pending'
+      if (documentFilter === 'drafts') return doc.status === 'draft' || doc.status === 'rejected'
+      return true
+    })
 
   const handleDownload = async (documentUrl: string, documentName: string) => {
     try {
@@ -1399,142 +1510,168 @@ export default function ApplicationDetailContent({
   }
 
 
-  // Summary blocks - always shown
+  // Derive display names for the compact header
+  const headerClientName =
+    ownerProfile?.full_name ||
+    (currentUserRole === 'expert' ? clientProfile?.full_name : null) ||
+    null
+  const headerExpertName =
+    assignedExpertProfile?.full_name ||
+    (currentUserRole !== 'expert' ? expertProfile?.full_name : null) ||
+    null
+
+  const getStatusStyles = (status: string) => {
+    switch (status) {
+      case 'in_progress':    return { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'In Progress' }
+      case 'under_review':   return { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Under Review' }
+      case 'needs_revision': return { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Needs Revision' }
+      case 'approved':       return { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Approved' }
+      case 'rejected':       return { bg: 'bg-red-100',    text: 'text-red-700',    label: 'Rejected' }
+      case 'closed':         return { bg: 'bg-gray-100',   text: 'text-gray-600',   label: 'Closed' }
+      default:               return { bg: 'bg-gray-100',   text: 'text-gray-600',   label: status }
+    }
+  }
+  const statusStyles = getStatusStyles(application.status)
+  const pct = computedProgress
+
+  // Compact header - always shown
   const summaryBlocks = (
     <>
-      {/* Welcome Header - title and Close button (expert, when 100%) */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-1">{application.application_name}</h1>
-          <p className="text-gray-600">Here&apos;s your licensing progress for {application.state}</p>
-        </div>
-        {canCloseApplication && (
-          <button
-            type="button"
-            onClick={handleCloseApplication}
-            disabled={isClosing}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-700 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-          >
-            {isClosing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-            Close application
-          </button>
-        )}
-      </div>
-
-      {/* Assigned Expert Block (for clients) or Client Info Block (for experts) */}
-      {currentUserRole === 'expert' ? (
-        // Show client info when user is an expert
-        clientProfile && (
-          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                <Users className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-semibold text-blue-900 mb-1">Client Information</div>
-                <div className="text-base font-medium text-gray-900">{clientProfile.full_name || 'Client'}</div>
-                {clientProfile.email && (
-                  <div className="text-sm text-gray-600 mt-1">{clientProfile.email}</div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          {/* Left: name + state + status badge */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-bold text-gray-900 truncate">{application.application_name}</h1>
+              {application.state && (
+                <span className="text-gray-400 text-sm hidden sm:inline">·</span>
+              )}
+              {application.state && (
+                <span className="text-sm text-gray-500">{application.state}</span>
+              )}
+              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusStyles.bg} ${statusStyles.text}`}>
+                {statusStyles.label}
+              </span>
+            </div>
+            {/* Client / Expert meta row */}
+            {(headerClientName || headerExpertName) && (
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                {headerClientName && (
+                  <span className="flex items-center gap-1 text-sm text-gray-600">
+                    <User className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="text-gray-400 text-xs">Client:</span>
+                    <span className="font-medium text-gray-700">{headerClientName}</span>
+                  </span>
+                )}
+                {headerClientName && headerExpertName && (
+                  <span className="text-gray-300 text-xs">|</span>
+                )}
+                {headerExpertName && (
+                  <span className="flex items-center gap-1 text-sm text-gray-600">
+                    <Users className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="text-gray-400 text-xs">Expert:</span>
+                    <span className="font-medium text-gray-700">{headerExpertName}</span>
+                  </span>
                 )}
               </div>
-            </div>
-          </div>
-        )
-      ) : (
-        // Show expert info when user is a client
-        expertProfile && (
-          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                <Users className="w-6 h-6 text-white" />
+            )}
+            {/* State info — processing time, fee, renewal */}
+            {licenseType && (
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                {licenseType.processing_time_display && (
+                  <span className="text-xs text-gray-500">⏱ {licenseType.processing_time_display}</span>
+                )}
+                {licenseType.cost_display && (
+                  <span className="text-xs text-gray-500">💲 {licenseType.cost_display}</span>
+                )}
+                {licenseType.renewal_period_display && (
+                  <span className="text-xs text-gray-500">🔄 Renewal: {licenseType.renewal_period_display}</span>
+                )}
               </div>
-              <div className="flex-1">
-                <div className="text-sm font-semibold text-blue-900 mb-1">Your Assigned Licensing Expert</div>
-                <div className="text-base font-medium text-gray-900">{expertProfile.full_name || 'Expert'}</div>
-              </div>
-            </div>
+            )}
           </div>
-        )
-      )}
 
-      {/* Agency Block */}
-      {agencyName && (
-        <div className="mb-6 bg-purple-50 border border-purple-200 rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center flex-shrink-0">
-              <Building2 className="w-6 h-6 text-white" />
+          {/* Right: progress + action buttons */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-32 bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="text-sm font-semibold text-gray-700 w-9 text-right">{pct}%</span>
             </div>
-            <div className="flex-1">
-              <div className="text-sm font-semibold text-purple-900 mb-1">Agency</div>
-              <div className="text-base font-medium text-gray-900">{agencyName}</div>
-            </div>
+            {canApproveApplication && (
+              <button
+                type="button"
+                onClick={handleApproveApplication}
+                disabled={isApproving}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                Approve
+              </button>
+            )}
+            {canCloseApplication && (
+              <button
+                type="button"
+                onClick={handleCloseApplication}
+                disabled={isClosing}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-700 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isClosing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+                Close
+              </button>
+            )}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                  <div className="text-sm font-medium text-gray-600 mb-2">Overall Progress</div>
-                  <div className="text-3xl font-bold text-gray-900 mb-2">{application.progress_percentage || 0}%</div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-gray-900 h-2 rounded-full transition-all"
-                      style={{ width: `${application.progress_percentage || 0}%` }}
-                    />
-            </div>
-          </div>
-
-                <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-medium text-gray-600">Completed Steps</div>
-                    <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  </div>
-                  <div className="text-3xl font-bold text-gray-900">{completedSteps} of {totalSteps}</div>
+      {/* Revision reason alert */}
+      {application.status === 'needs_revision' && (application as any).revision_reason && (
+        <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-start gap-2 text-sm text-orange-800">
+          <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-orange-500" />
+          <span><span className="font-semibold">Revision needed: </span>{(application as any).revision_reason}</span>
         </div>
-
-                <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-medium text-gray-600">Pending Tasks</div>
-                    <Clock className="w-5 h-5 text-orange-600" />
-            </div>
-                  <div className="text-3xl font-bold text-gray-900">{pendingTasks} Items remaining</div>
-          </div>
-
-                <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-medium text-gray-600">Documents</div>
-                    <FileText className="w-5 h-5 text-purple-600" />
-                  </div>
-                  <div className="text-3xl font-bold text-gray-900">{completedDocuments} of {totalDocuments} ready</div>
-            </div>
-          </div>
+      )}
     </>
   )
+
+  // Tab badge counts
+  const incompleteStepsCount = steps.filter(s => !s.is_completed).length
+  const incompleteExpertStepsCount = expertSteps.filter(s => !s.is_completed).length
+  const incompleteDocsCount = documents.filter(d => d.status !== 'approved' && d.status !== 'completed').length
 
   // Tab navigation UI
   const tabNavigation = showInlineTabs ? (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 -mt-2">
       <div className="border-b border-gray-200">
-        <nav className="flex space-x-4 px-6" aria-label="Tabs">
+        <nav className="flex space-x-4 px-6 overflow-x-auto" aria-label="Tabs">
           {[
-            { id: 'next-steps', label: 'Next Steps' },
-            { id: 'documents', label: 'Documents' },
-            { id: 'templates', label: 'Templates' },
-            { id: 'requirements', label: 'State Info' },
-            { id: 'message', label: 'Messages' },
-            ...(currentUserRole === 'expert' ? [{ id: 'expert-process', label: 'Expert Process' }] : []),
+            { id: 'next-steps',     label: 'Next Steps',    badge: incompleteStepsCount },
+            { id: 'documents',      label: 'Documents',     badge: incompleteDocsCount },
+            { id: 'templates',      label: 'Templates',     badge: 0 },
+            { id: 'message',        label: 'Messages',      badge: unreadMessageCount },
+            ...(currentUserRole === 'expert' || currentUserRole === 'admin'
+              ? [{ id: 'expert-process', label: 'Expert Process', badge: incompleteExpertStepsCount }]
+              : []),
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id as TabType)}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              className={`flex items-center gap-1.5 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               {tab.label}
+              {tab.badge > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-xs font-semibold leading-none">
+                  {tab.badge > 99 ? '99+' : tab.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -1813,19 +1950,29 @@ export default function ApplicationDetailContent({
               <div className="bg-white rounded-xl shadow-sm border border-gray-100">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
                   <h2 className="text-lg font-semibold text-gray-900">Documents</h2>
-                  <div className="relative flex items-center gap-4">
-                    
-                    <select
-                      value={documentFilter}
-                      onChange={(e) => setDocumentFilter(e.target.value as typeof documentFilter)}
-                      className="appearance-none pl-4 pr-10 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-700 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer min-w-[140px]"
-                    >
-                      <option value="all">All</option>
-                      <option value="drafts">Drafts</option>
-                      <option value="pending">Pending</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none" />
+                  <div className="flex items-center gap-3">
+                    {(currentUserRole === 'expert' || currentUserRole === 'admin') && (
+                      <button
+                        onClick={() => { setUploadForRequirementDoc(null); setIsUploadModalOpen(true) }}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Document
+                      </button>
+                    )}
+                    <div className="relative flex items-center">
+                      <select
+                        value={documentFilter}
+                        onChange={(e) => setDocumentFilter(e.target.value as typeof documentFilter)}
+                        className="appearance-none pl-4 pr-10 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-700 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer min-w-[140px]"
+                      >
+                        <option value="all">All</option>
+                        <option value="drafts">Drafts</option>
+                        <option value="pending">Pending</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none" />
+                    </div>
                   </div>
                 </div>
 
@@ -1894,7 +2041,7 @@ export default function ApplicationDetailContent({
                                   }`}>
                                     {status}
                                   </span>
-                                  {(currentUserRole === 'company_owner' || currentUserRole === 'expert') && (
+                                  {(currentUserRole === 'company_owner' || currentUserRole === 'expert' || currentUserRole === 'admin') && (
                                     <button
                                       onClick={() => {
                                         setUploadForRequirementDoc(reqDoc)
@@ -1944,6 +2091,62 @@ export default function ApplicationDetailContent({
                             </div>
                           )
                         })}
+                        {/* Additional Documents: ad-hoc uploads not linked to a requirement slot */}
+                        {(currentUserRole === 'expert' || currentUserRole === 'admin') && filteredAdHocDocuments.length > 0 && (
+                          <div className="mt-6 pt-6 border-t border-gray-200">
+                            <h3 className="text-sm font-semibold text-gray-700 mb-3">Additional Documents</h3>
+                            <div className="space-y-3">
+                              {filteredAdHocDocuments.map((doc) => (
+                                <div
+                                  key={doc.id}
+                                  className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-4 flex-1">
+                                      <FileText className="w-6 h-6 text-gray-400 mt-1 flex-shrink-0" />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="font-medium text-gray-900 mb-1">{doc.document_name}</div>
+                                        <div className="text-sm text-gray-500">
+                                          {doc.document_type || 'Document'} • Uploaded {formatDate(doc.created_at)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 flex-shrink-0">
+                                      <span className="px-3 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
+                                        completed
+                                      </span>
+                                      <input
+                                        type="file"
+                                        id={`replace-adhoc-${doc.id}`}
+                                        className="hidden"
+                                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                        onChange={(e) => handleReplaceAdHocDocument(e, doc)}
+                                      />
+                                      <label
+                                        htmlFor={`replace-adhoc-${doc.id}`}
+                                        className={`px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium flex items-center gap-2 cursor-pointer ${replacingAdHocDocId === doc.id ? 'opacity-50 pointer-events-none' : ''}`}
+                                      >
+                                        {replacingAdHocDocId === doc.id ? (
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                          <Upload className="w-4 h-4" />
+                                        )}
+                                        Upload
+                                      </label>
+                                      <button
+                                        onClick={() => handleDownload(doc.document_url, doc.document_name)}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium flex items-center gap-2"
+                                      >
+                                        <Download className="w-4 h-4" />
+                                        Download
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   ) : (
@@ -2208,51 +2411,12 @@ export default function ApplicationDetailContent({
         </div>
       )}
 
-      {activeTab === 'requirements' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">State-Specific Requirements</h2>
-            {isLoadingLicenseType ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-              </div>
-            ) : licenseType ? (
-              <div className="space-y-4">
-                <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                  <span className="text-sm text-gray-600">Average Processing Time</span>
-                  <span className="font-semibold text-gray-900">{licenseType.processing_time_display || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                  <span className="text-sm text-gray-600">Application Fee</span>
-                  <span className="font-semibold text-gray-900">{licenseType.cost_display || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between items-center py-2">
-                  <span className="text-sm text-gray-600">Renewal Period</span>
-                  <span className="font-semibold text-gray-900">{licenseType.renewal_period_display || 'N/A'}</span>
-                </div>
-                <a 
-                  href="#" 
-                  className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium mt-4"
-                >
-                  Learn more about {application.state} requirements
-                  <ArrowRight className="w-4 h-4" />
-                </a>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <p className="text-sm">No license type information available</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {activeTab === 'expert-process' && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900">Expert Process Steps</h2>
-              {currentUserRole === 'expert' && (
+              {(currentUserRole === 'expert' || currentUserRole === 'admin') && (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -2282,8 +2446,8 @@ export default function ApplicationDetailContent({
               )}
             </div>
 
-            {/* Add Expert Step modal with 3 tabs: New, Copy from Another License, Browse All Steps (same as admin) */}
-            {currentUserRole === 'expert' && (
+            {/* Add Expert Step modal with 3 tabs: New, Copy from Another License, Browse All Steps */}
+            {(currentUserRole === 'expert' || currentUserRole === 'admin') && (
               <Modal
                 isOpen={showAddExpertStepModal}
                 onClose={closeAddExpertStepModal}
@@ -2578,13 +2742,13 @@ export default function ApplicationDetailContent({
               <ExpertStepsPanel
                 applicationId={application.id}
                 expertSteps={expertSteps}
-                canToggle={currentUserRole === 'expert'}
-                onStepsChanged={fetchExpertSteps}
+                canToggle={currentUserRole === 'expert' || currentUserRole === 'admin'}
+                onStepsChanged={refreshExpertStepsSilently}
               />
             )}
 
-            {/* Copy Expert Steps to Another Application modal (same as admin) */}
-            {currentUserRole === 'expert' && (
+            {/* Copy Expert Steps to Another Application modal */}
+            {(currentUserRole === 'expert' || currentUserRole === 'admin') && (
               <Modal
                 isOpen={showCopyExpertStepsModal}
                 onClose={() => {
@@ -2788,7 +2952,7 @@ export default function ApplicationDetailContent({
         licenseRequirementDocumentId={uploadForRequirementDoc?.id ?? undefined}
         defaultDocumentName={uploadForRequirementDoc?.document_name ?? undefined}
         defaultDocumentType={uploadForRequirementDoc?.document_type ?? undefined}
-        autoApprove={currentUserRole === 'expert'}
+        autoApprove={currentUserRole === 'expert' || currentUserRole === 'admin'}
       />
 
       {/* Document Review Modal for Experts */}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import * as q from '@/lib/supabase/query'
 import {
   copyExpertStepsFromRequirementToApplication,
@@ -293,9 +294,8 @@ export default function ApplicationDetailContent({
       const filePath = `${application.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
       const { error: uploadError } = await supabase.storage.from('application-documents').upload(filePath, file)
       if (uploadError) throw uploadError
-      const { data: { publicUrl } } = supabase.storage.from('application-documents').getPublicUrl(filePath)
       const { error: updateError } = await q.updateApplicationDocumentFile(supabase, doc.id, application.id, {
-        document_url: publicUrl,
+        document_url: filePath,
         document_name: doc.document_name,
         document_type: doc.document_type,
         description: doc.description ?? null,
@@ -1427,9 +1427,12 @@ export default function ApplicationDetailContent({
       return true
     })
 
-  const handleDownload = async (documentUrl: string, documentName: string) => {
+  const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const response = await fetch(documentUrl)
+      const supabase = createClient()
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentPath)
+      if (!signedUrl) throw new Error('Could not generate download link')
+      const response = await fetch(signedUrl)
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -1441,7 +1444,7 @@ export default function ApplicationDetailContent({
       document.body.removeChild(a)
     } catch (error) {
       console.error('Error downloading file:', error)
-      window.open(documentUrl, '_blank')
+      alert('Failed to download document. Please try again.')
     }
   }
 
@@ -2976,15 +2979,14 @@ export default function ApplicationDetailContent({
                   Description: {selectedDocumentForReview.description}
                 </p>
               )}
-              <a
-                href={selectedDocumentForReview.document_url}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => handleDownload(selectedDocumentForReview.document_url, selectedDocumentForReview.document_name)}
                 className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
               >
                 <FileText className="w-4 h-4" />
                 View Document
-              </a>
+              </button>
             </div>
 
             <div>

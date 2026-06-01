@@ -37,10 +37,13 @@ import {
   SquareArrowOutUpRight
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
 import { expandSeriesOccurrences } from '@/lib/recurrence-dates'
 import * as q from '@/lib/supabase/query'
+import type { PatientAddress } from '@/lib/supabase/query/patient-addresses'
 import { updatePatientDocumentsAction, upsertPatientCaregiverRequirementsAction } from '@/app/actions/patients'
+import { addPatientAddressAction, updatePatientAddressAction, deletePatientAddressAction, setPrimaryPatientAddressAction } from '@/app/actions/patient-addresses'
 import { updatePatientServiceContractBillRateAction } from '@/app/actions/payroll-billing-report'
 import type { PatientRepresentative } from '@/lib/supabase/query/patients-representatives'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
@@ -59,6 +62,7 @@ import {
 } from '@/lib/patient-service-contract-effective'
 import Modal from '@/components/Modal'
 import zipcodes from 'zipcodes'
+import { US_STATES } from '@/lib/constants'
 
 const VISIT_TYPES = ['Routine', 'Medical', 'Therapy', 'Social', 'Other'] as const
 
@@ -234,13 +238,15 @@ interface ClientDetailContentProps {
   skilledCarePlanTasks?: SkilledCarePlanTask[] | null
   skilledSchedules?: PatientSkilledTaskDaySchedule[] | null
   serviceContracts?: PatientServiceContractRow[] | null
+  initialAddresses?: PatientAddress[]
 }
 
-export default function ClientDetailContent({ client, allClients, representatives = [], caregiverRequirements: initialCaregiverRequirements = null, 
-  incidents: initialIncidents = [], adls: initialAdls = [], adlSchedules: initialAdlSchedules = [], staff: staffList = [], 
+export default function ClientDetailContent({ client, allClients, representatives = [], caregiverRequirements: initialCaregiverRequirements = null,
+  incidents: initialIncidents = [], adls: initialAdls = [], adlSchedules: initialAdlSchedules = [], staff: staffList = [],
   contractedHours: initialContractedHours = [], skilledCarePlanTasks: initialSkilledCarePlanTasks = [],
   skilledSchedules: skilledSchedulesProp,
-  serviceContracts: initialServiceContracts = [] }: ClientDetailContentProps) {
+  serviceContracts: initialServiceContracts = [],
+  initialAddresses = [] }: ClientDetailContentProps) {
   const initialSkilledSchedules = skilledSchedulesProp ?? EMPTY_SKILLED_SCHEDULES
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -287,6 +293,14 @@ export default function ClientDetailContent({ client, allClients, representative
   const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null)
   const documentFileInputRef = useRef<HTMLInputElement>(null)
   const primaryDiagnosisInputRef = useRef<HTMLInputElement>(null)
+
+  // --- Patient addresses ---
+  const [addresses, setAddresses] = useState<PatientAddress[]>(initialAddresses)
+  const [addressModalOpen, setAddressModalOpen] = useState(false)
+  const [editingAddress, setEditingAddress] = useState<PatientAddress | null>(null)
+  const [addressForm, setAddressForm] = useState({ label: 'Home', street_address: '', city: '', state: '', zip_code: '', is_primary: false })
+  const [isSavingAddress, setIsSavingAddress] = useState(false)
+  const [addressError, setAddressError] = useState<string | null>(null)
   const [caregiverRequirements, setCaregiverRequirements] = useState<string[]>(initialCaregiverRequirements?.skill_codes ?? [])
   const [caregiverReqsModalOpen, setCaregiverReqsModalOpen] = useState(false)
   const [caregiverReqsSelection, setCaregiverReqsSelection] = useState<string[]>([])
@@ -425,6 +439,7 @@ export default function ClientDetailContent({ client, allClients, representative
   const [addVisitTab, setAddVisitTab] = useState<'details' | 'adls'>('details')
   const [visitForm, setVisitForm] = useState({
     date: '',
+    endDate: '',
     startTime: '09:00',
     endTime: '10:00',
     contractId: '',
@@ -438,6 +453,7 @@ export default function ClientDetailContent({ client, allClients, representative
     repeatMonthlyRules: [] as { ordinal: number | null; weekday: number | null }[],
     repeatStart: '',
     repeatEnd: '',
+    addressId: '',
   })
   const [visitAdlSelected, setVisitAdlSelected] = useState<Set<string>>(new Set())
   const [isSavingVisit, setIsSavingVisit] = useState(false)
@@ -1117,15 +1133,10 @@ export default function ClientDetailContent({ client, allClients, representative
         }
         uploadedPaths.push(path)
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('patient-documents')
-          .getPublicUrl(path)
-
         newDocs.push({
           id: docId,
           name: file.name,
           path,
-          url: publicUrl,
           uploaded_at: new Date().toISOString(),
           size: file.size,
         })
@@ -1168,11 +1179,14 @@ export default function ClientDetailContent({ client, allClients, representative
   }
 
   const downloadPatientDocument = async (doc: PatientDocument) => {
-    if (!doc.url) return
+    if (!doc.path) return
     setDownloadingDocId(doc.id)
     setDocumentUploadError(null)
     try {
-      const res = await fetch(doc.url)
+      const supabase = createClient()
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.PATIENT, doc.path)
+      if (!signedUrl) throw new Error('Could not generate download link')
+      const res = await fetch(signedUrl)
       if (!res.ok) throw new Error(`Download failed (${res.status})`)
       const blob = await res.blob()
       const objectUrl = URL.createObjectURL(blob)
@@ -1185,11 +1199,7 @@ export default function ClientDetailContent({ client, allClients, representative
       document.body.removeChild(a)
       URL.revokeObjectURL(objectUrl)
     } catch {
-      try {
-        window.open(doc.url, '_blank', 'noopener,noreferrer')
-      } catch {
-        setDocumentUploadError('Could not download this document. Try opening it in a new tab from your browser.')
-      }
+      setDocumentUploadError('Could not download this document. Try again.')
     } finally {
       setDownloadingDocId(null)
     }
@@ -1369,21 +1379,16 @@ export default function ClientDetailContent({ client, allClients, representative
     })
   }
 
-  const getIncidentFileUrl = (incident: PatientIncident) => {
-    if (!incident.file_path) return null
-    const supabase = createClient()
-    const { data: { publicUrl } } = supabase.storage.from('patient-documents').getPublicUrl(incident.file_path)
-    return publicUrl
-  }
-
   const downloadIncidentFile = async (incident: PatientIncident) => {
-    const url = getIncidentFileUrl(incident)
-    if (!url) return
+    if (!incident.file_path) return
     const displayName = incident.file_name?.trim() || 'incident-report'
     setDownloadingIncidentId(incident.id)
     setIncidentListError(null)
     try {
-      const res = await fetch(url)
+      const supabase = createClient()
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.PATIENT, incident.file_path)
+      if (!signedUrl) throw new Error('Could not generate download link')
+      const res = await fetch(signedUrl)
       if (!res.ok) throw new Error(`Download failed (${res.status})`)
       const blob = await res.blob()
       const objectUrl = URL.createObjectURL(blob)
@@ -1396,11 +1401,7 @@ export default function ClientDetailContent({ client, allClients, representative
       document.body.removeChild(a)
       URL.revokeObjectURL(objectUrl)
     } catch {
-      try {
-        window.open(url, '_blank', 'noopener,noreferrer')
-      } catch {
-        setIncidentListError('Could not download this file. Try again or open it in a new tab.')
-      }
+      setIncidentListError('Could not download this file. Try again or open it in a new tab.')
     } finally {
       setDownloadingIncidentId(null)
     }
@@ -2476,7 +2477,8 @@ export default function ClientDetailContent({ client, allClients, representative
     const staff = staffList ?? []
     const requiredSkills = caregiverRequirements ?? []
 
-    const clientZip = normalizeUsZipForLookup(localClient.zip_code)
+    const selectedAddr = addresses.find(a => a.id === visitForm.addressId)
+    const clientZip = normalizeUsZipForLookup(selectedAddr?.zip_code ?? localClient.zip_code)
 
     const startMins = parseTimeToMinutes(visitForm.startTime)
     const endMins = parseTimeToMinutes(visitForm.endTime)
@@ -2584,6 +2586,8 @@ export default function ClientDetailContent({ client, allClients, representative
     visitForm.date,
     visitForm.repeatStart,
     visitForm.isRecurring,
+    visitForm.addressId,
+    addresses,
     visitDateSchedules,
     caregiverAvailabilitySlots,
     editingSchedule?.id,
@@ -2830,11 +2834,13 @@ export default function ClientDetailContent({ client, allClients, representative
 
   const openAddVisitModal = () => {
     const today = toLocalDateString(new Date())
+    const primaryAddr = addresses.find(a => a.is_primary)
     setCaregiverPickerOpen(false)
     setCaregiverPickerFilter('all')
     setCaregiverPickerSort('proximity')
     setVisitForm({
       date: today,
+      endDate: today,
       startTime: '09:00',
       endTime: '10:00',
       contractId: activeContracts[0]?.id ?? '',
@@ -2848,6 +2854,39 @@ export default function ClientDetailContent({ client, allClients, representative
       repeatMonthlyRules: [{ ordinal: null, weekday: null }],
       repeatStart: today,
       repeatEnd: '',
+      addressId: primaryAddr?.id ?? '',
+    })
+    setVisitAdlSelected(new Set())
+    setAddVisitTab('details')
+    setVisitError(null)
+    setScheduleLimitWarning(null)
+    setAddVisitModalOpen(true)
+  }
+
+  const openAddVisitModalForDate = (dateStr: string, hour: number) => {
+    const primaryAddr = addresses.find(a => a.is_primary)
+    const startTime = `${String(hour).padStart(2, '0')}:00`
+    const endTime = hour < 23 ? `${String(hour + 1).padStart(2, '0')}:00` : '23:59'
+    setCaregiverPickerOpen(false)
+    setCaregiverPickerFilter('all')
+    setCaregiverPickerSort('proximity')
+    setVisitForm({
+      date: dateStr,
+      endDate: dateStr,
+      startTime,
+      endTime,
+      contractId: activeContracts[0]?.id ?? '',
+      description: '',
+      type: 'Routine',
+      caregiverId: '',
+      notes: '',
+      isRecurring: false,
+      repeatFrequency: '',
+      repeatDays: [],
+      repeatMonthlyRules: [{ ordinal: null, weekday: null }],
+      repeatStart: dateStr,
+      repeatEnd: '',
+      addressId: primaryAddr?.id ?? '',
     })
     setVisitAdlSelected(new Set())
     setAddVisitTab('details')
@@ -2875,6 +2914,7 @@ export default function ClientDetailContent({ client, allClients, representative
     setEditRecurringApplyScope(schedule.is_recurring ? 'weekday_in_series' : 'this_visit')
     setVisitForm({
       date: schedule.date,
+      endDate: schedule.end_date ?? schedule.date,
       startTime: start,
       endTime: end,
       contractId: schedule.contract_id ?? '',
@@ -2894,6 +2934,7 @@ export default function ClientDetailContent({ client, allClients, representative
       })(),
       repeatStart: schedule.repeat_start ?? schedule.date,
       repeatEnd: schedule.repeat_end ?? '',
+      addressId: (schedule as { patient_address_id?: string }).patient_address_id ?? addresses.find(a => a.is_primary)?.id ?? '',
     })
     {
       const dow = getDayOfWeekDb(schedule.date)
@@ -3333,6 +3374,22 @@ export default function ClientDetailContent({ client, allClients, representative
             : null,
         repeat_start: visitForm.isRecurring ? visitForm.repeatStart || null : null,
         repeat_end: visitForm.isRecurring && visitForm.repeatEnd ? visitForm.repeatEnd : null,
+        patient_address_id: visitForm.addressId || null,
+        end_date: visitForm.endDate && visitForm.endDate > visitForm.date ? visitForm.endDate : null,
+        end_day_offset: visitForm.endDate && visitForm.endDate > visitForm.date
+          ? Math.max(0, Math.round((new Date(visitForm.endDate + 'T12:00:00').getTime() - new Date(visitForm.date + 'T12:00:00').getTime()) / 86_400_000))
+          : 0,
+        mileage_miles: (() => {
+          if (!visitForm.caregiverId || !visitForm.addressId) return null
+          const selectedVisitAddr = addresses.find(a => a.id === visitForm.addressId)
+          const assignedCaregiver = (staffList ?? []).find(s => s.id === visitForm.caregiverId)
+          if (!selectedVisitAddr?.zip_code || !(assignedCaregiver as any)?.zip_code) return null
+          const from = normalizeUsZipForLookup((assignedCaregiver as any).zip_code)
+          const to = normalizeUsZipForLookup(selectedVisitAddr.zip_code)
+          if (!from || !to) return null
+          const d = zipcodes.distance(from, to)
+          return d != null && Number.isFinite(d) ? Math.round(d * 100) / 100 : null
+        })(),
       }
       if (visitForm.isRecurring) {
         const repeatStart = visitForm.repeatStart || datesToInsert[0]
@@ -3433,6 +3490,7 @@ export default function ClientDetailContent({ client, allClients, representative
             : null,
         repeat_start: visitForm.isRecurring ? visitForm.repeatStart || null : null,
         repeat_end: visitForm.isRecurring && visitForm.repeatEnd ? visitForm.repeatEnd : null,
+        end_date: visitForm.endDate && visitForm.endDate > dateToSave ? visitForm.endDate : null,
       }
       if (editingSchedule.is_recurring && editRecurringApplyScope !== 'this_visit') {
         // Keep each occurrence on its own calendar day for bulk recurring edits.
@@ -4533,17 +4591,8 @@ export default function ClientDetailContent({ client, allClients, representative
               <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-900">Contact Information</h3>
-                  {/* <button className="p-2 hover:bg-gray-200 rounded-lg transition-colors">
-                    <Edit className="w-4 h-4 text-gray-600" />
-                  </button> */}
                 </div>
                 <div className="space-y-3">
-                  <div>
-                    <span className="text-sm text-gray-600">Address:</span>
-                    <p className="text-sm font-medium text-gray-900">
-                      {localClient.street_address} {localClient.city}, {localClient.state} {localClient.zip_code}
-                    </p>
-                  </div>
                   <div>
                     <span className="text-sm text-gray-600">Phone Number:</span>
                     <p className="text-sm font-medium text-gray-900">{localClient.phone_number}</p>
@@ -4553,6 +4602,87 @@ export default function ClientDetailContent({ client, allClients, representative
                     <p className="text-sm font-medium text-gray-900">{localClient.email_address}</p>
                   </div>
                 </div>
+              </div>
+
+              {/* Addresses Card */}
+              <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Addresses</h3>
+                  <button
+                    onClick={() => {
+                      setEditingAddress(null)
+                      setAddressForm({ label: 'Home', street_address: '', city: '', state: '', zip_code: '', is_primary: addresses.length === 0 })
+                      setAddressError(null)
+                      setAddressModalOpen(true)
+                    }}
+                    className="flex items-center gap-1 text-sm font-medium text-blue-700 hover:underline"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Address
+                  </button>
+                </div>
+                {addresses.length === 0 ? (
+                  <p className="text-sm text-gray-400">No addresses on file.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {addresses.map((addr) => (
+                      <div key={addr.id} className="flex items-start justify-between gap-2 p-3 bg-white rounded border border-gray-200">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-sm font-semibold text-gray-800">{addr.label}</span>
+                            {addr.is_primary && (
+                              <span className="text-xs font-semibold px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">Primary</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600">{addr.street_address}, {addr.city}, {addr.state} {addr.zip_code}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {!addr.is_primary && (
+                            <button
+                              title="Set as primary"
+                              onClick={async () => {
+                                const prev = addresses
+                                setAddresses(addresses.map(a => ({ ...a, is_primary: a.id === addr.id })))
+                                const { error } = await setPrimaryPatientAddressAction(localClient.id, addr.id)
+                                if (error) setAddresses(prev)
+                              }}
+                              className="text-xs text-blue-700 hover:underline px-2 py-1 rounded hover:bg-blue-50"
+                            >
+                              Set Primary
+                            </button>
+                          )}
+                          <button
+                            title="Edit address"
+                            onClick={() => {
+                              setEditingAddress(addr)
+                              setAddressForm({ label: addr.label, street_address: addr.street_address, city: addr.city, state: addr.state, zip_code: addr.zip_code, is_primary: addr.is_primary })
+                              setAddressError(null)
+                              setAddressModalOpen(true)
+                            }}
+                            className="p-1.5 hover:bg-gray-100 rounded"
+                          >
+                            <Edit className="w-3.5 h-3.5 text-gray-500" />
+                          </button>
+                          {!addr.is_primary && addresses.length > 1 && (
+                            <button
+                              title="Delete address"
+                              onClick={async () => {
+                                if (!confirm('Delete this address?')) return
+                                const prev = addresses
+                                setAddresses(addresses.filter(a => a.id !== addr.id))
+                                const { error } = await deletePatientAddressAction(addr.id, localClient.id)
+                                if (error) { setAddresses(prev); alert(error) }
+                              }}
+                              className="p-1.5 hover:bg-red-50 rounded"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Emergency Contact Card */}
@@ -4825,7 +4955,7 @@ export default function ClientDetailContent({ client, allClients, representative
                     </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {doc.url && (
+                        {doc.path && (
                           <button
                             type="button"
                             onClick={() => downloadPatientDocument(doc)}
@@ -4997,7 +5127,7 @@ export default function ClientDetailContent({ client, allClients, representative
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {localIncidents.map((incident) => {
-                          const fileUrl = getIncidentFileUrl(incident)
+                          const hasFile = !!incident.file_path
                           return (
                             <tr key={incident.id} className="bg-white hover:bg-gray-50">
                               <td className="px-4 py-3 text-gray-900">{formatIncidentDate(incident.incident_date)}</td>
@@ -5005,18 +5135,23 @@ export default function ClientDetailContent({ client, allClients, representative
                               <td className="px-4 py-3 text-gray-900">{incident.primary_contact_person}</td>
                               <td className="px-4 py-3 text-gray-900 max-w-xs truncate" title={incident.description}>{incident.description}</td>
                               <td className="px-4 py-3">
-                                {incident.file_name && fileUrl ? (
-                                  <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline">
+                                {incident.file_name && hasFile ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadIncidentFile(incident)}
+                                    disabled={downloadingIncidentId === incident.id}
+                                    className="inline-flex items-center gap-1 text-blue-600 hover:underline disabled:opacity-50"
+                                  >
                                     <FileText className="w-4 h-4 shrink-0" />
                                     {incident.file_name}
-                                  </a>
+                                  </button>
                                 ) : (
                                   <span className="text-gray-400">—</span>
                                 )}
                               </td>
                               <td className="px-4 py-3 text-gray-600">{formatIncidentUploadedAt(incident.created_at)}</td>
                               <td className="px-4 py-3 text-right">
-                                {fileUrl ? (
+                                {hasFile ? (
                                   <button
                                     type="button"
                                     onClick={() => downloadIncidentFile(incident)}
@@ -5348,30 +5483,46 @@ export default function ClientDetailContent({ client, allClients, representative
                             </td>
                             {weekDates.map((d, colIdx) => {
                               const dateStr = toLocalDateString(d)
+
+                              // For multi-day visits: compute the effective start/end hour for this specific day.
+                              const getSegment = (s: typeof weekSchedules[0]) => {
+                                const startDate = s.date
+                                const endDate = s.end_date ?? s.date
+                                if (dateStr < startDate || dateStr > endDate) return null
+                                const isFirst = dateStr === startDate
+                                const isLast = dateStr === endDate
+                                const segStartH = isFirst ? parseStartHour(s.start_time ?? '00:00') : 0
+                                const segEndH = isLast ? parseEndHourExclusive(s.end_time ?? '00:00') || 24 : 24
+                                const totalDays = Math.round((new Date(endDate + 'T12:00:00').getTime() - new Date(startDate + 'T12:00:00').getTime()) / 86_400_000) + 1
+                                const dayIndex = Math.round((new Date(dateStr + 'T12:00:00').getTime() - new Date(startDate + 'T12:00:00').getTime()) / 86_400_000) + 1
+                                return { segStartH, segEndH, rowSpan: Math.max(1, segEndH - segStartH), totalDays, dayIndex }
+                              }
+
                               const block = weekSchedules.find((s) => {
-                                if (s.date !== dateStr) return false
-                                const startH = parseStartHour(s.start_time ?? '00:00')
-                                const endExcl = parseEndHourExclusive(s.end_time ?? '00:00') || startH + 1
-                                return startH === hour && endExcl > startH
+                                const seg = getSegment(s)
+                                return seg !== null && seg.segStartH === hour
                               })
                               const spanning = weekSchedules.some((s) => {
-                                if (s.date !== dateStr) return false
-                                const startH = parseStartHour(s.start_time ?? '00:00')
-                                const endExcl = parseEndHourExclusive(s.end_time ?? '00:00') || startH + 1
-                                return startH < hour && endExcl > hour
+                                const seg = getSegment(s)
+                                return seg !== null && seg.segStartH < hour && seg.segStartH + seg.rowSpan > hour
                               })
                               if (spanning) return null
                               if (block) {
+                                const seg = getSegment(block)!
+                                const { segStartH: sh, rowSpan } = seg
+                                const endHourExclusive = sh + rowSpan
+                                const isFirst = block.date === dateStr
                                 const startParts = (block.start_time ?? '0:0').split(':').slice(0, 2).map(Number)
                                 const endParts = (block.end_time ?? '0:0').split(':').slice(0, 2).map(Number)
-                                const sh = startParts[0] || 0
-                                const sm = startParts[1] || 0
+                                const sm = isFirst ? (startParts[1] || 0) : 0
                                 const eh = endParts[0] || 0
                                 const em = endParts[1] || 0
-                                const durationMins = Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
-                                const durationHours = Math.ceil(durationMins / 60) || 1
-                                const rowSpan = Math.max(1, durationHours)
-                                const endHourExclusive = sh + durationHours
+                                const isLast = (block.end_date ?? block.date) === dateStr
+                                const segDurationMins = isFirst && isLast
+                                  ? Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
+                                  : isFirst ? (24 * 60 - (sh * 60 + sm))
+                                  : isLast ? (eh * 60 + em)
+                                  : 24 * 60
                                 return (
                                   <td
                                     key={dateStr}
@@ -5401,12 +5552,15 @@ export default function ClientDetailContent({ client, allClients, representative
                                             <div className="font-medium">
                                               {block.start_time?.slice(0, 5)} - {block.end_time?.slice(0, 5)}
                                             </div>
+                                            {seg.totalDays > 1 && (
+                                              <div className="text-xs opacity-70">Day {seg.dayIndex} of {seg.totalDays}</div>
+                                            )}
                                             <div className="text-xs" style={{ color: colors.text }}>
                                               {block.type || 'Routine'}
                                             </div>
                                             <div className="mt-0.5 flex items-center gap-1 text-xs opacity-90" style={{ color: colors.text }}>
                                               <Clock className="w-3 h-3" />
-                                              {durationMins >= 60 ? `${Math.floor(durationMins / 60)}h` : `${durationMins}m`}
+                                              {segDurationMins >= 60 ? `${Math.floor(segDurationMins / 60)}h` : `${segDurationMins}m`}
                                             </div>
                                           </div>
                                           <span
@@ -5425,9 +5579,13 @@ export default function ClientDetailContent({ client, allClients, representative
                               return (
                                 <td
                                   key={dateStr}
-                                  className="border-b border-r border-gray-200 p-0 text-center last:border-r-0"
+                                  className="border-b border-r border-gray-200 p-0 text-center last:border-r-0 cursor-pointer hover:bg-blue-50 group"
                                   style={{ height: '3rem' }}
-                                />
+                                  onClick={() => openAddVisitModalForDate(dateStr, hour)}
+                                  title="Click to add a visit"
+                                >
+                                  <span className="flex items-center justify-center h-full text-blue-300 text-xl leading-none select-none opacity-0 group-hover:opacity-100">+</span>
+                                </td>
                               )
                             })}
                           </tr>
@@ -6879,16 +7037,33 @@ export default function ClientDetailContent({ client, allClients, representative
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date {!visitForm.isRecurring && '*'}</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date {!visitForm.isRecurring && '*'}</label>
                 <input
                   type="date"
                   value={visitForm.date}
-                  onChange={(e) => setVisitForm((p) => ({ ...p, date: e.target.value }))}
+                  onChange={(e) => setVisitForm((p) => ({ ...p, date: e.target.value, endDate: p.endDate < e.target.value ? e.target.value : p.endDate }))}
                   className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500"
                   disabled={isSavingVisit || visitForm.isRecurring}
                 />
                 {visitForm.isRecurring && (
                   <p className="mt-1 text-xs text-gray-500">Ignored when Recurring is on. Use Start/End Date in Recurring section.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">End Date {!visitForm.isRecurring && '*'}</label>
+                <input
+                  type="date"
+                  value={visitForm.endDate}
+                  min={visitForm.date}
+                  onChange={(e) => setVisitForm((p) => ({ ...p, endDate: e.target.value }))}
+                  className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500"
+                  disabled={isSavingVisit || visitForm.isRecurring}
+                />
+                {visitForm.endDate > visitForm.date && (
+                  <p className="mt-1 text-xs text-blue-600">
+                    {Math.round((new Date(visitForm.endDate + 'T12:00:00').getTime() - new Date(visitForm.date + 'T12:00:00').getTime()) / 86_400_000) + 1}-day visit
+                    {visitForm.isRecurring && ' · each occurrence runs this many days'}
+                  </p>
                 )}
               </div>
             </div>
@@ -6914,6 +7089,24 @@ export default function ClientDetailContent({ client, allClients, representative
                 />
               </div>
             </div>
+            {addresses.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Visit Location</label>
+                <select
+                  value={visitForm.addressId}
+                  onChange={(e) => setVisitForm((p) => ({ ...p, addressId: e.target.value }))}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm bg-white text-gray-900"
+                  disabled={isSavingVisit}
+                >
+                  <option value="">— No address selected —</option>
+                  {addresses.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}{a.is_primary ? ' (Primary)' : ''} — {a.street_address}, {a.city}, {a.state} {a.zip_code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-sm font-medium text-gray-700">Billing Contract <span className="text-red-500">*</span></label>
@@ -7298,16 +7491,33 @@ export default function ClientDetailContent({ client, allClients, representative
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date {!visitForm.isRecurring && '*'}</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date {!visitForm.isRecurring && '*'}</label>
                 <input
                   type="date"
                   value={visitForm.date}
-                  onChange={(e) => setVisitForm((p) => ({ ...p, date: e.target.value }))}
+                  onChange={(e) => setVisitForm((p) => ({ ...p, date: e.target.value, endDate: p.endDate < e.target.value ? e.target.value : p.endDate }))}
                   className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500"
                   disabled={isSavingVisit || visitForm.isRecurring}
                 />
                 {visitForm.isRecurring && (
                   <p className="mt-1 text-xs text-gray-500">Ignored when Recurring is on. Use Start/End Date in Recurring section.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">End Date {!visitForm.isRecurring && '*'}</label>
+                <input
+                  type="date"
+                  value={visitForm.endDate}
+                  min={visitForm.date}
+                  onChange={(e) => setVisitForm((p) => ({ ...p, endDate: e.target.value }))}
+                  className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500"
+                  disabled={isSavingVisit || visitForm.isRecurring}
+                />
+                {visitForm.endDate > visitForm.date && (
+                  <p className="mt-1 text-xs text-blue-600">
+                    {Math.round((new Date(visitForm.endDate + 'T12:00:00').getTime() - new Date(visitForm.date + 'T12:00:00').getTime()) / 86_400_000) + 1}-day visit
+                    {visitForm.isRecurring && ' · each occurrence runs this many days'}
+                  </p>
                 )}
               </div>
             </div>
@@ -7333,6 +7543,24 @@ export default function ClientDetailContent({ client, allClients, representative
                 />
               </div>
             </div>
+            {addresses.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Visit Location</label>
+                <select
+                  value={visitForm.addressId}
+                  onChange={(e) => setVisitForm((p) => ({ ...p, addressId: e.target.value }))}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm bg-white text-gray-900"
+                  disabled={isSavingVisit}
+                >
+                  <option value="">— No address selected —</option>
+                  {addresses.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}{a.is_primary ? ' (Primary)' : ''} — {a.street_address}, {a.city}, {a.state} {a.zip_code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-sm font-medium text-gray-700">Billing Contract <span className="text-red-500">*</span></label>
@@ -8033,6 +8261,149 @@ export default function ClientDetailContent({ client, allClients, representative
           </div>
         </div>
       </Modal>
+
+      {/* Address Add / Edit Modal */}
+      {addressModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl">
+              <h2 className="text-lg font-bold text-gray-900">{editingAddress ? 'Edit Address' : 'Add Address'}</h2>
+              <button onClick={() => setAddressModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {addressError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{addressError}</div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Label</label>
+                <select
+                  value={addressForm.label}
+                  onChange={(e) => setAddressForm(f => ({ ...f, label: e.target.value }))}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm bg-white"
+                >
+                  <option>Home</option>
+                  <option>Work</option>
+                  <option>Facility</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Street Address *</label>
+                <input
+                  type="text"
+                  value={addressForm.street_address}
+                  onChange={(e) => setAddressForm(f => ({ ...f, street_address: e.target.value }))}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  placeholder="123 Main Street"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+                  <input
+                    type="text"
+                    value={addressForm.city}
+                    onChange={(e) => setAddressForm(f => ({ ...f, city: e.target.value }))}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                    placeholder="Austin"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">ZIP Code *</label>
+                  <input
+                    type="text"
+                    value={addressForm.zip_code}
+                    onChange={(e) => setAddressForm(f => ({ ...f, zip_code: e.target.value }))}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                    placeholder="78701"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">State *</label>
+                <select
+                  value={addressForm.state}
+                  onChange={(e) => setAddressForm(f => ({ ...f, state: e.target.value }))}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm bg-white"
+                >
+                  <option value="">Select state</option>
+                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="addr-is-primary"
+                  checked={addressForm.is_primary}
+                  disabled={editingAddress?.is_primary || addresses.length === 0}
+                  onChange={(e) => setAddressForm(f => ({ ...f, is_primary: e.target.checked }))}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                />
+                <label htmlFor="addr-is-primary" className="text-sm text-gray-700">Set as primary address</label>
+              </div>
+            </div>
+            <div className="px-6 pb-6 flex justify-end gap-3">
+              <button
+                onClick={() => setAddressModalOpen(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={isSavingAddress}
+                onClick={async () => {
+                  if (!addressForm.street_address.trim() || !addressForm.city.trim() || !addressForm.state || !addressForm.zip_code.trim()) {
+                    setAddressError('Street address, city, state, and ZIP code are required.')
+                    return
+                  }
+                  setIsSavingAddress(true)
+                  setAddressError(null)
+                  if (editingAddress) {
+                    const prev = addresses
+                    const updated = addresses.map(a => a.id === editingAddress.id
+                      ? { ...a, ...addressForm }
+                      : addressForm.is_primary ? { ...a, is_primary: false } : a)
+                    setAddresses(updated)
+                    const { error } = await updatePatientAddressAction(editingAddress.id, localClient.id, addressForm)
+                    if (error) { setAddresses(prev); setAddressError(error) }
+                    else setAddressModalOpen(false)
+                  } else {
+                    const { error, id } = await addPatientAddressAction(localClient.id, {
+                      patient_id: localClient.id,
+                      ...addressForm,
+                    })
+                    if (error) { setAddressError(error) }
+                    else {
+                      // Optimistically append the new address (server action revalidated path)
+                      const newAddr: PatientAddress = {
+                        id: id ?? crypto.randomUUID(),
+                        patient_id: localClient.id,
+                        agency_id: '',
+                        ...addressForm,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      }
+                      setAddresses(prev =>
+                        addressForm.is_primary
+                          ? [...prev.map(a => ({ ...a, is_primary: false })), newAddr]
+                          : [...prev, newAddr]
+                      )
+                      setAddressModalOpen(false)
+                    }
+                  }
+                  setIsSavingAddress(false)
+                }}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
+              >
+                {isSavingAddress && <Loader2 className="w-4 h-4 animate-spin" />}
+                {editingAddress ? 'Save Changes' : 'Add Address'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

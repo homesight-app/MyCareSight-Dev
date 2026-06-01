@@ -46,6 +46,10 @@ export interface ScheduleRow {
   status: string | null
   created_at: string
   updated_at: string
+  patient_address_id?: string | null
+  mileage_miles?: number | null
+  patient_address?: { id: string; zip_code: string; street_address: string; city: string; state: string; label: string } | null
+  end_date?: string | null
 }
 
 const visitSelect = `
@@ -64,7 +68,11 @@ const visitSelect = `
   status,
   is_recurring,
   created_at,
-  updated_at
+  updated_at,
+  patient_address_id,
+  mileage_miles,
+  scheduled_end_date,
+  patient_address:patient_addresses(id, zip_code, street_address, city, state, label)
 `
 
 /** Same columns as {@link visitSelect} plus nested ADL/task rows (one round-trip). */
@@ -218,6 +226,10 @@ function toScheduleRow(v: ScheduledVisitDbRowWithTasks, adlCodes: string[]): Sch
     status: v.status,
     created_at: v.created_at,
     updated_at: v.updated_at,
+    patient_address_id: (v as any).patient_address_id ?? null,
+    mileage_miles: (v as any).mileage_miles ?? null,
+    patient_address: (v as any).patient_address ?? null,
+    end_date: (v as any).scheduled_end_date ?? null,
   }
 }
 
@@ -410,6 +422,9 @@ export async function insertSchedule(
     repeat_monthly_rules?: { ordinal: number; weekday: number }[] | null
     repeat_start?: string | null
     repeat_end?: string | null
+    patient_address_id?: string | null
+    mileage_miles?: number | null
+    end_date?: string | null
   }
 ) {
   const agency = await requirePatientAgencyId(supabase, data.patient_id)
@@ -432,6 +447,9 @@ export async function insertSchedule(
       visit_type: data.type ?? null,
       status: 'scheduled',
       is_recurring: data.is_recurring ?? false,
+      patient_address_id: data.patient_address_id ?? null,
+      mileage_miles: data.mileage_miles ?? null,
+      ...(data.end_date && data.end_date > data.date ? { scheduled_end_date: data.end_date } : {}),
     })
     .select(visitSelect)
     .single()
@@ -463,6 +481,9 @@ export async function insertRecurringSchedulesFromSeries(
     repeat_monthly_rules?: { ordinal: number; weekday: number }[] | null
     repeat_start: string
     repeat_end?: string | null
+    patient_address_id?: string | null
+    mileage_miles?: number | null
+    end_day_offset?: number
   }
 ) {
   if (data.dates.length === 0) return { data: [], error: { message: 'No dates to insert.' } }
@@ -473,6 +494,8 @@ export async function insertRecurringSchedulesFromSeries(
     data.repeat_monthly_rules && data.repeat_monthly_rules.length > 0
       ? data.repeat_monthly_rules
       : null
+
+  const endDayOffset = data.end_day_offset ?? 0
 
   const { data: series, error: seriesError } = await supabase
     .from('visit_series')
@@ -490,14 +513,22 @@ export async function insertRecurringSchedulesFromSeries(
       repeat_monthly_rules: monthly,
       notes: data.notes ?? null,
       status: 'active',
+      end_day_offset: endDayOffset,
     })
     .select('id')
     .single()
 
   if (seriesError || !series?.id) return { data: null, error: seriesError ?? { message: 'Failed to create visit series.' } }
 
+  const addDays = (dateStr: string, days: number): string => {
+    const d = new Date(dateStr + 'T12:00:00')
+    d.setDate(d.getDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
+
   const rows = data.dates.map((dateStr) => {
     const utcParts = toUtcVisitParts(dateStr, data.start_time ?? null, data.end_time ?? null)
+    const instanceEndDate = endDayOffset > 0 ? addDays(dateStr, endDayOffset) : null
     return {
       agency_id: agency.agency_id,
       visit_series_id: series.id,
@@ -513,6 +544,9 @@ export async function insertRecurringSchedulesFromSeries(
       visit_type: data.type ?? null,
       status: 'scheduled',
       is_recurring: true,
+      patient_address_id: data.patient_address_id ?? null,
+      mileage_miles: data.mileage_miles ?? null,
+      ...(instanceEndDate ? { scheduled_end_date: instanceEndDate } : {}),
     }
   })
 
@@ -555,6 +589,7 @@ export async function updateSchedule(
     repeat_start?: string | null
     repeat_end?: string | null
     status?: string | null
+    end_date?: string | null
   }
 ) {
   const { data: existing, error: fetchErr } = await supabase
@@ -600,6 +635,9 @@ export async function updateSchedule(
   if (data.is_recurring !== undefined) patch.is_recurring = data.is_recurring
   if (data.status !== undefined) {
     patch.status = data.status === null || data.status === '' ? 'scheduled' : data.status
+  }
+  if (data.end_date !== undefined) {
+    patch.scheduled_end_date = (data.end_date && data.date && data.end_date > data.date) ? data.end_date : null
   }
 
   const { data: visit, error } = await supabase

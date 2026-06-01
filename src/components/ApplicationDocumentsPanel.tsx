@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Folder, Download, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 interface Document {
   id: string
@@ -46,11 +47,14 @@ export default function ApplicationDocumentsPanel({
         await Promise.all(
           data.map(async (doc) => {
             try {
-              const response = await fetch(doc.document_url, { method: 'HEAD' })
-              const contentLength = response.headers.get('content-length')
-              if (contentLength) {
-                const bytes = parseInt(contentLength, 10)
-                sizes[doc.id] = formatFileSize(bytes)
+              const docSignedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, doc.document_url)
+              if (docSignedUrl) {
+                const response = await fetch(docSignedUrl, { method: 'HEAD' })
+                const contentLength = response.headers.get('content-length')
+                if (contentLength) {
+                  const bytes = parseInt(contentLength, 10)
+                  sizes[doc.id] = formatFileSize(bytes)
+                }
               }
             } catch (err) {
               console.error('Error fetching file size:', err)
@@ -84,9 +88,12 @@ export default function ApplicationDocumentsPanel({
     return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
   }
 
-  const handleDownload = async (documentUrl: string, documentName: string) => {
+  const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const response = await fetch(documentUrl)
+      const supabase = createClient()
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentPath)
+      if (!signedUrl) throw new Error('Failed to generate download URL')
+      const response = await fetch(signedUrl)
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -98,7 +105,6 @@ export default function ApplicationDocumentsPanel({
       document.body.removeChild(a)
     } catch (error) {
       console.error('Error downloading file:', error)
-      window.open(documentUrl, '_blank')
     }
   }
 

@@ -117,13 +117,14 @@ export default function DashboardLayout({
         { href: '/pages/agency/care-visits', label: 'Care Visits', icon: CalendarDays },
         { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign },
         { href: '/pages/agency/reports', label: 'Reports', icon: BarChart3 },
-        { href: '/pages/agency/configuration', label: 'Configuration', icon: Settings },
       ]
     : [
         { href: '/pages/agency', label: 'Home', icon: Home },
         { href: '/pages/agency/licenses', label: 'Licenses', icon: Medal },
         { href: '/pages/agency/clients', label: 'Clients', icon: UserCircle },
         { href: '/pages/agency/caregiver', label: 'Caregivers', icon: Users },
+        { href: '/pages/agency/care-visits', label: 'Care Visits', icon: CalendarDays },
+        { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign },
         { href: '/pages/agency/reports', label: 'Reports', icon: BarChart3 },
         { href: '/pages/agency/configuration', label: 'Configuration', icon: Settings },
         // { href: '/pages/agency/messages', label: 'Messages', icon: MessageSquare },

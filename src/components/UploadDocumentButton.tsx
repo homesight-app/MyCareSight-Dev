@@ -89,15 +89,10 @@ export default function UploadDocumentButton({
         throw new Error(`Upload failed: ${errorMsg}. Please check storage bucket exists and policies are configured.`)
       }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('application-documents')
-        .getPublicUrl(filePath)
-
       const { error: insertError } = await q.insertApplicationDocument(supabase, {
         application_id: applicationId,
         document_name: file.name,
-        document_url: publicUrl,
+        document_url: filePath,
         document_type: null,
         status: 'draft'
       })

@@ -27,21 +27,7 @@ function toHHMM(t: string | null): string {
   return String(t).slice(0, 5)
 }
 
-function hoursFromSchedule(start: string | null, end: string | null): number {
-  if (!start || !end) return 0
-  const toMinutes = (raw: string) => {
-    const s = String(raw).trim()
-    const parts = s.split(':').map((x) => parseInt(x, 10))
-    const h = parts[0]
-    const m = parts[1]
-    if (!Number.isFinite(h)) return NaN
-    return h * 60 + (Number.isFinite(m) ? m : 0)
-  }
-  const a = toMinutes(start)
-  const b = toMinutes(end)
-  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0
-  return round2((b - a) / 60)
-}
+import { hoursFromScheduleWithDates } from '@/lib/payroll-calculations'
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
@@ -51,7 +37,7 @@ export async function fetchTimeBillingRows(supabase: Supabase): Promise<{ rows: 
   const { data: visits, error: visitsErr } = await supabase
     .from('scheduled_visits')
     .select(
-      'id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, service_type, mileage_miles'
+      'id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, scheduled_end_date, service_type, mileage_miles'
     )
     .eq('status', 'completed')
     .order('visit_date', { ascending: false })
@@ -150,7 +136,12 @@ export async function fetchTimeBillingRows(supabase: Supabase): Promise<{ rows: 
           | 'non_skilled'
           | 'skilled'
       const caregiverId = sv.caregiver_member_id ?? ''
-      const scheduleHours = hoursFromSchedule(sv.scheduled_start_time, sv.scheduled_end_time)
+      const scheduleHours = hoursFromScheduleWithDates(
+        sv.visit_date,
+        sv.scheduled_start_time,
+        (sv as any).scheduled_end_date,
+        sv.scheduled_end_time
+      )
 
       const resolve = (fin: number | null | undefined, appr: number | null | undefined, ent: number | null | undefined) => {
         const f = fin != null ? Number(fin) : NaN

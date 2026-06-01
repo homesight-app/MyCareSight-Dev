@@ -22,6 +22,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import Modal from './Modal'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 interface Application {
   id: string
@@ -244,9 +245,12 @@ export default function ExpertApplicationDetailModal({
     }
   }, [isOpen, application, fetchDocuments, fetchSteps])
 
-  const handleDownload = async (documentUrl: string, documentName: string) => {
+  const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const response = await fetch(documentUrl)
+      const supabase = createClient()
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentPath)
+      if (!signedUrl) throw new Error('Failed to generate download URL')
+      const response = await fetch(signedUrl)
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')

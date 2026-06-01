@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import CreateLicenseModal from './CreateLicenseModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
 import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
@@ -163,7 +164,9 @@ export default function AgencyDetailContent({
         alert('No document has been uploaded for this license yet.')
         return
       }
-      const response = await fetch(data.document_url)
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, data.document_url)
+      if (!signedUrl) throw new Error('Failed to generate download URL')
+      const response = await fetch(signedUrl)
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -193,11 +196,10 @@ export default function AgencyDetailContent({
         .upload(filePath, uploadFile, { upsert: false, contentType: uploadFile.type || `application/${fileExt}` })
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage.from('application-documents').getPublicUrl(filePath)
       const { error: docError } = await q.insertLicenseDocument(supabase, {
         license_id: uploadDocLicense.id,
         document_name: uploadDocName.trim() || uploadFile.name,
-        document_url: publicUrl,
+        document_url: filePath,
         document_type: null,
       })
       if (docError) {

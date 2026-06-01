@@ -129,11 +129,10 @@ export default function CreateLicenseModal({
             .upload(fileName, selectedFile, { upsert: false, contentType: selectedFile.type || `application/${fileExt}` })
           if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
 
-          const { data: { publicUrl } } = supabase.storage.from('application-documents').getPublicUrl(fileName)
           const { error: docError } = await q.insertLicenseDocument(supabase, {
             license_id: licenseToEdit.id,
             document_name: documentName.trim(),
-            document_url: publicUrl,
+            document_url: fileName,
             document_type: documentType || null,
           })
           if (docError) {
@@ -166,12 +165,8 @@ export default function CreateLicenseModal({
             })
           if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
 
-          const { data: { publicUrl } } = supabase.storage
-            .from('application-documents')
-            .getPublicUrl(fileName)
-
           docPayload = {
-            url: publicUrl,
+            url: fileName,
             name: documentName.trim(),
             type: documentType || null,
           }
@@ -192,8 +187,7 @@ export default function CreateLicenseModal({
         if (result.error) {
           // Clean up uploaded file if server action failed
           if (docPayload?.url) {
-            const path = docPayload.url.split('/application-documents/')[1]
-            if (path) await supabase.storage.from('application-documents').remove([path])
+            await supabase.storage.from('application-documents').remove([docPayload.url])
           }
           throw new Error(result.error)
         }
@@ -239,14 +233,10 @@ export default function CreateLicenseModal({
           })
         if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('application-documents')
-          .getPublicUrl(fileName)
-
         const docData: { license_id: string; document_name: string; document_url: string; document_type: string | null; expiry_date?: string } = {
           license_id: newLicense.id,
           document_name: documentName.trim(),
-          document_url: publicUrl,
+          document_url: fileName,
           document_type: documentType || null,
         }
         if (data.expiry_date) docData.expiry_date = data.expiry_date

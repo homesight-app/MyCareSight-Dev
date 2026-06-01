@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 interface DownloadCertificationButtonProps {
   documentUrl: string | null | undefined
@@ -23,23 +25,22 @@ export default function DownloadCertificationButton({
 
     setIsDownloading(true)
     try {
-      // Fetch the file
-      const response = await fetch(documentUrl)
+      const supabase = createClient()
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentUrl)
+      if (!signedUrl) throw new Error('Failed to generate download URL')
+
+      const response = await fetch(signedUrl)
       if (!response.ok) {
         throw new Error('Failed to download file')
       }
 
-      // Get the blob
       const blob = await response.blob()
 
-      // Get file extension from URL or blob type
       const urlParts = documentUrl.split('.')
       const extension = urlParts.length > 1 ? urlParts[urlParts.length - 1].split('?')[0] : 'pdf'
-      
-      // Determine file type from blob or extension
+
       let mimeType = blob.type
       if (!mimeType || mimeType === 'application/octet-stream') {
-        // Try to determine from extension
         const ext = extension.toLowerCase()
         if (ext === 'pdf') mimeType = 'application/pdf'
         else if (['jpg', 'jpeg'].includes(ext)) mimeType = 'image/jpeg'
@@ -49,22 +50,14 @@ export default function DownloadCertificationButton({
         else if (ext === 'docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       }
 
-      // Create a blob URL
       const blobUrl = window.URL.createObjectURL(blob)
-
-      // Create a temporary anchor element and trigger download
       const a = document.createElement('a')
       a.href = blobUrl
-      
-      // Create a safe filename
       const safeStaffName = staffName.replace(/[^a-z0-9]/gi, '_').toLowerCase()
       const safeCertName = certificationName.replace(/[^a-z0-9]/gi, '_').toLowerCase()
       a.download = `${safeStaffName}_${safeCertName}.${extension}`
-
       document.body.appendChild(a)
       a.click()
-
-      // Cleanup
       document.body.removeChild(a)
       window.URL.revokeObjectURL(blobUrl)
     } catch (error) {

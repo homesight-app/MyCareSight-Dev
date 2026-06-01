@@ -142,6 +142,20 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
         return
       }
 
+      // Seed the initial primary address into patient_addresses
+      if (formData.street_address.trim()) {
+        await q.insertPatientAddress(supabase, {
+          patient_id: (insertedPatient as any).id,
+          agency_id: up.agency_id,
+          label: 'Home',
+          street_address: formData.street_address,
+          city: formData.city,
+          state: formData.state,
+          zip_code: formData.zip_code,
+          is_primary: true,
+        })
+      }
+
       setFormData({
         full_name: '',
         date_of_birth: '',

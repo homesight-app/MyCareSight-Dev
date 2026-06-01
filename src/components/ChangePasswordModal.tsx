@@ -71,12 +71,6 @@ export default function ChangePasswordModal({
         return
       }
 
-      // Store email and new password in sessionStorage for pre-filling (will be cleared after use)
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('changed_password', data.newPassword)
-        sessionStorage.setItem('changed_email', user.email)
-      }
-
       // Sign out the user
       const { error: signOutError } = await supabase.auth.signOut()
       

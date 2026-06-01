@@ -102,15 +102,10 @@ export default function UploadLicenseDocumentModal({
         throw new Error(`Upload failed: ${errorMsg}. Please check storage bucket exists and policies are configured.`)
       }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('application-documents')
-        .getPublicUrl(filePath)
-        
       const documentData: any = {
         license_id: licenseId,
         document_name: documentName,
-        document_url: publicUrl,
+        document_url: filePath,
         document_type: documentType || null
       }
 

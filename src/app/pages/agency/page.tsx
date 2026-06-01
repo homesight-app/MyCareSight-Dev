@@ -167,61 +167,6 @@ export default async function DashboardPage() {
   const expiringSoon = expiringLicenses + expiringStaffCertifications
   const unreadNotifications = unreadNotificationsCount ?? 0
 
-  // Debug logs for agency dashboard license reflection issues.
-  console.log('[AgencyDashboard][Debug] user', {
-    userId: session.user.id,
-    email: session.user.email,
-    role: profile?.role,
-  })
-  console.log('[AgencyDashboard][Debug] raw counts', {
-    licensesCount: licenses.length,
-    applicationsCount: (applicationsData ?? []).length,
-    applicationsForDashboardCount: applicationsForDashboard.length,
-    unifiedLicensesCount: unifiedLicenses.length,
-    unifiedDerivedCount: unifiedLicensesWithDerivedStatus.length,
-  })
-  console.log(
-    '[AgencyDashboard][Debug] raw licenses sample',
-    licenses.slice(0, 10).map(l => ({
-      id: l.id,
-      license_name: l.license_name,
-      state: l.state,
-      status: l.status,
-      expiry_date: l.expiry_date,
-      activated_date: l.activated_date,
-    }))
-  )
-  console.log(
-    '[AgencyDashboard][Debug] applications for dashboard sample',
-    applicationsForDashboard.slice(0, 10).map(a => ({
-      id: a.id,
-      application_name: a.application_name,
-      state: a.state,
-      status: a.status,
-      expiry_date: a.expiry_date,
-      started_date: a.started_date,
-      created_at: a.created_at,
-    }))
-  )
-  console.log(
-    '[AgencyDashboard][Debug] unified derived sample',
-    unifiedLicensesWithDerivedStatus.slice(0, 20).map(l => ({
-      id: l.id,
-      source: l.source,
-      license_name: l.license_name,
-      state: l.state,
-      rawStatus: l.status,
-      derivedStatus: l.derivedStatus,
-      expiry_date: l.expiry_date,
-    }))
-  )
-  console.log('[AgencyDashboard][Debug] dashboard card counts', {
-    activeLicenses,
-    expiringLicenses,
-    expiringStaffCertifications,
-    expiringSoon: expiringLicenses + expiringStaffCertifications,
-  })
-
   // Get recent licenses
   const recentLicenses = unifiedLicensesWithDerivedStatus
     .slice()
@@ -235,16 +180,6 @@ export default async function DashboardPage() {
       ...license,
       status: license.derivedStatus,
     })) || []
-  console.log(
-    '[AgencyDashboard][Debug] recent licenses displayed',
-    recentLicenses.map(l => ({
-      id: l.id,
-      source: l.source,
-      license_name: l.license_name,
-      status: l.status,
-      expiry_date: l.expiry_date,
-    }))
-  )
 
   // Get all licenses with status for Action Items
   const allLicensesWithStatus = unifiedLicensesWithDerivedStatus.map(license => ({

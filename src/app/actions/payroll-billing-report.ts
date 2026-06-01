@@ -187,7 +187,7 @@ export async function updatePatientServiceContractBillRateAction(
 
   const visitQuery = supabase
     .from('scheduled_visits')
-    .select('id, agency_id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time')
+    .select('id, agency_id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, scheduled_end_date')
     .eq('status', 'completed')
     .eq('patient_id', contract.patient_id)
     .eq('service_type', contract.service_type)
@@ -279,10 +279,16 @@ export async function updatePatientServiceContractBillRateAction(
           return h * 60 + (Number.isFinite(m) ? m : 0)
         }
         const hoursFromSchedule = (() => {
+          const startDate = v.visit_date as string | null
+          const endDate = (v as any).scheduled_end_date as string | null
+          const effectiveEnd = endDate || startDate
+          const dayDiff = (startDate && effectiveEnd)
+            ? Math.max(0, Math.round((new Date(effectiveEnd + 'T12:00:00').getTime() - new Date(startDate + 'T12:00:00').getTime()) / 86_400_000))
+            : 0
           const a = toMinutes(v.scheduled_start_time as string | null)
           const b = toMinutes(v.scheduled_end_time as string | null)
-          if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0
-          return Math.round((((b - a) / 60) + Number.EPSILON) * 100) / 100
+          if (!Number.isFinite(a) || !Number.isFinite(b)) return 0
+          return Math.round((Math.max(0, dayDiff * 24 * 60 + (b - a)) / 60 + Number.EPSILON) * 100) / 100
         })()
         const fin = finByVisitId.get(String(v.id))
         const hoursRaw = (fin as { approved_billable_hours?: number | null } | undefined)?.approved_billable_hours != null

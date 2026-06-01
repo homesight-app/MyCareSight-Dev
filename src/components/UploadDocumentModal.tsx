@@ -114,14 +114,10 @@ export default function UploadDocumentModal({
 
         uploadedPaths.push(filePath)
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('application-documents')
-          .getPublicUrl(filePath)
-
         const insertPayload: Record<string, unknown> = {
           application_id: applicationId,
           document_name: fileItem.name || documentName,
-          document_url: publicUrl,
+          document_url: filePath,
           document_type: documentType || null,
           description: description.trim() || null,
           status: autoApprove ? 'approved' : 'draft'

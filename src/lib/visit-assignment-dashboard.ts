@@ -422,7 +422,9 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
     const staff = staffById.get(row.caregiver_member_id)
     if (!patient || !staff) continue
 
-    const clientZip = normalizeUsZipForLookup(patient.zip_code)
+    // Use the visit's specific address ZIP if set; fall back to patient's default ZIP
+    const visitAddrZip = (sched as any).patient_address?.zip_code ?? null
+    const clientZip = normalizeUsZipForLookup(visitAddrZip ?? patient.zip_code)
     const staffZip = normalizeUsZipForLookup(staff.zip_code)
     let distanceMiles = Number.POSITIVE_INFINITY
     if (clientZip && staffZip) {

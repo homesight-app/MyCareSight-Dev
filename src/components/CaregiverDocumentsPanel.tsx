@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { createSignedStorageUrl } from '@/lib/supabase/storage'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { FileText, Upload, Download, Trash2, Loader2 } from 'lucide-react'
@@ -202,14 +203,10 @@ export function CaregiverDocumentsPanel({
         }
         uploadedPaths.push(path)
         logCaregiverDocs('storage.upload:ok', { path, uploadedSoFar: uploadedPaths.length })
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from(BUCKET).getPublicUrl(path)
         newDocs.push({
           id: docId,
           name: file.name,
           path,
-          url: publicUrl,
           uploaded_at: new Date().toISOString(),
           size: file.size,
         })
@@ -264,11 +261,14 @@ export function CaregiverDocumentsPanel({
   }
 
   const handleDownload = async (doc: PatientDocument) => {
-    if (!doc.url) return
+    if (!doc.path) return
     setDownloadingId(doc.id)
     setError(null)
     try {
-      const res = await fetch(doc.url)
+      const supabase = createClient()
+      const signedUrl = await createSignedStorageUrl(supabase, BUCKET, doc.path)
+      if (!signedUrl) throw new Error('Could not generate download link')
+      const res = await fetch(signedUrl)
       if (!res.ok) throw new Error(`Download failed (${res.status})`)
       const blob = await res.blob()
       const objectUrl = URL.createObjectURL(blob)
@@ -281,11 +281,7 @@ export function CaregiverDocumentsPanel({
       document.body.removeChild(a)
       URL.revokeObjectURL(objectUrl)
     } catch {
-      try {
-        window.open(doc.url, '_blank', 'noopener,noreferrer')
-      } catch {
-        setError('Could not download this file.')
-      }
+      setError('Could not download this file.')
     } finally {
       setDownloadingId(null)
     }

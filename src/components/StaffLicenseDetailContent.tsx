@@ -153,16 +153,11 @@ export default function StaffLicenseDetailContent({
           throw new Error(`Upload failed: ${errorMsg}. Please check storage bucket exists and policies are configured.`)
         }
 
-        // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('application-documents')
-          .getPublicUrl(fileName)
-
         // Create document record
         const { error: docError } = await q.insertApplicationDocument(supabase, {
           application_id: license.id,
           document_name: file.name,
-          document_url: publicUrl,
+          document_url: fileName,
           document_type: fileExt?.toLowerCase() || null
         })
 

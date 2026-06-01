@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import UploadLicenseDocumentModal from './UploadLicenseDocumentModal'
+import { createClient } from '@/lib/supabase/client'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 interface License {
   id: string
@@ -101,9 +103,12 @@ export default function LicenseDetailContent({
     }
   }
 
-  const handleDownload = async (documentUrl: string, documentName: string) => {
+  const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const response = await fetch(documentUrl)
+      const supabase = createClient()
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentPath)
+      if (!signedUrl) throw new Error('Failed to generate download URL')
+      const response = await fetch(signedUrl)
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -115,8 +120,6 @@ export default function LicenseDetailContent({
       document.body.removeChild(a)
     } catch (error) {
       console.error('Error downloading file:', error)
-      // Fallback: open in new tab
-      window.open(documentUrl, '_blank')
     }
   }
 
@@ -268,15 +271,13 @@ export default function LicenseDetailContent({
                     >
                       <Download className="w-5 h-5 text-gray-600" />
                     </button>
-                    <a
-                      href={document.document_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => handleDownload(document.document_url, document.document_name)}
                       className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
                       title="View"
                     >
                       <FileText className="w-5 h-5 text-gray-600" />
-                    </a>
+                    </button>
                   </div>
                 </div>
               ))}

@@ -10,6 +10,8 @@ import {
   round2,
   toHHMM,
   hoursFromSchedule,
+  hoursFromScheduleWithDates,
+  splitHoursByWeek,
   calcAmount,
   serviceTypeLabelFn,
   getWeekKey,
@@ -87,7 +89,7 @@ export async function fetchPayrollBillingReportRows(
   let visitQuery = supabase
     .from('scheduled_visits')
     .select(
-      'id, agency_id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, service_type, visit_type, mileage_miles'
+      'id, agency_id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, scheduled_end_date, service_type, visit_type, mileage_miles'
     )
     .eq('status', 'completed')
     .gte('visit_date', dateFrom)
@@ -221,7 +223,12 @@ export async function fetchPayrollBillingReportRows(
       const approval = approvalByVisitId.get(sv.id as string)
       const serviceType = ((financial?.service_type ?? sv.service_type) === 'skilled' ? 'skilled' : 'non_skilled') as 'non_skilled' | 'skilled'
       const caregiverId = sv.caregiver_member_id ?? ''
-      const scheduleHours = hoursFromSchedule(sv.scheduled_start_time, sv.scheduled_end_time)
+      const scheduleHours = hoursFromScheduleWithDates(
+        sv.visit_date,
+        sv.scheduled_start_time,
+        (sv as any).scheduled_end_date,
+        sv.scheduled_end_time
+      )
 
       const bh = financial?.approved_billable_hours != null ? Number(financial.approved_billable_hours) : NaN
       const abh = approval?.approved_billable_hours != null ? Number(approval.approved_billable_hours) : NaN
@@ -277,16 +284,27 @@ export async function fetchPayrollBillingReportRows(
         weekendHours = actualHours
         weekendPay = round2(actualHours * payRate * (weekendMultiplier ?? 1))
       } else {
-        // Regular day — split into REG and OT using weekly accumulator
-        const weekKey = getWeekKey(caregiverId || 'unknown', visitDate, weekStart)
-        const accumulated = weeklyHoursAccum.get(weekKey) ?? 0
-        const regPortion = Math.max(0, Math.min(actualHours, otThreshold - accumulated))
-        const otPortion = Math.max(0, actualHours - regPortion)
-        regHours = regPortion
-        otHours = otPortion
-        regPay = round2(regPortion * payRate)
-        otPay = round2(otPortion * payRate * otMultiplier)
-        weeklyHoursAccum.set(weekKey, accumulated + actualHours)
+        // Regular day — split into REG and OT using weekly accumulator.
+        // For multi-day visits, split hours at work-week boundaries first.
+        const effectiveEndDate = (sv as any).scheduled_end_date ?? visitDate
+        const segments = splitHoursByWeek(
+          visitDate, sv.scheduled_start_time ?? '00:00',
+          effectiveEndDate, sv.scheduled_end_time ?? '00:00',
+          caregiverId || 'unknown', weekStart
+        )
+        // Scale segments proportionally to actualHours (actual may differ from scheduled)
+        const totalSegHours = segments.reduce((s, seg) => s + seg.hours, 0)
+        for (const seg of segments) {
+          const segActual = totalSegHours > 0 ? round2(actualHours * (seg.hours / totalSegHours)) : 0
+          const accumulated = weeklyHoursAccum.get(seg.weekKey) ?? 0
+          const regPortion = Math.max(0, Math.min(segActual, otThreshold - accumulated))
+          const otPortion = Math.max(0, segActual - regPortion)
+          regHours += regPortion
+          otHours += otPortion
+          weeklyHoursAccum.set(seg.weekKey, accumulated + segActual)
+        }
+        regPay = round2(regHours * payRate)
+        otPay = round2(otHours * payRate * otMultiplier)
       }
 
       // ── Mileage ──────────────────────────────────────────────────────────

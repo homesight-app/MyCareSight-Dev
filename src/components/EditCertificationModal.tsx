@@ -167,12 +167,7 @@ export default function EditCertificationModal({
           throw uploadError
         }
 
-        // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('application-documents')
-          .getPublicUrl(filePath)
-
-        documentUrl = publicUrl
+        documentUrl = filePath
         setIsUploading(false)
       }
 

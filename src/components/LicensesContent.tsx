@@ -29,6 +29,7 @@ import { LicenseType } from '@/types/license'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { useRouter } from 'next/navigation'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 interface License {
   id: string
@@ -213,7 +214,9 @@ export default function LicensesContent({
       }
 
       // Download the document
-      const response = await fetch(documents.document_url)
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documents.document_url)
+      if (!signedUrl) throw new Error('Failed to generate download URL')
+      const response = await fetch(signedUrl)
       if (!response.ok) {
         throw new Error('Failed to download file')
       }
@@ -255,7 +258,9 @@ export default function LicensesContent({
       }
 
       // Download the document
-      const response = await fetch(documents.document_url)
+      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documents.document_url)
+      if (!signedUrl) throw new Error('Failed to generate download URL')
+      const response = await fetch(signedUrl)
       if (!response.ok) {
         throw new Error('Failed to download file')
       }

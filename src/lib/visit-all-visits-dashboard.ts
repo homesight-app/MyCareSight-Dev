@@ -230,7 +230,9 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
     const patient = patientById.get(s.patient_id)
     const currentCaregiver = s.caregiver_id ? staffById.get(s.caregiver_id) : undefined
     const requiredSkills = requirementsByPatient.get(s.patient_id) ?? []
-    const clientZip = normalizeUsZipForLookup(patient?.zip_code)
+    // Use visit's specific address ZIP if set; fall back to patient's default ZIP
+    const visitAddrZip = (s as any).patient_address?.zip_code ?? null
+    const clientZip = normalizeUsZipForLookup(visitAddrZip ?? patient?.zip_code)
 
     const candidates: ReassignCandidateDTO[] = allStaff
       .map((staff) => {

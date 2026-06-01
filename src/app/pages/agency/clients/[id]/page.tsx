@@ -31,14 +31,16 @@ export default async function ClientDetailPage({
     redirect('/pages/agency/clients')
   }
 
+  const { data: addresses } = await q.getPatientAddresses(supabase, id)
+
   return (
     <DashboardLayout
       user={session.user}
       profile={profile}
       unreadNotifications={unreadNotifications ?? 0}
     >
-      <ClientDetailContent 
-        client={bundle.client} 
+      <ClientDetailContent
+        client={bundle.client}
         allClients={bundle.allClients || []}
         representatives={bundle.representativesList}
         caregiverRequirements={bundle.caregiverRequirements}
@@ -50,6 +52,7 @@ export default async function ClientDetailPage({
         skilledCarePlanTasks={bundle.skilledCarePlanTasks}
         skilledSchedules={bundle.skilledSchedulesList}
         serviceContracts={bundle.serviceContracts}
+        initialAddresses={addresses ?? []}
       />
     </DashboardLayout>
   )

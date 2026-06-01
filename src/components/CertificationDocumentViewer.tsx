@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { FileText, Download, Image as ImageIcon, Loader2, ExternalLink } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 interface CertificationDocumentViewerProps {
   documentUrl: string | null | undefined
@@ -15,57 +17,52 @@ export default function CertificationDocumentViewer({
 }: CertificationDocumentViewerProps) {
   const [isDownloading, setIsDownloading] = useState(false)
   const [imageError, setImageError] = useState(false)
+  const [signedUrl, setSignedUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!documentUrl) return
+    const supabase = createClient()
+    createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentUrl).then(url => {
+      setSignedUrl(url)
+    })
+  }, [documentUrl])
 
   if (!documentUrl) {
     return null
   }
 
-  // Determine if the file is an image based on extension
-  const getFileExtension = (url: string): string => {
-    const urlParts = url.split('.')
-    if (urlParts.length > 1) {
-      return urlParts[urlParts.length - 1].split('?')[0].toLowerCase()
+  const getFileExtension = (path: string): string => {
+    const parts = path.split('.')
+    if (parts.length > 1) {
+      return parts[parts.length - 1].split('?')[0].toLowerCase()
     }
     return ''
   }
 
-  const isImageFile = (url: string): boolean => {
-    const ext = getFileExtension(url)
+  const isImageFile = (path: string): boolean => {
+    const ext = getFileExtension(path)
     return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)
   }
 
   const handleDownload = async () => {
-    if (!documentUrl) return
+    if (!signedUrl) return
 
     setIsDownloading(true)
     try {
-      // Fetch the file
-      const response = await fetch(documentUrl)
+      const response = await fetch(signedUrl)
       if (!response.ok) {
         throw new Error('Failed to download file')
       }
 
-      // Get the blob
       const blob = await response.blob()
-
-      // Get file extension from URL
       const extension = getFileExtension(documentUrl) || 'pdf'
-      
-      // Create a blob URL
       const blobUrl = window.URL.createObjectURL(blob)
-
-      // Create a temporary anchor element and trigger download
       const a = document.createElement('a')
       a.href = blobUrl
-      
-      // Create a safe filename
       const safeCertName = certificationName.replace(/[^a-z0-9]/gi, '_').toLowerCase()
       a.download = `${safeCertName}_certification.${extension}`
-
       document.body.appendChild(a)
       a.click()
-
-      // Cleanup
       document.body.removeChild(a)
       window.URL.revokeObjectURL(blobUrl)
     } catch (error) {
@@ -89,15 +86,15 @@ export default function CertificationDocumentViewer({
         )}
         {isImage ? 'Certification Image' : 'Certification Document'}
       </h2>
-      
+
       <div className="space-y-4">
         {/* Image Preview */}
         {isImage && (
           <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-            {!imageError ? (
+            {!imageError && signedUrl ? (
               <div className="relative w-full max-w-2xl min-h-[200px] aspect-video max-h-96">
                 <Image
-                  src={documentUrl}
+                  src={signedUrl}
                   alt={`${certificationName} certification`}
                   fill
                   className="object-contain"
@@ -133,18 +130,18 @@ export default function CertificationDocumentViewer({
         {/* Action Buttons */}
         <div className="flex items-center gap-3">
           <a
-            href={documentUrl}
+            href={signedUrl ?? undefined}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            className={`inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors ${!signedUrl ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <ExternalLink className="w-4 h-4" />
             {isImage ? 'View Full Image' : 'View Document'}
           </a>
-          
+
           <button
             onClick={handleDownload}
-            disabled={isDownloading}
+            disabled={isDownloading || !signedUrl}
             className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isDownloading ? (

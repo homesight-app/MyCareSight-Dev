@@ -42,6 +42,8 @@ interface ViewStaffDetailsModalProps {
   onClose: () => void
   staff: StaffMember
   licenses: StaffLicense[]
+  canManageNotes?: boolean
+  agencyId?: string
 }
 
 export default function ViewStaffDetailsModal({
@@ -49,6 +51,8 @@ export default function ViewStaffDetailsModal({
   onClose,
   staff,
   licenses,
+  canManageNotes,
+  agencyId,
 }: ViewStaffDetailsModalProps) {
   const [documentsBusy, setDocumentsBusy] = useState(false)
 
@@ -70,6 +74,8 @@ export default function ViewStaffDetailsModal({
         currentPayRate={staff.currentPayRate}
         documentsPanelActive={isOpen}
         onDocumentsBusyChange={setDocumentsBusy}
+        canManageNotes={canManageNotes}
+        agencyId={agencyId}
       />
     </ModalWrapper>
   )

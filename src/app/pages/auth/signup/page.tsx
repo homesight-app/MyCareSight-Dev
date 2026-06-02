@@ -84,20 +84,8 @@ export default function SignupPage() {
       // The trigger uses the metadata (full_name, role) from the signup options
       // No need to manually insert as it would violate RLS policies
 
-      // Store password temporarily in sessionStorage for auto-fill on login page
-      // This is cleared after the user visits the login page
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('signup_password', data.password)
-        // Clear after 5 minutes as a safety measure
-        setTimeout(() => {
-          sessionStorage.removeItem('signup_password')
-        }, 5 * 60 * 1000)
-      }
-
-      // Always redirect to login page with email and success message
-      const loginUrl = new URL('/pages/auth/login', window.location.origin)
-      loginUrl.searchParams.set('email', data.email)
-      router.push(loginUrl.toString())
+      // Redirect to login — credentials are never stored client-side (HIPAA)
+      router.push('/pages/auth/login?message=Account+created+successfully.+Please+sign+in.')
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
       setIsLoading(false)

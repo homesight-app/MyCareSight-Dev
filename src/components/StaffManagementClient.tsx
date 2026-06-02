@@ -68,6 +68,8 @@ interface StaffManagementClientProps {
   expiringLicenses: number
   staffWithExpiringLicenses: (StaffMember & { expiringLicensesCount?: number })[]
   staffRoleNames: string[]
+  canManageNotes?: boolean
+  agencyId?: string
 }
 
 export default function StaffManagementClient({
@@ -76,8 +78,10 @@ export default function StaffManagementClient({
   totalStaff,
   activeStaff,
   expiringLicenses,
-  staffWithExpiringLicenses, 
+  staffWithExpiringLicenses,
   staffRoleNames,
+  canManageNotes,
+  agencyId,
 }: StaffManagementClientProps) {
   const router = useRouter()
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -577,6 +581,8 @@ export default function StaffManagementClient({
               (localStaffList.find((s) => s.id === selectedStaff.id) as StaffMember) ?? selectedStaff
             }
             licenses={licensesByStaff[selectedStaff.id] || []}
+            canManageNotes={canManageNotes}
+            agencyId={agencyId}
           />
 
           <EditStaffModal

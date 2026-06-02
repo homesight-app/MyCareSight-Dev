@@ -32,6 +32,12 @@ export default async function ClientDetailPage({
   }
 
   const { data: addresses } = await q.getPatientAddresses(supabase, id)
+  const { data: agencyProfile } = await q.getAgencyIdFromProfile(supabase, session.user.id)
+  const agencyId = agencyProfile?.agency_id ?? null
+
+  const role = profile?.role ?? ''
+  const canManageNotes =
+    role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
 
   return (
     <DashboardLayout
@@ -53,6 +59,8 @@ export default async function ClientDetailPage({
         skilledSchedules={bundle.skilledSchedulesList}
         serviceContracts={bundle.serviceContracts}
         initialAddresses={addresses ?? []}
+        canManageNotes={canManageNotes}
+        agencyId={agencyId ?? undefined}
       />
     </DashboardLayout>
   )

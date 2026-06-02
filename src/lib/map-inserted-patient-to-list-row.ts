@@ -12,7 +12,8 @@ export interface RepresentativeEmbed {
 
 export interface ClientsListPatient {
   id: string
-  full_name: string
+  first_name: string
+  last_name: string
   date_of_birth: string
   age: number | null
   gender: string | null
@@ -57,7 +58,8 @@ export function mapInsertedPatientToListPatient(raw: Record<string, unknown>): C
 
   return {
     id: String(raw.id ?? ''),
-    full_name: String(raw.full_name ?? ''),
+    first_name: String(raw.first_name ?? ''),
+    last_name: String(raw.last_name ?? ''),
     date_of_birth: dobYmd || dobRaw,
     age: ageFromDobYmd(raw.date_of_birth != null ? String(raw.date_of_birth) : null),
     gender: raw.gender != null ? String(raw.gender) : null,

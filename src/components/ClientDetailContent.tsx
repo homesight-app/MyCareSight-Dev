@@ -61,7 +61,9 @@ import {
   patientServiceContractsSelectableForBillingVisit,
 } from '@/lib/patient-service-contract-effective'
 import Modal from '@/components/Modal'
+import InternalNotesPanel from '@/components/InternalNotesPanel'
 import zipcodes from 'zipcodes'
+import { patientFullName } from '@/lib/patient-name'
 import { US_STATES } from '@/lib/constants'
 
 const VISIT_TYPES = ['Routine', 'Medical', 'Therapy', 'Social', 'Other'] as const
@@ -192,7 +194,8 @@ function buildAssignedVisitTaskSlotSet(
 
 interface SmallClient {
   id: string
-  full_name: string
+  first_name: string
+  last_name: string
   date_of_birth: string
   age: number | null
   gender: string | null
@@ -227,7 +230,7 @@ const CAREGIVER_DISTANCE_LIMIT_MILES = 20
 
 interface ClientDetailContentProps {
   client: SmallClient
-  allClients: Array<{ id: string; full_name: string }>
+  allClients: Array<{ id: string; first_name: string; last_name: string }>
   representatives?: PatientRepresentative[]
   caregiverRequirements?: CaregiverRequirement | null
   incidents?: PatientIncident[] | null
@@ -239,6 +242,8 @@ interface ClientDetailContentProps {
   skilledSchedules?: PatientSkilledTaskDaySchedule[] | null
   serviceContracts?: PatientServiceContractRow[] | null
   initialAddresses?: PatientAddress[]
+  canManageNotes?: boolean
+  agencyId?: string
 }
 
 export default function ClientDetailContent({ client, allClients, representatives = [], caregiverRequirements: initialCaregiverRequirements = null,
@@ -246,7 +251,9 @@ export default function ClientDetailContent({ client, allClients, representative
   contractedHours: initialContractedHours = [], skilledCarePlanTasks: initialSkilledCarePlanTasks = [],
   skilledSchedules: skilledSchedulesProp,
   serviceContracts: initialServiceContracts = [],
-  initialAddresses = [] }: ClientDetailContentProps) {
+  initialAddresses = [],
+  canManageNotes = false,
+  agencyId }: ClientDetailContentProps) {
   const initialSkilledSchedules = skilledSchedulesProp ?? EMPTY_SKILLED_SCHEDULES
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -258,7 +265,8 @@ export default function ClientDetailContent({ client, allClients, representative
   const [loginAccess, setLoginAccess] = useState(client.login_access ?? true)
   const [isEditingPersonal, setIsEditingPersonal] = useState(false)
   const [editPersonalForm, setEditPersonalForm] = useState({
-    full_name: client.full_name,
+    first_name: client.first_name,
+    last_name: client.last_name,
     gender: client.gender ?? '',
     date_of_birth: client.date_of_birth,
     age: client.age ?? 0,
@@ -880,7 +888,8 @@ export default function ClientDetailContent({ client, allClients, representative
   const startEditPersonal = () => {
     const age = localClient.age ?? ageFromDob(localClient.date_of_birth)
     setEditPersonalForm({
-      full_name: localClient.full_name,
+      first_name: localClient.first_name,
+      last_name: localClient.last_name,
       gender: localClient.gender ?? '',
       date_of_birth: localClient.date_of_birth,
       age,
@@ -896,8 +905,8 @@ export default function ClientDetailContent({ client, allClients, representative
 
   const handleSavePersonal = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!editPersonalForm.full_name.trim()) {
-      setPersonalEditError('Full name is required.')
+    if (!editPersonalForm.first_name.trim()) {
+      setPersonalEditError('First name is required.')
       return
     }
     setIsSavingPersonal(true)
@@ -905,7 +914,8 @@ export default function ClientDetailContent({ client, allClients, representative
     try {
       const supabase = createClient()
       const { error } = await q.updatePatient(supabase, client.id, {
-        full_name: editPersonalForm.full_name.trim(),
+        first_name: editPersonalForm.first_name.trim(),
+        last_name: editPersonalForm.last_name.trim(),
         gender: editPersonalForm.gender || null,
         date_of_birth: editPersonalForm.date_of_birth,
       })
@@ -913,7 +923,8 @@ export default function ClientDetailContent({ client, allClients, representative
       const newAge = editPersonalForm.date_of_birth ? ageFromDob(editPersonalForm.date_of_birth) : localClient.age
       setLocalClient((prev) => ({
         ...prev,
-        full_name: editPersonalForm.full_name.trim(),
+        first_name: editPersonalForm.first_name.trim(),
+        last_name: editPersonalForm.last_name.trim(),
         gender: editPersonalForm.gender || null,
         date_of_birth: editPersonalForm.date_of_birth,
         age: newAge,
@@ -3945,6 +3956,7 @@ export default function ClientDetailContent({ client, allClients, representative
     { id: 'documents', label: 'Documents' },
     { id: 'caregiver-requirements', label: 'Caregiver Competencies' },
     { id: 'incidents', label: 'Incidents' },
+    { id: 'notes', label: 'Notes' },
   ]
 
   const openSkilledTaskModal = () => {
@@ -4228,7 +4240,7 @@ export default function ClientDetailContent({ client, allClients, representative
             >
               {allClients.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.full_name}
+                  {patientFullName(c)}
                 </option>
               ))}
             </select>
@@ -4250,11 +4262,11 @@ export default function ClientDetailContent({ client, allClients, representative
       <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
         <div className="flex items-start gap-4">
           <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-xl">
-            {getInitials(localClient.full_name)}
+            {getInitials(patientFullName(localClient))}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-bold text-gray-900">{localClient.full_name}</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{patientFullName(localClient)}</h1>
               <span className={`px-3 py-1 text-xs font-semibold rounded ${
                 clientStatus === 'active' 
                   ? 'bg-green-100 text-green-800' 
@@ -4365,11 +4377,21 @@ export default function ClientDetailContent({ client, allClients, representative
                       </div>
                     )}
                     <div>
-                      <label className="block text-sm text-gray-600 mb-1">Full Name</label>
+                      <label className="block text-sm text-gray-600 mb-1">First Name</label>
                       <input
                         type="text"
-                        value={editPersonalForm.full_name}
-                        onChange={(e) => setEditPersonalForm((p) => ({ ...p, full_name: e.target.value }))}
+                        value={editPersonalForm.first_name}
+                        onChange={(e) => setEditPersonalForm((p) => ({ ...p, first_name: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isSavingPersonal}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Last Name</label>
+                      <input
+                        type="text"
+                        value={editPersonalForm.last_name}
+                        onChange={(e) => setEditPersonalForm((p) => ({ ...p, last_name: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         disabled={isSavingPersonal}
                       />
@@ -4428,7 +4450,7 @@ export default function ClientDetailContent({ client, allClients, representative
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <span className="text-sm text-gray-600">Full Name:</span>
-                      <p className="text-sm font-medium text-gray-900">{localClient.full_name}</p>
+                      <p className="text-sm font-medium text-gray-900">{patientFullName(localClient)}</p>
                   </div>
                   <div>
                     <span className="text-sm text-gray-600">Gender:</span>
@@ -5005,7 +5027,7 @@ export default function ClientDetailContent({ client, allClients, representative
                     <div>
                       <h3 className="text-lg font-bold text-gray-900">Required Caregiver Skills</h3>
                       <p className="text-sm text-gray-500 mt-0.5">
-                        Skills a caregiver must have to be matched to {localClient.full_name}.
+                        Skills a caregiver must have to be matched to {patientFullName(localClient)}.
                       </p>
                     </div>
                   </div>
@@ -5190,6 +5212,20 @@ export default function ClientDetailContent({ client, allClients, representative
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'notes' && agencyId && (
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+                Internal notes are visible only to agency admins and care coordinators — never to the client or caregiver.
+              </div>
+              <InternalNotesPanel
+                subjectType="patient"
+                subjectId={localClient.id}
+                agencyId={agencyId}
+                canManage={canManageNotes}
+              />
             </div>
           )}
 
@@ -6363,7 +6399,7 @@ export default function ClientDetailContent({ client, allClients, representative
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900">
-                Required Caregiver Skills — {localClient.full_name}
+                Required Caregiver Skills — {patientFullName(localClient)}
               </h2>
               <p className="text-sm text-gray-500 mt-1">
                 Select all skills a caregiver must have to be assigned to this client.
@@ -6542,7 +6578,7 @@ export default function ClientDetailContent({ client, allClients, representative
       <Modal
         isOpen={incidentModalOpen}
         onClose={closeIncidentModal}
-        title={`File Incident Report — ${localClient.full_name}`}
+        title={`File Incident Report — ${patientFullName(localClient)}`}
         size="md"
       >
         <form onSubmit={handleSaveIncident} className="space-y-4">
@@ -7029,7 +7065,7 @@ export default function ClientDetailContent({ client, allClients, representative
         isOpen={addVisitModalOpen}
         onClose={closeAddVisitModal}
         title="Add Visit"
-        subtitle={`Add a new visit for ${localClient.full_name}.`}
+        subtitle={`Add a new visit for ${patientFullName(localClient)}.`}
         headerAccessory={visitModalHeaderTabs}
         size="lg"
       >
@@ -7483,7 +7519,7 @@ export default function ClientDetailContent({ client, allClients, representative
         isOpen={editVisitModalOpen}
         onClose={closeEditVisitModal}
         title="Edit Visit"
-        subtitle={`Edit visit for ${localClient.full_name}.`}
+        subtitle={`Edit visit for ${patientFullName(localClient)}.`}
         headerAccessory={visitModalHeaderTabs}
         size="lg"
       >
@@ -7930,7 +7966,7 @@ export default function ClientDetailContent({ client, allClients, representative
       <Modal
         isOpen={serviceContractsModalOpen}
         onClose={closeManageLimitModal}
-        title={`Manage Service Contracts — ${localClient.full_name}`}
+        title={`Manage Service Contracts — ${patientFullName(localClient)}`}
         size="xl"
         closeOnBackdropClick={false}
       >

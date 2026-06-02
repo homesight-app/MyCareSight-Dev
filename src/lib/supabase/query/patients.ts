@@ -96,7 +96,7 @@ export async function updatePatientLoginAccess(
 export async function updatePatient(
   supabase: Supabase,
   patientId: string,
-  data: { full_name?: string; gender?: string | null; date_of_birth?: string }
+  data: { first_name?: string; last_name?: string; gender?: string | null; date_of_birth?: string }
 ) {
   return supabase.from('patients').update(data).eq('id', patientId)
 }
@@ -205,30 +205,30 @@ export async function getPatientByIdAndAgencyId(
     .maybeSingle()
 }
 
-/** Get patients by owner_id (id, full_name) for lists/navigation, ordered by full_name. */
+/** Get patients by owner_id (id, first_name, last_name) for lists/navigation, ordered by last_name. */
 export async function getPatientsByOwnerIdMinimal(supabase: Supabase, ownerId: string) {
   return supabase
     .from('patients')
-    .select('id, full_name')
+    .select('id, first_name, last_name')
     .eq('owner_id', ownerId)
-    .order('full_name', { ascending: true })
+    .order('last_name', { ascending: true })
 }
 
-/** Get patients by owner_id list (id, full_name), ordered by full_name. */
+/** Get patients by owner_id list (id, first_name, last_name), ordered by last_name. */
 export async function getPatientsByOwnerIdsMinimal(supabase: Supabase, ownerIds: string[]) {
   if (ownerIds.length === 0) return { data: [], error: null }
   return supabase
     .from('patients')
-    .select('id, full_name')
+    .select('id, first_name, last_name')
     .in('owner_id', ownerIds)
-    .order('full_name', { ascending: true })
+    .order('last_name', { ascending: true })
 }
 
-/** Get patients by agency_id (id, full_name), ordered by full_name. */
+/** Get patients by agency_id (id, first_name, last_name), ordered by last_name. */
 export async function getPatientsByAgencyIdMinimal(supabase: Supabase, agencyId: string) {
   return supabase
     .from('patients')
-    .select('id, full_name')
+    .select('id, first_name, last_name')
     .eq('agency_id', agencyId)
-    .order('full_name', { ascending: true })
+    .order('last_name', { ascending: true })
 }

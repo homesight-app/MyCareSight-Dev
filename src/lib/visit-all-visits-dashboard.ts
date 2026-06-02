@@ -3,6 +3,7 @@ import type { Supabase } from '@/lib/supabase/types'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { overallScorePercent, proximityPercentFromMiles } from '@/lib/visit-assignment-scoring'
+import { patientFullName } from '@/lib/patient-name'
 
 export type VisitStatus = 'completed' | 'missed' | 'in_progress' | 'scheduled' | 'unassigned'
 
@@ -46,7 +47,8 @@ export type AllVisitsDashboardDTO = {
 
 type PatientRow = {
   id: string
-  full_name?: string | null
+  first_name?: string | null
+  last_name?: string | null
   zip_code?: string | null
   state?: string | null
   city?: string | null
@@ -169,16 +171,16 @@ function skillMatchForStaff(requiredSkills: string[], caregiverSkills: string[])
 export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<AllVisitsDashboardDTO> {
   const [visitsRes, patientsMinRes, staffMinRes] = await Promise.all([
     q.getAllScheduledVisitsAsScheduleRows(supabase),
-    supabase.from('patients').select('id, full_name').order('full_name', { ascending: true }),
+    supabase.from('patients').select('id, first_name, last_name').order('last_name', { ascending: true }),
     supabase.from('caregiver_members').select('id, first_name, last_name').order('first_name', { ascending: true }),
   ])
 
   const schedules = (visitsRes.error ? [] : (visitsRes.data ?? [])) as ScheduleRow[]
   const allPatientsData = patientsMinRes.data
   const allStaffDataAll = staffMinRes.data
-  const allClients = ((allPatientsData ?? []) as Array<{ id: string; full_name?: string | null }>).map((p) => ({
+  const allClients = ((allPatientsData ?? []) as Array<{ id: string; first_name?: string | null; last_name?: string | null }>).map((p) => ({
     id: p.id,
-    name: p.full_name?.trim() || 'Client',
+    name: patientFullName({ first_name: p.first_name ?? '', last_name: p.last_name ?? '' }),
   }))
   const allCaregivers = ((allStaffDataAll ?? []) as Array<{ id: string; first_name?: string | null; last_name?: string | null }>).map((s) => ({
     id: s.id,
@@ -188,7 +190,7 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
 
   const patientIds = Array.from(new Set(schedules.map((s) => s.patient_id)))
   const [{ data: patientsData }, { data: allStaffData }, { data: reqRows }] = await Promise.all([
-    supabase.from('patients').select('id, full_name, zip_code, state, city, street_address').in('id', patientIds),
+    supabase.from('patients').select('id, first_name, last_name, zip_code, state, city, street_address').in('id', patientIds),
     supabase.from('caregiver_members').select('id, first_name, last_name, zip_code, skills, role, job_title'),
     q.getCaregiverRequirementsByPatientIds(supabase, patientIds),
   ])
@@ -273,7 +275,7 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
       statusLabel: statusLabel(status),
       typeLabel: typeLabel(s),
       clientId: s.patient_id,
-      clientName: patient?.full_name ?? 'Client',
+      clientName: patient ? patientFullName(patient as { first_name: string; last_name: string }) : 'Client',
       locationLabel: patient ? patientLocationLabel(patient) : '-',
       caregiverId: s.caregiver_id,
       caregiverName: currentCaregiver ? [currentCaregiver.first_name, currentCaregiver.last_name].filter(Boolean).join(' ') : null,

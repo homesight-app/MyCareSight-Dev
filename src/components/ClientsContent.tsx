@@ -9,6 +9,7 @@ import AddNewClientModal from './AddNewClientModal'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { mapInsertedPatientToListPatient, type ClientsListPatient } from '@/lib/map-inserted-patient-to-list-row'
+import { patientFullName } from '@/lib/patient-name'
 
 interface ClientsContentProps {
   clients: ClientsListPatient[]
@@ -60,7 +61,7 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
       if (searchQuery) {
         const query = searchQuery.toLowerCase()
         const matchesSearch = 
-          client.full_name.toLowerCase().includes(query) ||
+          patientFullName(client).toLowerCase().includes(query) ||
           client.email_address.toLowerCase().includes(query) ||
           client.phone_number.includes(query) ||
           (client.emergency_contact_name ?? '').toLowerCase().includes(query) ||
@@ -240,10 +241,10 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                          {getInitials(client.full_name)}
+                          {getInitials(patientFullName(client))}
                         </div>
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{client.full_name}</div>
+                          <div className="text-sm font-medium text-gray-900">{patientFullName(client)}</div>
                           <div className="text-sm text-gray-500">Age {client.age || 'N/A'}</div>
                         </div>
                       </div>

@@ -123,6 +123,7 @@ Use **React Hook Form** + **Zod** for all forms. Schemas live co-located with th
 - Add audit logging for changes to visits, time entries, approvals, assignments, rates, and documents.
 - Keep caregiver-visible notes separate from agency-only notes.
 - Prefer immutable audit history over destructive updates.
+- **Audit note searches (HIPAA § 164.312(b)):** Any UI that lets staff search or filter `internal_notes` must call `logNoteSearchAction` (debounced ≥ 600 ms, fires when term is ≥ 3 chars). Log `action='SEARCH'`, `table_name='internal_notes'`, and `details: { search_term, results_returned, subject_type, subject_id }` so auditors can reconstruct who searched for what PHI and what was returned. This is required for HIPAA investigation traceability. Implementation: `src/app/actions/internal-notes.ts → logNoteSearchAction`.
 
 **Before making any change:**
 1. Read the relevant existing files first.

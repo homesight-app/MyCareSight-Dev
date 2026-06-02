@@ -1,6 +1,7 @@
 import type { Supabase } from '@/lib/supabase/types'
 import * as q from '@/lib/supabase/query'
 import { getDefaultScheduledVisitBulkDateRange, type ScheduleRow } from '@/lib/supabase/query/schedules'
+import { patientFullName } from '@/lib/patient-name'
 
 export type CaregiverVisitStatus = 'open' | 'assigned' | 'completed' | 'missed' | 'in_progress'
 
@@ -46,7 +47,8 @@ export type CaregiverCareVisitsDTO = {
 
 type PatientRow = {
   id: string
-  full_name?: string | null
+  first_name?: string | null
+  last_name?: string | null
   city?: string | null
   state?: string | null
   street_address?: string | null
@@ -232,7 +234,7 @@ export async function fetchCaregiverCareVisitsData(
 
   const [patientsRes, reqRes, unassignReqRes, taskAggRes, vteNotesRes] = await Promise.all([
     patientIds.length
-      ? supabase.from('patients').select('id, full_name, city, state, street_address').in('id', patientIds)
+      ? supabase.from('patients').select('id, first_name, last_name, city, state, street_address').in('id', patientIds)
       : Promise.resolve({ data: [], error: null }),
     scheduleIds.length
       ? supabase
@@ -330,7 +332,7 @@ export async function fetchCaregiverCareVisitsData(
         timeLabel: formatTimeLabel(row.start_time, row.end_time),
         timeRangeDisplay: formatTimeRangeAmPm(row.start_time, row.end_time),
         durationLabel: formatDurationLabel(row.start_time, row.end_time),
-        clientName: patient?.full_name?.trim() || 'Client',
+        clientName: patient ? patientFullName(patient as { first_name: string; last_name: string }) : 'Client',
         serviceName: (row.type ?? '').trim() || 'Personal Care',
         locationLine: patient?.street_address?.trim() || '-',
         locationShort,

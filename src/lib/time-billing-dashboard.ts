@@ -1,4 +1,5 @@
 import type { Supabase } from '@/lib/supabase/types'
+import { patientFullName } from '@/lib/patient-name'
 
 export type TimeBillingStatus = 'pending' | 'approved' | 'voided'
 
@@ -53,7 +54,7 @@ export async function fetchTimeBillingRows(supabase: Supabase): Promise<{ rows: 
   const visitIds = visitList.map((v) => v.id)
 
   const [patRes, cgRes, financialsRes, approvalsRes, entriesRes] = await Promise.all([
-    supabase.from('patients').select('id, full_name').in('id', patientIds),
+    supabase.from('patients').select('id, first_name, last_name').in('id', patientIds),
     caregiverIds.length
       ? supabase.from('caregiver_members').select('id, first_name, last_name').in('id', caregiverIds)
       : Promise.resolve({ data: [], error: null } as const),
@@ -87,7 +88,9 @@ export async function fetchTimeBillingRows(supabase: Supabase): Promise<{ rows: 
   if (approvalsRes.error) return { rows: [], error: approvalsRes.error.message }
   if (entriesRes.error) return { rows: [], error: entriesRes.error.message }
 
-  const patientNameById = new Map((patRes.data ?? []).map((r) => [r.id, r.full_name ?? 'Client']))
+  const patientNameById = new Map(
+    (patRes.data ?? []).map((r) => [r.id, patientFullName(r as { first_name: string; last_name: string })])
+  )
   const caregiverNameById = new Map(
     (cgRes.data ?? []).map((r) => [r.id, [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Caregiver'])
   )

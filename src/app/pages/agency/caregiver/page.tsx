@@ -15,6 +15,9 @@ export default async function StaffPage() {
     q.getAgencyIdFromProfile(supabase, session.user.id),
   ])
   const agencyId = up?.agency_id ?? null
+  const role = session.profile?.role ?? ''
+  const canManageNotes =
+    role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
 
   const { data: staffMembersData } = agencyId
     ? await q.getStaffMembersByAgencyId(supabase, agencyId)
@@ -129,6 +132,8 @@ export default async function StaffPage() {
         expiringLicenses={expiringLicenses}
         staffWithExpiringLicenses={staffWithExpiringLicenses}
         staffRoleNames={staffRoleNames}
+        canManageNotes={canManageNotes}
+        agencyId={agencyId ?? undefined}
       />
     </DashboardLayout>
   )

@@ -189,14 +189,15 @@ export async function updateVisitMileageAction(
 
   if (error) return { ok: false, error: error.message }
 
-  // Record in audit_logs
-  await supabase.from('audit_logs').insert({
-    user_id: user.id,
-    action: 'UPDATE',
+  await supabase.from('audit_log').insert({
     table_name: 'scheduled_visits',
     record_id: scheduledVisitId,
-    old_values: { mileage_miles: current?.mileage_miles ?? null },
-    new_values: { mileage_miles: mileageMiles },
+    action: 'UPDATE',
+    performed_by_user_id: user.id,
+    details: {
+      old_values: { mileage_miles: current?.mileage_miles ?? null },
+      new_values: { mileage_miles: mileageMiles },
+    },
   })
 
   revalidatePath(PATH)

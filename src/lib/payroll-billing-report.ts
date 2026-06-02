@@ -16,6 +16,7 @@ import {
   serviceTypeLabelFn,
   getWeekKey,
 } from '@/lib/payroll-calculations'
+import { patientFullName } from '@/lib/patient-name'
 
 export type PayrollBillingDetailRow = {
   id: string
@@ -112,7 +113,7 @@ export async function fetchPayrollBillingReportRows(
   const visitIds = visitList.map((v) => v.id as string)
 
   const [patRes, cgRes, contractsRes, caregiverPayRes, financialsRes, approvalsRes, tasksRes] = await Promise.all([
-    supabase.from('patients').select('id, full_name').in('id', patientIds),
+    supabase.from('patients').select('id, first_name, last_name').in('id', patientIds),
     caregiverIds.length
       ? supabase.from('caregiver_members').select('id, first_name, last_name').in('id', caregiverIds)
       : Promise.resolve({ data: [], error: null } as const),
@@ -160,7 +161,9 @@ export async function fetchPayrollBillingReportRows(
   if (approvalsRes.error) return { rows: [], error: approvalsRes.error.message }
   if (tasksRes.error) return { rows: [], error: tasksRes.error.message }
 
-  const patientNameById = new Map((patRes.data ?? []).map((r) => [r.id, r.full_name ?? 'Client']))
+  const patientNameById = new Map(
+    (patRes.data ?? []).map((r) => [r.id, patientFullName(r as { first_name: string; last_name: string })])
+  )
   const caregiverNameById = new Map(
     (cgRes.data ?? []).map((r) => [r.id, [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Caregiver'])
   )

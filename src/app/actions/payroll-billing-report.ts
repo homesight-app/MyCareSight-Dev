@@ -10,6 +10,7 @@ import {
   patientServiceContractOverlapsDate,
   WEEKLY_HOURS_CONTRACT_TYPE,
 } from '@/lib/patient-service-contract-effective'
+import { patientFullName } from '@/lib/patient-name'
 
 const REPORT_PATH = '/pages/agency/reports/payroll-billing'
 
@@ -131,10 +132,12 @@ export async function getRateManagerDataAction(): Promise<{
   const patientIds = Array.from(new Set(billDataFiltered.map((r) => r.patient_id)))
   const { data: pats } =
     patientIds.length > 0
-      ? await supabase.from('patients').select('id, full_name').in('id', patientIds)
-      : { data: [] as { id: string; full_name: string | null }[] }
+      ? await supabase.from('patients').select('id, first_name, last_name').in('id', patientIds)
+      : { data: [] as { id: string; first_name: string | null; last_name: string | null }[] }
 
-  const patientName = new Map((pats ?? []).map((p) => [p.id, p.full_name ?? 'Client']))
+  const patientName = new Map(
+    (pats ?? []).map((p) => [p.id, patientFullName(p as { first_name: string; last_name: string })])
+  )
 
   const billRows: RateManagerBillRow[] = billDataFiltered.map((r) => ({
     id: r.id as string,

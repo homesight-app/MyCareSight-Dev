@@ -96,7 +96,6 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
 
       // Ensure we have a userId - this is critical for staff members to access their dashboard
       if (!userAccount || !userAccount.userId) {
-        console.error('User account data:', userAccount)
         setError('User account was created but user ID is missing. Please contact support.')
         setIsLoading(false)
         return
@@ -107,8 +106,7 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
       // Validate userId is a valid UUID format
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
       if (!uuidRegex.test(userIdToUse)) {
-        console.error('Invalid userId format:', userIdToUse)
-        setError(`Invalid user ID format: ${userIdToUse}. Please contact support.`)
+        setError('User account was created but the ID is invalid. Please contact support.')
         setIsLoading(false)
         return
       }
@@ -128,8 +126,7 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
       })
 
       if (insertError) {
-        console.error('Error creating staff member record:', insertError)
-        setError(`Failed to create staff member record: ${insertError.message}. The user account was created successfully.`)
+        setError('Failed to create staff member record. The user account was created successfully. Please contact support.')
         setIsLoading(false)
         return
       }

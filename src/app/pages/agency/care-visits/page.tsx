@@ -22,6 +22,12 @@ export default async function CareVisitsPage() {
 
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
 
+  const { data: up } = await q.getAgencyIdFromProfile(supabase, session.user.id)
+  const agencyId = up?.agency_id ?? ''
+  const role = session.profile?.role ?? profile?.role ?? ''
+  const canManageNotes =
+    role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
+
   const dashboard = await fetchVisitAssignmentDashboardData(supabase)
   const allVisits = await fetchAllVisitsDashboardData(supabase)
   const pendingRequestCount =
@@ -47,6 +53,8 @@ export default async function CareVisitsPage() {
           unassignmentApprovedTotal={dashboard.unassignmentApprovedTotal}
           unassignmentDeclinedTotal={dashboard.unassignmentDeclinedTotal}
           loadError={dashboard.error}
+          agencyId={agencyId}
+          canManageNotes={canManageNotes}
         />
       </Suspense>
     </DashboardLayout>

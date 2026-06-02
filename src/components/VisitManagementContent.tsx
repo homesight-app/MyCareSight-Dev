@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import Modal from './Modal'
 import DeclineAssignmentModal from './DeclineAssignmentModal'
+import InternalNotesPanel from './InternalNotesPanel'
 import {
   approveScheduleAssignmentRequestAction,
   approveScheduleUnassignmentRequestAction,
@@ -49,6 +50,8 @@ export type VisitManagementContentProps = {
   unassignmentApprovedTotal: number
   unassignmentDeclinedTotal: number
   loadError?: string
+  agencyId?: string
+  canManageNotes?: boolean
 }
 
 function formatDistance(miles: number): string {
@@ -127,6 +130,8 @@ export default function VisitManagementContent({
   unassignmentApprovedTotal,
   unassignmentDeclinedTotal,
   loadError,
+  agencyId,
+  canManageNotes,
 }: VisitManagementContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -929,6 +934,16 @@ export default function VisitManagementContent({
                 <button type="button" onClick={() => setReassignVisit(detailVisit)} className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-medium hover:bg-blue-700">{detailVisit.caregiverId ? 'Reassign Caregiver' : 'Assign Caregiver'}</button>
               </div>
             ) : null}
+            {canManageNotes && agencyId && (
+              <div className="pt-2">
+                <InternalNotesPanel
+                  subjectType="visit"
+                  subjectId={detailVisit.id}
+                  agencyId={agencyId}
+                  canManage={canManageNotes}
+                />
+              </div>
+            )}
           </div>
         ) : null}
       </Modal>

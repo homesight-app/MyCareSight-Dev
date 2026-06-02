@@ -1,6 +1,7 @@
 import type { Supabase } from '@/lib/supabase/types'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
+import { patientFullName } from '@/lib/patient-name'
 
 export type CaregiverExecutionTaskDTO = {
   id: string
@@ -33,7 +34,8 @@ export type CaregiverVisitExecutionDTO = {
 
 type PatientRow = {
   id: string
-  full_name?: string | null
+  first_name?: string | null
+  last_name?: string | null
   city?: string | null
   state?: string | null
   street_address?: string | null
@@ -197,13 +199,13 @@ export async function fetchCaregiverPastVisitSummary(
 
   const { data: patient } = await supabase
     .from('patients')
-    .select('id, full_name, city, state, street_address')
+    .select('id, first_name, last_name, city, state, street_address')
     .eq('id', row.patient_id)
     .maybeSingle()
 
   const p = patient as PatientRow | null
   const locationShort = [p?.city?.trim(), p?.state?.trim()].filter(Boolean).join(', ') || '-'
-  const clientName = p?.full_name?.trim() || 'Client'
+  const clientName = p ? patientFullName(p as { first_name: string; last_name: string }) : 'Client'
 
   const taskSelectFull = `
       id,
@@ -355,13 +357,13 @@ export async function fetchCaregiverVisitExecutionDetail(
 
   const { data: patient } = await supabase
     .from('patients')
-    .select('id, full_name, city, state, street_address')
+    .select('id, first_name, last_name, city, state, street_address')
     .eq('id', row.patient_id)
     .maybeSingle()
 
   const p = patient as PatientRow | null
   const locationShort = [p?.city?.trim(), p?.state?.trim()].filter(Boolean).join(', ') || '-'
-  const clientName = p?.full_name?.trim() || 'Client'
+  const clientName = p ? patientFullName(p as { first_name: string; last_name: string }) : 'Client'
   const locationLine = p?.street_address?.trim() || '-'
 
   const taskSelectFull = `

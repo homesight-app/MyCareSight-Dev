@@ -18,7 +18,6 @@ export async function addPatientAddressAction(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
 
-  // Derive agency_id from the patient record (RLS enforces access)
   const { data: patient } = await supabase
     .from('patients')
     .select('agency_id')
@@ -34,7 +33,18 @@ export async function addPatientAddressAction(
   }
 
   const { data, error } = await q.insertPatientAddress(supabase, { ...payload, agency_id: patient.agency_id })
-  if (error) return { error: error.message }
+  if (error) return { error: 'Failed to save address. Please try again.' }
+
+  // HIPAA § 164.312(b): addresses are PHI — log every write
+  await supabase.from('audit_log').insert({
+    agency_id: patient.agency_id,
+    patient_id: patientId,
+    table_name: 'patient_addresses',
+    record_id: (data as any)?.id ?? null,
+    action: 'INSERT',
+    performed_by_user_id: user.id,
+    details: { patient_id: patientId, is_primary: payload.is_primary ?? false },
+  })
 
   revalidateClientPaths(patientId)
   return { error: null, id: (data as any)?.id }
@@ -58,7 +68,15 @@ export async function updatePatientAddressAction(
   }
 
   const { error } = await q.updatePatientAddress(supabase, id, payload)
-  if (error) return { error: error.message }
+  if (error) return { error: 'Failed to update address. Please try again.' }
+
+  await supabase.from('audit_log').insert({
+    table_name: 'patient_addresses',
+    record_id: id,
+    action: 'UPDATE',
+    performed_by_user_id: user.id,
+    details: { patient_id: patientId, ...payload },
+  })
 
   revalidateClientPaths(patientId)
   return { error: null }
@@ -72,7 +90,6 @@ export async function deletePatientAddressAction(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
 
-  // Guard: fetch current addresses to prevent deleting the only one or the primary
   const { data: existing } = await q.getPatientAddresses(supabase, patientId)
   if (!existing || existing.length <= 1) {
     return { error: 'Cannot delete the only address. Add another address first.' }
@@ -83,7 +100,16 @@ export async function deletePatientAddressAction(
   }
 
   const { error } = await q.deletePatientAddress(supabase, id)
-  if (error) return { error: error.message }
+  if (error) return { error: 'Failed to delete address. Please try again.' }
+
+  // Log deletion with patient_id for HIPAA audit trail
+  await supabase.from('audit_log').insert({
+    table_name: 'patient_addresses',
+    record_id: id,
+    action: 'DELETE',
+    performed_by_user_id: user.id,
+    details: { patient_id: patientId },
+  })
 
   revalidateClientPaths(patientId)
   return { error: null }
@@ -98,7 +124,15 @@ export async function setPrimaryPatientAddressAction(
   if (!user) return { error: 'Not authenticated' }
 
   const { error } = await q.setPrimaryPatientAddress(supabase, patientId, addressId)
-  if (error) return { error: error.message }
+  if (error) return { error: 'Failed to update primary address. Please try again.' }
+
+  await supabase.from('audit_log').insert({
+    table_name: 'patient_addresses',
+    record_id: addressId,
+    action: 'UPDATE',
+    performed_by_user_id: user.id,
+    details: { patient_id: patientId, is_primary: true },
+  })
 
   revalidateClientPaths(patientId)
   return { error: null }

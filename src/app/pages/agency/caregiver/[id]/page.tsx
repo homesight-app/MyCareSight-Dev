@@ -62,6 +62,10 @@ export default async function CaregiverProfilePage({
     days_until_expiry: license.days_until_expiry,
   }))
 
+  const role = session.profile?.role ?? ''
+  const canManageNotes =
+    role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
+
   const profileCard = (
     <div className="max-w-4xl mx-auto mt-20">
       <div
@@ -78,6 +82,8 @@ export default async function CaregiverProfilePage({
                 ? `/pages/agency/clients/${clientId}`
                 : '/pages/agency/clients'
           }
+          canManageNotes={canManageNotes}
+          agencyId={agencyId}
         />
       </div>
     </div>

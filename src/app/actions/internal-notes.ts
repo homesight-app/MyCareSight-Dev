@@ -1,5 +1,6 @@
 'use server'
 
+import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
@@ -10,6 +11,42 @@ import * as q from '@/lib/supabase/query'
 // RLS via hs_can_manage_agency() (checks agency_admins table, not this string)
 // is the primary enforcement gate; this check is defense-in-depth only.
 const ALLOWED_ROLES = new Set(['agency_admin', 'company_owner', 'care_coordinator'])
+
+const subjectTypeSchema = z.enum(['patient', 'caregiver', 'visit'])
+
+const addNoteSchema = z.object({
+  subjectType: subjectTypeSchema,
+  subjectId: z.string().min(1),
+  agencyId: z.string().min(1),
+  content: z.string().min(1, 'Note content cannot be empty'),
+  taggedPatientId: z.string().nullable().optional(),
+  taggedCaregiverId: z.string().nullable().optional(),
+})
+
+const editNoteSchema = z.object({
+  noteId: z.string().min(1),
+  content: z.string().min(1, 'Note content cannot be empty'),
+  agencyId: z.string().min(1),
+  subjectType: subjectTypeSchema,
+  subjectId: z.string().min(1),
+  taggedPatientId: z.string().nullable().optional(),
+  taggedCaregiverId: z.string().nullable().optional(),
+})
+
+const deleteNoteSchema = z.object({
+  noteId: z.string().min(1),
+  agencyId: z.string().min(1),
+  subjectType: subjectTypeSchema,
+  subjectId: z.string().min(1),
+})
+
+const logSearchSchema = z.object({
+  agencyId: z.string().min(1),
+  subjectType: subjectTypeSchema,
+  subjectId: z.string().min(1),
+  searchTerm: z.string(),
+  resultsReturned: z.number().int().min(0),
+})
 
 function subjectPath(subjectType: 'patient' | 'caregiver' | 'visit', subjectId: string) {
   if (subjectType === 'patient')   return `/pages/agency/clients/${subjectId}`
@@ -25,6 +62,8 @@ export async function addInternalNoteAction(input: {
   taggedPatientId?: string | null
   taggedCaregiverId?: string | null
 }): Promise<{ error: string | null; id?: string }> {
+  const parsed = addNoteSchema.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' }
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
   if (!ALLOWED_ROLES.has(session.profile?.role ?? '')) return { error: 'Insufficient permissions' }
@@ -43,7 +82,7 @@ export async function addInternalNoteAction(input: {
   if (error || !data) return { error: 'Failed to save note' }
 
   // HIPAA § 164.312(b): synchronous audit insert — if this fails, the error surfaces.
-  await supabase.from('audit_log').insert({
+  const { error: auditInsertErr } = await supabase.from('audit_log').insert({
     agency_id: input.agencyId,
     table_name: 'internal_notes',
     record_id: data.id,
@@ -57,6 +96,7 @@ export async function addInternalNoteAction(input: {
       tagged_caregiver_id: input.taggedCaregiverId ?? null,
     },
   })
+  if (auditInsertErr) console.error('[internal-notes/addNote] Audit log INSERT failed. noteId=%s err=%s', data.id, auditInsertErr.message)
 
   revalidatePath(subjectPath(input.subjectType, input.subjectId))
   if (input.taggedPatientId)   revalidatePath(`/pages/agency/clients/${input.taggedPatientId}`)
@@ -74,6 +114,8 @@ export async function editInternalNoteAction(input: {
   taggedPatientId?: string | null
   taggedCaregiverId?: string | null
 }): Promise<{ error: string | null }> {
+  const parsed = editNoteSchema.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' }
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
   if (!ALLOWED_ROLES.has(session.profile?.role ?? '')) return { error: 'Insufficient permissions' }
@@ -97,7 +139,7 @@ export async function editInternalNoteAction(input: {
   if (error || !data) return { error: 'Failed to update note' }
 
   // HIPAA § 164.312(b): full before/after trail so auditors can reconstruct change history.
-  await supabase.from('audit_log').insert({
+  const { error: auditUpdateErr } = await supabase.from('audit_log').insert({
     agency_id: input.agencyId,
     table_name: 'internal_notes',
     record_id: input.noteId,
@@ -108,6 +150,7 @@ export async function editInternalNoteAction(input: {
       new_values: { content: input.content.trim(), tagged_patient_id: input.taggedPatientId ?? null, tagged_caregiver_id: input.taggedCaregiverId ?? null },
     },
   })
+  if (auditUpdateErr) console.error('[internal-notes/editNote] Audit log UPDATE failed. noteId=%s err=%s', input.noteId, auditUpdateErr.message)
 
   revalidatePath(subjectPath(input.subjectType, input.subjectId))
   if (input.taggedPatientId)   revalidatePath(`/pages/agency/clients/${input.taggedPatientId}`)
@@ -126,10 +169,12 @@ export async function logNoteSearchAction(input: {
   searchTerm: string
   resultsReturned: number
 }): Promise<void> {
+  const parsed = logSearchSchema.safeParse(input)
+  if (!parsed.success) return
   const session = await getSession()
   if (!session) return
   const supabase = await createClient()
-  await supabase.from('audit_log').insert({
+  const { error: auditSearchErr } = await supabase.from('audit_log').insert({
     agency_id:            input.agencyId,
     table_name:           'internal_notes',
     action:               'SEARCH',
@@ -141,6 +186,7 @@ export async function logNoteSearchAction(input: {
       subject_id:       input.subjectId,
     },
   })
+  if (auditSearchErr) console.error('[internal-notes/searchNotes] Audit log SEARCH failed. term=%s err=%s', input.searchTerm, auditSearchErr.message)
 }
 
 export async function deleteInternalNoteAction(input: {
@@ -149,6 +195,8 @@ export async function deleteInternalNoteAction(input: {
   subjectType: 'patient' | 'caregiver' | 'visit'
   subjectId: string
 }): Promise<{ error: string | null }> {
+  const parsed = deleteNoteSchema.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' }
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
   if (!ALLOWED_ROLES.has(session.profile?.role ?? '')) return { error: 'Insufficient permissions' }
@@ -159,7 +207,7 @@ export async function deleteInternalNoteAction(input: {
   if (error || !data) return { error: 'Failed to delete note' }
 
   // HIPAA § 164.312(b): log full snapshot of what was deleted.
-  await supabase.from('audit_log').insert({
+  const { error: auditDeleteErr } = await supabase.from('audit_log').insert({
     agency_id: input.agencyId,
     table_name: 'internal_notes',
     record_id: input.noteId,
@@ -173,6 +221,7 @@ export async function deleteInternalNoteAction(input: {
       tagged_caregiver_id: data.tagged_caregiver_id ?? null,
     },
   })
+  if (auditDeleteErr) console.error('[internal-notes/deleteNote] Audit log DELETE failed. noteId=%s err=%s', input.noteId, auditDeleteErr.message)
 
   revalidatePath(subjectPath(input.subjectType, input.subjectId))
   if (data.tagged_patient_id)   revalidatePath(`/pages/agency/clients/${data.tagged_patient_id}`)

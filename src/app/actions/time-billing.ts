@@ -189,7 +189,7 @@ export async function updateVisitMileageAction(
 
   if (error) return { ok: false, error: error.message }
 
-  await supabase.from('audit_log').insert({
+  const { error: auditMileageErr } = await supabase.from('audit_log').insert({
     table_name: 'scheduled_visits',
     record_id: scheduledVisitId,
     action: 'UPDATE',
@@ -199,6 +199,7 @@ export async function updateVisitMileageAction(
       new_values: { mileage_miles: mileageMiles },
     },
   })
+  if (auditMileageErr) console.error('[time-billing/mileage] Audit log UPDATE failed. visitId=%s err=%s', scheduledVisitId, auditMileageErr.message)
 
   revalidatePath(PATH)
   revalidatePath(REPORT_PAYROLL_PATH)

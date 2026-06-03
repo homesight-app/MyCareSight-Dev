@@ -29,6 +29,7 @@ import {
   markScheduleMissedAction,
   unassignCaregiverFromScheduleAction,
 } from '@/app/actions/schedule-assignment-requests'
+import { getCaregiverCandidatesForVisitAction } from '@/app/actions/visit-candidates'
 import type {
   AssignmentRequestCardDTO,
   AssignmentVisitCardDTO,
@@ -191,6 +192,8 @@ export default function VisitManagementContent({
   const [detailVisit, setDetailVisit] = useState<AllVisitCardDTO | null>(null)
   const [reassignVisit, setReassignVisit] = useState<AllVisitCardDTO | null>(null)
   const [missVisit, setMissVisit] = useState<AllVisitCardDTO | null>(null)
+  const [candidates, setCandidates] = useState<ReassignCandidateDTO[]>([])
+  const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [missReason, setMissReason] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -350,8 +353,17 @@ export default function VisitManagementContent({
   }
   const handleUnassign = (visit: AllVisitCardDTO) =>
     void runAction(`unassign:${visit.id}`, () => unassignCaregiverFromScheduleAction(visit.id))
+  const openReassignModal = async (visit: AllVisitCardDTO) => {
+    setReassignVisit(visit)
+    setCandidates([])
+    setLoadingCandidates(true)
+    const result = await getCaregiverCandidatesForVisitAction(visit.id)
+    setCandidates(result.data ?? [])
+    setLoadingCandidates(false)
+  }
   const handleAssign = (visit: AllVisitCardDTO, caregiverId: string) => {
     setReassignVisit(null)
+    setCandidates([])
     void runAction(`assign:${visit.id}`, () => assignCaregiverToScheduleAction(visit.id, caregiverId))
   }
   const handleMiss = () => {
@@ -575,7 +587,7 @@ export default function VisitManagementContent({
                               <button
                                 type="button"
                                 disabled={pendingActionKey === `assign:${visit.id}`}
-                                onClick={() => setReassignVisit(visit)}
+                                onClick={() => void openReassignModal(visit)}
                                 className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
                               >
                                 {visit.caregiverId ? 'Reassign' : 'Assign'}
@@ -931,7 +943,7 @@ export default function VisitManagementContent({
             {detailVisit.status !== 'completed' && detailVisit.status !== 'missed' && !isPastVisitDate(detailVisit.date) ? (
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setMissVisit(detailVisit)} className="rounded-lg border border-orange-200 text-orange-700 px-3 py-2 text-sm font-medium hover:bg-orange-50">Mark Missed</button>
-                <button type="button" onClick={() => setReassignVisit(detailVisit)} className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-medium hover:bg-blue-700">{detailVisit.caregiverId ? 'Reassign Caregiver' : 'Assign Caregiver'}</button>
+                <button type="button" onClick={() => void openReassignModal(detailVisit)} className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-medium hover:bg-blue-700">{detailVisit.caregiverId ? 'Reassign Caregiver' : 'Assign Caregiver'}</button>
               </div>
             ) : null}
             {canManageNotes && agencyId && (
@@ -948,7 +960,7 @@ export default function VisitManagementContent({
         ) : null}
       </Modal>
 
-      <Modal isOpen={!!reassignVisit} onClose={() => setReassignVisit(null)} title="Assign Caregiver" size="lg">
+      <Modal isOpen={!!reassignVisit} onClose={() => { setReassignVisit(null); setCandidates([]) }} title="Assign Caregiver" size="lg">
         {reassignVisit ? (
           <div className="space-y-4">
             <div className="text-sm text-gray-600">{reassignVisit.clientName} - {reassignVisit.visitTitle} - {reassignVisit.timeLabel}</div>
@@ -957,7 +969,15 @@ export default function VisitManagementContent({
               <div className="flex flex-wrap gap-2">{reassignVisit.clientRequiredSkills.length ? reassignVisit.clientRequiredSkills.map((sk) => <span key={sk} className="rounded-full bg-white border border-purple-200 text-purple-700 px-2 py-0.5 text-xs">{sk}</span>) : <span className="text-xs text-purple-600">No required skills</span>}</div>
             </div>
             <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
-              {reassignVisit.reassignCandidates.map((cand: ReassignCandidateDTO, idx) => (
+              {loadingCandidates ? (
+                <div className="flex items-center justify-center py-8 text-sm text-gray-500 gap-2">
+                  <Loader2 className="animate-spin w-4 h-4" />
+                  Loading caregivers…
+                </div>
+              ) : candidates.length === 0 ? (
+                <div className="py-6 text-center text-sm text-gray-500">No caregivers within 20 miles found.</div>
+              ) : null}
+              {!loadingCandidates && candidates.map((cand: ReassignCandidateDTO, idx) => (
                 <div key={cand.id} className={`rounded-xl border p-3 ${cand.isCurrent ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-white'}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">

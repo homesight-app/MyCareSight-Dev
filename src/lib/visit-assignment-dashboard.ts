@@ -425,7 +425,7 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
     if (!patient || !staff) continue
 
     // Use the visit's specific address ZIP if set; fall back to patient's default ZIP
-    const visitAddrZip = (sched as any).patient_address?.zip_code ?? null
+    const visitAddrZip = sched.patient_address?.zip_code ?? null
     const clientZip = normalizeUsZipForLookup(visitAddrZip ?? patient.zip_code)
     const staffZip = normalizeUsZipForLookup(staff.zip_code)
     let distanceMiles = Number.POSITIVE_INFINITY

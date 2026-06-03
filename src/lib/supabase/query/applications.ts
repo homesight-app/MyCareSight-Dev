@@ -1,5 +1,9 @@
 import type { Supabase } from '../types'
 
+const APPLICATIONS_COLUMNS = 'id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id'
+const APPLICATION_STEPS_COLUMNS = 'id, application_id, step_name, step_order, is_completed, completed_at, completed_by, notes, created_at, updated_at, is_expert_step, created_by_expert_id, description, phase, instructions'
+const APPLICATION_DOCUMENTS_COLUMNS = 'id, application_id, document_name, document_url, document_type, status, created_at, description, expert_review_notes, license_requirement_document_id'
+
 /** Fetch application by id for close check (id, progress_percentage, status). */
 export async function getApplicationForClose(supabase: Supabase, applicationId: string) {
   return supabase
@@ -85,7 +89,7 @@ export async function rpcCopyExpertStepsToApplication(
 export async function getApplicationDocumentsByApplicationId(supabase: Supabase, applicationId: string) {
   return supabase
     .from('application_documents')
-    .select('*')
+    .select(APPLICATION_DOCUMENTS_COLUMNS)
     .eq('application_id', applicationId)
     .order('created_at', { ascending: false })
 }
@@ -116,7 +120,7 @@ export async function updateApplicationDocumentFile(
 export async function getApplicationStepsByApplicationId(supabase: Supabase, applicationId: string) {
   return supabase
     .from('application_steps')
-    .select('*')
+    .select(APPLICATION_STEPS_COLUMNS)
     .eq('application_id', applicationId)
     .order('step_order', { ascending: true })
 }
@@ -125,7 +129,7 @@ export async function getApplicationStepsByApplicationId(supabase: Supabase, app
 export async function getExpertApplicationStepsByApplicationId(supabase: Supabase, applicationId: string) {
   return supabase
     .from('application_steps')
-    .select('*')
+    .select(APPLICATION_STEPS_COLUMNS)
     .eq('application_id', applicationId)
     .eq('is_expert_step', true)
     .order('step_order', { ascending: true })
@@ -303,7 +307,7 @@ export async function getApplicationByIdForOwnerOrExpert(
 ) {
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .eq('id', applicationId)
     .or(`company_owner_id.eq.${userId},assigned_expert_id.eq.${userId}`)
     .single()
@@ -318,7 +322,7 @@ export async function getApplicationIdsByCompanyOwnerId(supabase: Supabase, comp
 export async function getApplicationsByCompanyOwnerId(supabase: Supabase, companyOwnerId: string) {
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .eq('company_owner_id', companyOwnerId)
     .order('last_updated_date', { ascending: false })
 }
@@ -359,7 +363,7 @@ export async function getApplicationsByStaffMemberIds(
   if (staffMemberIds.length === 0) return { data: [], error: null }
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .in('caregiver_member_id', staffMemberIds)
     .not('caregiver_member_id', 'is', null)
     .eq('status', 'approved')
@@ -373,7 +377,7 @@ export async function getApplicationsByStaffMemberIdsAll(
   if (staffMemberIds.length === 0) return { data: [], error: null }
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .in('caregiver_member_id', staffMemberIds)
     .not('caregiver_member_id', 'is', null)
 }
@@ -387,7 +391,7 @@ export async function getApplicationIdsByAssignedExpertId(supabase: Supabase, ex
 export async function getApplicationsByAssignedExpertId(supabase: Supabase, expertUserId: string) {
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .eq('assigned_expert_id', expertUserId)
     .order('created_at', { ascending: false })
 }
@@ -407,7 +411,7 @@ export async function getApplicationsByAssignedExpertIdSelect(
 
 /** Get application by id (no owner/expert filter). */
 export async function getApplicationById(supabase: Supabase, applicationId: string) {
-  return supabase.from('applications').select('*').eq('id', applicationId).single()
+  return supabase.from('applications').select(APPLICATIONS_COLUMNS).eq('id', applicationId).single()
 }
 
 /** Get application by id and caregiver_member_id (for staff dashboard detail). */
@@ -418,7 +422,7 @@ export async function getApplicationByIdAndStaffMemberId(
 ) {
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .eq('id', applicationId)
     .eq('caregiver_member_id', staffMemberId)
     .single()
@@ -428,7 +432,7 @@ export async function getApplicationByIdAndStaffMemberId(
 export async function getApplicationsByStatus(supabase: Supabase, status: string) {
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .eq('status', status)
     .order('created_at', { ascending: false })
 }
@@ -437,7 +441,7 @@ export async function getApplicationsByStatus(supabase: Supabase, status: string
 export async function getApplicationsByAgencyId(supabase: Supabase, agencyId: string) {
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .eq('agency_id', agencyId)
     .order('created_at', { ascending: false })
 }
@@ -468,7 +472,7 @@ export async function getApplicationsByStatuses(supabase: Supabase, statuses: st
   if (statuses.length === 0) return { data: [], error: null }
   return supabase
     .from('applications')
-    .select('*')
+    .select(APPLICATIONS_COLUMNS)
     .in('status', statuses)
     .order('created_at', { ascending: false })
 }

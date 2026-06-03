@@ -20,7 +20,7 @@ export default async function ExpertApplicationsPage() {
   const { data: ownerProfilesData } = ownerIds.length > 0
     ? await q.getUserProfilesByIds(supabase, ownerIds, 'id, full_name, email')
     : { data: [] }
-  type OwnerProfileRow = { id: string; full_name: string | null; email?: string | null }
+  type OwnerProfileRow = { id: string; full_name: string | null; email: string | null }
   const ownerProfilesMap = new Map(((ownerProfilesData ?? []) as unknown as OwnerProfileRow[]).map(p => [p.id, p]))
 
   const assignedApplications = filtered.map(app => ({

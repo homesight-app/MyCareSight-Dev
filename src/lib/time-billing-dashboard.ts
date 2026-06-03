@@ -142,7 +142,7 @@ export async function fetchTimeBillingRows(supabase: Supabase): Promise<{ rows: 
       const scheduleHours = hoursFromScheduleWithDates(
         sv.visit_date,
         sv.scheduled_start_time,
-        (sv as any).scheduled_end_date,
+        sv.scheduled_end_date,
         sv.scheduled_end_time
       )
 

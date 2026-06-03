@@ -48,7 +48,7 @@ export interface ScheduleRow {
   updated_at: string
   patient_address_id?: string | null
   mileage_miles?: number | null
-  patient_address?: { id: string; zip_code: string; street_address: string; city: string; state: string; label: string } | null
+  patient_address?: PatientAddressNested | null
   end_date?: string | null
 }
 
@@ -154,6 +154,7 @@ type ScheduledVisitDbRow = {
   visit_date: string
   scheduled_start_time: string | null
   scheduled_end_time: string | null
+  scheduled_end_date?: string | null
   description: string | null
   notes: string | null
   visit_type: string | null
@@ -161,7 +162,12 @@ type ScheduledVisitDbRow = {
   is_recurring: boolean
   created_at: string
   updated_at: string
+  patient_address_id?: string | null
+  mileage_miles?: number | null
+  patient_address?: PatientAddressNested | PatientAddressNested[] | null
 }
+
+type PatientAddressNested = { id: string; zip_code: string; street_address: string; city: string; state: string; label: string }
 
 type ScheduledVisitTaskNested = {
   legacy_task_code: string | null
@@ -226,10 +232,10 @@ function toScheduleRow(v: ScheduledVisitDbRowWithTasks, adlCodes: string[]): Sch
     status: v.status,
     created_at: v.created_at,
     updated_at: v.updated_at,
-    patient_address_id: (v as any).patient_address_id ?? null,
-    mileage_miles: (v as any).mileage_miles ?? null,
-    patient_address: (v as any).patient_address ?? null,
-    end_date: (v as any).scheduled_end_date ?? null,
+    patient_address_id: v.patient_address_id ?? null,
+    mileage_miles: v.mileage_miles ?? null,
+    patient_address: firstRel(v.patient_address) ?? null,
+    end_date: v.scheduled_end_date ?? null,
   }
 }
 
@@ -705,24 +711,26 @@ export async function updateRecurringSchedulesByScope(
   const fromDate = data.apply_from_date?.trim() || seedLocal.visitDateLocal
   const seedWeekday = new Date(`${seedLocal.visitDateLocal}T12:00:00`).getDay()
 
-  const { data: rows, error: rowsErr } = await supabase
+  let seriesQuery = supabase
     .from('scheduled_visits')
     .select('id, visit_date, scheduled_start_time, scheduled_end_time')
     .eq('visit_series_id', seedSeriesId)
+  // Push date / id predicates to DB where possible; weekday must still be filtered in JS
+  if (data.scope === 'this_and_future') seriesQuery = seriesQuery.gte('visit_date', fromDate)
+
+  const { data: rows, error: rowsErr } = await seriesQuery
   if (rowsErr) return { updated_ids: [], error: { message: rowsErr.message || 'Failed to load recurring visits.' } }
 
   const ids = (rows ?? [])
     .filter((r) => {
-      const local = toLocalVisitParts(
-        String((r as { visit_date: string }).visit_date),
-        (r as { scheduled_start_time?: string | null }).scheduled_start_time ?? null,
-        (r as { scheduled_end_time?: string | null }).scheduled_end_time ?? null
-      )
-      if (data.scope === 'all_in_series') return true
-      if (data.scope === 'this_and_future') return local.visitDateLocal >= fromDate
+      if (data.scope === 'all_in_series' || data.scope === 'this_and_future') return true
       if (data.scope === 'weekday_in_series') {
-        const wd = new Date(`${local.visitDateLocal}T12:00:00`).getDay()
-        return wd === seedWeekday
+        const local = toLocalVisitParts(
+          String((r as { visit_date: string }).visit_date),
+          (r as { scheduled_start_time?: string | null }).scheduled_start_time ?? null,
+          (r as { scheduled_end_time?: string | null }).scheduled_end_time ?? null
+        )
+        return new Date(`${local.visitDateLocal}T12:00:00`).getDay() === seedWeekday
       }
       return String((r as { id: string }).id) === data.seed_schedule_id
     })

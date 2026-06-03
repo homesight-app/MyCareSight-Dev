@@ -124,7 +124,7 @@ export async function createExpert(data: CreateExpertData) {
     )
 
     if (refreshedExpertError || !refreshedExpert?.id) {
-      return { error: null, data: { user_id: userId } as any }
+      return { error: null, data: { user_id: userId } }
     }
 
     const { data: expert } = await q.getLicensingExpertById(supabaseAdmin, refreshedExpert.id)

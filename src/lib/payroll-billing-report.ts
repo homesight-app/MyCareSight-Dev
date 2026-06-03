@@ -229,7 +229,7 @@ export async function fetchPayrollBillingReportRows(
       const scheduleHours = hoursFromScheduleWithDates(
         sv.visit_date,
         sv.scheduled_start_time,
-        (sv as any).scheduled_end_date,
+        sv.scheduled_end_date,
         sv.scheduled_end_time
       )
 
@@ -289,7 +289,7 @@ export async function fetchPayrollBillingReportRows(
       } else {
         // Regular day — split into REG and OT using weekly accumulator.
         // For multi-day visits, split hours at work-week boundaries first.
-        const effectiveEndDate = (sv as any).scheduled_end_date ?? visitDate
+        const effectiveEndDate = sv.scheduled_end_date ?? visitDate
         const segments = splitHoursByWeek(
           visitDate, sv.scheduled_start_time ?? '00:00',
           effectiveEndDate, sv.scheduled_end_time ?? '00:00',

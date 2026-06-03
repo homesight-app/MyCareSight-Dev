@@ -64,8 +64,25 @@ export async function createLicenseForAgency(input: CreateLicenseForAgencyInput)
     }
     if (input.document.expiry_date) docPayload.expiry_date = input.document.expiry_date
     const { error: docError } = await q.insertLicenseDocument(supabaseAdmin, docPayload)
-    if (docError) console.error('Failed to insert license_document:', docError.message)
+    if (docError) console.error('[licenses/createLicenseForAgency] Failed to insert license_document. licenseId=%s err=%s', newLicense.id, docError.message)
   }
+
+  const { error: auditErr } = await supabaseAdmin.from('audit_log').insert({
+    agency_id: input.agencyId,
+    table_name: 'licenses',
+    record_id: newLicense?.id ?? null,
+    action: 'INSERT',
+    performed_by_user_id: session.user.id,
+    details: {
+      license_name:     input.license_name,
+      state:            input.state,
+      license_number:   input.license_number ?? null,
+      activated_date:   input.activated_date,
+      expiry_date:      input.expiry_date,
+      has_document:     !!input.document,
+    },
+  })
+  if (auditErr) console.error('[licenses/createLicenseForAgency] Audit log failed. agencyId=%s err=%s', input.agencyId, auditErr.message)
 
   revalidatePath('/pages/admin/agencies/[id]', 'page')
   revalidatePath('/pages/expert/agencies/[id]', 'page')

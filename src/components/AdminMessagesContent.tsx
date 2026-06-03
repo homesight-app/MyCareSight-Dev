@@ -33,8 +33,8 @@ interface Message {
     id: string
     email: string
     user_profiles?: {
-      full_name?: string
-      role?: string
+      full_name?: string | null
+      role?: string | null
     }
   }
 }

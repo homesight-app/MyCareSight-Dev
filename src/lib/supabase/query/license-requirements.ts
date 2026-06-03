@@ -1,5 +1,10 @@
 import type { Supabase } from '../types'
 
+const LR_STEPS_COLUMNS = 'id, license_requirement_id, step_name, step_order, description, created_at, is_expert_step, phase, estimated_days, is_required, instructions'
+const LR_DOCUMENTS_COLUMNS = 'id, license_requirement_id, document_name, document_type, is_required, created_at, description'
+const LR_TEMPLATES_COLUMNS = 'id, license_requirement_id, template_name, description, file_url, file_name, created_at, category'
+const LICENSE_TYPES_COLUMNS = 'id, state, name, description, cost_min, cost_max, cost_display, processing_time_min, processing_time_max, processing_time_display, renewal_period_years, renewal_period_display, icon_type, requirements, is_active, created_at, updated_at, service_fee, service_fee_display'
+
 // --- License requirement ---
 export async function getLicenseRequirementByStateAndType(supabase: Supabase, state: string, licenseTypeName: string) {
   return supabase
@@ -247,7 +252,7 @@ export async function getAllLicenseRequirements(supabase: Supabase) {
 export async function getStepsFromRequirement(supabase: Supabase, requirementId: string) {
   return supabase
     .from('license_requirement_steps')
-    .select('*')
+    .select(LR_STEPS_COLUMNS)
     .eq('license_requirement_id', requirementId)
     .order('step_order', { ascending: true })
 }
@@ -256,7 +261,7 @@ export async function getStepsFromRequirement(supabase: Supabase, requirementId:
 export async function getRegularStepsFromRequirement(supabase: Supabase, requirementId: string) {
   return supabase
     .from('license_requirement_steps')
-    .select('*')
+    .select(LR_STEPS_COLUMNS)
     .eq('license_requirement_id', requirementId)
     .eq('is_expert_step', false)
     .order('step_order', { ascending: true })
@@ -306,7 +311,7 @@ export async function getAllDocumentsWithRequirementInfo(supabase: Supabase, cur
 export async function getDocumentsFromRequirement(supabase: Supabase, requirementId: string) {
   return supabase
     .from('license_requirement_documents')
-    .select('*')
+    .select(LR_DOCUMENTS_COLUMNS)
     .eq('license_requirement_id', requirementId)
     .order('document_name', { ascending: true })
 }
@@ -314,7 +319,7 @@ export async function getDocumentsFromRequirement(supabase: Supabase, requiremen
 export async function getTemplatesFromRequirement(supabase: Supabase, requirementId: string) {
   return supabase
     .from('license_requirement_templates')
-    .select('*')
+    .select(LR_TEMPLATES_COLUMNS)
     .eq('license_requirement_id', requirementId)
     .order('template_name', { ascending: true })
 }
@@ -337,11 +342,11 @@ export async function deleteTemplateById(supabase: Supabase, id: string) {
 
 // --- Copy steps/documents ---
 export async function getLicenseRequirementStepsByIds(supabase: Supabase, stepIds: string[]) {
-  return supabase.from('license_requirement_steps').select('*').in('id', stepIds)
+  return supabase.from('license_requirement_steps').select(LR_STEPS_COLUMNS).in('id', stepIds)
 }
 
 export async function getLicenseRequirementDocumentsByIds(supabase: Supabase, documentIds: string[]) {
-  return supabase.from('license_requirement_documents').select('*').in('id', documentIds)
+  return supabase.from('license_requirement_documents').select(LR_DOCUMENTS_COLUMNS).in('id', documentIds)
 }
 
 export async function getMaxStepOrderExpertForRequirement(supabase: Supabase, targetRequirementId: string) {
@@ -463,7 +468,7 @@ export async function getLicenseTypeById(supabase: Supabase, id: string) {
 
 /** Get license type by id, full row. */
 export async function getLicenseTypeByIdFull(supabase: Supabase, id: string) {
-  return supabase.from('license_types').select('*').eq('id', id).single()
+  return supabase.from('license_types').select(LICENSE_TYPES_COLUMNS).eq('id', id).single()
 }
 
 /** Get license_requirement_documents for display (id, document_name, document_type, is_required). */
@@ -489,7 +494,7 @@ export async function getLicenseTypes(
   supabase: Supabase,
   options?: { state?: string; isActive?: boolean }
 ) {
-  let q = supabase.from('license_types').select('*').order('name', { ascending: true })
+  let q = supabase.from('license_types').select(LICENSE_TYPES_COLUMNS).order('name', { ascending: true })
   if (options?.state) q = q.eq('state', options.state)
   if (options?.isActive !== undefined) q = q.eq('is_active', options.isActive)
   return q
@@ -499,14 +504,14 @@ export async function getLicenseTypes(
 export async function getLicenseTypesByState(supabase: Supabase, state: string) {
   return supabase
     .from('license_types')
-    .select('*')
+    .select(LICENSE_TYPES_COLUMNS)
     .eq('state', state)
     .eq('is_active', true)
     .order('name', { ascending: true })
 }
 
 /** Get license types ordered by state then name (optional select for list page). */
-export async function getLicenseTypesOrderedByStateAndName(supabase: Supabase, select = '*') {
+export async function getLicenseTypesOrderedByStateAndName(supabase: Supabase, select = LICENSE_TYPES_COLUMNS) {
   return supabase
     .from('license_types')
     .select(select)
@@ -517,7 +522,7 @@ export async function getLicenseTypesOrderedByStateAndName(supabase: Supabase, s
 /** Get active license types only (optional select for config page). */
 export async function getLicenseTypesActive(
   supabase: Supabase,
-  select = '*'
+  select = LICENSE_TYPES_COLUMNS
 ) {
   return supabase
     .from('license_types')

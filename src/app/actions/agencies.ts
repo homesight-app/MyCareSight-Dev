@@ -1,5 +1,6 @@
 'use server'
 
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath, revalidateTag } from 'next/cache'
@@ -18,23 +19,25 @@ function revalidateAgencyListCaches() {
   revalidateTag(CACHE_TAG_AGENCIES_FOR_BILLING)
 }
 
-export type AgencyFormData = {
-  companyName: string
-  agencyAdminIds: string[]
-  businessType: string
-  taxId: string
-  primaryLicenseNumber: string
-  website?: string
-  physicalStreetAddress: string
-  physicalCity: string
-  physicalState: string
-  physicalZipCode: string
-  sameAsPhysical: boolean
-  mailingStreetAddress?: string
-  mailingCity?: string
-  mailingState?: string
-  mailingZipCode?: string
-}
+const agencyFormSchema = z.object({
+  companyName: z.string().min(1, 'Company name is required'),
+  agencyAdminIds: z.array(z.string()).default([]),
+  businessType: z.string().default(''),
+  taxId: z.string().default(''),
+  primaryLicenseNumber: z.string().default(''),
+  website: z.string().optional(),
+  physicalStreetAddress: z.string().min(1, 'Physical street address is required'),
+  physicalCity: z.string().min(1, 'City is required'),
+  physicalState: z.string().min(1, 'State is required'),
+  physicalZipCode: z.string().min(1, 'ZIP code is required'),
+  sameAsPhysical: z.boolean().default(true),
+  mailingStreetAddress: z.string().optional(),
+  mailingCity: z.string().optional(),
+  mailingState: z.string().optional(),
+  mailingZipCode: z.string().optional(),
+})
+
+export type AgencyFormData = z.infer<typeof agencyFormSchema>
 
 function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
   return {
@@ -57,11 +60,14 @@ function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
 }
 
 export async function createAgency(data: AgencyFormData) {
+  const parsed = agencyFormSchema.safeParse(data)
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input', data: null }
+  const validData = parsed.data
   const supabase = await createClient()
   try {
-    const ids = (data.agencyAdminIds || []).filter(Boolean)
+    const ids = (validData.agencyAdminIds || []).filter(Boolean)
     const { data: newAgency, error } = await q.insertAgency(supabase, {
-      ...buildAgencyPayload(data),
+      ...buildAgencyPayload(validData),
       agency_admin_ids: ids,
     })
 
@@ -70,12 +76,13 @@ export async function createAgency(data: AgencyFormData) {
     }
 
     const agencyId = newAgency?.id
-    const trimmedName = data.companyName.trim()
+    const trimmedName = validData.companyName.trim()
     if (ids.length > 0) {
       const updates: { company_name: string; agency_id?: string } = { company_name: trimmedName }
       if (agencyId) updates.agency_id = agencyId
       const { error: clientError } = await q.updateClientCompanyAndAgencyForIds(supabase, ids, updates)
-      if (clientError) console.error('Failed to set client company_name/agency_id:', clientError)
+      // Non-blocking: agency was created. Log with context so ops team can manually fix if needed.
+      if (clientError) console.error('[agencies/createAgency] Failed to set client company_name/agency_id. agencyId=%s clientIds=%j err=%s', agencyId, ids, clientError.message)
     }
 
     revalidatePath('/pages/admin/agencies')
@@ -92,6 +99,9 @@ export async function updateAgency(
   data: AgencyFormData,
   previousAgencyAdminIds: string[]
 ) {
+  const parsed = agencyFormSchema.safeParse(data)
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input', data: null }
+  const validData = parsed.data
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', data: null }
   const role = session.profile?.role
@@ -99,7 +109,7 @@ export async function updateAgency(
 
   const supabase = createAdminClient()
   try {
-    const newIds = (data.agencyAdminIds || []).filter(Boolean)
+    const newIds = (validData.agencyAdminIds || []).filter(Boolean)
     const newSet = new Set(newIds)
 
     // One fetch for all peer agencies; keep admin-id arrays in memory so multiple newIds
@@ -118,17 +128,17 @@ export async function updateAgency(
         const updated = arr.filter((x) => x !== clientId)
         adminIdsByAgency.set(ag.id, updated)
         const { error: stripErr } = await q.updateAgencyAdminIds(supabase, ag.id, updated)
-        if (stripErr) console.error('Failed to strip admin from peer agency:', stripErr)
+        if (stripErr) console.error('[agencies/updateAgency] Failed to strip admin from peer agency. agencyId=%s clientId=%s err=%s', ag.id, clientId, stripErr.message)
         strippedAdminIds.add(clientId)
       }
     }
     if (strippedAdminIds.size > 0) {
       const { error: clearErr } = await q.updateClientClearAgencyForIds(supabase, Array.from(strippedAdminIds))
-      if (clearErr) console.error('Failed to clear client agency (batch):', clearErr)
+      if (clearErr) console.error('[agencies/updateAgency] Failed to clear client agency (batch). clientIds=%j err=%s', Array.from(strippedAdminIds), clearErr.message)
     }
 
     const { error } = await q.updateAgencyById(supabase, id, {
-      ...buildAgencyPayload(data),
+      ...buildAgencyPayload(validData),
       agency_admin_ids: newIds,
     })
 
@@ -139,16 +149,16 @@ export async function updateAgency(
     const removedAdminIds = previousAgencyAdminIds.filter((clientId) => !newSet.has(clientId))
     if (removedAdminIds.length > 0) {
       const { error: removedClearErr } = await q.updateClientClearAgencyForIds(supabase, removedAdminIds)
-      if (removedClearErr) console.error('Failed to clear removed admins agency (batch):', removedClearErr)
+      if (removedClearErr) console.error('[agencies/updateAgency] Failed to clear removed admins agency (batch). clientIds=%j err=%s', removedAdminIds, removedClearErr.message)
     }
 
-    const trimmedName = data.companyName.trim()
+    const trimmedName = validData.companyName.trim()
     if (newIds.length > 0) {
       const { error: clientError } = await q.updateClientCompanyAndAgencyForIds(supabase, newIds, {
         company_name: trimmedName,
         agency_id: id,
       })
-      if (clientError) console.error('Failed to set client company_name/agency_id:', clientError)
+      if (clientError) console.error('[agencies/updateAgency] Failed to set client company_name/agency_id. agencyId=%s clientIds=%j err=%s', id, newIds, clientError.message)
     }
 
     revalidatePath('/pages/admin/agencies')
@@ -160,24 +170,13 @@ export async function updateAgency(
   }
 }
 
-export type CompanyDetailsFormData = {
-  companyName: string
-  businessType: string
-  taxId: string
-  primaryLicenseNumber: string
-  website?: string
-  physicalStreetAddress: string
-  physicalCity: string
-  physicalState: string
-  physicalZipCode: string
-  sameAsPhysical: boolean
-  mailingStreetAddress?: string
-  mailingCity?: string
-  mailingState?: string
-  mailingZipCode?: string
-}
+const companyDetailsSchema = agencyFormSchema.omit({ agencyAdminIds: true })
+export type CompanyDetailsFormData = z.infer<typeof companyDetailsSchema>
 
 export async function saveCompanyDetails(data: CompanyDetailsFormData) {
+  const parsed = companyDetailsSchema.safeParse(data)
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input', data: null }
+  const validData = parsed.data
   const supabase = await createClient()
   try {
     const { data: { user } } = await supabase.auth.getUser()
@@ -192,20 +191,20 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
     }
 
     const payload = {
-      name: data.companyName.trim(),
-      business_type: data.businessType.trim() || null,
-      tax_id: data.taxId.trim() || null,
-      primary_license_number: data.primaryLicenseNumber.trim() || null,
-      website: data.website?.trim() || null,
-      physical_street_address: data.physicalStreetAddress.trim() || null,
-      physical_city: data.physicalCity.trim() || null,
-      physical_state: data.physicalState.trim() || null,
-      physical_zip_code: data.physicalZipCode.trim() || null,
-      same_as_physical: data.sameAsPhysical ?? true,
-      mailing_street_address: data.mailingStreetAddress?.trim() || null,
-      mailing_city: data.mailingCity?.trim() || null,
-      mailing_state: data.mailingState?.trim() || null,
-      mailing_zip_code: data.mailingZipCode?.trim() || null,
+      name: validData.companyName.trim(),
+      business_type: validData.businessType.trim() || null,
+      tax_id: validData.taxId.trim() || null,
+      primary_license_number: validData.primaryLicenseNumber.trim() || null,
+      website: validData.website?.trim() || null,
+      physical_street_address: validData.physicalStreetAddress.trim() || null,
+      physical_city: validData.physicalCity.trim() || null,
+      physical_state: validData.physicalState.trim() || null,
+      physical_zip_code: validData.physicalZipCode.trim() || null,
+      same_as_physical: validData.sameAsPhysical ?? true,
+      mailing_street_address: validData.mailingStreetAddress?.trim() || null,
+      mailing_city: validData.mailingCity?.trim() || null,
+      mailing_state: validData.mailingState?.trim() || null,
+      mailing_zip_code: validData.mailingZipCode?.trim() || null,
       updated_at: new Date().toISOString(),
     }
 
@@ -232,7 +231,7 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
       }
     }
 
-    const { error: clientUpdateError } = await q.updateClientCompanyName(supabase, client.id, data.companyName.trim())
+    const { error: clientUpdateError } = await q.updateClientCompanyName(supabase, client.id, validData.companyName.trim())
 
     if (clientUpdateError) {
       console.error('Failed to update client company_name:', clientUpdateError)

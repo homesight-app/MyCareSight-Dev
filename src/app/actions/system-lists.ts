@@ -241,15 +241,15 @@ async function getTaskCatalogItemById(id: string) {
 
   if (error) return { error: error.message, data: null }
 
-  const category = Array.isArray((data as any).task_categories)
-    ? (data as any).task_categories[0]
-    : (data as any).task_categories
+  const category = Array.isArray(data.task_categories)
+    ? data.task_categories[0]
+    : data.task_categories
   return {
     error: null,
     data: {
-      id: String((data as any).id),
-      name: String((data as any).name ?? '').trim(),
-      categoryId: String((data as any).category_id ?? ''),
+      id: String(data.id),
+      name: String(data.name ?? '').trim(),
+      categoryId: String(data.category_id ?? ''),
       categoryName: String(category?.name ?? '').trim() || 'General',
     } satisfies TaskCatalogItem,
   }
@@ -280,7 +280,7 @@ export async function createTaskCatalogItem(serviceType: ServiceType, name: stri
       .single()
 
     if (error) return { error: error.message, data: null }
-    const item = await getTaskCatalogItemById(String((data as any).id))
+    const item = await getTaskCatalogItemById(String(data.id))
     if (item.error || !item.data) return { error: item.error || 'Task created but could not be loaded.', data: null }
     revalidatePath('/pages/admin/configuration')
     revalidateTaskCatalogCaches()
@@ -304,7 +304,7 @@ export async function updateTaskCatalogItem(id: string, name: string) {
       .single()
 
     if (error) return { error: error.message, data: null }
-    const item = await getTaskCatalogItemById(String((data as any).id))
+    const item = await getTaskCatalogItemById(String(data.id))
     if (item.error || !item.data) return { error: item.error || 'Task updated but could not be loaded.', data: null }
     revalidatePath('/pages/admin/configuration')
     revalidateTaskCatalogCaches()

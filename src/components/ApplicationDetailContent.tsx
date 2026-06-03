@@ -2396,16 +2396,22 @@ export default function ApplicationDetailContent({
                       )}
                       <p className="text-sm text-gray-500 mt-1">{tpl.file_name}</p>
                     </div>
-                    <a
-                      href={tpl.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download={tpl.file_name}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (tpl.file_url.startsWith('http')) {
+                          window.open(tpl.file_url, '_blank')
+                          return
+                        }
+                        const s = createClient()
+                        const { data } = await s.storage.from('license-templates').createSignedUrl(tpl.file_url, 3600)
+                        if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                      }}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors flex-shrink-0"
                     >
                       <Download className="w-4 h-4" />
                       Download
-                    </a>
+                    </button>
                   </div>
                 ))}
               </div>

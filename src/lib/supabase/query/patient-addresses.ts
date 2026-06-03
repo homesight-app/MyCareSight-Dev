@@ -20,7 +20,7 @@ export type PatientAddressUpdate = Partial<Omit<PatientAddress, 'id' | 'patient_
 export async function getPatientAddresses(supabase: Supabase, patientId: string) {
   return supabase
     .from('patient_addresses')
-    .select('*')
+    .select('id, patient_id, agency_id, label, street_address, city, state, zip_code, is_primary, created_at, updated_at')
     .eq('patient_id', patientId)
     .order('is_primary', { ascending: false })
     .order('created_at', { ascending: true })

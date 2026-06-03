@@ -23,9 +23,12 @@ export async function rpcCreateLicensingExpert(
   return supabase.rpc('create_licensing_expert', params)
 }
 
+const LICENSING_EXPERTS_COLUMNS = 'id, user_id, first_name, last_name, email, phone, role, status, expertise, created_at, updated_at'
+const AGENCY_ADMINS_COLUMNS = 'id, user_id, agency_id, expert_id, company_owner_id, company_name, contact_name, contact_email, contact_phone, status, start_date, business_type, tax_id, primary_license_number, website, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code, created_at, updated_at'
+
 /** Get licensing_expert by id. */
 export async function getLicensingExpertById(supabase: Supabase, id: string) {
-  return supabase.from('licensing_experts').select('*').eq('id', id).single()
+  return supabase.from('licensing_experts').select(LICENSING_EXPERTS_COLUMNS).eq('id', id).single()
 }
 
 /** Update licensing_expert by id. */
@@ -39,7 +42,7 @@ export async function updateLicensingExpertById(
 
 /** Get all licensing_experts ordered by created_at desc. */
 export async function getLicensingExpertsOrdered(supabase: Supabase) {
-  return supabase.from('licensing_experts').select('*').order('created_at', { ascending: false })
+  return supabase.from('licensing_experts').select(LICENSING_EXPERTS_COLUMNS).order('created_at', { ascending: false }).limit(500)
 }
 
 function escapeIlikePattern(raw: string): string {
@@ -56,7 +59,7 @@ export type LicensingExpertListFilters = {
 
 /** Filtered licensing experts for admin UI. */
 export async function getLicensingExpertsFiltered(supabase: Supabase, filters: LicensingExpertListFilters) {
-  let qb = supabase.from('licensing_experts').select('*').order('created_at', { ascending: false })
+  let qb = supabase.from('licensing_experts').select(LICENSING_EXPERTS_COLUMNS).order('created_at', { ascending: false })
 
   const search = filters.search?.trim()
   if (search) {
@@ -76,7 +79,7 @@ export async function getLicensingExpertsFiltered(supabase: Supabase, filters: L
 /** Get licensing_experts by user_ids. */
 export async function getLicensingExpertsByUserIds(supabase: Supabase, userIds: string[]) {
   if (userIds.length === 0) return { data: [], error: null }
-  return supabase.from('licensing_experts').select('*').in('user_id', userIds)
+  return supabase.from('licensing_experts').select(LICENSING_EXPERTS_COLUMNS).in('user_id', userIds)
 }
 
 /** Get licensing_experts by ids (e.g. id, user_id, first_name, last_name). */
@@ -93,7 +96,7 @@ export async function getLicensingExpertsByIds(
 export async function getLicensingExpertsActive(supabase: Supabase) {
   return supabase
     .from('licensing_experts')
-    .select('*')
+    .select(LICENSING_EXPERTS_COLUMNS)
     .eq('status', 'active')
     .order('first_name', { ascending: true })
 }
@@ -114,7 +117,7 @@ export async function getExpertStatesByExpertIds(supabase: Supabase, expertIds: 
 
 /** Get licensing_expert by user_id. */
 export async function getLicensingExpertByUserId(supabase: Supabase, userId: string) {
-  return supabase.from('licensing_experts').select('*').eq('user_id', userId).maybeSingle()
+  return supabase.from('licensing_experts').select(LICENSING_EXPERTS_COLUMNS).eq('user_id', userId).maybeSingle()
 }
 
 /** Agency admin rows assigned to a licensing expert (by auth user id of the expert). */
@@ -124,7 +127,7 @@ export async function getClientsByExpertId(supabase: Supabase, expertUserId: str
   if (!le?.id) return { data: [], error: null }
   return supabase
     .from('agency_admins')
-    .select('*')
+    .select(AGENCY_ADMINS_COLUMNS)
     .eq('expert_id', le.id)
     .order('company_name', { ascending: true })
 }

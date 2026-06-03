@@ -36,18 +36,19 @@ export async function addPatientAddressAction(
   if (error) return { error: 'Failed to save address. Please try again.' }
 
   // HIPAA § 164.312(b): addresses are PHI — log every write
-  await supabase.from('audit_log').insert({
+  const { error: auditAddErr } = await supabase.from('audit_log').insert({
     agency_id: patient.agency_id,
     patient_id: patientId,
     table_name: 'patient_addresses',
-    record_id: (data as any)?.id ?? null,
+    record_id: data?.id ?? null,
     action: 'INSERT',
     performed_by_user_id: user.id,
     details: { patient_id: patientId, is_primary: payload.is_primary ?? false },
   })
+  if (auditAddErr) console.error('[patient-addresses/add] Audit log INSERT failed. patientId=%s err=%s', patientId, auditAddErr.message)
 
   revalidateClientPaths(patientId)
-  return { error: null, id: (data as any)?.id }
+  return { error: null, id: data?.id }
 }
 
 export async function updatePatientAddressAction(
@@ -70,13 +71,14 @@ export async function updatePatientAddressAction(
   const { error } = await q.updatePatientAddress(supabase, id, payload)
   if (error) return { error: 'Failed to update address. Please try again.' }
 
-  await supabase.from('audit_log').insert({
+  const { error: auditUpdateErr } = await supabase.from('audit_log').insert({
     table_name: 'patient_addresses',
     record_id: id,
     action: 'UPDATE',
     performed_by_user_id: user.id,
     details: { patient_id: patientId, ...payload },
   })
+  if (auditUpdateErr) console.error('[patient-addresses/update] Audit log UPDATE failed. addressId=%s err=%s', id, auditUpdateErr.message)
 
   revalidateClientPaths(patientId)
   return { error: null }
@@ -103,13 +105,14 @@ export async function deletePatientAddressAction(
   if (error) return { error: 'Failed to delete address. Please try again.' }
 
   // Log deletion with patient_id for HIPAA audit trail
-  await supabase.from('audit_log').insert({
+  const { error: auditDeleteErr } = await supabase.from('audit_log').insert({
     table_name: 'patient_addresses',
     record_id: id,
     action: 'DELETE',
     performed_by_user_id: user.id,
     details: { patient_id: patientId },
   })
+  if (auditDeleteErr) console.error('[patient-addresses/delete] Audit log DELETE failed. addressId=%s err=%s', id, auditDeleteErr.message)
 
   revalidateClientPaths(patientId)
   return { error: null }
@@ -126,13 +129,14 @@ export async function setPrimaryPatientAddressAction(
   const { error } = await q.setPrimaryPatientAddress(supabase, patientId, addressId)
   if (error) return { error: 'Failed to update primary address. Please try again.' }
 
-  await supabase.from('audit_log').insert({
+  const { error: auditPrimaryErr } = await supabase.from('audit_log').insert({
     table_name: 'patient_addresses',
     record_id: addressId,
     action: 'UPDATE',
     performed_by_user_id: user.id,
     details: { patient_id: patientId, is_primary: true },
   })
+  if (auditPrimaryErr) console.error('[patient-addresses/setPrimary] Audit log UPDATE failed. addressId=%s err=%s', addressId, auditPrimaryErr.message)
 
   revalidateClientPaths(patientId)
   return { error: null }

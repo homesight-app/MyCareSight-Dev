@@ -30,12 +30,3 @@ export const CACHE_TAG_LICENSE_TYPES_ACTIVE = 'license-types-active'
 export function caregiverVisitExecutionTag(visitId: string) {
   return `${CACHE_TAG_CAREGIVER_VISIT_EXECUTION}:${visitId}`
 }
-
-/** Invalidate all agency message inbox caches for this signed-in user (company owner). */
-export function agencyMessagesViewerTag(viewerUserId: string) {
-  return `${CACHE_TAG_AGENCY_MESSAGES_INBOX}:viewer:${viewerUserId}`
-}
-
-export function agencyMessagesClientTag(clientRowId: string) {
-  return `${CACHE_TAG_AGENCY_MESSAGES_INBOX}:client:${clientRowId}`
-}

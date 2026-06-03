@@ -2,7 +2,6 @@ import zipcodes from 'zipcodes'
 import type { Supabase } from '@/lib/supabase/types'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
-import { overallScorePercent, proximityPercentFromMiles } from '@/lib/visit-assignment-scoring'
 import { patientFullName } from '@/lib/patient-name'
 
 export type VisitStatus = 'completed' | 'missed' | 'in_progress' | 'scheduled' | 'unassigned'
@@ -161,13 +160,6 @@ function typeLabel(s: ScheduleRow): string {
   return t || 'Routine'
 }
 
-function skillMatchForStaff(requiredSkills: string[], caregiverSkills: string[]): { percent: number; matched: string[] } {
-  const requiredLen = requiredSkills.length
-  if (requiredLen === 0) return { percent: 100, matched: [] }
-  const matched = requiredSkills.filter((sk) => caregiverSkills.includes(sk))
-  return { percent: Math.round((matched.length / requiredLen) * 100), matched }
-}
-
 export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<AllVisitsDashboardDTO> {
   const [visitsRes, patientsMinRes, staffMinRes] = await Promise.all([
     q.getAllScheduledVisitsAsScheduleRows(supabase),
@@ -189,15 +181,14 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
   if (schedules.length === 0) return { allVisits: [], allClients, allCaregivers }
 
   const patientIds = Array.from(new Set(schedules.map((s) => s.patient_id)))
-  const [{ data: patientsData }, { data: allStaffData }, { data: reqRows }] = await Promise.all([
+  const [{ data: patientsData }, { data: reqRows }] = await Promise.all([
     supabase.from('patients').select('id, first_name, last_name, zip_code, state, city, street_address').in('id', patientIds),
-    supabase.from('caregiver_members').select('id, first_name, last_name, zip_code, skills, role, job_title'),
     q.getCaregiverRequirementsByPatientIds(supabase, patientIds),
   ])
 
   const patientById = new Map(((patientsData ?? []) as PatientRow[]).map((p) => [p.id, p]))
-  const allStaff = (allStaffData ?? []) as StaffRow[]
-  const staffById = new Map(allStaff.map((s) => [s.id, s]))
+  type MinStaffRow = { id: string; first_name?: string | null; last_name?: string | null }
+  const staffById = new Map<string, MinStaffRow>((allStaffDataAll ?? []).map((s) => [s.id, s]))
 
   const requirementsByPatient = new Map<string, string[]>()
   for (const row of reqRows ?? []) {
@@ -233,36 +224,8 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
     const currentCaregiver = s.caregiver_id ? staffById.get(s.caregiver_id) : undefined
     const requiredSkills = requirementsByPatient.get(s.patient_id) ?? []
     // Use visit's specific address ZIP if set; fall back to patient's default ZIP
-    const visitAddrZip = (s as any).patient_address?.zip_code ?? null
+    const visitAddrZip = s.patient_address?.zip_code ?? null
     const clientZip = normalizeUsZipForLookup(visitAddrZip ?? patient?.zip_code)
-
-    const candidates: ReassignCandidateDTO[] = allStaff
-      .map((staff) => {
-        const staffZip = normalizeUsZipForLookup(staff.zip_code)
-        let distanceMiles = Number.POSITIVE_INFINITY
-        if (clientZip && staffZip) {
-          const d = zipcodes.distance(clientZip, staffZip)
-          if (d != null && Number.isFinite(d)) distanceMiles = d
-        }
-        const proximity = proximityPercentFromMiles(distanceMiles)
-        if (proximity === null) return null
-
-        const caregiverSkills = Array.isArray(staff.skills) ? staff.skills : []
-        const { percent: skillPct, matched } = skillMatchForStaff(requiredSkills, caregiverSkills)
-        return {
-          id: staff.id,
-          caregiverName: [staff.first_name, staff.last_name].filter(Boolean).join(' ') || 'Caregiver',
-          caregiverTitle: (staff.job_title && staff.job_title.trim()) || (staff.role && String(staff.role).trim()) || 'Caregiver',
-          distanceMiles,
-          skillMatchPercent: skillPct,
-          proximityPercent: proximity,
-          overallPercent: overallScorePercent(skillPct, proximity),
-          matchedSkills: matched,
-          isCurrent: s.caregiver_id === staff.id,
-        }
-      })
-      .filter((v): v is ReassignCandidateDTO => v !== null)
-      .sort((a, b) => b.overallPercent - a.overallPercent)
 
     const status = deriveVisitStatus(s)
     return {
@@ -282,7 +245,7 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
       adlTasks: decodeAdlCodes(s.adl_codes, taskNameById),
       notes: s.notes,
       clientRequiredSkills: requiredSkills,
-      reassignCandidates: candidates,
+      reassignCandidates: [],
     }
   })
 

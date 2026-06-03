@@ -1,10 +1,37 @@
 'use server'
 
+import { z } from 'zod'
 import { randomBytes } from 'node:crypto'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
+
+const createUserAccountSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  fullName: z.string().min(1, 'Full name is required'),
+  role: z.enum(['admin', 'company_owner', 'staff_member', 'expert', 'care_coordinator']),
+  agencyId: z.string().nullable().optional(),
+})
+
+const createAgencyAdminSchema = z.object({
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().min(1, 'Last name is required'),
+  contactEmail: z.string().email('Invalid email address'),
+  contactPhone: z.string().default(''),
+  jobTitle: z.string().optional(),
+  department: z.string().optional(),
+  workLocation: z.string().min(1, 'Work location is required'),
+  status: z.enum(['active', 'inactive', 'pending']).default('active'),
+})
+
+const createStaffSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().min(1, 'Last name is required'),
+  agencyName: z.string().optional(),
+})
 
 export async function toggleUserStatus(userId: string, isActive: boolean) {
   const supabase = await createClient()
@@ -196,6 +223,8 @@ export async function createUserAccount(
   role: CreateUserRole,
   agencyId?: string | null
 ) {
+  const inputParsed = createUserAccountSchema.safeParse({ email, password, fullName, role, agencyId })
+  if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
   let supabaseAdmin
   try {
     supabaseAdmin = createAdminClient()
@@ -445,6 +474,8 @@ export async function createAgencyAdminAccount(
   workLocation: string,
   status: 'active' | 'inactive' | 'pending' = 'active'
 ) {
+  const inputParsed = createAgencyAdminSchema.safeParse({ firstName, lastName, contactEmail, contactPhone, jobTitle, department, workLocation, status })
+  if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
   let supabaseAdmin
   try {
     supabaseAdmin = createAdminClient()
@@ -581,6 +612,8 @@ export async function createStaffUserAccount(
   lastName: string,
   agencyName?: string
 ) {
+  const inputParsed = createStaffSchema.safeParse({ email, firstName, lastName, agencyName })
+  if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
   // Use admin client for user creation so the current user's session is NEVER overwritten.
   // signUp() with the cookie-based client would set the new user's session and log out the agency admin.
   let supabaseAdmin

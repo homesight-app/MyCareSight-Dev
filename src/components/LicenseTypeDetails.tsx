@@ -703,6 +703,17 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
     }
   }
 
+  // Generate a time-limited signed URL for a template download.
+  // Handles both legacy records (stored as full https:// URLs) and new records (stored as storage paths).
+  const handleDownloadTemplate = async (fileUrlOrPath: string) => {
+    if (fileUrlOrPath.startsWith('http')) {
+      window.open(fileUrlOrPath, '_blank')
+      return
+    }
+    const { data } = await supabase.storage.from('license-templates').createSignedUrl(fileUrlOrPath, 3600)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  }
+
   // Template handlers
   const handleUploadTemplate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -725,12 +736,12 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
         setIsSubmitting(false)
         return
       }
-      const { data: { publicUrl } } = supabase.storage.from('license-templates').getPublicUrl(filePath)
+      // Store the storage path (not a public URL) — signed URLs are generated at download time.
       const result = await createTemplate({
         licenseRequirementId: requirementId,
         templateName: templateFormData.templateName,
         description: templateFormData.description,
-        fileUrl: publicUrl,
+        fileUrl: filePath,
         fileName: templateFile.name,
       })
       if (result.error) {
@@ -2555,15 +2566,14 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <a
-                        href={tpl.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        onClick={() => handleDownloadTemplate(tpl.file_url)}
                         className="p-2 text-gray-700 hover:bg-gray-100 rounded transition-colors"
                         title="Download"
+                        type="button"
                       >
                         <FileText className="w-4 h-4" />
-                      </a>
+                      </button>
                       <button
                         onClick={() => handleEditTemplate(tpl)}
                         className="p-2 text-gray-700 hover:bg-gray-100 rounded transition-colors"

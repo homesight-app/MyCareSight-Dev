@@ -29,6 +29,16 @@ export async function updatePatientDocumentsAction(
   if (error || !data) {
     return { error: error?.message ?? 'Update failed' }
   }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    table_name: 'patients',
+    record_id: patientId,
+    action: 'UPDATE',
+    performed_by_user_id: user.id,
+    details: { field: 'documents', patient_id: patientId, document_count: documents.length },
+  })
+  if (auditErr) console.error('[patients/updateDocuments] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
+
   revalidateAgencyPatientDetailPath(patientId)
   return { error: null }
 }
@@ -52,6 +62,15 @@ export async function upsertPatientCaregiverRequirementsAction(
 
   const { error } = await q.upsertCaregiverRequirements(supabase, patientId, normalized)
   if (error) return { error: error.message ?? 'Failed to save caregiver requirements' }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    table_name: 'patient_skill_requirements',
+    record_id: patientId,
+    action: 'UPDATE',
+    performed_by_user_id: user.id,
+    details: { field: 'skill_codes', patient_id: patientId, skill_codes: normalized },
+  })
+  if (auditErr) console.error('[patients/upsertCaregiverRequirements] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
 
   revalidateAgencyPatientDetailPath(patientId)
   return { error: null }

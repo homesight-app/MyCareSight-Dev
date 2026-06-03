@@ -108,28 +108,6 @@ export default function PayrollBillingReportContent({
     setRows(initialRows)
   }, [initialRows])
 
-  useEffect(() => {
-    const byState = {
-      pending: rows.filter((r) => r.billingState === 'pending').length,
-      approved: rows.filter((r) => r.billingState === 'approved').length,
-      voided: rows.filter((r) => r.billingState === 'voided').length,
-    }
-    console.groupCollapsed('[PayrollBillingReportContent] rows billingState/rate debug')
-    console.log('total rows:', rows.length, byState)
-    console.table(
-      rows.map((r) => ({
-        id: r.id,
-        billingState: r.billingState,
-        visitDate: r.visitDate,
-        clientName: r.clientName,
-        caregiverName: r.caregiverName,
-        billRate: r.billRate,
-        billAmount: r.billAmount,
-      }))
-    )
-    console.groupEnd()
-  }, [rows])
-
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return rows

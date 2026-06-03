@@ -69,6 +69,20 @@ export async function appendCaregiverPayRateAction(input: {
 
   if (rpcErr) return { error: rpcErr.message }
 
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'caregiver_pay_rates',
+    action: 'INSERT',
+    performed_by_user_id: user.id,
+    details: {
+      caregiver_member_id: caregiverMemberId,
+      pay_rate:            payRate,
+      effective_date:      effectiveDate,
+      service_type:        serviceType,
+    },
+  })
+  if (auditErr) console.error('[caregiver-pay-rates/append] Audit log failed. caregiverId=%s err=%s', caregiverMemberId, auditErr.message)
+
   for (const p of REVAL_PATHS) revalidatePath(p)
   return { ok: true }
 }

@@ -46,6 +46,23 @@ function mapSubmitUnassignmentRequestError(code: string | undefined): string {
 
 type RpcPayload = { ok?: boolean; error?: string }
 
+async function logScheduleAudit(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  action: string,
+  recordId: string,
+  details: Record<string, unknown>
+) {
+  const { error } = await supabase.from('audit_log').insert({
+    table_name: 'scheduled_visits',
+    record_id: recordId,
+    action,
+    performed_by_user_id: userId,
+    details,
+  })
+  if (error) console.error('[schedule-assignments] Audit log failed. action=%s recordId=%s err=%s', action, recordId, error.message)
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -72,6 +89,7 @@ export async function approveScheduleAssignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
+  await logScheduleAudit(supabase, session.user.id, 'APPROVE_ASSIGNMENT', requestId, { request_id: requestId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -96,6 +114,7 @@ export async function declineScheduleAssignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
+  await logScheduleAudit(supabase, session.user.id, 'DECLINE_ASSIGNMENT', requestId, { request_id: requestId, reason })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -134,6 +153,7 @@ export async function requestScheduleAssignmentAction(
     return { error: mapSubmitAssignmentRequestError(body?.error) }
   }
 
+  await logScheduleAudit(supabase, session.user.id, 'REQUEST_ASSIGNMENT', scheduleId, { schedule_id: scheduleId, caregiver_note: note || null })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -172,6 +192,7 @@ export async function cancelScheduleAssignmentRequestAction(
     return { error: mapCancelAssignmentRequestError(body?.error) }
   }
 
+  await logScheduleAudit(supabase, session.user.id, 'CANCEL_ASSIGNMENT_REQUEST', requestId, { request_id: requestId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -191,6 +212,7 @@ export async function markScheduleMissedAction(
   if ((data?.status ?? '').toLowerCase().trim() !== 'missed') {
     return { error: 'Visit status was not updated to missed. Please refresh and try again.' }
   }
+  await logScheduleAudit(supabase, session.user.id, 'MARK_MISSED', scheduleId, { schedule_id: scheduleId, reason: reason?.trim() || null })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -207,6 +229,7 @@ export async function assignCaregiverToScheduleAction(
     status: 'scheduled',
   })
   if (error) return { error: error.message || 'Could not assign caregiver.' }
+  await logScheduleAudit(supabase, session.user.id, 'ASSIGN_CAREGIVER', scheduleId, { schedule_id: scheduleId, caregiver_id: caregiverId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -223,6 +246,7 @@ export async function unassignCaregiverFromScheduleAction(
     status: 'scheduled',
   })
   if (error) return { error: error.message || 'Could not unassign caregiver.' }
+  await logScheduleAudit(supabase, session.user.id, 'UNASSIGN_CAREGIVER', scheduleId, { schedule_id: scheduleId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -246,6 +270,7 @@ export async function submitScheduleUnassignmentRequestAction(
     return { error: mapSubmitUnassignmentRequestError(body?.error) }
   }
 
+  await logScheduleAudit(supabase, session.user.id, 'REQUEST_UNASSIGNMENT', scheduleId, { schedule_id: scheduleId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -265,6 +290,7 @@ export async function cancelScheduleUnassignmentRequestAction(
   const body = data as RpcPayload | null
   if (!body?.ok) return { error: mapRpcError(body?.error) }
 
+  await logScheduleAudit(supabase, session.user.id, 'CANCEL_UNASSIGNMENT_REQUEST', requestId, { request_id: requestId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -288,6 +314,7 @@ export async function approveScheduleUnassignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
+  await logScheduleAudit(supabase, session.user.id, 'APPROVE_UNASSIGNMENT', requestId, { request_id: requestId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -312,6 +339,7 @@ export async function declineScheduleUnassignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
+  await logScheduleAudit(supabase, session.user.id, 'DECLINE_UNASSIGNMENT', requestId, { request_id: requestId, reason })
   revalidateVisitsPages()
   return { ok: true }
 }

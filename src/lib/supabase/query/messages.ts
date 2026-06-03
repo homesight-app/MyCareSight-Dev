@@ -18,7 +18,7 @@ export async function insertConversation(
 export async function getMessagesByConversationId(supabase: Supabase, conversationId: string) {
   return supabase
     .from('messages')
-    .select('*')
+    .select('id, conversation_id, sender_id, content, created_at, is_read')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
 }
@@ -28,7 +28,7 @@ export async function getMessagesByConversationIds(supabase: Supabase, conversat
   if (conversationIds.length === 0) return { data: [], error: null }
   return supabase
     .from('messages')
-    .select('*')
+    .select('id, conversation_id, sender_id, content, created_at, is_read')
     .in('conversation_id', conversationIds)
     .order('created_at', { ascending: false })
     .limit(5000)
@@ -153,7 +153,7 @@ export async function getConversationIds(supabase: Supabase, limitCount = 500) {
 export async function getConversationsByAdminId(supabase: Supabase, adminId: string) {
   return supabase
     .from('conversations')
-    .select('*')
+    .select('id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id')
     .eq('admin_id', adminId)
     .order('last_message_at', { ascending: false })
 }
@@ -163,7 +163,7 @@ export async function getConversationsByClientIds(supabase: Supabase, clientIds:
   if (clientIds.length === 0) return { data: [], error: null }
   return supabase
     .from('conversations')
-    .select('*')
+    .select('id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id')
     .in('client_id', clientIds)
     .order('last_message_at', { ascending: false })
 }
@@ -172,7 +172,7 @@ export async function getConversationsByClientIds(supabase: Supabase, clientIds:
 export async function getConversationByClientId(supabase: Supabase, clientId: string) {
   return supabase
     .from('conversations')
-    .select('*')
+    .select('id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id')
     .eq('client_id', clientId)
     .maybeSingle()
 }
@@ -270,7 +270,7 @@ export async function getUnreadNotificationsForUser(
 ) {
   return supabase
     .from('notifications')
-    .select('*')
+    .select('id, user_id, title, type, is_read, created_at, message, icon_type')
     .eq('user_id', userId)
     .eq('is_read', false)
     .order('created_at', { ascending: false })

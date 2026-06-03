@@ -1,7 +1,8 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
+import { CACHE_TAG_LICENSE_TYPES_ACTIVE } from '@/lib/cache-tags'
 
 export interface CreateLicenseTypeData {
   state: string
@@ -76,6 +77,7 @@ export async function createLicenseType(data: CreateLicenseTypeData) {
     console.warn('Failed to create license requirement:', reqError.message)
   }
 
+  revalidateTag(CACHE_TAG_LICENSE_TYPES_ACTIVE)
   revalidatePath('/pages/admin/license-requirements')
   return { error: null, data: licenseType }
 }
@@ -92,6 +94,7 @@ export async function updateLicenseTypeActive(id: string, isActive: boolean) {
     return { error: error.message }
   }
 
+  revalidateTag(CACHE_TAG_LICENSE_TYPES_ACTIVE)
   revalidatePath('/pages/admin/license-requirements')
   return { error: null }
 }
@@ -130,6 +133,7 @@ export async function deleteLicenseType(id: string) {
     .eq('state', licenseType.state)
     .eq('license_type', licenseType.name)
 
+  revalidateTag(CACHE_TAG_LICENSE_TYPES_ACTIVE)
   revalidatePath('/pages/admin/license-requirements')
   return { error: null }
 }

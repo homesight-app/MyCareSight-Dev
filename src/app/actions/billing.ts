@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { getSession } from '@/lib/auth'
 
 export interface CreateBillingData {
   clientId: string
@@ -14,6 +15,9 @@ export interface CreateBillingData {
 }
 
 export async function createBilling(data: CreateBillingData) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+
   const supabase = await createClient()
 
   try {
@@ -41,6 +45,20 @@ export async function createBilling(data: CreateBillingData) {
     if (error) {
       return { error: error.message, data: null }
     }
+
+    const { error: auditErr } = await supabase.from('audit_log').insert({
+      table_name: 'billing',
+      record_id: billing.id,
+      action: 'INSERT',
+      performed_by_user_id: session.user.id,
+      details: {
+        client_id:            data.clientId,
+        billing_month:        data.billingMonth,
+        total_amount:         totalAmount,
+        status:               data.status || 'pending',
+      },
+    })
+    if (auditErr) console.error('Audit log failed for billing INSERT:', auditErr.message)
 
     revalidatePath('/pages/admin/billing')
     return { error: null, data: billing }

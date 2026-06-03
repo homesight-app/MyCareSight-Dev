@@ -20,6 +20,24 @@ npm run lint && npm run typecheck && npm run build
 
 ---
 
+## Database schema — always use live DB, not migration files
+
+**The migration files in `supabase/migrations/` are not authoritative.** They may be out of date, partially applied, or missing columns added directly in the Supabase dashboard. Always query the live database for the actual schema before writing or reviewing any SQL column references.
+
+**Use the Supabase MCP connection** (`mcp-server-supabase`, project ref `ruidwstxnkgajavxsyft`) to inspect the real schema:
+- `list_tables` — list all tables in a schema
+- `execute_sql` — query `information_schema.columns` for exact column names, types, and nullability
+
+**If the MCP connection fails or the tools are unavailable, stop and tell the user immediately.** Do not fall back to migration files as a substitute for live schema. Any column reference written without live DB verification risks silent data loss (wrong column name = RLS-silent no-op update) or NOT NULL insert failures.
+
+This rule applies to:
+- Writing or reviewing `select()` column lists
+- Writing `insert` or `upsert` payloads
+- Checking whether a column is nullable before omitting it from a payload
+- Verifying column names when fixing bugs in DB queries
+
+---
+
 ## Architecture
 
 **Stack:** Next.js 15 App Router · TypeScript · Supabase (auth + DB + storage) · Tailwind CSS · React Hook Form + Zod · TanStack React Query

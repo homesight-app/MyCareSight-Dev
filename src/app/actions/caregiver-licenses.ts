@@ -108,6 +108,24 @@ export async function insertCaregiverLicenseApplicationAction(
     if (!data?.id) {
       return { ok: false, error: 'License was not saved. Please try again.' }
     }
+
+    const { error: auditErr } = await supabase.from('audit_log').insert({
+      agency_id: row.agency_id,
+      table_name: 'caregiver_credentials',
+      record_id: data.id,
+      action: 'INSERT',
+      performed_by_user_id: userId,
+      details: {
+        caregiver_member_id: row.caregiver_member_id,
+        license_type:        row.license_type,
+        state:               row.state,
+        status:              row.status,
+        issue_date:          row.issue_date,
+        expiry_date:         row.expiry_date,
+      },
+    })
+    if (auditErr) console.error('[caregiver-licenses/insert] Audit log failed. credentialId=%s err=%s', data.id, auditErr.message)
+
     return { ok: true, id: data.id }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

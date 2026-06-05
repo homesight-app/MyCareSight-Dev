@@ -51,7 +51,8 @@ async function logScheduleAudit(
   userId: string,
   action: string,
   recordId: string,
-  details: Record<string, unknown>
+  details: Record<string, unknown>,
+  opts?: { agencyId?: string | null; patientId?: string | null }
 ) {
   const { error } = await supabase.from('audit_log').insert({
     table_name: 'scheduled_visits',
@@ -59,9 +60,13 @@ async function logScheduleAudit(
     action,
     performed_by_user_id: userId,
     details,
+    ...(opts?.agencyId ? { agency_id: opts.agencyId } : {}),
+    ...(opts?.patientId ? { patient_id: opts.patientId } : {}),
   })
   if (error) console.error('[schedule-assignments] Audit log failed. action=%s recordId=%s err=%s', action, recordId, error.message)
 }
+
+const MANAGE_ROLES = new Set(['agency_admin', 'company_owner', 'care_coordinator'])
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -203,16 +208,95 @@ export async function markScheduleMissedAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
   const supabase = await createClient()
+  const trimmedReason = reason?.trim() || null
   const { data, error } = await q.updateSchedule(supabase, scheduleId, {
     status: 'missed',
-    notes: reason?.trim() ? reason.trim() : null,
+    status_reason: trimmedReason,
   })
   if (error) return { error: error.message || 'Could not mark visit as missed.' }
   if ((data?.status ?? '').toLowerCase().trim() !== 'missed') {
     return { error: 'Visit status was not updated to missed. Please refresh and try again.' }
   }
-  await logScheduleAudit(supabase, session.user.id, 'MARK_MISSED', scheduleId, { schedule_id: scheduleId, reason: reason?.trim() || null })
+  await logScheduleAudit(
+    supabase, session.user.id, 'MARK_MISSED', scheduleId,
+    { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
+    { agencyId: data?.agency_id, patientId: data?.patient_id }
+  )
+  revalidateVisitsPages()
+  return { ok: true }
+}
+
+export async function markScheduleCancelledAction(
+  scheduleId: string,
+  reason: string
+): Promise<{ ok?: true; error?: string }> {
+  const session = await getSession()
+  if (!session?.user?.id) return { error: 'You must be signed in.' }
+  if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
+  const supabase = await createClient()
+  const trimmedReason = reason.trim() || null
+  const { data, error } = await q.updateSchedule(supabase, scheduleId, {
+    status: 'cancelled',
+    status_reason: trimmedReason,
+  })
+  if (error) return { error: error.message || 'Could not cancel visit.' }
+  if ((data?.status ?? '').toLowerCase().trim() !== 'cancelled') {
+    return { error: 'Visit status was not updated to cancelled. Please refresh and try again.' }
+  }
+  await logScheduleAudit(
+    supabase, session.user.id, 'MARK_CANCELLED', scheduleId,
+    { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
+    { agencyId: data?.agency_id, patientId: data?.patient_id }
+  )
+  revalidateVisitsPages()
+  return { ok: true }
+}
+
+export async function markScheduleOnHoldAction(
+  scheduleId: string,
+  reason: string
+): Promise<{ ok?: true; error?: string }> {
+  const session = await getSession()
+  if (!session?.user?.id) return { error: 'You must be signed in.' }
+  if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
+  const supabase = await createClient()
+  const trimmedReason = reason.trim() || null
+  const { data, error } = await q.updateSchedule(supabase, scheduleId, {
+    status: 'on_hold',
+    status_reason: trimmedReason,
+  })
+  if (error) return { error: error.message || 'Could not put visit on hold.' }
+  if ((data?.status ?? '').toLowerCase().trim() !== 'on_hold') {
+    return { error: 'Visit status was not updated to on hold. Please refresh and try again.' }
+  }
+  await logScheduleAudit(
+    supabase, session.user.id, 'MARK_ON_HOLD', scheduleId,
+    { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
+    { agencyId: data?.agency_id, patientId: data?.patient_id }
+  )
+  revalidateVisitsPages()
+  return { ok: true }
+}
+
+export async function reinstateScheduleAction(
+  scheduleId: string
+): Promise<{ ok?: true; error?: string }> {
+  const session = await getSession()
+  if (!session?.user?.id) return { error: 'You must be signed in.' }
+  if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
+  const supabase = await createClient()
+  const { data, error } = await q.updateSchedule(supabase, scheduleId, {
+    status: null,
+    status_reason: null,
+  })
+  if (error) return { error: error.message || 'Could not reinstate visit.' }
+  await logScheduleAudit(
+    supabase, session.user.id, 'REINSTATE', scheduleId,
+    { schedule_id: scheduleId, caregiver_id: data?.caregiver_id ?? null },
+    { agencyId: data?.agency_id, patientId: data?.patient_id }
+  )
   revalidateVisitsPages()
   return { ok: true }
 }

@@ -4,7 +4,7 @@ import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { patientFullName } from '@/lib/patient-name'
 
-export type VisitStatus = 'completed' | 'missed' | 'in_progress' | 'scheduled' | 'unassigned'
+export type VisitStatus = 'completed' | 'missed' | 'cancelled' | 'on_hold' | 'in_progress' | 'scheduled' | 'unassigned'
 
 export type ReassignCandidateDTO = {
   id: string
@@ -34,6 +34,7 @@ export type AllVisitCardDTO = {
   caregiverName: string | null
   adlTasks: string[]
   notes: string | null
+  statusReason: string | null
   clientRequiredSkills: string[]
   reassignCandidates: ReassignCandidateDTO[]
 }
@@ -142,6 +143,8 @@ function deriveVisitStatus(s: ScheduleRow): VisitStatus {
   const raw = (s.status ?? '').toLowerCase().trim()
   if (raw === 'completed') return 'completed'
   if (raw === 'missed') return 'missed'
+  if (raw === 'cancelled') return 'cancelled'
+  if (raw === 'on_hold') return 'on_hold'
   if (raw === 'in_progress' || raw === 'in progress') return 'in_progress'
   if (raw === 'unassigned') return 'unassigned'
   if (raw === 'scheduled') return 'scheduled'
@@ -152,6 +155,7 @@ function deriveVisitStatus(s: ScheduleRow): VisitStatus {
 function statusLabel(v: VisitStatus): string {
   if (v === 'in_progress') return 'In Progress'
   if (v === 'unassigned') return 'Unassigned'
+  if (v === 'on_hold') return 'On Hold'
   return v.charAt(0).toUpperCase() + v.slice(1)
 }
 
@@ -244,6 +248,7 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
       caregiverName: currentCaregiver ? [currentCaregiver.first_name, currentCaregiver.last_name].filter(Boolean).join(' ') : null,
       adlTasks: decodeAdlCodes(s.adl_codes, taskNameById),
       notes: s.notes,
+      statusReason: s.status_reason ?? null,
       clientRequiredSkills: requiredSkills,
       reassignCandidates: [],
     }

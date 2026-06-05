@@ -6,7 +6,6 @@ import {
   Bell,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
   Clock,
   MapPin,
   Loader2,
@@ -27,16 +26,21 @@ import {
   declineScheduleAssignmentRequestAction,
   declineScheduleUnassignmentRequestAction,
   markScheduleMissedAction,
+  markScheduleCancelledAction,
+  markScheduleOnHoldAction,
+  reinstateScheduleAction,
   unassignCaregiverFromScheduleAction,
 } from '@/app/actions/schedule-assignment-requests'
 import { getCaregiverCandidatesForVisitAction } from '@/app/actions/visit-candidates'
+import type { CaregiverMatchOption } from '@/lib/caregiver-matching'
+import { CaregiverAssignmentList } from '@/components/CaregiverAssignmentList'
 import type {
   AssignmentRequestCardDTO,
   AssignmentVisitCardDTO,
   ResolvedAssignmentRowDTO,
   UnassignmentRequestListItemDTO,
 } from '@/lib/visit-assignment-dashboard'
-import type { AllVisitCardDTO, ReassignCandidateDTO, VisitStatus } from '@/lib/visit-all-visits-dashboard'
+import type { AllVisitCardDTO } from '@/lib/visit-all-visits-dashboard'
 import { visitStatusBadgeClass, visitStatusLeftBorderClass } from '@/lib/visit-status-styles'
 
 export type VisitManagementContentProps = {
@@ -192,9 +196,13 @@ export default function VisitManagementContent({
   const [detailVisit, setDetailVisit] = useState<AllVisitCardDTO | null>(null)
   const [reassignVisit, setReassignVisit] = useState<AllVisitCardDTO | null>(null)
   const [missVisit, setMissVisit] = useState<AllVisitCardDTO | null>(null)
-  const [candidates, setCandidates] = useState<ReassignCandidateDTO[]>([])
+  const [cancelVisit, setCancelVisit] = useState<AllVisitCardDTO | null>(null)
+  const [holdVisit, setHoldVisit] = useState<AllVisitCardDTO | null>(null)
+  const [candidates, setCandidates] = useState<CaregiverMatchOption[]>([])
   const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [missReason, setMissReason] = useState('')
+  const [cancelReason, setCancelReason] = useState('')
+  const [holdReason, setHoldReason] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
@@ -374,6 +382,25 @@ export default function VisitManagementContent({
     setMissReason('')
     void runAction(`miss:${id}`, () => markScheduleMissedAction(id, reason))
   }
+  const handleCancel = () => {
+    if (!cancelVisit) return
+    const id = cancelVisit.id
+    const reason = cancelReason
+    setCancelVisit(null)
+    setCancelReason('')
+    void runAction(`cancel:${id}`, () => markScheduleCancelledAction(id, reason))
+  }
+  const handleHold = () => {
+    if (!holdVisit) return
+    const id = holdVisit.id
+    const reason = holdReason
+    setHoldVisit(null)
+    setHoldReason('')
+    void runAction(`hold:${id}`, () => markScheduleOnHoldAction(id, reason))
+  }
+  const handleReinstate = (visit: AllVisitCardDTO) => {
+    void runAction(`reinstate:${visit.id}`, () => reinstateScheduleAction(visit.id))
+  }
 
   const requestActionBusy = (requestId: string, kind: 'assignment' | 'unassignment' = 'assignment') => {
     if (kind === 'unassignment') {
@@ -507,6 +534,8 @@ export default function VisitManagementContent({
               <option value="in_progress">In Progress</option>
               <option value="completed">Completed</option>
               <option value="missed">Missed</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="on_hold">On Hold</option>
               <option value="unassigned">Unassigned</option>
             </select>
             <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
@@ -556,7 +585,7 @@ export default function VisitManagementContent({
                   </div>
                   {group.visits.map((visit) => {
                     const isPastVisit = isPastVisitDate(visit.date)
-                    const isLockedStatus = visit.status === 'completed' || visit.status === 'missed'
+                    const isLockedStatus = visit.status === 'completed' || visit.status === 'missed' || visit.status === 'cancelled'
                     return (
                     <div key={visit.id} className={`bg-white border rounded-xl p-4 shadow-sm border-l-4 ${visitStatusLeftBorderClass(visit.status)} ${visit.status === 'unassigned' ? 'border-red-200' : 'border-gray-200'}`}>
                       <div className="flex flex-col lg:flex-row lg:items-center gap-4">
@@ -582,6 +611,16 @@ export default function VisitManagementContent({
                         </div>
                         <div className="flex lg:flex-col gap-2 lg:w-[130px]">
                           <button type="button" onClick={() => setDetailVisit(visit)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium hover:bg-gray-50">Details</button>
+                          {visit.status === 'cancelled' || visit.status === 'on_hold' ? (
+                            <button
+                              type="button"
+                              disabled={pendingActionKey === `reinstate:${visit.id}`}
+                              onClick={() => handleReinstate(visit)}
+                              className="rounded-lg border border-gray-300 text-gray-700 px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60"
+                            >
+                              Reinstate
+                            </button>
+                          ) : null}
                           {!isPastVisit && !isLockedStatus ? (
                             <>
                               <button
@@ -609,6 +648,22 @@ export default function VisitManagementContent({
                                 className="rounded-lg border border-orange-200 text-orange-700 px-3 py-2 text-sm font-medium hover:bg-orange-50 disabled:opacity-60"
                               >
                                 Miss
+                              </button>
+                              <button
+                                type="button"
+                                disabled={pendingActionKey === `hold:${visit.id}`}
+                                onClick={() => setHoldVisit(visit)}
+                                className="rounded-lg border border-yellow-300 text-yellow-700 px-3 py-2 text-sm font-medium hover:bg-yellow-50 disabled:opacity-60"
+                              >
+                                On Hold
+                              </button>
+                              <button
+                                type="button"
+                                disabled={pendingActionKey === `cancel:${visit.id}`}
+                                onClick={() => setCancelVisit(visit)}
+                                className="rounded-lg border border-rose-200 text-rose-700 px-3 py-2 text-sm font-medium hover:bg-rose-50 disabled:opacity-60"
+                              >
+                                Cancel
                               </button>
                             </>
                           ) : null}
@@ -962,48 +1017,24 @@ export default function VisitManagementContent({
 
       <Modal isOpen={!!reassignVisit} onClose={() => { setReassignVisit(null); setCandidates([]) }} title="Assign Caregiver" size="lg">
         {reassignVisit ? (
-          <div className="space-y-4">
-            <div className="text-sm text-gray-600">{reassignVisit.clientName} - {reassignVisit.visitTitle} - {reassignVisit.timeLabel}</div>
-            <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
-              <div className="text-xs font-semibold text-purple-700 mb-2">Client Required Skills</div>
-              <div className="flex flex-wrap gap-2">{reassignVisit.clientRequiredSkills.length ? reassignVisit.clientRequiredSkills.map((sk) => <span key={sk} className="rounded-full bg-white border border-purple-200 text-purple-700 px-2 py-0.5 text-xs">{sk}</span>) : <span className="text-xs text-purple-600">No required skills</span>}</div>
-            </div>
-            <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
-              {loadingCandidates ? (
-                <div className="flex items-center justify-center py-8 text-sm text-gray-500 gap-2">
-                  <Loader2 className="animate-spin w-4 h-4" />
-                  Loading caregivers…
-                </div>
-              ) : candidates.length === 0 ? (
-                <div className="py-6 text-center text-sm text-gray-500">No caregivers within 20 miles found.</div>
-              ) : null}
-              {!loadingCandidates && candidates.map((cand: ReassignCandidateDTO, idx) => (
-                <div key={cand.id} className={`rounded-xl border p-3 ${cand.isCurrent ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-white'}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2"><span className="text-sm font-bold text-gray-700">#{idx + 1}</span><span className="font-semibold text-gray-900">{cand.caregiverName}</span><span className="text-sm text-gray-600">{cand.caregiverTitle}</span>{cand.isCurrent ? <span className="rounded-full border border-blue-200 text-blue-700 bg-blue-100 px-2 py-0.5 text-xs">Currently Assigned</span> : null}</div>
-                      <div className="max-w-sm mt-2"><ProgressRow label="Overall Score" value={cand.overallPercent} barClass="bg-blue-500" /><ProgressRow label="Skill Match" value={cand.skillMatchPercent} barClass="bg-violet-500" /><ProgressRow label="Proximity" value={cand.proximityPercent} barClass="bg-emerald-500" /></div>
-                      <div className="mt-2 text-xs text-gray-600">{formatDistance(cand.distanceMiles)} away</div>
-                      {cand.matchedSkills.length ? <div className="flex flex-wrap gap-2 mt-2">{cand.matchedSkills.map((sk) => <span key={sk} className="rounded-full border border-emerald-200 text-emerald-700 bg-emerald-50 px-2 py-0.5 text-xs">{sk}</span>)}</div> : null}
-                    </div>
-                    <button
-                      type="button"
-                      disabled={pendingActionKey === `assign:${reassignVisit.id}`}
-                      onClick={() => {
-                        if (cand.isCurrent) {
-                          setReassignVisit(null)
-                        } else {
-                          handleAssign(reassignVisit, cand.id)
-                        }
-                      }}
-                      className={`rounded-lg text-white px-3 py-2 text-sm font-medium disabled:opacity-60 ${cand.isCurrent ? 'bg-blue-600 hover:bg-blue-700' : 'bg-black hover:bg-gray-800 '}`}
-                    >
-                      {cand.isCurrent ? 'Keep' : 'Assign'}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="space-y-3">
+            <div className="text-sm text-gray-600">{reassignVisit.clientName} — {reassignVisit.visitTitle} — {reassignVisit.timeLabel}</div>
+            <CaregiverAssignmentList
+              variant="modal"
+              options={candidates}
+              requiredSkills={reassignVisit.clientRequiredSkills}
+              selectedId={reassignVisit.caregiverId}
+              isLoading={loadingCandidates}
+              disabled={pendingActionKey === `assign:${reassignVisit.id}`}
+              onSelect={(id) => {
+                const isCurrent = id === reassignVisit.caregiverId
+                if (isCurrent) {
+                  setReassignVisit(null)
+                } else {
+                  handleAssign(reassignVisit, id)
+                }
+              }}
+            />
           </div>
         ) : null}
       </Modal>
@@ -1018,7 +1049,7 @@ export default function VisitManagementContent({
               <div>Caregiver: {missVisit.caregiverName ?? 'Unassigned'}</div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">Reason (optional)</label>
+              <label className="text-sm font-medium text-gray-700">Reason <span className="text-gray-400">(optional)</span></label>
               <textarea value={missReason} onChange={(e) => setMissReason(e.target.value)} placeholder="e.g. Client hospitalized, caregiver no-show, weather..." rows={4} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             </div>
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">This will be logged with your name and timestamp and will appear in missed-visit reports.</div>
@@ -1031,6 +1062,64 @@ export default function VisitManagementContent({
                 className="rounded-lg bg-orange-600 text-white px-4 py-2 text-sm font-medium hover:bg-orange-700 disabled:opacity-60"
               >
                 Confirm Missed
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal isOpen={!!cancelVisit} onClose={() => { setCancelVisit(null); setCancelReason('') }} title="Cancel Visit" size="md">
+        {cancelVisit ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+              <div className="font-semibold">{cancelVisit.clientName}</div>
+              <div>{cancelVisit.visitTitle}</div>
+              <div>{cancelVisit.dateLabel}, {cancelVisit.timeLabel}</div>
+              <div>Caregiver: {cancelVisit.caregiverName ?? 'Unassigned'}</div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Reason <span className="text-red-500">*</span></label>
+              <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="e.g. Client request, scheduling conflict, duplicate booking..." rows={4} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">Cancellation will be logged with your name, timestamp, and reason. The visit will be locked and no further assignments can be made.</div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => { setCancelVisit(null); setCancelReason('') }} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium">Back</button>
+              <button
+                type="button"
+                disabled={!cancelReason.trim() || pendingActionKey === `cancel:${cancelVisit.id}`}
+                onClick={handleCancel}
+                className="rounded-lg bg-rose-600 text-white px-4 py-2 text-sm font-medium hover:bg-rose-700 disabled:opacity-60"
+              >
+                Confirm Cancellation
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal isOpen={!!holdVisit} onClose={() => { setHoldVisit(null); setHoldReason('') }} title="Put Visit On Hold" size="md">
+        {holdVisit ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
+              <div className="font-semibold">{holdVisit.clientName}</div>
+              <div>{holdVisit.visitTitle}</div>
+              <div>{holdVisit.dateLabel}, {holdVisit.timeLabel}</div>
+              <div>Caregiver: {holdVisit.caregiverName ?? 'Unassigned'}</div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Reason <span className="text-red-500">*</span></label>
+              <textarea value={holdReason} onChange={(e) => setHoldReason(e.target.value)} placeholder="e.g. Awaiting authorization, client unavailable, pending assessment..." rows={4} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-xs text-yellow-800">The visit will be paused. It can be reinstated at any time. This action is logged with your name and timestamp.</div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => { setHoldVisit(null); setHoldReason('') }} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium">Back</button>
+              <button
+                type="button"
+                disabled={!holdReason.trim() || pendingActionKey === `hold:${holdVisit.id}`}
+                onClick={handleHold}
+                className="rounded-lg bg-yellow-600 text-white px-4 py-2 text-sm font-medium hover:bg-yellow-700 disabled:opacity-60"
+              >
+                Confirm On Hold
               </button>
             </div>
           </div>

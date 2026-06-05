@@ -37,6 +37,7 @@ export interface ScheduleRow {
   description: string | null
   type: string | null
   notes: string | null
+  status_reason?: string | null
   is_recurring: boolean | null
   repeat_frequency: string | null
   days_of_week: number[] | null
@@ -64,6 +65,7 @@ const visitSelect = `
   scheduled_end_time,
   description,
   notes,
+  status_reason,
   visit_type,
   status,
   is_recurring,
@@ -157,6 +159,7 @@ type ScheduledVisitDbRow = {
   scheduled_end_date?: string | null
   description: string | null
   notes: string | null
+  status_reason?: string | null
   visit_type: string | null
   status: string
   is_recurring: boolean
@@ -223,6 +226,7 @@ function toScheduleRow(v: ScheduledVisitDbRowWithTasks, adlCodes: string[]): Sch
     description: v.description,
     type: v.visit_type,
     notes: v.notes,
+    status_reason: v.status_reason ?? null,
     is_recurring: v.is_recurring,
     repeat_frequency: series?.repeat_frequency ?? null,
     days_of_week: series?.days_of_week ?? null,
@@ -587,6 +591,7 @@ export async function updateSchedule(
     contract_id?: string | null
     service_type?: string | null
     notes?: string | null
+    status_reason?: string | null
     adl_codes?: string[]
     is_recurring?: boolean
     repeat_frequency?: string | null
@@ -638,6 +643,7 @@ export async function updateSchedule(
   if (data.contract_id !== undefined) patch.contract_id = data.contract_id
   if (data.service_type !== undefined) patch.service_type = data.service_type
   if (data.notes !== undefined) patch.notes = data.notes
+  if (data.status_reason !== undefined) patch.status_reason = data.status_reason
   if (data.is_recurring !== undefined) patch.is_recurring = data.is_recurring
   if (data.status !== undefined) {
     patch.status = data.status === null || data.status === '' ? 'scheduled' : data.status

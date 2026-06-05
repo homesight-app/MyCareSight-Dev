@@ -43,6 +43,7 @@ import { expandSeriesOccurrences } from '@/lib/recurrence-dates'
 import * as q from '@/lib/supabase/query'
 import type { PatientAddress } from '@/lib/supabase/query/patient-addresses'
 import { updatePatientDocumentsAction, upsertPatientCaregiverRequirementsAction } from '@/app/actions/patients'
+import { markScheduleMissedAction, markScheduleCancelledAction, markScheduleOnHoldAction, reinstateScheduleAction } from '@/app/actions/schedule-assignment-requests'
 import { addPatientAddressAction, updatePatientAddressAction, deletePatientAddressAction, setPrimaryPatientAddressAction } from '@/app/actions/patient-addresses'
 import { updatePatientServiceContractBillRateAction } from '@/app/actions/payroll-billing-report'
 import type { PatientRepresentative } from '@/lib/supabase/query/patients-representatives'
@@ -53,6 +54,8 @@ import type { PatientAdl, PatientAdlDaySchedule } from '@/lib/supabase/query/pat
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import type { CaregiverAvailabilitySlotRow } from '@/lib/supabase/query/caregiver-availability'
 import { visitStatusBadgeClass, visitStatusFromScheduleRow } from '@/lib/visit-status-styles'
+import { computeCaregiverMatches } from '@/lib/caregiver-matching'
+import { CaregiverAssignmentList } from '@/components/CaregiverAssignmentList'
 import type { PatientContractedHoursRow } from '@/lib/supabase/query/patient-contracted-hours'
 import type { PatientSkilledTaskDaySchedule, SkilledCarePlanTask } from '@/lib/supabase/query/skilled-care-plan'
 import type { PatientServiceContractRow } from '@/lib/supabase/query/patient-service-contracts'
@@ -475,14 +478,14 @@ export default function ClientDetailContent({ client, allClients, representative
   const [caregiverAvailabilitySlots, setCaregiverAvailabilitySlots] = useState<CaregiverAvailabilitySlotRow[]>([])
   const [editVisitModalOpen, setEditVisitModalOpen] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<ScheduleRow | null>(null)
+  const [visitStatusModal, setVisitStatusModal] = useState<'missed' | 'cancelled' | 'on_hold' | null>(null)
+  const [visitStatusReason, setVisitStatusReason] = useState('')
   const [editRecurringApplyScope, setEditRecurringApplyScope] = useState<
     'this_visit' | 'this_and_future' | 'all_in_series' | 'weekday_in_series'
   >('this_visit')
 
   // Caregiver dropdown (Add/Edit Visit modal, Schedule tab).
   const [caregiverPickerOpen, setCaregiverPickerOpen] = useState(false)
-  const [caregiverPickerFilter, setCaregiverPickerFilter] = useState<'all' | 'available' | 'booked' | 'blocked'>('all')
-  const [caregiverPickerSort, setCaregiverPickerSort] = useState<'proximity' | 'availability'>('availability')
   const caregiverPickerWrapRef = useRef<HTMLDivElement | null>(null)
   const caregiverPickerTriggerRef = useRef<HTMLButtonElement | null>(null)
   const caregiverPickerDropdownRef = useRef<HTMLDivElement | null>(null)
@@ -2449,12 +2452,14 @@ export default function ClientDetailContent({ client, allClients, representative
     </div>
   )
 
-  type CaregiverAvailabilityStatus = 'available' | 'booked' | 'blocked'
-
-  const parseTimeToMinutes = (t: string) => {
-    const [h, m] = (t ?? '0:0').split(':').map(Number)
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return null
-    return h * 60 + m
+  /** US ZIP: first 5 digits for `zipcodes` lookup (strips ZIP+4). */
+  const normalizeUsZipForLookup = (zip: unknown): string | null => {
+    if (zip === null || zip === undefined) return null
+    const s = String(zip).trim()
+    if (!s) return null
+    const digits = s.replace(/\D/g, '')
+    if (digits.length < 5) return null
+    return digits.slice(0, 5)
   }
 
   const utcTimeToLocalHmForDate = (raw: string | null | undefined, ymd: string): string => {
@@ -2467,118 +2472,47 @@ export default function ClientDetailContent({ client, allClients, representative
     return `${String(utcDate.getHours()).padStart(2, '0')}:${String(utcDate.getMinutes()).padStart(2, '0')}`
   }
 
-  /** US ZIP: first 5 digits for `zipcodes` lookup (strips ZIP+4). */
-  const normalizeUsZipForLookup = (zip: unknown): string | null => {
-    if (zip === null || zip === undefined) return null
-    const s = String(zip).trim()
-    if (!s) return null
-    const digits = s.replace(/\D/g, '')
-    if (digits.length < 5) return null
-    return digits.slice(0, 5)
-  }
-
-  const formatDistanceMiles = (miles: number) => {
-    if (!Number.isFinite(miles)) return '—'
-    // Always two decimal places in the caregiver picker (e.g. 5.00 mi, 12.30 mi).
-    return `${miles.toFixed(2)} mi`
-  }
-
-  const caregiverOptions = useMemo(() => {
-    const staff = staffList ?? []
-    const requiredSkills = caregiverRequirements ?? []
-
+  const caregiverMatchOptions = useMemo(() => {
+    const visitDate = visitForm.isRecurring ? visitForm.repeatStart : visitForm.date
     const selectedAddr = addresses.find(a => a.id === visitForm.addressId)
     const clientZip = normalizeUsZipForLookup(selectedAddr?.zip_code ?? localClient.zip_code)
 
-    const startMins = parseTimeToMinutes(visitForm.startTime)
-    const endMins = parseTimeToMinutes(visitForm.endTime)
-    const hasTime = startMins !== null && endMins !== null && (endMins as number) > (startMins as number)
-    const visitDate = visitForm.isRecurring ? visitForm.repeatStart : visitForm.date
-    const visitDayOfWeek =
-      visitDate && /^\d{4}-\d{2}-\d{2}$/.test(visitDate) ? new Date(`${visitDate}T12:00:00`).getDay() : null
-    const hasDate = !!visitDate && visitDayOfWeek !== null
-    const excludedScheduleId = editingSchedule?.id ?? null
+    const convertedSlots = caregiverAvailabilitySlots.map(slot => ({
+      caregiver_member_id: slot.caregiver_member_id,
+      is_recurring: slot.is_recurring,
+      start_time: visitDate ? (utcTimeToLocalHmForDate(slot.start_time, visitDate) || slot.start_time) : slot.start_time,
+      end_time: visitDate ? (utcTimeToLocalHmForDate(slot.end_time, visitDate) || slot.end_time) : slot.end_time,
+      days_of_week: slot.days_of_week,
+      repeat_start: slot.repeat_start,
+      repeat_end: slot.repeat_end,
+      specific_date: slot.specific_date,
+    }))
 
-    const slotFullyCoversVisit = (slot: CaregiverAvailabilitySlotRow): boolean => {
-      if (!hasTime || !hasDate || !visitDate) return false
-      const slotStartLocal = utcTimeToLocalHmForDate(slot.start_time, visitDate)
-      const slotEndLocal = utcTimeToLocalHmForDate(slot.end_time, visitDate)
-      const slotStart = parseTimeToMinutes(slotStartLocal)
-      const slotEnd = parseTimeToMinutes(slotEndLocal)
-      if (slotStart === null || slotEnd === null) return false
-      if (!(slotStart <= (startMins as number) && slotEnd >= (endMins as number))) return false
-
-      if (slot.is_recurring) {
-        const days = Array.isArray(slot.days_of_week) ? slot.days_of_week : []
-        if (!days.includes(visitDayOfWeek as number)) return false
-        if (slot.repeat_start && visitDate < slot.repeat_start) return false
-        if (slot.repeat_end && visitDate > slot.repeat_end) return false
-        return true
-      }
-
-      return slot.specific_date === visitDate
-    }
-
-    const options = staff.map((s) => {
-      const caregiverSkills = Array.isArray((s as any).skills) ? ((s as any).skills as string[]) : []
-
-      const requiredLen = requiredSkills.length
-      const matchCount = requiredLen === 0 ? 0 : requiredSkills.filter((sk) => caregiverSkills.includes(sk)).length
-      const skillMatchScore = requiredLen === 0 ? 1 : matchCount / requiredLen
-      const matchingAvailability = caregiverAvailabilitySlots.filter(
-        (slot) => slot.caregiver_member_id === s.id && slotFullyCoversVisit(slot)
-      )
-      const available = hasTime && hasDate && matchingAvailability.length > 0
-
-      let booked = false
-      if (available && hasTime) {
-        booked = (visitDateSchedules ?? [])
-          .filter((v) => v.id !== excludedScheduleId)
-          .some((v) => {
-            if (!v.caregiver_id) return false
-            if (v.caregiver_id !== s.id) return false
-            const vStart = parseTimeToMinutes(v.start_time ?? '0:00')
-            const vEnd = parseTimeToMinutes(v.end_time ?? '0:00')
-            if (vStart === null || vEnd === null) return false
-            const aStart = startMins as number
-            const aEnd = endMins as number
-            return aStart < vEnd && aEnd > vStart
-          })
-      }
-
-      const staffZip = normalizeUsZipForLookup((s as any).zip_code ?? (s as any).zipCode)
-      let distanceMiles: number
-      let distanceLabel: string
-      // console.log("clientZip: ",clientZip)
-      // console.log("staffZip: ",staffZip)
-      if (clientZip && staffZip) {
-        const d = zipcodes.distance(clientZip, staffZip)
-        if (d != null && Number.isFinite(d)) {
-          distanceMiles = d
-          distanceLabel = formatDistanceMiles(d)
-        } else {
-          distanceMiles = Number.POSITIVE_INFINITY
-          distanceLabel = '—'
-        }
-      } else {
-        distanceMiles = Number.POSITIVE_INFINITY
-        distanceLabel = '—'
-      }
-
-      const status: CaregiverAvailabilityStatus = available ? (booked ? 'booked' : 'available') : 'blocked'
-
-      return {
-        caregiver: s,
-        status,
-        distanceMiles,
-        distanceLabel,
-        skillMatchScore,
-      }
-    })
-
-    return [...options].sort((a, b) => {
-      if (a.distanceMiles !== b.distanceMiles) return a.distanceMiles - b.distanceMiles
-      return b.skillMatchScore - a.skillMatchScore
+    return computeCaregiverMatches({
+      staff: (staffList ?? []).map(s => ({
+        id: s.id,
+        first_name: (s as any).first_name ?? null,
+        last_name: (s as any).last_name ?? null,
+        zip_code: (s as any).zip_code ?? (s as any).zipCode ?? null,
+        skills: Array.isArray((s as any).skills) ? (s as any).skills : null,
+        job_title: (s as any).job_title ?? null,
+        role: (s as any).role ?? null,
+        phone: (s as any).phone ?? null,
+      })),
+      slots: convertedSlots,
+      conflicts: (visitDateSchedules ?? []).map(v => ({
+        id: v.id,
+        caregiver_id: v.caregiver_id,
+        start_time: v.start_time,
+        end_time: v.end_time,
+      })),
+      requiredSkills: caregiverRequirements ?? [],
+      clientZip,
+      visitDate,
+      visitStart: visitForm.startTime,
+      visitEnd: visitForm.endTime,
+      currentCaregiverId: null,
+      excludeConflictId: editingSchedule?.id ?? undefined,
     })
   }, [
     staffList,
@@ -2597,49 +2531,8 @@ export default function ClientDetailContent({ client, allClients, representative
   ])
 
   const renderCaregiverPicker = () => {
-    const selected = caregiverOptions.find((o) => o.caregiver.id === visitForm.caregiverId) ?? null
-    const selectedName = selected
-      ? `${selected.caregiver.first_name ?? ''} ${selected.caregiver.last_name ?? ''}`.trim()
-      : ''
-
-    const filtered = caregiverOptions.filter((o) =>
-      caregiverPickerFilter === 'all' ? true : o.status === caregiverPickerFilter
-    )
-    const sortedFiltered = [...filtered].sort((a, b) => {
-      if (caregiverPickerSort === 'availability') {
-        const rank = (s: CaregiverAvailabilityStatus) =>
-          s === 'available' ? 0 : s === 'booked' ? 1 : 2
-        const byStatus = rank(a.status) - rank(b.status)
-        if (byStatus !== 0) return byStatus
-      }
-      if (a.distanceMiles !== b.distanceMiles) return a.distanceMiles - b.distanceMiles
-      return b.skillMatchScore - a.skillMatchScore
-    })
-
-    const pillForStatus = (status: CaregiverAvailabilityStatus) => {
-      if (status === 'available') {
-        return (
-          <span className="inline-flex items-center gap-1 border border-green-200 bg-green-50 text-green-700 rounded-md px-2 py-0.5 text-xs font-semibold">
-            <Check className="w-3 h-3" />
-            Available
-          </span>
-        )
-      }
-      if (status === 'booked') {
-        return (
-          <span className="inline-flex items-center gap-1 border border-amber-200 bg-amber-50 text-amber-700 rounded-md px-2 py-0.5 text-xs font-semibold">
-            <Clock className="w-3 h-3" />
-            Booked
-          </span>
-        )
-      }
-      return (
-        <span className="inline-flex items-center gap-1 border border-red-200 bg-red-50 text-red-700 rounded-md px-2 py-0.5 text-xs font-semibold">
-          <X className="w-3 h-3" />
-          Not Available
-        </span>
-      )
-    }
+    const selectedOption = caregiverMatchOptions.find(o => o.id === visitForm.caregiverId)
+    const selectedName = selectedOption?.name ?? ''
 
     const menuPanel = (
       <div
@@ -2655,154 +2548,17 @@ export default function ClientDetailContent({ client, allClients, representative
             : undefined
         }
       >
-        <div className="px-4 py-2 border-b border-gray-100 bg-white">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-              SORTED BY:{' '}
-              {caregiverPickerSort === 'proximity'
-                ? 'PROXIMITY'
-                : 'AVAILABILITY'}
-            </div>
-            <div className="inline-flex rounded-md border border-gray-200 bg-gray-100/80 p-0.5">
-              <button
-                type="button"
-                onClick={() => setCaregiverPickerSort('proximity')}
-                className={`px-2.5 py-1 text-[11px] font-semibold rounded transition-colors ${
-                  caregiverPickerSort === 'proximity'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:text-blue-700'
-                }`}
-              >
-                Proximity
-              </button>
-              <button
-                type="button"
-                onClick={() => setCaregiverPickerSort('availability')}
-                className={`px-2.5 py-1 text-[11px] font-semibold rounded transition-colors ${
-                  caregiverPickerSort === 'availability'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:text-emerald-700'
-                }`}
-              >
-                Availability
-              </button>
-            </div>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
-            <button
-              type="button"
-              className={`inline-flex items-center gap-2 border-0 bg-transparent p-0 ${
-                caregiverPickerFilter === 'available' ? 'font-semibold text-green-700' : 'text-green-700'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-green-500" />
-              Available
-            </button>
-            <span className="text-gray-300">|</span>
-            <button
-              type="button"
-              className={`inline-flex items-center gap-2 border-0 bg-transparent p-0 ${
-                caregiverPickerFilter === 'booked' ? 'font-semibold text-amber-700' : 'text-amber-700'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
-              Booked
-            </button>
-            <span className="text-gray-300">|</span>
-            <button
-              type="button"
-              className={`inline-flex items-center gap-2 border-0 bg-transparent p-0 ${
-                caregiverPickerFilter === 'blocked' ? 'font-semibold text-red-700' : 'text-red-700'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-red-500" />
-              Not Available
-            </button>
-          </div>
-        </div>
-
-        <div className="max-h-[240px] overflow-y-auto overflow-x-hidden">
-          {filtered.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-gray-500">No caregivers found.</div>
-          ) : (
-            sortedFiltered.map((o, idx) => {
-              const c = o.caregiver
-              const name = `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim()
-              const role = String((c as any).role ?? '')
-              const phone = String((c as any).phone ?? '')
-              const isBest = idx === 0
-
-              return (
-                <div
-                  key={c.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    setVisitForm((p) => ({ ...p, caregiverId: c.id }))
-                    setCaregiverPickerOpen(false)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      setVisitForm((p) => ({ ...p, caregiverId: c.id }))
-                      setCaregiverPickerOpen(false)
-                    }
-                  }}
-                  className={`w-full px-4 py-2 border-b border-gray-50 hover:bg-gray-50 text-left cursor-pointer ${visitForm.caregiverId === c.id ? 'bg-blue-50/60' : 'bg-white'}`}
-                >
-                  <div className="flex items-start justify-between gap-4 min-w-0">
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
-                      <div
-                        className={`w-6 h-6 rounded-full border flex items-center justify-center text-[12px] font-semibold flex-shrink-0 ${
-                          isBest ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-500'
-                        }`}
-                      >
-                        {idx + 1}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="text-sm font-semibold text-gray-900 truncate">{name}</div>
-                          {isBest && (
-                            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 flex-shrink-0">
-                              Best
-                            </span>
-                          )}
-                          <Link
-                            href={`/pages/agency/caregiver/${c.id}?clientId=${localClient.id}&embed=1`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex shrink-0 text-gray-400 hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-                            aria-label="Open caregiver profile in new tab"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setCaregiverPickerOpen(false)
-                            }}
-                          >
-                            <SquareArrowOutUpRight className="w-4 h-4" aria-hidden />
-                          </Link>
-                        </div>
-                        {role ? <div className="text-[11px] text-gray-500 mt-0.5 truncate">{role}</div> : null}
-                        {phone ? (
-                          <div className="flex items-center gap-1 text-[11px] text-gray-500 mt-1 truncate">
-                            <Phone className="w-3 h-3 text-gray-400 shrink-0" />
-                            <span className="truncate">{phone}</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      {pillForStatus(o.status)}
-                      <div className="flex items-center gap-1 text-[12px] text-gray-500 mt-2 justify-end whitespace-nowrap">
-                        <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
-                        <span>{o.distanceLabel}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
+        <CaregiverAssignmentList
+          variant="picker"
+          options={caregiverMatchOptions}
+          requiredSkills={caregiverRequirements ?? []}
+          selectedId={visitForm.caregiverId || null}
+          clientId={localClient.id}
+          onSelect={(id) => {
+            setVisitForm(p => ({ ...p, caregiverId: id }))
+            setCaregiverPickerOpen(false)
+          }}
+        />
       </div>
     )
 
@@ -2815,7 +2571,7 @@ export default function ClientDetailContent({ client, allClients, representative
           className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-500"
           disabled={isSavingVisit}
         >
-          <span className="block truncate" style={{ textAlign: 'left'}}>{selectedName || 'Select caregiver...'}</span>
+          <span className="block truncate" style={{ textAlign: 'left' }}>{selectedName || 'Select caregiver...'}</span>
         </button>
 
         {caregiverPickerOpen &&
@@ -2839,8 +2595,6 @@ export default function ClientDetailContent({ client, allClients, representative
     const today = toLocalDateString(new Date())
     const primaryAddr = addresses.find(a => a.is_primary)
     setCaregiverPickerOpen(false)
-    setCaregiverPickerFilter('all')
-    setCaregiverPickerSort('proximity')
     setVisitForm({
       date: today,
       endDate: today,
@@ -2871,8 +2625,6 @@ export default function ClientDetailContent({ client, allClients, representative
     const startTime = `${String(hour).padStart(2, '0')}:00`
     const endTime = hour < 23 ? `${String(hour + 1).padStart(2, '0')}:00` : '23:59'
     setCaregiverPickerOpen(false)
-    setCaregiverPickerFilter('all')
-    setCaregiverPickerSort('proximity')
     setVisitForm({
       date: dateStr,
       endDate: dateStr,
@@ -2902,8 +2654,7 @@ export default function ClientDetailContent({ client, allClients, representative
     if (!isSavingVisit) {
       setAddVisitModalOpen(false)
       setCaregiverPickerOpen(false)
-      setCaregiverPickerFilter('all')
-      setCaregiverPickerSort('proximity')
+
     }
   }
 
@@ -2911,8 +2662,6 @@ export default function ClientDetailContent({ client, allClients, representative
     const start = (schedule.start_time ?? '09:00').slice(0, 5)
     const end = (schedule.end_time ?? '10:00').slice(0, 5)
     setCaregiverPickerOpen(false)
-    setCaregiverPickerFilter('all')
-    setCaregiverPickerSort('proximity')
     setEditingSchedule(schedule)
     setEditRecurringApplyScope(schedule.is_recurring ? 'weekday_in_series' : 'this_visit')
     setVisitForm({
@@ -2959,8 +2708,7 @@ export default function ClientDetailContent({ client, allClients, representative
       setEditingSchedule(null)
       setEditRecurringApplyScope('this_visit')
       setCaregiverPickerOpen(false)
-      setCaregiverPickerFilter('all')
-      setCaregiverPickerSort('proximity')
+
     }
   }
 
@@ -3537,55 +3285,64 @@ export default function ClientDetailContent({ client, allClients, representative
     }
   }
 
-  const handleMarkVisitMissed = async () => {
-    if (!editingSchedule) return
+  const refreshWeekSchedules = async () => {
+    const supabase = createClient()
+    const { data } = await q.getSchedulesByPatientIdAndDateRange(
+      supabase,
+      localClient.id,
+      scheduleWeekStartStr,
+      scheduleWeekEndStr
+    )
+    setWeekSchedules(data ?? [])
+  }
+
+  const handleConfirmVisitStatusChange = async () => {
+    if (!editingSchedule || !visitStatusModal) return
     setIsSavingVisit(true)
     try {
-      const supabase = createClient()
-      const { error } = await q.updateSchedule(supabase, editingSchedule.id, { status: 'missed' })
-      if (!error) {
-        const { data } = await q.getSchedulesByPatientIdAndDateRange(
-          supabase,
-          localClient.id,
-          scheduleWeekStartStr,
-          scheduleWeekEndStr
-        )
-        setWeekSchedules(data ?? [])
+      const id = editingSchedule.id
+      const reason = visitStatusReason
+      let result: { ok?: true; error?: string }
+      if (visitStatusModal === 'missed') result = await markScheduleMissedAction(id, reason)
+      else if (visitStatusModal === 'cancelled') result = await markScheduleCancelledAction(id, reason)
+      else result = await markScheduleOnHoldAction(id, reason)
+      if (result.error) {
+        setVisitError(result.error)
+      } else {
+        setVisitStatusModal(null)
+        setVisitStatusReason('')
+        await refreshWeekSchedules()
         setEditVisitModalOpen(false)
         setEditingSchedule(null)
         router.refresh()
-      } else {
-        setVisitError(error.message ?? 'Failed to mark as missed.')
       }
     } catch (e) {
-      setVisitError(e instanceof Error ? e.message : 'Failed to mark as missed.')
+      setVisitError(e instanceof Error ? e.message : 'Failed to update visit status.')
     } finally {
       setIsSavingVisit(false)
     }
+  }
+
+  const handleMarkVisitMissed = () => {
+    setVisitStatusModal('missed')
+    setVisitStatusReason('')
   }
 
   const handleMarkVisitUnmissed = async () => {
     if (!editingSchedule) return
     setIsSavingVisit(true)
     try {
-      const supabase = createClient()
-      const { error } = await q.updateSchedule(supabase, editingSchedule.id, { status: null })
-      if (!error) {
-        const { data } = await q.getSchedulesByPatientIdAndDateRange(
-          supabase,
-          localClient.id,
-          scheduleWeekStartStr,
-          scheduleWeekEndStr
-        )
-        setWeekSchedules(data ?? [])
+      const result = await reinstateScheduleAction(editingSchedule.id)
+      if (result.error) {
+        setVisitError(result.error)
+      } else {
+        await refreshWeekSchedules()
         setEditVisitModalOpen(false)
         setEditingSchedule(null)
         router.refresh()
-      } else {
-        setVisitError(error.message ?? 'Failed to mark as unmissed.')
       }
     } catch (e) {
-      setVisitError(e instanceof Error ? e.message : 'Failed to mark as unmissed.')
+      setVisitError(e instanceof Error ? e.message : 'Failed to reinstate visit.')
     } finally {
       setIsSavingVisit(false)
     }
@@ -7905,26 +7662,44 @@ export default function ClientDetailContent({ client, allClients, representative
           <p className="mt-4 text-sm text-yellow-600 bg-yellow-100 border border-yellow-200 p-2 rounded">{visitError}</p>
         )}
         <div className="flex flex-wrap items-center justify-end gap-2 mt-6">
-          {editingSchedule?.status === 'missed' ? (
+          {editingSchedule?.status === 'missed' || editingSchedule?.status === 'cancelled' || editingSchedule?.status === 'on_hold' ? (
             <button
               type="button"
               onClick={handleMarkVisitUnmissed}
               disabled={isSavingVisit}
-              className="inline-flex items-center gap-1.5 px-4 py-2 border-2 border-[#a8701d] text-[#a8701d] rounded-lg text-sm font-medium hover:bg-[#f5e6d3] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2 border-2 border-gray-400 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
-              Mark as Unmissed
+              Reinstate
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={handleMarkVisitMissed}
-              disabled={isSavingVisit}
-              className="inline-flex items-center gap-1.5 px-4 py-2 border-2 border-orange-500 text-orange-600 rounded-lg text-sm font-medium hover:bg-orange-50 disabled:opacity-50"
-            >
-              <X className="w-4 h-4" />
-              Mark as Missed
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleMarkVisitMissed}
+                disabled={isSavingVisit}
+                className="inline-flex items-center gap-1.5 px-4 py-2 border-2 border-orange-500 text-orange-600 rounded-lg text-sm font-medium hover:bg-orange-50 disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+                Missed
+              </button>
+              <button
+                type="button"
+                onClick={() => { setVisitStatusModal('on_hold'); setVisitStatusReason('') }}
+                disabled={isSavingVisit}
+                className="inline-flex items-center gap-1.5 px-4 py-2 border-2 border-yellow-400 text-yellow-700 rounded-lg text-sm font-medium hover:bg-yellow-50 disabled:opacity-50"
+              >
+                On Hold
+              </button>
+              <button
+                type="button"
+                onClick={() => { setVisitStatusModal('cancelled'); setVisitStatusReason('') }}
+                disabled={isSavingVisit}
+                className="inline-flex items-center gap-1.5 px-4 py-2 border-2 border-rose-400 text-rose-600 rounded-lg text-sm font-medium hover:bg-rose-50 disabled:opacity-50"
+              >
+                Cancel Visit
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -7953,6 +7728,74 @@ export default function ClientDetailContent({ client, allClients, representative
             {editingSchedule?.is_recurring && editRecurringApplyScope !== 'this_visit' ? 'Update Visits' : 'Update Visit'}
           </button>
         </div>
+      </Modal>
+
+      {/* Visit status-change reason modal (Missed / On Hold / Cancel) */}
+      <Modal
+        isOpen={!!visitStatusModal}
+        onClose={() => { setVisitStatusModal(null); setVisitStatusReason('') }}
+        title={
+          visitStatusModal === 'missed' ? 'Mark Visit as Missed'
+          : visitStatusModal === 'cancelled' ? 'Cancel Visit'
+          : 'Put Visit On Hold'
+        }
+        size="md"
+      >
+        {visitStatusModal && (
+          <div className="space-y-4">
+            <div className={`rounded-lg border p-3 text-sm ${
+              visitStatusModal === 'missed' ? 'border-orange-200 bg-orange-50 text-orange-900'
+              : visitStatusModal === 'cancelled' ? 'border-rose-200 bg-rose-50 text-rose-900'
+              : 'border-yellow-200 bg-yellow-50 text-yellow-900'
+            }`}>
+              <div className="font-semibold">{patientFullName(localClient)}</div>
+              {editingSchedule && (
+                <div className="text-xs mt-0.5 opacity-80">{editingSchedule.date} · {editingSchedule.start_time ?? ''}{editingSchedule.end_time ? ` – ${editingSchedule.end_time}` : ''}</div>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">
+                Reason
+                {visitStatusModal !== 'missed' && <span className="text-red-500 ml-0.5">*</span>}
+                {visitStatusModal === 'missed' && <span className="text-gray-400 ml-1">(optional)</span>}
+              </label>
+              <textarea
+                value={visitStatusReason}
+                onChange={(e) => setVisitStatusReason(e.target.value)}
+                placeholder={
+                  visitStatusModal === 'missed' ? 'e.g. Client hospitalized, caregiver no-show, weather...'
+                  : visitStatusModal === 'cancelled' ? 'e.g. Client request, scheduling conflict, duplicate booking...'
+                  : 'e.g. Awaiting authorization, client unavailable, pending assessment...'
+                }
+                rows={4}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <p className="text-xs text-gray-500">This will be logged in the audit trail with your name, timestamp, and reason, and will be traceable to this visit and client.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setVisitStatusModal(null); setVisitStatusReason('') }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                disabled={isSavingVisit || (visitStatusModal !== 'missed' && !visitStatusReason.trim())}
+                onClick={handleConfirmVisitStatusChange}
+                className={`rounded-lg text-white px-4 py-2 text-sm font-medium disabled:opacity-60 flex items-center gap-2 ${
+                  visitStatusModal === 'missed' ? 'bg-orange-600 hover:bg-orange-700'
+                  : visitStatusModal === 'cancelled' ? 'bg-rose-600 hover:bg-rose-700'
+                  : 'bg-yellow-600 hover:bg-yellow-700'
+                }`}
+              >
+                {isSavingVisit && <Loader2 className="w-4 h-4 animate-spin" />}
+                {visitStatusModal === 'missed' ? 'Confirm Missed' : visitStatusModal === 'cancelled' ? 'Confirm Cancellation' : 'Confirm On Hold'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal

@@ -1,6 +1,5 @@
 /**
  * Email service using Resend
- * Sends email notifications when documents are uploaded
  */
 
 // Note: RESEND_API_KEY should be set in .env.local as a server-side environment variable
@@ -122,6 +121,76 @@ This is an automated notification from Home Care Licensing Platform.
   } catch (error: any) {
     console.error('Error sending email notification:', error)
     // Don't throw error - email failure shouldn't break document upload
+    return { success: false, error }
+  }
+}
+
+interface OnboardingEmailParams {
+  to: string
+  agencyName: string
+  link: string
+  expiresAt: string
+  note?: string
+}
+
+export async function sendOnboardingLinkEmail({
+  to,
+  agencyName,
+  link,
+  expiresAt,
+  note,
+}: OnboardingEmailParams) {
+  try {
+    const { Resend } = await import('resend')
+    const resend = new Resend(RESEND_API_KEY)
+
+    const { data, error } = await resend.emails.send({
+      from: 'Home Care Licensing <onboarding@resend.dev>',
+      to: to.trim(),
+      subject: `Complete your agency setup — ${agencyName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: linear-gradient(to right, #7c3aed, #4f46e5); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+              <h1 style="color: white; margin: 0; font-size: 24px;">Agency Setup Invitation</h1>
+            </div>
+            <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb;">
+              <p style="font-size: 16px; margin-bottom: 20px;">
+                You have been invited to complete the setup for <strong>${agencyName}</strong> on the HomeSights platform.
+              </p>
+              ${note ? `<p style="font-size: 15px; color: #4b5563; margin-bottom: 20px; padding: 12px 16px; background: white; border-left: 4px solid #7c3aed; border-radius: 0 8px 8px 0;">${note}</p>` : ''}
+              <p style="font-size: 14px; color: #6b7280; margin-bottom: 24px;">
+                Click the link below to fill out your agency information. This link expires on <strong>${expiresAt}</strong>.
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${link}"
+                   style="display: inline-block; background: #7c3aed; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+                  Complete Agency Setup →
+                </a>
+              </div>
+              <p style="font-size: 12px; color: #9ca3af; margin-top: 30px; border-top: 1px solid #e5e7eb; padding-top: 20px;">
+                This is an automated notification from the HomeSights platform. If you were not expecting this email, please ignore it.
+              </p>
+            </div>
+          </body>
+        </html>
+      `,
+      text: `You have been invited to complete the setup for ${agencyName} on the HomeSights platform.\n\n${note ? `${note}\n\n` : ''}Complete your agency setup here: ${link}\n\nThis link expires on ${expiresAt}.`,
+    })
+
+    if (error) {
+      console.error('Resend API error:', error)
+      return { success: false, error }
+    }
+
+    return { success: true, data }
+  } catch (error: unknown) {
+    console.error('Error sending onboarding link email:', error)
     return { success: false, error }
   }
 }

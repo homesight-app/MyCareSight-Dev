@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -27,11 +28,15 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
-import { updateAgency } from '@/app/actions/agencies'
+import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
 import CreateLicenseModal from './CreateLicenseModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
+import AgencyOnboardingLinkPanel from './AgencyOnboardingLinkPanel'
+import AgencyKeyStaffSection from './AgencyKeyStaffSection'
+import AgencyUsersTab from './AgencyUsersTab'
 import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
 import Modal from './Modal'
+import type { OnboardingToken, AgencyKeyStaff } from '@/lib/supabase/query'
 
 interface Agency {
   id: string
@@ -49,6 +54,21 @@ interface Agency {
   mailing_state?: string | null
   mailing_zip_code?: string | null
   same_as_physical?: boolean | null
+  // Fields added in migration 112
+  dba_name?: string | null
+  hours_of_operation?: string | null
+  fax_number?: string | null
+  date_of_formation?: string | null
+  npi?: string | null
+  onboarding_status?: string | null
+  state_specific_data?: Record<string, unknown> | null
+  // Fields added in migration 113
+  phone_number?: string | null
+  email?: string | null
+  region_service_area?: string | null
+  is_on_call?: boolean | null
+  previously_licensed?: boolean | null
+  prev_license_closed_date?: string | null
 }
 
 interface License {
@@ -89,6 +109,8 @@ interface AgencyDetailContentProps {
   availableAdmins: AgencyAdmin[]
   backPath: string
   canEdit?: boolean
+  activeToken?: OnboardingToken | null
+  keyStaff?: AgencyKeyStaff[]
 }
 
 type OrgFormState = {
@@ -106,6 +128,19 @@ type OrgFormState = {
   mailingCity: string
   mailingState: string
   mailingZipCode: string
+  // New fields (migrations 112 + 113)
+  dbaName: string
+  hoursOfOperation: string
+  faxNumber: string
+  dateOfFormation: string
+  npi: string
+  stateSpecificData: Record<string, unknown>
+  phoneNumber: string
+  agencyEmail: string
+  regionServiceArea: string
+  isOnCall: boolean
+  previouslyLicensed: boolean
+  prevLicenseClosedDate: string
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -178,9 +213,16 @@ export default function AgencyDetailContent({
   availableAdmins,
   backPath,
   canEdit = false,
+  activeToken = null,
+  keyStaff = [],
 }: AgencyDetailContentProps) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'licenses' | 'organization'>('licenses')
+  const searchParams = useSearchParams()
+  const rawTab = searchParams.get('tab')
+  const initialTab: 'licenses' | 'organization' | 'users' =
+    rawTab === 'organization' ? 'organization' : rawTab === 'users' ? 'users' : 'licenses'
+  const [activeTab, setActiveTab] = useState<'licenses' | 'organization' | 'users'>(initialTab)
+  const [usersTabActivated, setUsersTabActivated] = useState(initialTab === 'users')
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -210,6 +252,18 @@ export default function AgencyDetailContent({
     mailingCity: agency.mailing_city ?? '',
     mailingState: agency.mailing_state ?? '',
     mailingZipCode: agency.mailing_zip_code ?? '',
+    dbaName: agency.dba_name ?? '',
+    hoursOfOperation: agency.hours_of_operation ?? '',
+    faxNumber: agency.fax_number ?? '',
+    dateOfFormation: agency.date_of_formation ?? '',
+    npi: agency.npi ?? '',
+    stateSpecificData: agency.state_specific_data ?? {},
+    phoneNumber: agency.phone_number ?? '',
+    agencyEmail: agency.email ?? '',
+    regionServiceArea: agency.region_service_area ?? '',
+    isOnCall: agency.is_on_call ?? false,
+    previouslyLicensed: agency.previously_licensed ?? false,
+    prevLicenseClosedDate: agency.prev_license_closed_date ?? '',
   })
 
   const [orgForm, setOrgForm] = useState<OrgFormState>(buildInitialForm)
@@ -219,11 +273,36 @@ export default function AgencyDetailContent({
     setSaveError(null)
     try {
       const currentAdminIds = agencyAdmins.map(a => a.id)
-      const { error } = await updateAgency(
-        agency.id,
-        { ...orgForm, agencyAdminIds: currentAdminIds },
-        currentAdminIds
-      )
+      const payload: AgencyFormData = {
+        companyName: orgForm.companyName,
+        agencyAdminIds: currentAdminIds,
+        businessType: orgForm.businessType,
+        taxId: orgForm.taxId,
+        primaryLicenseNumber: orgForm.primaryLicenseNumber,
+        website: orgForm.website || undefined,
+        physicalStreetAddress: orgForm.physicalStreetAddress,
+        physicalCity: orgForm.physicalCity,
+        physicalState: orgForm.physicalState,
+        physicalZipCode: orgForm.physicalZipCode,
+        sameAsPhysical: orgForm.sameAsPhysical,
+        mailingStreetAddress: orgForm.mailingStreetAddress || undefined,
+        mailingCity: orgForm.mailingCity || undefined,
+        mailingState: orgForm.mailingState || undefined,
+        mailingZipCode: orgForm.mailingZipCode || undefined,
+        dbaName: orgForm.dbaName || undefined,
+        hoursOfOperation: orgForm.hoursOfOperation || undefined,
+        faxNumber: orgForm.faxNumber || undefined,
+        dateOfFormation: orgForm.dateOfFormation || undefined,
+        npi: orgForm.npi || undefined,
+        stateSpecificData: orgForm.stateSpecificData,
+        phoneNumber: orgForm.phoneNumber || undefined,
+        agencyEmail: orgForm.agencyEmail || undefined,
+        regionServiceArea: orgForm.regionServiceArea || undefined,
+        isOnCall: orgForm.isOnCall,
+        previouslyLicensed: orgForm.previouslyLicensed,
+        prevLicenseClosedDate: orgForm.prevLicenseClosedDate || undefined,
+      }
+      const { error } = await updateAgency(agency.id, payload, currentAdminIds)
       if (error) throw new Error(error)
       setIsEditing(false)
       router.refresh()
@@ -410,18 +489,25 @@ export default function AgencyDetailContent({
       {/* Tab bar */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
         <div className="flex border-b border-gray-200">
-          {(['licenses', 'organization'] as const).map(tab => (
+          {([
+            { key: 'licenses', label: 'Licenses' },
+            { key: 'organization', label: 'Organization' },
+            { key: 'users', label: 'Users' },
+          ] as const).map(({ key: tab, label }) => (
             <button
               key={tab}
               type="button"
-              onClick={() => setActiveTab(tab)}
+              onClick={() => {
+                setActiveTab(tab)
+                if (tab === 'users') setUsersTabActivated(true)
+              }}
               className={`px-6 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? 'border-b-2 border-purple-600 text-purple-700'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {tab === 'licenses' ? 'Licenses' : 'Organization'}
+              {label}
             </button>
           ))}
         </div>
@@ -738,10 +824,28 @@ export default function AgencyDetailContent({
                     onChange={val => setOrgForm(f => ({ ...f, companyName: val }))}
                   />
                   <Field
+                    label="DBA Name"
+                    value={orgForm.dbaName}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, dbaName: val }))}
+                  />
+                  <Field
                     label="Business Type"
                     value={orgForm.businessType}
                     isEditing={isEditing}
                     onChange={val => setOrgForm(f => ({ ...f, businessType: val }))}
+                  />
+                  <Field
+                    label="Hours of Operation"
+                    value={orgForm.hoursOfOperation}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, hoursOfOperation: val }))}
+                  />
+                  <Field
+                    label="Date of Formation"
+                    value={orgForm.dateOfFormation}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, dateOfFormation: val }))}
                   />
                 </div>
               </section>
@@ -751,10 +855,16 @@ export default function AgencyDetailContent({
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Identification</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field
-                    label="Tax ID"
+                    label="Tax ID / EIN"
                     value={orgForm.taxId}
                     isEditing={isEditing}
                     onChange={val => setOrgForm(f => ({ ...f, taxId: val }))}
+                  />
+                  <Field
+                    label="NPI"
+                    value={orgForm.npi}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, npi: val }))}
                   />
                   <Field
                     label="Primary License #"
@@ -768,12 +878,93 @@ export default function AgencyDetailContent({
               {/* Contact */}
               <section>
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Contact</h3>
-                <Field
-                  label="Website"
-                  value={orgForm.website}
-                  isEditing={isEditing}
-                  onChange={val => setOrgForm(f => ({ ...f, website: val }))}
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field
+                    label="Website"
+                    value={orgForm.website}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, website: val }))}
+                  />
+                  <Field
+                    label="Fax Number"
+                    value={orgForm.faxNumber}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, faxNumber: val }))}
+                  />
+                </div>
+              </section>
+
+              {/* Contact Information */}
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Contact Information</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field
+                    label="Phone Number"
+                    value={orgForm.phoneNumber}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, phoneNumber: val }))}
+                  />
+                  <Field
+                    label="Email"
+                    value={orgForm.agencyEmail}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, agencyEmail: val }))}
+                  />
+                  <Field
+                    label="Region / Service Area"
+                    value={orgForm.regionServiceArea}
+                    isEditing={isEditing}
+                    onChange={val => setOrgForm(f => ({ ...f, regionServiceArea: val }))}
+                    className="sm:col-span-2"
+                  />
+                </div>
+                <div className="mt-3 space-y-2">
+                  {isEditing ? (
+                    <>
+                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={orgForm.isOnCall}
+                          onChange={e => setOrgForm(f => ({ ...f, isOnCall: e.target.checked }))}
+                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        Agency provides on-call services
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={orgForm.previouslyLicensed}
+                          onChange={e => setOrgForm(f => ({ ...f, previouslyLicensed: e.target.checked }))}
+                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        Previously licensed
+                      </label>
+                      {orgForm.previouslyLicensed && (
+                        <Field
+                          label="Previous License Closed Date"
+                          value={orgForm.prevLicenseClosedDate}
+                          isEditing
+                          onChange={val => setOrgForm(f => ({ ...f, prevLicenseClosedDate: val }))}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <span className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">On-Call</span>
+                        <span className="text-gray-900">{agency.is_on_call === true ? 'Yes' : agency.is_on_call === false ? 'No' : '—'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">Previously Licensed</span>
+                        <span className="text-gray-900">
+                          {agency.previously_licensed === true
+                            ? `Yes${agency.prev_license_closed_date ? ` (closed ${formatDate(agency.prev_license_closed_date)})` : ''}`
+                            : agency.previously_licensed === false ? 'No' : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </section>
 
               {/* Physical Address */}
@@ -858,6 +1049,23 @@ export default function AgencyDetailContent({
             </div>
           </div>
 
+          {/* Onboarding Link */}
+          {canEdit && (
+            <AgencyOnboardingLinkPanel
+              agencyId={agency.id}
+              agencyName={agency.name}
+              activeToken={activeToken}
+            />
+          )}
+
+          {/* Key Staff */}
+          {canEdit && (
+            <AgencyKeyStaffSection
+              agencyId={agency.id}
+              keyStaff={keyStaff}
+            />
+          )}
+
           {/* Agency Admins */}
           <AgencyAdminsSection
             agencyId={agency.id}
@@ -866,6 +1074,11 @@ export default function AgencyDetailContent({
           />
         </div>
       )}
+
+      {/* Users tab — lazy-mounted on first activation, kept in DOM after that */}
+      <div className={activeTab === 'users' ? '' : 'hidden'}>
+        {usersTabActivated && <AgencyUsersTab agencyId={agency.id} />}
+      </div>
 
       {/* Modals — always mounted regardless of active tab */}
       {editingLicense && (

@@ -26,15 +26,28 @@ const agencyFormSchema = z.object({
   taxId: z.string().default(''),
   primaryLicenseNumber: z.string().default(''),
   website: z.string().optional(),
-  physicalStreetAddress: z.string().min(1, 'Physical street address is required'),
-  physicalCity: z.string().min(1, 'City is required'),
-  physicalState: z.string().min(1, 'State is required'),
-  physicalZipCode: z.string().min(1, 'ZIP code is required'),
+  physicalStreetAddress: z.string().default(''),
+  physicalCity: z.string().default(''),
+  physicalState: z.string().default(''),
+  physicalZipCode: z.string().default(''),
   sameAsPhysical: z.boolean().default(true),
   mailingStreetAddress: z.string().optional(),
   mailingCity: z.string().optional(),
   mailingState: z.string().optional(),
   mailingZipCode: z.string().optional(),
+  // Onboarding / profile extension fields (migrations 112 + 113)
+  dbaName: z.string().optional(),
+  hoursOfOperation: z.string().optional(),
+  faxNumber: z.string().optional(),
+  dateOfFormation: z.string().optional(),
+  npi: z.string().optional(),
+  stateSpecificData: z.record(z.string(), z.unknown()).optional(),
+  phoneNumber: z.string().optional(),
+  agencyEmail: z.string().optional(),
+  regionServiceArea: z.string().optional(),
+  isOnCall: z.boolean().optional(),
+  previouslyLicensed: z.boolean().optional(),
+  prevLicenseClosedDate: z.string().optional(),
 })
 
 export type AgencyFormData = z.infer<typeof agencyFormSchema>
@@ -55,6 +68,18 @@ function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
     mailing_city: data.mailingCity?.trim() || null,
     mailing_state: data.mailingState?.trim() || null,
     mailing_zip_code: data.mailingZipCode?.trim() || null,
+    dba_name: data.dbaName?.trim() || null,
+    hours_of_operation: data.hoursOfOperation?.trim() || null,
+    fax_number: data.faxNumber?.trim() || null,
+    date_of_formation: data.dateOfFormation || null,
+    npi: data.npi?.trim() || null,
+    state_specific_data: data.stateSpecificData ?? undefined,
+    phone_number: data.phoneNumber?.trim() || null,
+    email: data.agencyEmail?.trim() || null,
+    region_service_area: data.regionServiceArea?.trim() || null,
+    is_on_call: data.isOnCall ?? null,
+    previously_licensed: data.previouslyLicensed ?? null,
+    prev_license_closed_date: data.prevLicenseClosedDate || null,
     updated_at: new Date().toISOString(),
   }
 }
@@ -289,6 +314,34 @@ export async function addAdminToAgency(agencyId: string, adminId: string) {
     return { error: null, data: { success: true } }
   } catch (err: any) {
     return { error: err?.message || 'Failed to add admin', data: null }
+  }
+}
+
+/** Platform staff: create a name-only "shell" agency for the onboarding flow. */
+export async function createShellAgency(name: string) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Agency name is required', data: null }
+
+  const supabase = createAdminClient()
+  try {
+    const { data: newAgency, error } = await q.insertAgency(supabase, {
+      name: trimmed,
+      onboarding_status: 'shell',
+      agency_admin_ids: [],
+    })
+    if (error) return { error: error.message, data: null }
+
+    revalidatePath('/pages/admin/agencies')
+    revalidatePath('/pages/expert/agencies')
+    revalidateAgencyListCaches()
+    return { error: null, data: { agencyId: newAgency!.id } }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to create agency', data: null }
   }
 }
 

@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, Plus, ChevronDown, ChevronUp, Loader2, Link2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { createAgency, updateAgency, type AgencyFormData } from '@/app/actions/agencies'
+import { createAgency, updateAgency, createShellAgency, type AgencyFormData } from '@/app/actions/agencies'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 
 export interface AgencyAdminOption {
@@ -68,6 +68,7 @@ export default function AddAgencyModal({
 }: AddAgencyModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [isCreatingShell, setIsCreatingShell] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [agencyAdminsOpen, setAgencyAdminsOpen] = useState(false)
@@ -121,6 +122,28 @@ export default function AddAgencyModal({
   }
 
   if (!isOpen) return null
+
+  const handleCreateShell = async () => {
+    if (!form.companyName.trim()) {
+      setError('Company name is required.')
+      return
+    }
+    setIsCreatingShell(true)
+    setError(null)
+    try {
+      const result = await createShellAgency(form.companyName.trim())
+      if (result.error) {
+        setError(result.error)
+        setIsCreatingShell(false)
+        return
+      }
+      onClose()
+      router.push(`/pages/admin/agencies/${result.data!.agencyId}?tab=organization`)
+    } catch {
+      setError('An unexpected error occurred. Please try again.')
+      setIsCreatingShell(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -417,7 +440,7 @@ export default function AddAgencyModal({
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+          <div className="flex items-center justify-between gap-3 pt-4 border-t border-gray-200 flex-wrap">
             <button
               type="button"
               onClick={onClose}
@@ -425,18 +448,31 @@ export default function AddAgencyModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isLoading ? 'Saving...' : (
-                <>
-                  <Plus className="w-4 h-4" />
-                  {isEdit ? 'Update Agency' : 'Add Agency'}
-                </>
+            <div className="flex items-center gap-2 flex-wrap">
+              {!isEdit && (
+                <button
+                  type="button"
+                  onClick={handleCreateShell}
+                  disabled={isCreatingShell || isLoading}
+                  className="px-4 py-2 border border-purple-300 text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
+                >
+                  {isCreatingShell ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+                  Create &amp; Send Link
+                </button>
               )}
-            </button>
+              <button
+                type="submit"
+                disabled={isLoading || isCreatingShell}
+                className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isLoading ? 'Saving...' : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    {isEdit ? 'Update Agency' : 'Add Agency'}
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>

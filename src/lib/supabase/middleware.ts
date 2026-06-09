@@ -61,6 +61,7 @@ export async function updateSession(request: NextRequest) {
     path.startsWith('/pages/auth/signup') ||
     path.startsWith('/pages/auth/reset-password') ||
     path.startsWith('/auth/callback') ||
+    path.startsWith('/pages/onboarding') ||
     // Legacy paths (middleware historically allowed these; keep public to avoid redirect loops)
     path.startsWith('/login') ||
     path.startsWith('/signup') ||

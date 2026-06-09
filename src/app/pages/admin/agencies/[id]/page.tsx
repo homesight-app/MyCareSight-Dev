@@ -27,13 +27,22 @@ export default async function AdminAgencyDetailPage({
 
   const adminIds = normalizeAgencyAdminIds(agency.agency_admin_ids as string[] | string | null)
 
-  const [{ data: agencyAdmins }, { data: licenses }, { data: applications }, { data: availableAdmins }] = await Promise.all([
+  const [
+    { data: agencyAdmins },
+    { data: licenses },
+    { data: applications },
+    { data: availableAdmins },
+    { data: activeToken },
+    { data: keyStaff },
+  ] = await Promise.all([
     adminIds.length > 0
       ? q.getAgencyAdminsByIds(supabaseAdmin, adminIds)
       : Promise.resolve({ data: [] }),
     q.getLicensesByAgencyId(supabaseAdmin, id),
     q.getApplicationsByAgencyId(supabaseAdmin, id),
     q.getUnassignedAgencyAdmins(supabaseAdmin),
+    q.getActiveOnboardingToken(supabaseAdmin, id),
+    q.getKeyStaffByAgencyId(supabaseAdmin, id),
   ])
 
   return (
@@ -46,6 +55,8 @@ export default async function AdminAgencyDetailPage({
         availableAdmins={availableAdmins ?? []}
         backPath="/pages/admin/agencies"
         canEdit={true}
+        activeToken={activeToken ?? null}
+        keyStaff={keyStaff ?? []}
       />
     </AdminLayout>
   )

@@ -42,6 +42,8 @@ import { closeApplication, approveApplication } from '@/app/actions/applications
 import UploadDocumentModal from './UploadDocumentModal'
 import Modal from './Modal'
 import ExpertStepsPanel from './ExpertStepsPanel'
+import ApplicationNotesModal from './ApplicationNotesModal'
+import ApplicationInternalNotesTab from './ApplicationInternalNotesTab'
 
 interface Application {
   id: string
@@ -55,6 +57,7 @@ interface Application {
   license_type_id?: string | null
   assigned_expert_id?: string | null
   company_owner_id?: string
+  agency_id?: string | null
 }
 
 interface Document {
@@ -121,15 +124,15 @@ interface Step {
 interface ApplicationDetailContentProps {
   application: Application
   documents: Document[]
-  activeTab?: 'overview' | 'checklist' | 'documents' |  'next-steps' | 'requirements' | 'templates' | 'message' | 'expert-process'
-  onTabChange?: (tab:  'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process') => void
+  activeTab?: 'overview' | 'checklist' | 'documents' | 'next-steps' | 'requirements' | 'templates' | 'message' | 'expert-process' | 'internal-notes'
+  onTabChange?: (tab: 'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process' | 'internal-notes') => void
   showInlineTabs?: boolean // If true, show tabs under summary blocks instead of in sidebar
   agencyName?: string | null
   ownerProfile?: { id: string; full_name: string | null; email: string | null } | null
   assignedExpertProfile?: { id: string; full_name: string | null; email: string | null } | null
 }
 
-type TabType =  'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process'
+type TabType = 'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process' | 'internal-notes'
 
 export default function ApplicationDetailContent({
   application,
@@ -213,6 +216,12 @@ export default function ApplicationDetailContent({
   const [isCopyingExpertSteps, setIsCopyingExpertSteps] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
+  const [notesModal, setNotesModal] = useState<{
+    subjectType: 'application_step' | 'application_document'
+    subjectId: string
+    title: string
+  } | null>(null)
+  const [noteCounts, setNoteCounts] = useState<Record<string, number>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
   // Unified progress — computed inline here so canClose/canApprove can use it at component init.
@@ -618,6 +627,36 @@ export default function ApplicationDetailContent({
       fetchExpertSteps()
     }
   }, [activeTab, fetchExpertSteps])
+
+  const fetchNoteCounts = useCallback(async (subjectIds: string[]) => {
+    if (!subjectIds.length) return
+    const { data } = await supabase
+      .from('internal_notes')
+      .select('subject_id')
+      .in('subject_id', subjectIds)
+    if (!data) return
+    const counts: Record<string, number> = {}
+    for (const row of data as { subject_id: string }[]) {
+      counts[row.subject_id] = (counts[row.subject_id] ?? 0) + 1
+    }
+    setNoteCounts(prev => ({ ...prev, ...counts }))
+  }, [supabase])
+
+  useEffect(() => {
+    if ((currentUserRole === 'admin' || currentUserRole === 'expert') && steps.length > 0) {
+      fetchNoteCounts(steps.map(s => s.id))
+    }
+  }, [steps, currentUserRole, fetchNoteCounts])
+
+  useEffect(() => {
+    if (currentUserRole === 'admin' || currentUserRole === 'expert') {
+      const ids = [
+        ...requirementDocuments.map(d => d.id),
+        ...documents.map(d => d.id),
+      ]
+      if (ids.length) fetchNoteCounts(ids)
+    }
+  }, [documents, requirementDocuments, currentUserRole, fetchNoteCounts])
 
   const openAddExpertStepModal = () => {
     setShowAddExpertStepModal(true)
@@ -1659,6 +1698,9 @@ export default function ApplicationDetailContent({
             ...(currentUserRole === 'expert' || currentUserRole === 'admin'
               ? [{ id: 'expert-process', label: 'Expert Process', badge: incompleteExpertStepsCount }]
               : []),
+            ...(currentUserRole === 'expert' || currentUserRole === 'admin'
+              ? [{ id: 'internal-notes', label: 'Internal Notes', badge: 0 }]
+              : []),
           ].map((tab) => (
             <button
               key={tab.id}
@@ -2089,6 +2131,19 @@ export default function ApplicationDetailContent({
                                       Review
                                     </button>
                                   )}
+                                  {(currentUserRole === 'admin' || currentUserRole === 'expert') && (
+                                    <button
+                                      onClick={() => setNotesModal({ subjectType: 'application_document', subjectId: reqDoc.id, title: `Notes — ${displayName}` })}
+                                      className="inline-flex items-center gap-1.5 px-4 py-2 border border-amber-200 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium"
+                                    >
+                                      Notes
+                                      {(noteCounts[reqDoc.id] ?? 0) > 0 && (
+                                        <span className="bg-amber-200 text-amber-800 rounded-full px-1.5 py-0.5 text-xs leading-none font-semibold">
+                                          {noteCounts[reqDoc.id]}
+                                        </span>
+                                      )}
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2143,6 +2198,19 @@ export default function ApplicationDetailContent({
                                         <Download className="w-4 h-4" />
                                         Download
                                       </button>
+                                      {(currentUserRole === 'admin' || currentUserRole === 'expert') && (
+                                        <button
+                                          onClick={() => setNotesModal({ subjectType: 'application_document', subjectId: doc.id, title: `Notes — ${doc.document_name}` })}
+                                          className="inline-flex items-center gap-1.5 px-4 py-2 border border-amber-200 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium"
+                                        >
+                                          Notes
+                                          {(noteCounts[doc.id] ?? 0) > 0 && (
+                                            <span className="bg-amber-200 text-amber-800 rounded-full px-1.5 py-0.5 text-xs leading-none font-semibold">
+                                              {noteCounts[doc.id]}
+                                            </span>
+                                          )}
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -2228,6 +2296,19 @@ export default function ApplicationDetailContent({
                                   >
                                     <Check className="w-4 h-4" />
                                     Review
+                                  </button>
+                                )}
+                                {(currentUserRole === 'admin' || currentUserRole === 'expert') && (
+                                  <button
+                                    onClick={() => setNotesModal({ subjectType: 'application_document', subjectId: doc.id, title: `Notes — ${doc.document_name}` })}
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 border border-amber-200 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium"
+                                  >
+                                    Notes
+                                    {(noteCounts[doc.id] ?? 0) > 0 && (
+                                      <span className="bg-amber-200 text-amber-800 rounded-full px-1.5 py-0.5 text-xs leading-none font-semibold">
+                                        {noteCounts[doc.id]}
+                                      </span>
+                                    )}
                                   </button>
                                 )}
                               </div>
@@ -2345,10 +2426,27 @@ export default function ApplicationDetailContent({
                         {/* {step.description && (
                             <div className="text-sm text-gray-600 mb-2">{step.description}</div>
                         )} */}
-                        <div className="flex gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-full">
                             Licensing
                           </span>
+                          {(currentUserRole === 'admin' || currentUserRole === 'expert') && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setNotesModal({ subjectType: 'application_step', subjectId: step.id, title: `Notes — ${step.step_name}` })
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full hover:bg-amber-100 transition-colors"
+                            >
+                              Notes
+                              {(noteCounts[step.id] ?? 0) > 0 && (
+                                <span className="bg-amber-200 text-amber-800 rounded-full px-1 leading-none font-semibold">
+                                  {noteCounts[step.id]}
+                                </span>
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2361,6 +2459,15 @@ export default function ApplicationDetailContent({
         </div>
       )}
 
+
+      {activeTab === 'internal-notes' && (currentUserRole === 'admin' || currentUserRole === 'expert') && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <ApplicationInternalNotesTab
+            applicationId={application.id}
+            agencyId={application.agency_id ?? ''}
+          />
+        </div>
+      )}
 
       {activeTab === 'templates' && (
         <div className="space-y-6">
@@ -2750,6 +2857,7 @@ export default function ApplicationDetailContent({
             ) : (
               <ExpertStepsPanel
                 applicationId={application.id}
+                agencyId={application.agency_id ?? null}
                 expertSteps={expertSteps}
                 canToggle={currentUserRole === 'expert' || currentUserRole === 'admin'}
                 onStepsChanged={refreshExpertStepsSilently}
@@ -3061,6 +3169,19 @@ export default function ApplicationDetailContent({
           </div>
         </Modal>
       )}
+      {/* Application Notes Modal (steps + documents) */}
+      {notesModal && (
+        <ApplicationNotesModal
+          isOpen={true}
+          onClose={() => { fetchNoteCounts([notesModal.subjectId]); setNotesModal(null) }}
+          subjectType={notesModal.subjectType}
+          subjectId={notesModal.subjectId}
+          agencyId={application.agency_id ?? ''}
+          applicationId={application.id}
+          title={notesModal.title}
+        />
+      )}
+
       {/* Step Instructions Modal */}
       {infoModalStep && (
         <Modal

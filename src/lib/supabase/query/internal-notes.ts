@@ -1,8 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+export type InternalNoteSubjectType =
+  | 'patient'
+  | 'caregiver'
+  | 'visit'
+  | 'application'
+  | 'application_step'
+  | 'application_document'
+
 export async function getInternalNotesBySubject(
   supabase: SupabaseClient,
-  subjectType: 'patient' | 'caregiver' | 'visit',
+  subjectType: InternalNoteSubjectType,
   subjectId: string
 ) {
   return supabase

@@ -45,6 +45,7 @@ export default async function AdminAgencyDetailPage({
         agencyAdmins={agencyAdmins ?? []}
         availableAdmins={availableAdmins ?? []}
         backPath="/pages/admin/agencies"
+        canEdit={true}
       />
     </AdminLayout>
   )

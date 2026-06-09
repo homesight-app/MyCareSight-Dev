@@ -49,7 +49,7 @@ export default function ApplicationDetailWrapper({
   unreadNotifications = 0
 }: ApplicationDetailWrapperProps) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'overview' | 'checklist' | 'documents' | 'next-steps' | 'requirements' | 'templates' | 'message' | 'expert-process'>('next-steps')
+  const [activeTab, setActiveTab] = useState<'overview' | 'checklist' | 'documents' | 'next-steps' | 'requirements' | 'templates' | 'message' | 'expert-process' | 'internal-notes'>('next-steps')
   const [isNavigatingBack, setIsNavigatingBack] = useState(false)
 
   // Map activeTab to a valid license tab type for DashboardLayout
@@ -66,7 +66,7 @@ export default function ApplicationDetailWrapper({
   }
 
   // Handle tab change from ApplicationDetailContent
-  const handleTabChange = (tab: 'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process') => {
+  const handleTabChange = (tab: 'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process' | 'internal-notes') => {
     setActiveTab(tab)
   }
 

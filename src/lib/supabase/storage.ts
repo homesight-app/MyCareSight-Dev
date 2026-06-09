@@ -17,6 +17,16 @@ export async function createSignedStorageUrl(
   expiresIn = 3600
 ): Promise<string | null> {
   if (!path) return null
-  const { data } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn)
+
+  // Legacy records may have stored full public URLs; extract just the object path.
+  let storagePath = path
+  if (path.includes('/storage/v1/object/')) {
+    const marker = `/object/public/${bucket}/`
+    const idx = path.indexOf(marker)
+    storagePath = idx !== -1 ? path.slice(idx + marker.length) : path
+  }
+
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, expiresIn)
+  if (error) console.error('[storage] createSignedUrl failed:', bucket, error.message)
   return data?.signedUrl ?? null
 }

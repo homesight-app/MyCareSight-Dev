@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { EXPERT_STEP_PHASES } from '@/lib/constants'
+import ApplicationNotesModal from './ApplicationNotesModal'
 
 export interface ExpertStep {
   id: string
@@ -17,6 +18,7 @@ export interface ExpertStep {
 
 interface ExpertStepsPanelProps {
   applicationId: string
+  agencyId?: string | null
   expertSteps: ExpertStep[]
   /** When true the completion circle is a clickable toggle; when false it is read-only. */
   canToggle: boolean
@@ -26,12 +28,35 @@ interface ExpertStepsPanelProps {
 
 export default function ExpertStepsPanel({
   applicationId,
+  agencyId,
   expertSteps,
   canToggle,
   onStepsChanged,
 }: ExpertStepsPanelProps) {
   const [optimisticSteps, setOptimisticSteps] = useState<ExpertStep[]>(expertSteps)
   const [togglingStepId, setTogglingStepId] = useState<string | null>(null)
+  const [notesModal, setNotesModal] = useState<{ stepId: string; stepName: string } | null>(null)
+  const [noteCounts, setNoteCounts] = useState<Record<string, number>>({})
+
+  const fetchNoteCounts = useCallback(async (subjectIds: string[]) => {
+    if (!subjectIds.length) return
+    const { data } = await createClient()
+      .from('internal_notes')
+      .select('subject_id')
+      .in('subject_id', subjectIds)
+    if (!data) return
+    const counts: Record<string, number> = {}
+    for (const row of data as { subject_id: string }[]) {
+      counts[row.subject_id] = (counts[row.subject_id] ?? 0) + 1
+    }
+    setNoteCounts(prev => ({ ...prev, ...counts }))
+  }, [])
+
+  useEffect(() => {
+    if (agencyId && expertSteps.length > 0) {
+      fetchNoteCounts(expertSteps.map(s => s.id))
+    }
+  }, [expertSteps, agencyId, fetchNoteCounts])
 
   useEffect(() => {
     setOptimisticSteps(expertSteps)
@@ -97,6 +122,7 @@ export default function ExpertStepsPanel({
   })
 
   return (
+    <>
     <div className="space-y-6">
       {orderedPhases.map((phase) => (
         <div key={phase}>
@@ -145,6 +171,20 @@ export default function ExpertStepsPanel({
                   {step.description && (
                     <p className="text-sm text-gray-600">{step.description}</p>
                   )}
+                  {agencyId && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setNotesModal({ stepId: step.id, stepName: step.step_name }) }}
+                      className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full hover:bg-amber-100 transition-colors"
+                    >
+                      Notes
+                      {(noteCounts[step.id] ?? 0) > 0 && (
+                        <span className="bg-amber-200 text-amber-800 rounded-full px-1 leading-none font-semibold">
+                          {noteCounts[step.id]}
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -152,5 +192,17 @@ export default function ExpertStepsPanel({
         </div>
       ))}
     </div>
+    {notesModal && agencyId && (
+      <ApplicationNotesModal
+        isOpen={true}
+        onClose={() => { fetchNoteCounts([notesModal.stepId]); setNotesModal(null) }}
+        subjectType="application_step"
+        subjectId={notesModal.stepId}
+        agencyId={agencyId}
+        applicationId={applicationId}
+        title={`Notes — ${notesModal.stepName}`}
+      />
+    )}
+    </>
   )
 }

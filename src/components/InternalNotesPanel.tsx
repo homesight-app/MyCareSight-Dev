@@ -11,6 +11,7 @@ import {
   deleteInternalNoteAction,
   logNoteSearchAction,
 } from '@/app/actions/internal-notes'
+import type { InternalNoteSubjectType } from '@/lib/supabase/query/internal-notes'
 
 interface NoteRow {
   id: string
@@ -70,11 +71,14 @@ interface CaregiverTagOption {
   last_name: string
 }
 
+const APPLICATION_SUBJECT_TYPES = new Set(['application', 'application_step', 'application_document'])
+
 interface InternalNotesPanelProps {
-  subjectType: 'patient' | 'caregiver' | 'visit'
+  subjectType: InternalNoteSubjectType
   subjectId: string
   agencyId: string
   canManage: boolean
+  applicationId?: string | null
 }
 
 function formatTimestamp(iso: string) {
@@ -107,7 +111,9 @@ export default function InternalNotesPanel({
   subjectId,
   agencyId,
   canManage,
+  applicationId,
 }: InternalNotesPanelProps) {
+  const isAppNote = APPLICATION_SUBJECT_TYPES.has(subjectType)
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [associatedNotes, setAssociatedNotes] = useState<AssociatedNoteRow[]>([])
   const [tagPatients, setTagPatients] = useState<PatientTagOption[]>([])
@@ -238,17 +244,21 @@ export default function InternalNotesPanel({
               .order('created_at', { ascending: false })
           : null
 
-    const patientsQuery = supabase
-      .from('patients')
-      .select('id, first_name, last_name')
-      .eq('agency_id', agencyId)
-      .order('last_name')
+    const patientsQuery = isAppNote
+      ? Promise.resolve({ data: [], error: null })
+      : supabase
+          .from('patients')
+          .select('id, first_name, last_name')
+          .eq('agency_id', agencyId)
+          .order('last_name')
 
-    const caregiversQuery = supabase
-      .from('caregiver_members')
-      .select('id, first_name, last_name')
-      .eq('agency_id', agencyId)
-      .order('last_name')
+    const caregiversQuery = isAppNote
+      ? Promise.resolve({ data: [], error: null })
+      : supabase
+          .from('caregiver_members')
+          .select('id, first_name, last_name')
+          .eq('agency_id', agencyId)
+          .order('last_name')
 
     const [notesRes, assocRes, patientsRes, caregiversRes] = await Promise.all([
       notesQuery,
@@ -275,7 +285,7 @@ export default function InternalNotesPanel({
         (n) => !(n.subject_type === subjectType && n.subject_id === subjectId)
       )
     )
-  }, [subjectType, subjectId, agencyId])
+  }, [subjectType, subjectId, agencyId, isAppNote])
 
   useEffect(() => {
     fetchAll()
@@ -290,8 +300,9 @@ export default function InternalNotesPanel({
       subjectId,
       agencyId,
       content: addContent,
-      taggedPatientId:   addTagPatient   || null,
-      taggedCaregiverId: addTagCaregiver || null,
+      applicationId: applicationId ?? null,
+      taggedPatientId:   isAppNote ? null : (addTagPatient   || null),
+      taggedCaregiverId: isAppNote ? null : (addTagCaregiver || null),
     })
     setAddLoading(false)
     if (result.error) { setAddError(result.error); return }
@@ -328,8 +339,9 @@ export default function InternalNotesPanel({
       agencyId,
       subjectType,
       subjectId,
-      taggedPatientId:   editTagPatient   || null,
-      taggedCaregiverId: editTagCaregiver || null,
+      applicationId: applicationId ?? null,
+      taggedPatientId:   isAppNote ? null : (editTagPatient   || null),
+      taggedCaregiverId: isAppNote ? null : (editTagCaregiver || null),
     })
     setEditLoading(false)
     if (result.error) { setEditError(result.error); return }
@@ -339,7 +351,7 @@ export default function InternalNotesPanel({
 
   const handleDelete = async (noteId: string) => {
     setDeleteLoading(true)
-    const result = await deleteInternalNoteAction({ noteId, agencyId, subjectType, subjectId })
+    const result = await deleteInternalNoteAction({ noteId, agencyId, subjectType, subjectId, applicationId: applicationId ?? null })
     setDeleteLoading(false)
     if (result.error) return
     setDeletingId(null)
@@ -434,13 +446,15 @@ export default function InternalNotesPanel({
               disabled={addLoading}
               autoFocus
             />
-            <TagSelects
-              patientVal={addTagPatient}
-              caregiverVal={addTagCaregiver}
-              onPatientChange={setAddTagPatient}
-              onCaregiverChange={setAddTagCaregiver}
-              disabled={addLoading}
-            />
+            {!isAppNote && (
+              <TagSelects
+                patientVal={addTagPatient}
+                caregiverVal={addTagCaregiver}
+                onPatientChange={setAddTagPatient}
+                onCaregiverChange={setAddTagCaregiver}
+                disabled={addLoading}
+              />
+            )}
             {addError && <p className="mt-1.5 text-sm text-red-600">{addError}</p>}
             <div className="flex items-center justify-end gap-2 mt-3">
               <button
@@ -657,13 +671,15 @@ export default function InternalNotesPanel({
                   disabled={editLoading}
                   autoFocus
                 />
-                <TagSelects
-                  patientVal={editTagPatient}
-                  caregiverVal={editTagCaregiver}
-                  onPatientChange={setEditTagPatient}
-                  onCaregiverChange={setEditTagCaregiver}
-                  disabled={editLoading}
-                />
+                {!isAppNote && (
+                  <TagSelects
+                    patientVal={editTagPatient}
+                    caregiverVal={editTagCaregiver}
+                    onPatientChange={setEditTagPatient}
+                    onCaregiverChange={setEditTagCaregiver}
+                    disabled={editLoading}
+                  />
+                )}
                 {editError && <p className="mt-1 text-sm text-red-600">{editError}</p>}
                 <div className="flex items-center justify-end gap-2 mt-2">
                   <button

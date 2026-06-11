@@ -1,22 +1,40 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Users, UserPlus, X, Loader2, Mail, Phone, RefreshCw, ChevronDown, Shield, Stethoscope, User } from 'lucide-react'
+import {
+  Users, UserPlus, X, Loader2, Mail, Phone, RefreshCw, ChevronDown,
+  Shield, Stethoscope, User, UserX, UserCheck, Settings,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import Modal from './Modal'
+import ResetPasswordModal from './ResetPasswordModal'
 import { addAdminToAgency, removeAdminFromAgency } from '@/app/actions/agencies'
-import { updateCaregiverStatus, updateCareCoordinatorStatus } from '@/app/actions/agency-users'
+import {
+  updateAgencyAdminStatus,
+  updateCaregiverStatus,
+  updateCareCoordinatorStatus,
+  addCaregiverForAgency,
+  addCareCoordinatorForAgency,
+  createAndLinkAgencyAdmin,
+  updateCaregiverProfile,
+  updateCareCoordinatorProfile,
+  updateAgencyAdminProfile,
+} from '@/app/actions/agency-users'
 
 // ——— Types ———————————————————————————————————————————
 
 interface AdminRecord {
   id: string
+  user_id: string | null
   contact_name: string | null
   contact_email: string | null
+  contact_phone: string | null
   status: string | null
 }
 
 interface CoordinatorRecord {
   id: string
+  user_id: string | null
   first_name: string
   last_name: string
   email: string
@@ -25,6 +43,7 @@ interface CoordinatorRecord {
 
 interface CaregiverRecord {
   id: string
+  user_id: string | null
   first_name: string
   last_name: string
   email: string
@@ -45,7 +64,7 @@ interface AgencyUsersTabProps {
   agencyId: string
 }
 
-// ——— Helpers ———————————————————————————————————————————
+// ——— Shared helpers ———————————————————————————————————
 
 const STATUS_BADGE: Record<string, string> = {
   active: 'bg-green-100 text-green-700',
@@ -75,29 +94,170 @@ function Avatar({ name, email, color = 'purple' }: { name?: string | null; email
   )
 }
 
+function FieldInput({ label, value, onChange, placeholder, required, type = 'text' }: {
+  label: string; value: string; onChange: (v: string) => void
+  placeholder?: string; required?: boolean; type?: string
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+      />
+    </div>
+  )
+}
+
+// ——— User Settings Modal (shared by all 3 sections) ——————
+// Matches the "Settings" gear icon pattern from user management.
+// Contains: edit profile fields + Change Password via ResetPasswordModal.
+
+function UserSettingsModal({
+  isOpen, onClose, userId, name, email, children, onSave, saving, saveError,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  userId: string | null
+  name: string
+  email: string
+  children: React.ReactNode   // edit fields
+  onSave: () => void
+  saving: boolean
+  saveError: string | null
+}) {
+  const [passwordOpen, setPasswordOpen] = useState(false)
+
+  const handleClose = () => {
+    setPasswordOpen(false)
+    onClose()
+  }
+
+  return (
+    <>
+      <Modal isOpen={isOpen} onClose={handleClose} title="User Settings" size="md">
+        <div className="space-y-5">
+          {/* Edit profile fields */}
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Edit Profile</h3>
+            <div className="space-y-3">{children}</div>
+            {saveError && (
+              <p className="mt-2 text-xs text-red-600">{saveError}</p>
+            )}
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-200" />
+
+          {/* Password section */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Password</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {userId ? 'Set a new password for this user.' : 'No system account linked.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => userId && setPasswordOpen(true)}
+              disabled={!userId}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Change Password
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {userId && (
+        <ResetPasswordModal
+          isOpen={passwordOpen}
+          onClose={() => setPasswordOpen(false)}
+          userName={name}
+          userEmail={email}
+          userId={userId}
+        />
+      )}
+    </>
+  )
+}
+
+// ——— Add form panel (for creating new users) ———————————
+
+function AddPanel({ title, children, onSave, onCancel, submitting, error, saveLabel = 'Create Account' }: {
+  title: string
+  children: React.ReactNode
+  onSave: () => void
+  onCancel: () => void
+  submitting: boolean
+  error: string | null
+  saveLabel?: string
+}) {
+  return (
+    <div className="mx-5 mb-4 mt-2 p-4 border border-dashed border-purple-200 rounded-lg bg-purple-50/40">
+      <h4 className="text-xs font-semibold text-gray-700 mb-3 uppercase tracking-wide">{title}</h4>
+      <div className="space-y-3">{children}</div>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      <div className="flex gap-2 mt-3">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={submitting}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+        >
+          {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+          {submitting ? 'Creating…' : saveLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 border border-gray-200 text-xs text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ——— Section wrapper ———————————————————————————————————
 
-function Section({ title, icon: Icon, count, children }: {
-  title: string
-  icon: React.ElementType
-  count: number
-  children: React.ReactNode
+function Section({ title, icon: Icon, count, children, action }: {
+  title: string; icon: React.ElementType; count: number
+  children: React.ReactNode; action?: React.ReactNode
 }) {
   const [open, setOpen] = useState(true)
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(p => !p)}
-        className="w-full px-5 py-3.5 flex items-center justify-between gap-3 hover:bg-gray-50 transition-colors"
-      >
-        <div className="flex items-center gap-2.5">
-          <Icon className="w-4.5 h-4.5 text-purple-600 w-5 h-5" />
+      <div className="w-full px-5 py-3.5 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setOpen(p => !p)}
+          className="flex items-center gap-2.5 flex-1 min-w-0"
+        >
+          <Icon className="w-5 h-5 text-purple-600 flex-shrink-0" />
           <span className="text-sm font-semibold text-gray-900">{title}</span>
           <span className="text-xs bg-gray-100 text-gray-600 font-medium px-2 py-0.5 rounded-full">{count}</span>
-        </div>
-        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
+          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {action && <div className="flex-shrink-0">{action}</div>}
+      </div>
       {open && <div className="border-t border-gray-100">{children}</div>}
     </div>
   )
@@ -112,17 +272,31 @@ function AdminsSection({ agencyId, admins, available, onRefresh }: {
   onRefresh: () => void
 }) {
   const [selectedId, setSelectedId] = useState('')
-  const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
+  const [linking, setLinking] = useState(false)
+  const [linkError, setLinkError] = useState<string | null>(null)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
 
-  const handleAdd = async () => {
+  // Create new admin form
+  const [showCreate, setShowCreate] = useState(false)
+  const [createForm, setCreateForm] = useState({ firstName: '', lastName: '', email: '', phone: '' })
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+
+  // Settings modal
+  const [settingsAdmin, setSettingsAdmin] = useState<AdminRecord | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  const handleLink = async () => {
     if (!selectedId) return
-    setAdding(true)
-    setAddError(null)
+    setLinking(true)
+    setLinkError(null)
     const result = await addAdminToAgency(agencyId, selectedId)
-    setAdding(false)
-    if (result.error) { setAddError(result.error); return }
+    setLinking(false)
+    if (result.error) { setLinkError(result.error); return }
     setSelectedId('')
     onRefresh()
   }
@@ -134,68 +308,196 @@ function AdminsSection({ agencyId, admins, available, onRefresh }: {
     onRefresh()
   }
 
-  return (
-    <Section title="Agency Admins" icon={Shield} count={admins.length}>
-      {admins.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-gray-400 italic">No admins assigned.</p>
-      ) : (
-        <div className="divide-y divide-gray-50">
-          {admins.map(admin => (
-            <div key={admin.id} className="px-5 py-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <Avatar name={admin.contact_name} email={admin.contact_email ?? undefined} color="purple" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{admin.contact_name || 'Unnamed Admin'}</p>
-                  {admin.contact_email && (
-                    <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
-                      <Mail className="w-3 h-3 flex-shrink-0" />
-                      {admin.contact_email}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {admin.status && <StatusBadge status={admin.status} />}
-                <button
-                  type="button"
-                  onClick={() => handleRemove(admin.id)}
-                  disabled={removingId === admin.id}
-                  className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                  title="Remove from agency"
-                >
-                  {removingId === admin.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+  const handleToggle = async (admin: AdminRecord) => {
+    const isActive = (admin.status ?? 'active') === 'active'
+    setTogglingId(admin.id)
+    await updateAgencyAdminStatus(agencyId, admin.id, isActive ? 'inactive' : 'active')
+    setTogglingId(null)
+    onRefresh()
+  }
 
-      {available.length > 0 && (
-        <div className="px-5 py-3 border-t border-gray-100 flex flex-col sm:flex-row gap-2">
-          <select
-            value={selectedId}
-            onChange={e => { setSelectedId(e.target.value); setAddError(null) }}
-            className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 outline-none"
-          >
-            <option value="">Add existing admin to this agency…</option>
-            {available.map(a => (
-              <option key={a.id} value={a.id}>{a.contact_name || a.contact_email || a.id}</option>
-            ))}
-          </select>
+  const handleCreate = async () => {
+    if (!createForm.firstName.trim() || !createForm.lastName.trim() || !createForm.email.trim()) {
+      setCreateError('First name, last name, and email are required.')
+      return
+    }
+    setCreating(true)
+    setCreateError(null)
+    const result = await createAndLinkAgencyAdmin(agencyId, {
+      firstName: createForm.firstName.trim(),
+      lastName: createForm.lastName.trim(),
+      email: createForm.email.trim(),
+      phone: createForm.phone.trim() || undefined,
+    })
+    setCreating(false)
+    if (result.error) { setCreateError(result.error); return }
+    setShowCreate(false)
+    setCreateForm({ firstName: '', lastName: '', email: '', phone: '' })
+    onRefresh()
+  }
+
+  const openSettings = (admin: AdminRecord) => {
+    setSettingsAdmin(admin)
+    setEditName(admin.contact_name ?? '')
+    setEditPhone(admin.contact_phone ?? '')
+    setEditError(null)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!settingsAdmin) return
+    if (!editName.trim()) { setEditError('Name is required.'); return }
+    setSavingEdit(true)
+    setEditError(null)
+    const result = await updateAgencyAdminProfile(agencyId, settingsAdmin.id, {
+      contact_name: editName.trim(),
+      contact_phone: editPhone.trim() || undefined,
+    })
+    setSavingEdit(false)
+    if (result.error) { setEditError(result.error); return }
+    setSettingsAdmin(null)
+    onRefresh()
+  }
+
+  return (
+    <>
+      <Section
+        title="Agency Admins"
+        icon={Shield}
+        count={admins.length}
+        action={
           <button
             type="button"
-            onClick={handleAdd}
-            disabled={!selectedId || adding}
-            className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 flex-shrink-0"
+            onClick={() => { setShowCreate(p => !p); setCreateError(null) }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
           >
-            {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
-            Add
+            <UserPlus className="w-3.5 h-3.5" />
+            Create New Admin
           </button>
-        </div>
-      )}
-      {addError && <p className="px-5 py-2 text-xs text-red-600">{addError}</p>}
-    </Section>
+        }
+      >
+        {showCreate && (
+          <AddPanel
+            title="Create New Agency Admin"
+            onSave={handleCreate}
+            onCancel={() => { setShowCreate(false); setCreateError(null) }}
+            submitting={creating}
+            error={createError}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <FieldInput label="First Name" value={createForm.firstName} onChange={v => setCreateForm(p => ({ ...p, firstName: v }))} required />
+              <FieldInput label="Last Name" value={createForm.lastName} onChange={v => setCreateForm(p => ({ ...p, lastName: v }))} required />
+            </div>
+            <FieldInput label="Email" type="email" value={createForm.email} onChange={v => setCreateForm(p => ({ ...p, email: v }))} required />
+            <FieldInput label="Phone (optional)" value={createForm.phone} onChange={v => setCreateForm(p => ({ ...p, phone: v }))} placeholder="e.g. 555-123-4567" />
+          </AddPanel>
+        )}
+
+        {admins.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-gray-400 italic">No admins assigned.</p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {admins.map(admin => {
+              const isActive = (admin.status ?? 'active') === 'active'
+              return (
+                <div key={admin.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${!isActive ? 'opacity-60' : ''}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar name={admin.contact_name} email={admin.contact_email ?? undefined} color="purple" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{admin.contact_name || 'Unnamed Admin'}</p>
+                      {admin.contact_email && (
+                        <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
+                          <Mail className="w-3 h-3 flex-shrink-0" />
+                          {admin.contact_email}
+                        </p>
+                      )}
+                      {admin.contact_phone && (
+                        <p className="text-xs text-gray-500 flex items-center gap-1">
+                          <Phone className="w-3 h-3 flex-shrink-0" />
+                          {admin.contact_phone}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {admin.status && <StatusBadge status={admin.status} />}
+                    {/* Toggle active/inactive — same icon pattern as user management */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(admin)}
+                      disabled={togglingId === admin.id}
+                      className={`${isActive ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'} disabled:opacity-50 transition-colors`}
+                      title={isActive ? 'Disable' : 'Enable'}
+                    >
+                      {togglingId === admin.id
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                    </button>
+                    {/* Settings — edit + password reset */}
+                    <button
+                      type="button"
+                      onClick={() => openSettings(admin)}
+                      className="text-blue-600 hover:text-blue-800 transition-colors"
+                      title="Settings"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                    {/* Remove from agency */}
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(admin.id)}
+                      disabled={removingId === admin.id}
+                      className="text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                      title="Remove from agency"
+                    >
+                      {removingId === admin.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {available.length > 0 && (
+          <div className="px-5 py-3 border-t border-gray-100 flex flex-col sm:flex-row gap-2">
+            <select
+              value={selectedId}
+              onChange={e => { setSelectedId(e.target.value); setLinkError(null) }}
+              className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 outline-none"
+            >
+              <option value="">Add existing admin to this agency…</option>
+              {available.map(a => (
+                <option key={a.id} value={a.id}>{a.contact_name || a.contact_email || a.id}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={handleLink}
+              disabled={!selectedId || linking}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 flex-shrink-0"
+            >
+              {linking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+              Add
+            </button>
+          </div>
+        )}
+        {linkError && <p className="px-5 py-2 text-xs text-red-600">{linkError}</p>}
+      </Section>
+
+      <UserSettingsModal
+        isOpen={!!settingsAdmin}
+        onClose={() => { setSettingsAdmin(null); setEditError(null) }}
+        userId={settingsAdmin?.user_id ?? null}
+        name={settingsAdmin?.contact_name ?? ''}
+        email={settingsAdmin?.contact_email ?? ''}
+        onSave={handleSaveEdit}
+        saving={savingEdit}
+        saveError={editError}
+      >
+        <FieldInput label="Full Name" value={editName} onChange={setEditName} required />
+        <FieldInput label="Phone (optional)" value={editPhone} onChange={setEditPhone} placeholder="e.g. 555-123-4567" />
+      </UserSettingsModal>
+    </>
   )
 }
 
@@ -209,9 +511,22 @@ function CoordinatorsSection({ agencyId, coordinators, onRefresh }: {
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all')
 
+  // Add new
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '' })
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  // Settings modal
+  const [settingsCoord, setSettingsCoord] = useState<CoordinatorRecord | null>(null)
+  const [editFirst, setEditFirst] = useState('')
+  const [editLast, setEditLast] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
   const displayed = coordinators.filter(c => filter === 'all' || c.status === filter)
 
-  const toggleStatus = async (c: CoordinatorRecord) => {
+  const handleToggle = async (c: CoordinatorRecord) => {
     const next = c.status === 'active' ? 'inactive' : 'active'
     setTogglingId(c.id)
     await updateCareCoordinatorStatus(agencyId, c.id, next)
@@ -219,54 +534,156 @@ function CoordinatorsSection({ agencyId, coordinators, onRefresh }: {
     onRefresh()
   }
 
+  const handleAdd = async () => {
+    if (!addForm.firstName.trim() || !addForm.lastName.trim() || !addForm.email.trim()) {
+      setAddError('All fields are required.')
+      return
+    }
+    setAdding(true)
+    setAddError(null)
+    const result = await addCareCoordinatorForAgency(agencyId, {
+      firstName: addForm.firstName.trim(),
+      lastName: addForm.lastName.trim(),
+      email: addForm.email.trim(),
+    })
+    setAdding(false)
+    if (result.error) { setAddError(result.error); return }
+    setShowAdd(false)
+    setAddForm({ firstName: '', lastName: '', email: '' })
+    onRefresh()
+  }
+
+  const openSettings = (c: CoordinatorRecord) => {
+    setSettingsCoord(c)
+    setEditFirst(c.first_name)
+    setEditLast(c.last_name)
+    setEditError(null)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!settingsCoord) return
+    if (!editFirst.trim() || !editLast.trim()) { setEditError('Name fields are required.'); return }
+    setSavingEdit(true)
+    setEditError(null)
+    const result = await updateCareCoordinatorProfile(agencyId, settingsCoord.id, {
+      first_name: editFirst.trim(),
+      last_name: editLast.trim(),
+    })
+    setSavingEdit(false)
+    if (result.error) { setEditError(result.error); return }
+    setSettingsCoord(null)
+    onRefresh()
+  }
+
   return (
-    <Section title="Care Coordinators" icon={User} count={coordinators.filter(c => c.status === 'active').length}>
-      <div className="px-5 py-2 flex gap-2 border-b border-gray-50">
-        {(['all', 'active', 'inactive'] as const).map(f => (
+    <>
+      <Section
+        title="Care Coordinators"
+        icon={User}
+        count={coordinators.filter(c => c.status === 'active').length}
+        action={
           <button
-            key={f}
             type="button"
-            onClick={() => setFilter(f)}
-            className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${filter === f ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}
+            onClick={() => { setShowAdd(p => !p); setAddError(null) }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
           >
-            {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+            <UserPlus className="w-3.5 h-3.5" />
+            Add Coordinator
           </button>
-        ))}
-      </div>
-      {displayed.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-gray-400 italic">No care coordinators found.</p>
-      ) : (
-        <div className="divide-y divide-gray-50">
-          {displayed.map(coord => (
-            <div key={coord.id} className="px-5 py-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <Avatar name={`${coord.first_name} ${coord.last_name}`} email={coord.email} color="blue" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{coord.first_name} {coord.last_name}</p>
-                  <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
-                    <Mail className="w-3 h-3 flex-shrink-0" />
-                    {coord.email}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <StatusBadge status={coord.status} />
-                <button
-                  type="button"
-                  onClick={() => toggleStatus(coord)}
-                  disabled={togglingId === coord.id}
-                  className="text-xs px-2 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                >
-                  {togglingId === coord.id
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : coord.status === 'active' ? 'Deactivate' : 'Activate'}
-                </button>
-              </div>
+        }
+      >
+        {showAdd && (
+          <AddPanel
+            title="Add New Care Coordinator"
+            onSave={handleAdd}
+            onCancel={() => { setShowAdd(false); setAddError(null) }}
+            submitting={adding}
+            error={addError}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <FieldInput label="First Name" value={addForm.firstName} onChange={v => setAddForm(p => ({ ...p, firstName: v }))} required />
+              <FieldInput label="Last Name" value={addForm.lastName} onChange={v => setAddForm(p => ({ ...p, lastName: v }))} required />
             </div>
+            <FieldInput label="Email" type="email" value={addForm.email} onChange={v => setAddForm(p => ({ ...p, email: v }))} required />
+          </AddPanel>
+        )}
+
+        <div className="px-5 py-2 flex gap-2 border-b border-gray-50">
+          {(['all', 'active', 'inactive'] as const).map(f => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${filter === f ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}
+            >
+              {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
           ))}
         </div>
-      )}
-    </Section>
+
+        {displayed.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-gray-400 italic">No care coordinators found.</p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {displayed.map(coord => {
+              const isActive = coord.status === 'active'
+              return (
+                <div key={coord.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${!isActive ? 'opacity-60' : ''}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar name={`${coord.first_name} ${coord.last_name}`} email={coord.email} color="blue" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{coord.first_name} {coord.last_name}</p>
+                      <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
+                        <Mail className="w-3 h-3 flex-shrink-0" />
+                        {coord.email}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <StatusBadge status={coord.status} />
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(coord)}
+                      disabled={togglingId === coord.id}
+                      className={`${isActive ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'} disabled:opacity-50 transition-colors`}
+                      title={isActive ? 'Disable' : 'Enable'}
+                    >
+                      {togglingId === coord.id
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSettings(coord)}
+                      className="text-blue-600 hover:text-blue-800 transition-colors"
+                      title="Settings"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Section>
+
+      <UserSettingsModal
+        isOpen={!!settingsCoord}
+        onClose={() => { setSettingsCoord(null); setEditError(null) }}
+        userId={settingsCoord?.user_id ?? null}
+        name={settingsCoord ? `${settingsCoord.first_name} ${settingsCoord.last_name}` : ''}
+        email={settingsCoord?.email ?? ''}
+        onSave={handleSaveEdit}
+        saving={savingEdit}
+        saveError={editError}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <FieldInput label="First Name" value={editFirst} onChange={setEditFirst} required />
+          <FieldInput label="Last Name" value={editLast} onChange={setEditLast} required />
+        </div>
+      </UserSettingsModal>
+    </>
   )
 }
 
@@ -281,6 +698,21 @@ function CaregiversSection({ agencyId, caregivers, onRefresh }: {
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('active')
   const [search, setSearch] = useState('')
 
+  // Add new
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '' })
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  // Settings modal
+  const [settingsCg, setSettingsCg] = useState<CaregiverRecord | null>(null)
+  const [editFirst, setEditFirst] = useState('')
+  const [editLast, setEditLast] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [editJobTitle, setEditJobTitle] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
   const displayed = caregivers.filter(c => {
     const matchesFilter = filter === 'all' || c.status === filter
     const term = search.toLowerCase()
@@ -291,7 +723,7 @@ function CaregiversSection({ agencyId, caregivers, onRefresh }: {
     return matchesFilter && matchesSearch
   })
 
-  const toggleStatus = async (c: CaregiverRecord) => {
+  const handleToggle = async (c: CaregiverRecord) => {
     const next = c.status === 'active' ? 'inactive' : 'active'
     setTogglingId(c.id)
     await updateCaregiverStatus(agencyId, c.id, next)
@@ -299,77 +731,184 @@ function CaregiversSection({ agencyId, caregivers, onRefresh }: {
     onRefresh()
   }
 
-  return (
-    <Section title="Caregivers" icon={Stethoscope} count={caregivers.filter(c => c.status === 'active').length}>
-      <div className="px-5 py-2 flex flex-col sm:flex-row sm:items-center gap-2 border-b border-gray-50">
-        <div className="flex gap-2">
-          {(['all', 'active', 'inactive'] as const).map(f => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${filter === f ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}
-            >
-              {f === 'all' ? `All (${caregivers.length})` : `${f.charAt(0).toUpperCase() + f.slice(1)} (${caregivers.filter(c => c.status === f).length})`}
-            </button>
-          ))}
-        </div>
-        <input
-          type="search"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search by name, email, or role…"
-          className="sm:ml-auto flex-1 sm:max-w-xs px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
-        />
-      </div>
+  const handleAdd = async () => {
+    if (!addForm.firstName.trim() || !addForm.lastName.trim() || !addForm.email.trim()) {
+      setAddError('All fields are required.')
+      return
+    }
+    setAdding(true)
+    setAddError(null)
+    const result = await addCaregiverForAgency(agencyId, {
+      firstName: addForm.firstName.trim(),
+      lastName: addForm.lastName.trim(),
+      email: addForm.email.trim(),
+    })
+    setAdding(false)
+    if (result.error) { setAddError(result.error); return }
+    setShowAdd(false)
+    setAddForm({ firstName: '', lastName: '', email: '' })
+    onRefresh()
+  }
 
-      {displayed.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-gray-400 italic">
-          {search ? 'No caregivers match your search.' : 'No caregivers found.'}
-        </p>
-      ) : (
-        <div className="divide-y divide-gray-50">
-          {displayed.map(cg => (
-            <div key={cg.id} className="px-5 py-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <Avatar name={`${cg.first_name} ${cg.last_name}`} email={cg.email} color="teal" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {cg.first_name} {cg.last_name}
-                  </p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
-                      <Mail className="w-3 h-3 flex-shrink-0" />
-                      {cg.email}
-                    </p>
-                    {cg.phone && (
-                      <p className="text-xs text-gray-500 flex items-center gap-1">
-                        <Phone className="w-3 h-3 flex-shrink-0" />
-                        {cg.phone}
-                      </p>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{cg.job_title || cg.role}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <StatusBadge status={cg.status} />
-                <button
-                  type="button"
-                  onClick={() => toggleStatus(cg)}
-                  disabled={togglingId === cg.id}
-                  className="text-xs px-2 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                >
-                  {togglingId === cg.id
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : cg.status === 'active' ? 'Deactivate' : 'Activate'}
-                </button>
-              </div>
+  const openSettings = (c: CaregiverRecord) => {
+    setSettingsCg(c)
+    setEditFirst(c.first_name)
+    setEditLast(c.last_name)
+    setEditPhone(c.phone ?? '')
+    setEditJobTitle(c.job_title ?? '')
+    setEditError(null)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!settingsCg) return
+    if (!editFirst.trim() || !editLast.trim()) { setEditError('First and last name are required.'); return }
+    setSavingEdit(true)
+    setEditError(null)
+    const result = await updateCaregiverProfile(agencyId, settingsCg.id, {
+      first_name: editFirst.trim(),
+      last_name: editLast.trim(),
+      phone: editPhone.trim() || undefined,
+      job_title: editJobTitle.trim() || undefined,
+    })
+    setSavingEdit(false)
+    if (result.error) { setEditError(result.error); return }
+    setSettingsCg(null)
+    onRefresh()
+  }
+
+  return (
+    <>
+      <Section
+        title="Caregivers"
+        icon={Stethoscope}
+        count={caregivers.filter(c => c.status === 'active').length}
+        action={
+          <button
+            type="button"
+            onClick={() => { setShowAdd(p => !p); setAddError(null) }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            Add Caregiver
+          </button>
+        }
+      >
+        {showAdd && (
+          <AddPanel
+            title="Add New Caregiver"
+            onSave={handleAdd}
+            onCancel={() => { setShowAdd(false); setAddError(null) }}
+            submitting={adding}
+            error={addError}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <FieldInput label="First Name" value={addForm.firstName} onChange={v => setAddForm(p => ({ ...p, firstName: v }))} required />
+              <FieldInput label="Last Name" value={addForm.lastName} onChange={v => setAddForm(p => ({ ...p, lastName: v }))} required />
             </div>
-          ))}
+            <FieldInput label="Email" type="email" value={addForm.email} onChange={v => setAddForm(p => ({ ...p, email: v }))} required />
+          </AddPanel>
+        )}
+
+        <div className="px-5 py-2 flex flex-col sm:flex-row sm:items-center gap-2 border-b border-gray-50">
+          <div className="flex gap-2">
+            {(['all', 'active', 'inactive'] as const).map(f => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${filter === f ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}
+              >
+                {f === 'all' ? `All (${caregivers.length})` : `${f.charAt(0).toUpperCase() + f.slice(1)} (${caregivers.filter(c => c.status === f).length})`}
+              </button>
+            ))}
+          </div>
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name, email, or role…"
+            className="sm:ml-auto flex-1 sm:max-w-xs px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+          />
         </div>
-      )}
-    </Section>
+
+        {displayed.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-gray-400 italic">
+            {search ? 'No caregivers match your search.' : 'No caregivers found.'}
+          </p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {displayed.map(cg => {
+              const isActive = cg.status === 'active'
+              return (
+                <div key={cg.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${!isActive ? 'opacity-60' : ''}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar name={`${cg.first_name} ${cg.last_name}`} email={cg.email} color="teal" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{cg.first_name} {cg.last_name}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
+                          <Mail className="w-3 h-3 flex-shrink-0" />
+                          {cg.email}
+                        </p>
+                        {cg.phone && (
+                          <p className="text-xs text-gray-500 flex items-center gap-1">
+                            <Phone className="w-3 h-3 flex-shrink-0" />
+                            {cg.phone}
+                          </p>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">{cg.job_title || cg.role}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <StatusBadge status={cg.status} />
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(cg)}
+                      disabled={togglingId === cg.id}
+                      className={`${isActive ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'} disabled:opacity-50 transition-colors`}
+                      title={isActive ? 'Disable' : 'Enable'}
+                    >
+                      {togglingId === cg.id
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSettings(cg)}
+                      className="text-blue-600 hover:text-blue-800 transition-colors"
+                      title="Settings"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Section>
+
+      <UserSettingsModal
+        isOpen={!!settingsCg}
+        onClose={() => { setSettingsCg(null); setEditError(null) }}
+        userId={settingsCg?.user_id ?? null}
+        name={settingsCg ? `${settingsCg.first_name} ${settingsCg.last_name}` : ''}
+        email={settingsCg?.email ?? ''}
+        onSave={handleSaveEdit}
+        saving={savingEdit}
+        saveError={editError}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <FieldInput label="First Name" value={editFirst} onChange={setEditFirst} required />
+          <FieldInput label="Last Name" value={editLast} onChange={setEditLast} required />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldInput label="Phone (optional)" value={editPhone} onChange={setEditPhone} placeholder="e.g. 555-123-4567" />
+          <FieldInput label="Job Title (optional)" value={editJobTitle} onChange={setEditJobTitle} placeholder="e.g. CNA" />
+        </div>
+      </UserSettingsModal>
+    </>
   )
 }
 
@@ -388,23 +927,23 @@ export default function AgencyUsersTab({ agencyId }: AgencyUsersTabProps) {
     const [adminsRes, availableRes, coordsRes, caregiversRes] = await Promise.all([
       supabase
         .from('agency_admins')
-        .select('id, contact_name, contact_email, status')
+        .select('id, user_id, contact_name, contact_email, contact_phone, status')
         .eq('agency_id', agencyId)
         .order('contact_name', { ascending: true }),
       supabase
         .from('agency_admins')
-        .select('id, contact_name, contact_email')
+        .select('id, user_id, contact_name, contact_email, contact_phone')
         .is('agency_id', null)
         .not('user_id', 'is', null)
         .order('contact_name', { ascending: true }),
       supabase
         .from('care_coordinators')
-        .select('id, first_name, last_name, email, status')
+        .select('id, user_id, first_name, last_name, email, status')
         .eq('agency_id', agencyId)
         .order('first_name', { ascending: true }),
       supabase
         .from('caregiver_members')
-        .select('id, first_name, last_name, email, phone, role, job_title, status')
+        .select('id, user_id, first_name, last_name, email, phone, role, job_title, status')
         .eq('agency_id', agencyId)
         .order('first_name', { ascending: true }),
     ])

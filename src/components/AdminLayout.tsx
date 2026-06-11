@@ -68,9 +68,9 @@ export default function AdminLayout({
     // { href: '/pages/admin/messages', label: 'Messages', icon: MessageSquare },
     { href: '/pages/admin/license-requirements', label: 'License Requirements', icon: FileText },
     { href: '/pages/admin/billing', label: 'Billing & Invoicing', icon: DollarSign },
-    { href: '/pages/admin/configuration', label: 'Configuration', icon: Settings },
     { href: '/pages/admin/agencies', label: 'Agency', icon: Building2 },
     { href: '/pages/admin/users', label: 'User Management', icon: UserCog },
+    { href: '/pages/admin/configuration', label: 'Configuration', icon: Settings },
   ]
 
 

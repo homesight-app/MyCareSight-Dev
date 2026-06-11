@@ -373,3 +373,25 @@ export async function removeAdminFromAgency(agencyId: string, adminId: string) {
     return { error: err?.message || 'Failed to remove admin', data: null }
   }
 }
+
+/** Admin/expert: set an agency's status to 'active' or 'inactive'. */
+export async function setAgencyStatus(agencyId: string, status: 'active' | 'inactive') {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+
+  const supabase = createAdminClient()
+  try {
+    const { error } = await supabase
+      .from('agencies')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', agencyId)
+    if (error) return { error: error.message, data: null }
+    revalidateAgencyDetailPages()
+    revalidateAgencyListCaches()
+    return { error: null, data: { success: true } }
+  } catch (err: any) {
+    return { error: err?.message || 'Failed to update agency status', data: null }
+  }
+}

@@ -54,6 +54,8 @@ interface Agency {
   mailing_state?: string | null
   mailing_zip_code?: string | null
   same_as_physical?: boolean | null
+  // Migration 115
+  status?: string | null
   // Fields added in migration 112
   dba_name?: string | null
   hours_of_operation?: string | null

@@ -86,6 +86,21 @@ Never expose `createAdminClient()` output to the browser.
 
 **RLS-blocked mutations fail silently.** Supabase returns `{ error: null }` when an UPDATE or DELETE is blocked by RLS if the query has no `.select()` after it — 0 rows are affected but no error is raised. Always verify mutations by adding `.select()` or checking affected row count, especially in server actions used by non-admin roles.
 
+### Auth boundary — keep Supabase auth imports inside `src/lib/`
+
+Never import from `@supabase/supabase-js` or call `supabase.auth.*` directly in pages, components, or server actions. All auth operations must go through the wrappers in `src/lib/auth.ts` and `src/lib/auth-helpers.ts`:
+- Session access → `getSession()` (`src/lib/auth.ts`)
+- Admin-only page guard → `requireAdmin()` (`src/lib/auth-helpers.ts`)
+- User creation / password changes → action functions in `src/app/actions/agency-users.ts` and `src/app/actions/users.ts`
+
+This keeps the auth provider (currently Supabase) swappable from a single layer. When NextAuth replaces Supabase auth, only `src/lib/auth.ts`, `src/lib/auth-helpers.ts`, and the Supabase client files need to change — no pages or components.
+
+### Storage — always go through `src/lib/storage/`
+
+Never call Supabase Storage SDK methods (`supabase.storage.*`) directly in pages, components, or server actions. All file upload, download, deletion, and signed-URL generation must go through wrapper functions in `src/lib/storage/` (create this module if it does not exist yet).
+
+This keeps the storage provider (currently Supabase Storage) swappable. When migrating to S3-compatible storage on Aptible, only `src/lib/storage/` needs to change.
+
 ### Query layer (`src/lib/supabase/query/`)
 
 All DB access goes through named functions in this directory. Each function takes a Supabase client as its first argument and returns `Promise<{ data: T | null, error: PostgrestError | null }>`. The barrel `index.ts` re-exports everything — import as `import * as q from '@/lib/supabase/query'`.

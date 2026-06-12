@@ -17,6 +17,7 @@ import {
   CalendarDays,
   DollarSign,
   Settings,
+  Target,
 } from 'lucide-react'
 import { signOut } from '@/app/actions/auth'
 import UserDropdown from './UserDropdown'
@@ -125,6 +126,7 @@ export default function DashboardLayout({
         { href: '/pages/agency/caregiver', label: 'Caregivers', icon: Users },
         { href: '/pages/agency/care-visits', label: 'Care Visits', icon: CalendarDays },
         { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign },
+        { href: '/pages/agency/leads', label: 'Leads', icon: Target },
         { href: '/pages/agency/reports', label: 'Reports', icon: BarChart3 },
         { href: '/pages/agency/configuration', label: 'Configuration', icon: Settings },
         // { href: '/pages/agency/messages', label: 'Messages', icon: MessageSquare },

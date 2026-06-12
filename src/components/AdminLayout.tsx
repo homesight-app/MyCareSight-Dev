@@ -5,17 +5,19 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { 
-  LayoutDashboard, 
-  FileText, 
+  LayoutDashboard,
+  FileText,
   DollarSign,
   UserCog,
-  LogOut, 
+  LogOut,
   ChevronLeft,
   Menu,
   X,
   ShieldCheck,
   Settings,
-  Building2
+  Building2,
+  Target,
+  BarChart3
 } from 'lucide-react'
 import { signOut } from '@/app/actions/auth'
 import LoadingSpinner from './LoadingSpinner'
@@ -69,6 +71,8 @@ export default function AdminLayout({
     { href: '/pages/admin/license-requirements', label: 'License Requirements', icon: FileText },
     { href: '/pages/admin/billing', label: 'Billing & Invoicing', icon: DollarSign },
     { href: '/pages/admin/agencies', label: 'Agency', icon: Building2 },
+    { href: '/pages/admin/leads', label: 'Leads', icon: Target },
+    { href: '/pages/admin/reports', label: 'Reports', icon: BarChart3 },
     { href: '/pages/admin/users', label: 'User Management', icon: UserCog },
     { href: '/pages/admin/configuration', label: 'Configuration', icon: Settings },
   ]

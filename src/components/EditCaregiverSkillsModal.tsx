@@ -59,7 +59,7 @@ export default function EditCaregiverSkillsModal({
 
   const categoryColors: Record<string, string> = {
     'Clinical Care': 'ring-red-500 bg-red-500 text-white',
-    'Specialty Conditions': 'ring-purple-500 bg-purple-500 text-white',
+    'Specialty Conditions': 'ring-blue-500 bg-blue-500 text-white',
     'Physical Support': 'ring-amber-600 bg-amber-600 text-white',
     'Daily Living': 'ring-green-600 bg-green-600 text-white',
     'Certifications': 'ring-blue-500 bg-blue-500 text-white',

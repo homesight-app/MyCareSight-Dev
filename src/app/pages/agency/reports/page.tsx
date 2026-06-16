@@ -45,8 +45,8 @@ export default async function ReportsPage() {
       description: 'Comprehensive list of all staff members and their professional certifications',
       href: '/pages/agency/reports/staff-certifications',
       icon: 'award',
-      iconColor: 'bg-purple-100',
-      iconTextColor: 'text-purple-600',
+      iconColor: 'bg-blue-100',
+      iconTextColor: 'text-blue-600',
     },
     {
       id: 'expiring-certifications',

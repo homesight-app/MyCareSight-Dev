@@ -1319,7 +1319,7 @@ export default function ApplicationDetailContent({
   const getAvatarColor = (name: string, role: string) => {
     // Generate consistent color based on name
     const colors = [
-      'bg-purple-500',
+      'bg-blue-500',
       'bg-blue-500',
       'bg-green-500',
       'bg-orange-500',
@@ -1337,7 +1337,7 @@ export default function ApplicationDetailContent({
 
   const getRoleTagColor = (role: string) => {
     if (role === 'Expert') {
-      return 'bg-purple-100 text-purple-700 border-purple-200'
+      return 'bg-blue-100 text-blue-700 border-blue-200'
     }
     if (role === 'Admin') {
       return 'bg-green-100 text-green-700 border-green-200'

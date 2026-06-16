@@ -48,7 +48,7 @@ const SKILL_TYPE_ORDER = [
 
 const skillTypeToPillClass: Record<string, string> = {
   'Clinical Care': 'bg-red-50 text-red-800 border border-red-200',
-  'Specialty Conditions': 'bg-purple-50 text-purple-800 border border-purple-200',
+  'Specialty Conditions': 'bg-blue-50 text-blue-800 border border-blue-200',
   'Physical Support': 'bg-amber-50 text-amber-800 border border-amber-200',
   'Daily Living': 'bg-green-50 text-green-800 border border-green-200',
   Certifications: 'bg-blue-50 text-blue-800 border border-blue-200',

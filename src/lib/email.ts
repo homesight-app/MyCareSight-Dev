@@ -125,6 +125,41 @@ This is an automated notification from Home Care Licensing Platform.
   }
 }
 
+export async function sendContactConfirmation({ to, firstName }: { to: string; firstName: string }) {
+  try {
+    const { Resend } = await import('resend')
+    const resend = new Resend(RESEND_API_KEY)
+    await resend.emails.send({
+      from: 'MyCareSight <onboarding@resend.dev>',
+      to: to.trim(),
+      subject: 'Thanks for reaching out — MyCareSight',
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #0F172A; padding: 24px 30px; border-radius: 10px 10px 0 0; text-align: center;">
+              <h1 style="color: #22C55E; margin: 0; font-size: 22px;">MyCareSight</h1>
+            </div>
+            <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb;">
+              <p style="font-size: 16px;">Hi ${firstName},</p>
+              <p style="font-size: 16px;">Thank you for reaching out! We received your inquiry and will respond within 1–2 business days.</p>
+              <p style="font-size: 14px; color: #6b7280; margin-top: 30px; border-top: 1px solid #e5e7eb; padding-top: 20px;">
+                — The MyCareSight Team
+              </p>
+            </div>
+          </body>
+        </html>
+      `,
+      text: `Hi ${firstName},\n\nThank you for reaching out! We received your inquiry and will respond within 1–2 business days.\n\n— The MyCareSight Team`,
+    })
+    return { success: true }
+  } catch (error) {
+    console.error('Error sending contact confirmation:', error)
+    return { success: false }
+  }
+}
+
 interface OnboardingEmailParams {
   to: string
   agencyName: string

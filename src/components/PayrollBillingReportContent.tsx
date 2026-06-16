@@ -446,11 +446,11 @@ export default function PayrollBillingReportContent({
                     <td className="px-3 py-2 text-right tabular-nums text-gray-700">{(r.regHours ?? 0).toFixed(2)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-orange-600">{(r.otHours ?? 0) > 0 ? (r.otHours ?? 0).toFixed(2) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-blue-600">{(r.holidayHours ?? 0) > 0 ? (r.holidayHours ?? 0).toFixed(2) : '—'}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-purple-600">{(r.weekendHours ?? 0) > 0 ? (r.weekendHours ?? 0).toFixed(2) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-blue-600">{(r.weekendHours ?? 0) > 0 ? (r.weekendHours ?? 0).toFixed(2) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{money(r.regPay ?? 0)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-orange-600">{(r.otPay ?? 0) > 0 ? money(r.otPay ?? 0) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-blue-600">{(r.holidayPay ?? 0) > 0 ? money(r.holidayPay ?? 0) : '—'}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-purple-600">{(r.weekendPay ?? 0) > 0 ? money(r.weekendPay ?? 0) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-blue-600">{(r.weekendPay ?? 0) > 0 ? money(r.weekendPay ?? 0) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-gray-500">{(r.mileageMiles ?? 0) > 0 ? `${(r.mileageMiles ?? 0).toFixed(1)} mi` : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{(r.mileagePayAmount ?? 0) > 0 ? money(r.mileagePayAmount ?? 0) : '—'}</td>
                     <td className="px-3 py-3 text-right font-semibold text-emerald-700 tabular-nums">{money(r.payAmount)}</td>
@@ -535,11 +535,11 @@ export default function PayrollBillingReportContent({
                   <td className="px-4 py-3 text-right tabular-nums">{r.regHours.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-orange-600">{r.otHours > 0 ? r.otHours.toFixed(2) : '—'}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-blue-600">{r.holidayHours > 0 ? r.holidayHours.toFixed(2) : '—'}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-purple-600">{r.weekendHours > 0 ? r.weekendHours.toFixed(2) : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-blue-600">{r.weekendHours > 0 ? r.weekendHours.toFixed(2) : '—'}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{money(r.regPay)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-orange-600">{r.otPay > 0 ? money(r.otPay) : '—'}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-blue-600">{r.holidayPay > 0 ? money(r.holidayPay) : '—'}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-purple-600">{r.weekendPay > 0 ? money(r.weekendPay) : '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-blue-600">{r.weekendPay > 0 ? money(r.weekendPay) : '—'}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-gray-500">{r.mileageMiles > 0 ? `${r.mileageMiles.toFixed(1)} mi` : '—'}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{r.mileagePayAmount > 0 ? money(r.mileagePayAmount) : '—'}</td>
                   <td className="px-4 py-3 text-right font-bold text-emerald-700 tabular-nums">{money(r.pay)}</td>
@@ -557,11 +557,11 @@ export default function PayrollBillingReportContent({
                   <td className="px-4 py-3 text-right font-semibold tabular-nums">{payrollByCaregiver.reduce((s,r)=>s+r.regHours,0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-orange-600">{payrollByCaregiver.reduce((s,r)=>s+r.otHours,0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-blue-600">{payrollByCaregiver.reduce((s,r)=>s+r.holidayHours,0).toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-purple-600">{payrollByCaregiver.reduce((s,r)=>s+r.weekendHours,0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-blue-600">{payrollByCaregiver.reduce((s,r)=>s+r.weekendHours,0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(payrollByCaregiver.reduce((s,r)=>s+r.regPay,0))}</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-orange-600">{money(payrollByCaregiver.reduce((s,r)=>s+r.otPay,0))}</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-blue-600">{money(payrollByCaregiver.reduce((s,r)=>s+r.holidayPay,0))}</td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-purple-600">{money(payrollByCaregiver.reduce((s,r)=>s+r.weekendPay,0))}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-blue-600">{money(payrollByCaregiver.reduce((s,r)=>s+r.weekendPay,0))}</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-gray-500">{payrollByCaregiver.reduce((s,r)=>s+r.mileageMiles,0).toFixed(1)} mi</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(payrollByCaregiver.reduce((s,r)=>s+r.mileagePayAmount,0))}</td>
                   <td className="px-4 py-3 text-right font-bold text-emerald-700 tabular-nums">{money(summary.totalPay)}</td>

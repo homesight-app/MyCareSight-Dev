@@ -52,7 +52,7 @@ export default function AgencyAdminsSection({
   return (
     <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
-        <Users className="w-5 h-5 text-purple-600" />
+        <Users className="w-5 h-5 text-blue-600" />
         <h2 className="text-base font-semibold text-gray-900">Agency Admins</h2>
       </div>
 
@@ -64,7 +64,7 @@ export default function AgencyAdminsSection({
           agencyAdmins.map((admin) => (
             <div key={admin.id} className="px-6 py-3 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0 text-purple-700 font-semibold text-sm">
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-blue-700 font-semibold text-sm">
                   {(admin.contact_name || admin.contact_email || '?')[0].toUpperCase()}
                 </div>
                 <div className="min-w-0">

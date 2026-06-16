@@ -125,7 +125,7 @@ export default function CaregiverProfileContent({
 
   const skillTypeToPillClass: Record<string, string> = {
     'Clinical Care': 'bg-red-100 text-red-700 border border-red-200',
-    'Specialty Conditions': 'bg-purple-100 text-purple-700 border border-purple-200',
+    'Specialty Conditions': 'bg-blue-100 text-blue-700 border border-blue-200',
     'Physical Support': 'bg-amber-100 text-amber-700 border border-amber-200',
     'Daily Living': 'bg-green-100 text-green-700 border border-green-200',
     Certifications: 'bg-blue-100 text-blue-700 border border-blue-200',

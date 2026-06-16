@@ -14,6 +14,7 @@ interface Lead {
   company_name: string | null
   service_type: string | null
   stage: string
+  source: string | null
   price: number | null
   retainer_amount: number | null
   retainer_paid_date: string | null
@@ -31,6 +32,15 @@ interface AddLeadModalProps {
   editLead?: Lead | null
 }
 
+const SOURCE_OPTIONS = [
+  { key: 'Other',       label: 'Other' },
+  { key: 'Website',     label: 'Website' },
+  { key: 'Phone',       label: 'Phone' },
+  { key: 'Referral',    label: 'Referral' },
+  { key: 'Trade Show',  label: 'Trade Show' },
+  { key: 'Event',       label: 'Event' },
+]
+
 const emptyForm = {
   contactFirstName: '',
   contactLastName: '',
@@ -39,6 +49,7 @@ const emptyForm = {
   companyName: '',
   serviceType: '',
   stage: 'new',
+  source: 'Other',
   price: '',
   retainerAmount: '',
   retainerPaidDate: '',
@@ -72,6 +83,7 @@ export default function AddLeadModal({
         companyName: editLead.company_name ?? '',
         serviceType: editLead.service_type ?? '',
         stage: editLead.stage ?? 'new',
+        source: editLead.source ?? 'Other',
         price: editLead.price != null ? String(editLead.price) : '',
         retainerAmount: editLead.retainer_amount != null ? String(editLead.retainer_amount) : '',
         retainerPaidDate: editLead.retainer_paid_date ?? '',
@@ -139,6 +151,7 @@ export default function AddLeadModal({
         companyName: form.companyName || undefined,
         serviceType: form.serviceType || undefined,
         stage: form.stage || 'new',
+        source: form.source || 'Other',
         price: context.billingVisible ? numericOrNull(form.price) : null,
         retainerAmount: context.billingVisible ? numericOrNull(form.retainerAmount) : null,
         retainerPaidDate: context.billingVisible ? dateOrNull(form.retainerPaidDate) : null,
@@ -153,7 +166,7 @@ export default function AddLeadModal({
     }
   }
 
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none'
+  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none'
   const labelCls = 'block text-sm font-medium text-gray-700 mb-1'
 
   return (
@@ -208,6 +221,14 @@ export default function AddLeadModal({
             <select className={inputCls} value={form.serviceType} onChange={set('serviceType')}>
               <option value="">— Select —</option>
               {context.serviceTypes.map(s => (
+                <option key={s.key} value={s.key}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Source</label>
+            <select className={inputCls} value={form.source} onChange={set('source')}>
+              {SOURCE_OPTIONS.map(s => (
                 <option key={s.key} value={s.key}>{s.label}</option>
               ))}
             </select>

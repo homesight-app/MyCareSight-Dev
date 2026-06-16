@@ -267,7 +267,7 @@ export default function ClientMessagesContent({
         <div className="p-3 md:p-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg md:text-xl font-bold text-gray-900 flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 md:w-5 md:h-5 text-purple-600" />
+              <MessageSquare className="w-4 h-4 md:w-5 md:h-5 text-blue-600" />
               Messages
             </h2>
           </div>
@@ -303,7 +303,7 @@ export default function ClientMessagesContent({
                     }`}
                   >
                     <div className="flex items-start gap-2 md:gap-3">
-                      <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-500 rounded-full flex items-center justify-center text-white font-semibold text-xs md:text-sm flex-shrink-0">
+                      <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-xs md:text-sm flex-shrink-0">
                         {getInitials(conversationName)}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -342,7 +342,7 @@ export default function ClientMessagesContent({
             {/* Conversation Header */}
             <div className="p-4 border-b border-gray-200">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
                   {getInitials(getConversationName(selectedConversation))}
                 </div>
                 <div>
@@ -373,7 +373,7 @@ export default function ClientMessagesContent({
                       className={`flex ${isOwn ? 'justify-end' : 'justify-start'} items-start gap-2`}
                     >
                       {!isOwn && (
-                        <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                        <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                           {getInitials(senderName)}
                         </div>
                       )}

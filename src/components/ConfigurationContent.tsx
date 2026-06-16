@@ -212,7 +212,7 @@ export default function ConfigurationContent({
       {/* Header */}
       <div>
         <div className="flex items-center gap-3 mb-2">
-          <Settings className="w-8 h-8 text-purple-600" />
+          <Settings className="w-8 h-8 text-blue-600" />
           <h1 className="text-2xl font-bold text-gray-900">Configuration</h1>
         </div>
         <p className="text-sm text-gray-600">Manage pricing and license type settings</p>
@@ -311,8 +311,8 @@ export default function ConfigurationContent({
               </div>
             </div>
             <div className="flex items-start gap-4">
-              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Settings className="w-5 h-5 text-purple-600" />
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                <Settings className="w-5 h-5 text-blue-600" />
               </div>
               <div>
                 <div className="text-2xl font-bold text-gray-900">
@@ -329,7 +329,7 @@ export default function ConfigurationContent({
       <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
         <div className="mb-4">
           <div className="flex items-center gap-3 mb-2">
-            <Settings className="w-6 h-6 text-purple-600" />
+            <Settings className="w-6 h-6 text-blue-600" />
             <h2 className="text-lg font-semibold text-gray-900">License Type Configuration</h2>
           </div>
           <p className="text-sm text-gray-600">Edit general information for all license types</p>

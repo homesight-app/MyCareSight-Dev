@@ -127,7 +127,7 @@ export default async function ExpertClientsPage({
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-4 flex-1">
-                      <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                      <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
                         {getInitials(client.company_name)}
                       </div>
                       <div className="flex-1">

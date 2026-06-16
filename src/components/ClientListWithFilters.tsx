@@ -222,7 +222,7 @@ export default function ClientListWithFilters({
 
                   <div className="flex items-start justify-between gap-4 pr-8">
                     <div className="flex items-start gap-4 flex-1 min-w-0">
-                      <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
+                      <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
                         {getInitials(client.contact_name)}
                       </div>
 

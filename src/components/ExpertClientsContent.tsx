@@ -146,8 +146,8 @@ export default function ExpertClientsContent({
         {/* Pending Reviews */}
         <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md border border-gray-100">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-              <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" />
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
             </div>
           </div>
           <div className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">{pendingReviews}</div>

@@ -143,7 +143,7 @@ export default function AgenciesContent({
                 }`}
               >
                 {label}
-                <span className={`ml-1.5 text-xs ${statusFilter === key ? 'text-purple-600' : 'text-gray-400'}`}>
+                <span className={`ml-1.5 text-xs ${statusFilter === key ? 'text-blue-600' : 'text-gray-400'}`}>
                   {counts[key]}
                 </span>
               </button>
@@ -158,7 +158,7 @@ export default function AgenciesContent({
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search by name or admin…"
-              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
           </div>
         </div>

@@ -102,9 +102,9 @@ export default async function ExpertPerformancePage({
                 </div>
               </div>
             </div>
-            <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
               <div className="flex items-center gap-3">
-                <TrendingUp className="w-5 h-5 text-purple-600" />
+                <TrendingUp className="w-5 h-5 text-blue-600" />
                 <div>
                   <div className="text-2xl font-bold text-gray-900">{approvalRate}%</div>
                   <div className="text-sm text-gray-600">Approval Rate</div>

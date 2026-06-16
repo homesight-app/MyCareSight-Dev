@@ -84,7 +84,7 @@ export default async function ClientsPage() {
       <div className="space-y-4 md:space-y-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2 md:gap-3">
-            <Building2 className="w-6 h-6 md:w-8 md:h-8 text-purple-600" />
+            <Building2 className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
             <span className="break-words">Client Management</span>
           </h1>
           <p className="text-sm md:text-base text-gray-600 mt-1">Manage and track all client licensing applications</p>
@@ -93,8 +93,8 @@ export default async function ClientsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
           <div className="bg-white rounded-xl p-4 md:p-6 shadow-md border border-gray-100">
             <div className="flex items-center justify-between mb-3 md:mb-4">
-              <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Building2 className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
+              <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <Building2 className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
               </div>
             </div>
             <div className="text-xl md:text-2xl font-bold text-gray-900 mb-1">{totalClients}</div>

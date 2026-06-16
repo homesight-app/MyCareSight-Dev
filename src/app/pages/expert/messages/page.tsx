@@ -465,7 +465,7 @@ function ExpertMessagesContent() {
 
   const getAvatarColor = (name: string, role: string) => {
     const colors = [
-      'bg-purple-500',
+      'bg-blue-500',
       'bg-blue-500',
       'bg-green-500',
       'bg-orange-500',
@@ -483,7 +483,7 @@ function ExpertMessagesContent() {
 
   const getRoleTagColor = (role: string) => {
     if (role === 'Expert') {
-      return 'bg-purple-100 text-purple-700 border-purple-200'
+      return 'bg-blue-100 text-blue-700 border-blue-200'
     }
     if (role === 'Admin') {
       return 'bg-green-100 text-green-700 border-green-200'
@@ -543,8 +543,8 @@ function ExpertMessagesContent() {
 
           <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md border border-gray-100">
             <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Users className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" />
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
               </div>
             </div>
             <div className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{activeConversations}</div>

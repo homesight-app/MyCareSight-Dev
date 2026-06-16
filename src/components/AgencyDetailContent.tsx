@@ -154,7 +154,7 @@ const STATUS_COLORS: Record<string, string> = {
 const APP_STATUS_COLORS: Record<string, string> = {
   requested: 'bg-blue-100 text-blue-700',
   in_progress: 'bg-indigo-100 text-indigo-700',
-  under_review: 'bg-purple-100 text-purple-700',
+  under_review: 'bg-blue-100 text-blue-700',
   needs_revision: 'bg-orange-100 text-orange-700',
   approved: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
@@ -198,7 +198,7 @@ function Field({ label, value, isEditing, onChange, className }: FieldProps) {
           type="text"
           value={value}
           onChange={e => onChange(e.target.value)}
-          className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+          className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
         />
       ) : (
         <p className="text-sm text-gray-900">{value || '—'}</p>
@@ -417,8 +417,8 @@ export default function AgencyDetailContent({
       {/* Agency info card */}
       <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
         <div className="flex items-start gap-4 mb-6">
-          <div className="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Building2 className="w-7 h-7 text-purple-600" />
+          <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Building2 className="w-7 h-7 text-blue-600" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">{agency.name}</h1>
@@ -505,7 +505,7 @@ export default function AgencyDetailContent({
               }}
               className={`px-6 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab
-                  ? 'border-b-2 border-purple-600 text-purple-700'
+                  ? 'border-b-2 border-blue-600 text-blue-700'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -547,7 +547,7 @@ export default function AgencyDetailContent({
           <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-purple-600" />
+                <FileText className="w-5 h-5 text-blue-600" />
                 <h2 className="text-base font-semibold text-gray-900">Client Licenses</h2>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
@@ -604,7 +604,7 @@ export default function AgencyDetailContent({
                           {license.license_name}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                             {license.state}
                           </span>
                         </td>
@@ -676,7 +676,7 @@ export default function AgencyDetailContent({
           <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-purple-600" />
+                <FileText className="w-5 h-5 text-blue-600" />
                 <h2 className="text-base font-semibold text-gray-900">License Applications</h2>
               </div>
               <div className="w-auto">
@@ -802,7 +802,7 @@ export default function AgencyDetailContent({
                     type="button"
                     onClick={handleSave}
                     disabled={isSaving}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
                     {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     Save
@@ -928,7 +928,7 @@ export default function AgencyDetailContent({
                           type="checkbox"
                           checked={orgForm.isOnCall}
                           onChange={e => setOrgForm(f => ({ ...f, isOnCall: e.target.checked }))}
-                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                         Agency provides on-call services
                       </label>
@@ -937,7 +937,7 @@ export default function AgencyDetailContent({
                           type="checkbox"
                           checked={orgForm.previouslyLicensed}
                           onChange={e => setOrgForm(f => ({ ...f, previouslyLicensed: e.target.checked }))}
-                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                         Previously licensed
                       </label>
@@ -1010,7 +1010,7 @@ export default function AgencyDetailContent({
                       type="checkbox"
                       checked={orgForm.sameAsPhysical}
                       onChange={e => setOrgForm(f => ({ ...f, sameAsPhysical: e.target.checked }))}
-                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     Same as physical address
                   </label>

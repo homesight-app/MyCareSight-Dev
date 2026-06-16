@@ -93,13 +93,13 @@ export default function AgencyOnboardingLinkPanel({
     <div className="bg-white rounded-xl shadow-md border border-gray-100">
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <Link2 className="w-5 h-5 text-purple-600" />
+          <Link2 className="w-5 h-5 text-blue-600" />
           <h2 className="text-base font-semibold text-gray-900">Onboarding Link</h2>
         </div>
         <button
           type="button"
           onClick={() => { setSendPanelOpen(prev => !prev); setSendError(null) }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
         >
           {sendPanelOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           {activeToken ? 'Send New Link' : 'Send Link'}
@@ -184,7 +184,7 @@ export default function AgencyOnboardingLinkPanel({
                 value={recipientEmail}
                 onChange={e => setRecipientEmail(e.target.value)}
                 placeholder="admin@agencyname.com"
-                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
               />
             </div>
             <div>
@@ -192,7 +192,7 @@ export default function AgencyOnboardingLinkPanel({
               <select
                 value={expiresInDays}
                 onChange={e => setExpiresInDays(Number(e.target.value))}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
               >
                 {EXPIRY_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -208,7 +208,7 @@ export default function AgencyOnboardingLinkPanel({
                 onChange={e => setNote(e.target.value)}
                 placeholder={`Hi ${agencyName} team, please complete your agency profile…`}
                 rows={2}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white resize-none"
+                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white resize-none"
               />
             </div>
             <div className="flex justify-end gap-2">
@@ -223,7 +223,7 @@ export default function AgencyOnboardingLinkPanel({
                 type="button"
                 onClick={handleSend}
                 disabled={isSending}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
                 {isSending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 {recipientEmail.trim() ? 'Send' : 'Generate'}

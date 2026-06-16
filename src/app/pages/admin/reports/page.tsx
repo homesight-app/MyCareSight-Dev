@@ -27,8 +27,8 @@ const REPORTS = [
     title: 'Leads Summary',
     description: 'Lead volume, service type breakdown, win/loss analysis, and monthly new leads.',
     icon: Users,
-    iconBg: 'bg-purple-50',
-    iconColor: 'text-purple-600',
+    iconBg: 'bg-blue-50',
+    iconColor: 'text-blue-600',
   },
 ]
 

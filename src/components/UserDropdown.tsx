@@ -90,14 +90,14 @@ export default function UserDropdown({
       {/* User Info Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 sm:gap-3 cursor-pointer hover:bg-white/10 px-2 md:px-3 py-2 rounded-lg transition-colors"
+        className="flex items-center gap-2 sm:gap-3 cursor-pointer hover:bg-slate-100 px-2 md:px-3 py-2 rounded-lg transition-colors"
       >
-        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white/20 rounded-full flex items-center justify-center font-semibold text-sm sm:text-base">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-200 rounded-full flex items-center justify-center font-semibold text-sm sm:text-base text-slate-700">
           {getInitials(profile?.full_name, user.email)}
         </div>
         <div className="hidden md:block text-left">
-          <div className="font-semibold text-sm sm:text-base">{getDisplayName()}</div>
-          <div className="text-xs sm:text-sm text-blue-100">{getRoleDisplay()}</div>
+          <div className="font-semibold text-sm sm:text-base text-slate-900">{getDisplayName()}</div>
+          <div className="text-xs sm:text-sm text-slate-500">{getRoleDisplay()}</div>
         </div>
         <ChevronDown className={`w-4 h-4 hidden md:block transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>

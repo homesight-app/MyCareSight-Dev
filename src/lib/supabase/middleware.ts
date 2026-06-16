@@ -65,7 +65,10 @@ export async function updateSession(request: NextRequest) {
     // Legacy paths (middleware historically allowed these; keep public to avoid redirect loops)
     path.startsWith('/login') ||
     path.startsWith('/signup') ||
-    path.startsWith('/reset-password')
+    path.startsWith('/reset-password') ||
+    // Public contact form (iframe-embeddable on WordPress)
+    path === '/contact' ||
+    path.startsWith('/api/contact')
 
   if (!user && !isPublic && !isFromCallback) {
     const url = request.nextUrl.clone()

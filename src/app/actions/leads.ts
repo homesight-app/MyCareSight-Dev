@@ -51,6 +51,7 @@ export async function createLead(payload: {
   signedDate?: string | null
   notes?: string
   assignedTo?: string | null
+  source?: string
 }) {
   let userId: string
 
@@ -86,6 +87,7 @@ export async function createLead(payload: {
       installment_amount: payload.installmentAmount ?? null,
       signed_date: payload.signedDate ?? null,
       notes: payload.notes ?? null,
+      source: payload.source ?? null,
       status: 'active',
       updated_at: new Date().toISOString(),
     })
@@ -260,7 +262,7 @@ export async function deleteLeadTask(leadId: string, taskId: string) {
 
 // ——— Conversion ——————————————————————————————————————————————
 
-export async function convertLeadToAgency(leadId: string) {
+export async function convertLeadToAgency(leadId: string, agencyNameOverride?: string) {
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
 
@@ -277,10 +279,13 @@ export async function convertLeadToAgency(leadId: string) {
   if (lead.lead_type !== 'agency') return { error: 'Not an agency lead' }
   if (lead.converted_agency_id) return { error: 'Already converted' }
 
+  const agencyName = agencyNameOverride?.trim() || lead.company_name?.trim()
+  if (!agencyName) return { error: 'NEEDS_AGENCY_NAME' }
+
   const { data: agency, error: agencyErr } = await supabaseAdmin
     .from('agencies')
     .insert({
-      name: lead.company_name || '(New Agency)',
+      name: agencyName,
       onboarding_status: 'shell',
       status: 'active',
       state_specific_data: {},

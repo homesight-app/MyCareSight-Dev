@@ -134,7 +134,7 @@ export default async function ClientDetailPage({
         <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
           <div className="flex items-start justify-between mb-6">
             <div className="flex items-start gap-4">
-              <div className="w-16 h-16 bg-purple-500 rounded-full flex items-center justify-center text-white font-semibold text-lg">
+              <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-lg">
                 {getInitials(client.company_name)}
               </div>
               <div>

@@ -82,7 +82,7 @@ function FormField({ label, value, onChange, required, type = 'text', placeholde
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
-        className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+        className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
       />
     </div>
   )
@@ -101,7 +101,7 @@ function CheckboxField({ label, checked, onChange, id }: {
         id={id}
         checked={checked}
         onChange={e => onChange(e.target.checked)}
-        className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
       />
       <label htmlFor={id} className="text-sm font-medium text-gray-700 cursor-pointer">
         {label}
@@ -134,7 +134,7 @@ function StateFieldRenderer({ field, value, onChange }: {
         <select
           value={value as string}
           onChange={e => onChange(e.target.value)}
-          className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+          className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
         >
           <option value="">Select…</option>
           {field.options?.map(opt => (
@@ -280,8 +280,8 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
     <div className="max-w-3xl mx-auto py-8 px-4">
       {/* Header */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6 mb-6 flex items-center gap-4">
-        <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
-          <Building2 className="w-6 h-6 text-purple-600" />
+        <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Building2 className="w-6 h-6 text-blue-600" />
         </div>
         <div>
           <h1 className="text-xl font-bold text-gray-900">Agency Setup</h1>
@@ -454,7 +454,7 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
                     } : {}),
                   }))
                 }}
-                className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
               />
               Same as physical address
             </label>
@@ -545,7 +545,7 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
                         onChange={e => {
                           if (e.target.value) copyFromOfficer(idx, e.target.value as OfficerRoleKey)
                         }}
-                        className="text-xs px-2 py-1.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-gray-600"
+                        className="text-xs px-2 py-1.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-600"
                       >
                         <option value="">Copy from officer…</option>
                         {filledOfficerRoles.map(r => (
@@ -594,7 +594,7 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
           <button
             type="button"
             onClick={addMemberOwner}
-            className="mt-3 inline-flex items-center gap-1.5 text-sm text-purple-600 hover:text-purple-700 font-medium transition-colors"
+            className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
             Add Member / Owner
@@ -630,7 +630,7 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
           <button
             type="submit"
             disabled={isSubmitting}
-            className="inline-flex items-center gap-2 px-8 py-3 bg-purple-600 text-white text-sm font-semibold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-8 py-3 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
             {isSubmitting ? 'Submitting…' : 'Submit Agency Information'}

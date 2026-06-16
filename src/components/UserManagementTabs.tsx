@@ -136,7 +136,7 @@ export default function UserManagementTabs({
     }
     if (role === 'company_owner') {
       return (
-        <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs font-semibold rounded-full flex items-center justify-center">
+        <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full flex items-center justify-center">
           {label}
         </span>
       )
@@ -378,8 +378,8 @@ export default function UserManagementTabs({
 
               <div className="bg-white rounded-xl p-4 md:p-6 shadow-md border border-gray-100">
                 <div className="flex items-center justify-between mb-3 md:mb-4">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <Building2 className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <Building2 className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
                   </div>
                 </div>
                 <div className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">{companies}</div>
@@ -655,8 +655,8 @@ export default function UserManagementTabs({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
               <div className="bg-white rounded-xl p-4 md:p-6 shadow-md border border-gray-100">
                 <div className="flex items-center justify-between mb-3 md:mb-4">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <Building2 className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <Building2 className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
                   </div>
                 </div>
                 <div className="text-xl md:text-2xl font-bold text-gray-900 mb-1">{totalClients}</div>
@@ -747,8 +747,8 @@ export default function UserManagementTabs({
 
               <div className="bg-white rounded-xl p-4 md:p-6 shadow-md border border-gray-100">
                 <div className="flex items-center justify-between mb-3 md:mb-4">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <Briefcase className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <Briefcase className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
                   </div>
                 </div>
                 <div className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">{assignedClients}</div>

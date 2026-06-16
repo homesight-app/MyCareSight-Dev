@@ -3,31 +3,23 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
+  --brand-navy:       #0F172A;
+  --brand-green:      #22C55E;
+  --brand-green-dark: #16A34A;
+  --brand-blue:       #2563EB;
+  --content-bg:       #F8FAFC;
 }
 
-/**
- * The product UI is light-themed (white cards, gray chrome). Basing body text on
- * `prefers-color-scheme: dark` made inherited color white while cards stayed light,
- * which hid labels and table text. Keep a single light base until a real dark theme exists.
- */
-
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-  font-size: 0.875rem; /* 14px base instead of 16px */
+  color: #0F172A;
+  background-color: var(--content-bg);
+  font-size: 0.875rem;
 }
 
 html {
-  font-size: 14px; /* Base font size reduction */
+  font-size: 14px;
 }
+
 textarea::placeholder {
-  white-space: pre-line; /* Preserve whitespace and line breaks in placeholders */
+  white-space: pre-line;
 }

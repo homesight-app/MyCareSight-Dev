@@ -138,7 +138,7 @@ export default function SelectLicenseTypeModal({
                     <span className="text-gray-600">{licenseType.processingTime}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <RefreshCw className="w-4 h-4 text-purple-600" />
+                    <RefreshCw className="w-4 h-4 text-blue-600" />
                     <span className="text-gray-700 font-medium">Renewal:</span>
                     <span className="text-gray-600">{licenseType.renewalPeriod}</span>
                   </div>

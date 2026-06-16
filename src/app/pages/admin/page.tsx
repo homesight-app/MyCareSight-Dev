@@ -89,7 +89,7 @@ export default async function AdminDashboardPage() {
         {/* Page Header */}
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2 md:gap-3">
-            <LayoutDashboard className="w-6 h-6 md:w-8 md:h-8 text-purple-600" />
+            <LayoutDashboard className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
             <span className="break-words">Admin Dashboard</span>
           </h1>
           <p className="text-sm md:text-base text-gray-600 mt-1">Monitor and manage all licensing cases</p>
@@ -139,8 +139,8 @@ export default async function AdminDashboardPage() {
 
           <div className="bg-white rounded-xl p-4 md:p-6 shadow-md border border-gray-100">
             <div className="flex items-center justify-between mb-3 md:mb-4">
-              <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
+              <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
               </div>
             </div>
             <div className="text-xl md:text-2xl font-bold text-gray-900 mb-1">{avgProgress}%</div>

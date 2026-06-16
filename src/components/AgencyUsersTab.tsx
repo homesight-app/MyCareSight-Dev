@@ -83,7 +83,7 @@ function StatusBadge({ status }: { status: string }) {
 function Avatar({ name, email, color = 'purple' }: { name?: string | null; email?: string; color?: string }) {
   const initial = (name || email || '?')[0].toUpperCase()
   const colors: Record<string, string> = {
-    purple: 'bg-purple-100 text-purple-700',
+    purple: 'bg-blue-100 text-blue-700',
     blue: 'bg-blue-100 text-blue-700',
     teal: 'bg-teal-100 text-teal-700',
   }
@@ -109,7 +109,7 @@ function FieldInput({ label, value, onChange, placeholder, required, type = 'tex
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
-        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
       />
     </div>
   )
@@ -210,7 +210,7 @@ function AddPanel({ title, children, onSave, onCancel, submitting, error, saveLa
   saveLabel?: string
 }) {
   return (
-    <div className="mx-5 mb-4 mt-2 p-4 border border-dashed border-purple-200 rounded-lg bg-purple-50/40">
+    <div className="mx-5 mb-4 mt-2 p-4 border border-dashed border-blue-200 rounded-lg bg-blue-50/40">
       <h4 className="text-xs font-semibold text-gray-700 mb-3 uppercase tracking-wide">{title}</h4>
       <div className="space-y-3">{children}</div>
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
@@ -251,7 +251,7 @@ function Section({ title, icon: Icon, count, children, action }: {
           onClick={() => setOpen(p => !p)}
           className="flex items-center gap-2.5 flex-1 min-w-0"
         >
-          <Icon className="w-5 h-5 text-purple-600 flex-shrink-0" />
+          <Icon className="w-5 h-5 text-blue-600 flex-shrink-0" />
           <span className="text-sm font-semibold text-gray-900">{title}</span>
           <span className="text-xs bg-gray-100 text-gray-600 font-medium px-2 py-0.5 rounded-full">{count}</span>
           <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -368,7 +368,7 @@ function AdminsSection({ agencyId, admins, available, onRefresh }: {
           <button
             type="button"
             onClick={() => { setShowCreate(p => !p); setCreateError(null) }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
           >
             <UserPlus className="w-3.5 h-3.5" />
             Create New Admin
@@ -463,7 +463,7 @@ function AdminsSection({ agencyId, admins, available, onRefresh }: {
             <select
               value={selectedId}
               onChange={e => { setSelectedId(e.target.value); setLinkError(null) }}
-              className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 outline-none"
+              className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
             >
               <option value="">Add existing admin to this agency…</option>
               {available.map(a => (
@@ -614,7 +614,7 @@ function CoordinatorsSection({ agencyId, coordinators, onRefresh }: {
               key={f}
               type="button"
               onClick={() => setFilter(f)}
-              className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${filter === f ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}
+              className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${filter === f ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
             >
               {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
@@ -816,7 +816,7 @@ function CaregiversSection({ agencyId, caregivers, onRefresh }: {
                 key={f}
                 type="button"
                 onClick={() => setFilter(f)}
-                className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${filter === f ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${filter === f ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
               >
                 {f === 'all' ? `All (${caregivers.length})` : `${f.charAt(0).toUpperCase() + f.slice(1)} (${caregivers.filter(c => c.status === f).length})`}
               </button>
@@ -827,7 +827,7 @@ function CaregiversSection({ agencyId, caregivers, onRefresh }: {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search by name, email, or role…"
-            className="sm:ml-auto flex-1 sm:max-w-xs px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+            className="sm:ml-auto flex-1 sm:max-w-xs px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
           />
         </div>
 
@@ -967,7 +967,7 @@ export default function AgencyUsersTab({ agencyId }: AgencyUsersTabProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 text-purple-500 animate-spin" />
+        <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
       </div>
     )
   }

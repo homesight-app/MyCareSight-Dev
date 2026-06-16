@@ -224,7 +224,7 @@ export default async function UsersPage() {
         {/* Page Header */}
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-2 md:gap-3">
-            <Users className="w-6 h-6 md:w-8 md:h-8 text-purple-600" />
+            <Users className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
             <span className="break-words">User Management</span>
           </h1>
           <p className="text-sm md:text-base text-gray-600 mt-1">Manage users, clients, and licensing experts</p>

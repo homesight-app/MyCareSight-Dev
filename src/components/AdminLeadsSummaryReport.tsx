@@ -33,7 +33,7 @@ function fmt(n: number) {
 }
 
 const SERVICE_BAR_COLORS = [
-  'bg-indigo-500', 'bg-blue-500', 'bg-purple-500', 'bg-cyan-500', 'bg-teal-500',
+  'bg-indigo-500', 'bg-blue-500', 'bg-blue-500', 'bg-cyan-500', 'bg-teal-500',
 ]
 
 export default function AdminLeadsSummaryReport({ data }: { data: LeadsSummaryData }) {

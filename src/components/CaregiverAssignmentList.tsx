@@ -236,17 +236,17 @@ export function CaregiverAssignmentList({
   return (
     <div className="space-y-3">
       {requiredSkills !== undefined && (
-        <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
-          <div className="text-xs font-semibold text-purple-700 mb-2">Client Required Skills</div>
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <div className="text-xs font-semibold text-blue-700 mb-2">Client Required Skills</div>
           <div className="flex flex-wrap gap-2">
             {requiredSkills.length > 0 ? (
               requiredSkills.map((sk) => (
-                <span key={sk} className="rounded-full bg-white border border-purple-200 text-purple-700 px-2 py-0.5 text-xs">
+                <span key={sk} className="rounded-full bg-white border border-blue-200 text-blue-700 px-2 py-0.5 text-xs">
                   {sk}
                 </span>
               ))
             ) : (
-              <span className="text-xs text-purple-600">No required skills</span>
+              <span className="text-xs text-blue-600">No required skills</span>
             )}
           </div>
         </div>

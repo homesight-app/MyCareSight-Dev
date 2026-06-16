@@ -179,7 +179,7 @@ export default async function ExpertDetailPage({
           </div>
           <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
             <div className="flex items-center gap-3 mb-2">
-              <Briefcase className="w-5 h-5 text-purple-600" />
+              <Briefcase className="w-5 h-5 text-blue-600" />
               <div>
                 <div className="text-2xl font-bold text-gray-900">{applicationCount}</div>
                 <div className="text-sm text-gray-600">Total Applications</div>
@@ -215,7 +215,7 @@ export default async function ExpertDetailPage({
               href={`/pages/admin/experts/${expert.id}/performance`}
               className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              <BarChart3 className="w-5 h-5 text-purple-600" />
+              <BarChart3 className="w-5 h-5 text-blue-600" />
               <div>
                 <div className="font-semibold text-gray-900">View Performance</div>
                 <div className="text-sm text-gray-600">View performance metrics and statistics</div>

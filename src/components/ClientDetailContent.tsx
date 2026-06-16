@@ -3651,7 +3651,7 @@ export default function ClientDetailContent({ client, allClients, representative
   ]
   const categoryColors: Record<string, string> = {
     'Clinical Care': 'ring-red-500 bg-red-500 text-white',
-    'Specialty Conditions': 'ring-purple-500 bg-purple-500 text-white',
+    'Specialty Conditions': 'ring-blue-500 bg-blue-500 text-white',
     'Physical Support': 'ring-amber-600 bg-amber-600 text-white',
     'Daily Living': 'ring-green-600 bg-green-600 text-white',
     'Certifications': 'ring-blue-500 bg-blue-500 text-white',
@@ -3671,7 +3671,7 @@ export default function ClientDetailContent({ client, allClients, representative
     'bg-blue-100 text-blue-700',
     'bg-indigo-100 text-indigo-700',
     'bg-violet-100 text-violet-700',
-    'bg-purple-100 text-purple-700',
+    'bg-blue-100 text-blue-700',
     'bg-fuchsia-100 text-fuchsia-700',
     'bg-pink-100 text-pink-700',
     'bg-rose-100 text-rose-700',
@@ -5026,16 +5026,16 @@ export default function ClientDetailContent({ client, allClients, representative
                               ? 'border-red-300 bg-red-50/30'
                               : isAtLimit
                                 ? 'border-amber-300 bg-amber-50/30'
-                                : 'border-purple-200 bg-purple-50/40'
+                                : 'border-blue-200 bg-blue-50/40'
                             : isOverLimit
                               ? 'border-red-300 bg-red-50/30'
                               : isAtLimit
                                 ? 'border-amber-300 bg-amber-50/30'
                                 : 'border-blue-200 bg-blue-50/40'
                         const progressBg =
-                          isOverLimit ? 'bg-red-200' : isAtLimit ? 'bg-amber-200' : row.tone === 'purple' ? 'bg-purple-200' : 'bg-blue-200'
+                          isOverLimit ? 'bg-red-200' : isAtLimit ? 'bg-amber-200' : row.tone === 'purple' ? 'bg-blue-200' : 'bg-blue-200'
                         const progressFill =
-                          isOverLimit ? 'bg-red-500' : isAtLimit ? 'bg-amber-500' : row.tone === 'purple' ? 'bg-purple-500' : 'bg-blue-500'
+                          isOverLimit ? 'bg-red-500' : isAtLimit ? 'bg-amber-500' : row.tone === 'purple' ? 'bg-blue-500' : 'bg-blue-500'
                         return (
                           <div key={row.key} className={`rounded-lg border p-3 ${toneClass}`}>
                             <div className="flex items-center justify-between gap-3">
@@ -5934,7 +5934,7 @@ export default function ClientDetailContent({ client, allClients, representative
                             return next
                           })
                         }
-                        className="rounded-lg px-2 py-1 text-sm font-semibold text-purple-600 hover:bg-purple-50"
+                        className="rounded-lg px-2 py-1 text-sm font-semibold text-blue-600 hover:bg-blue-50"
                       >
                         {selected ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                       </button>
@@ -5956,7 +5956,7 @@ export default function ClientDetailContent({ client, allClients, representative
             <button
               type="button"
               onClick={applySkilledTaskSelection}
-              className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               Apply
             </button>
@@ -6567,7 +6567,7 @@ export default function ClientDetailContent({ client, allClients, representative
                                 return next
                               })
                             }
-                            className="rounded-lg px-2 py-1 text-sm font-semibold text-purple-600 hover:bg-purple-50"
+                            className="rounded-lg px-2 py-1 text-sm font-semibold text-blue-600 hover:bg-blue-50"
                           >
                             {selected ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                           </button>
@@ -6590,7 +6590,7 @@ export default function ClientDetailContent({ client, allClients, representative
             <button
               type="button"
               onClick={applyAdlTaskSelection}
-              className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               Apply
             </button>

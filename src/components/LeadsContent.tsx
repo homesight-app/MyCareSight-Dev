@@ -17,6 +17,7 @@ interface Lead {
   company_name: string | null
   service_type: string | null
   stage: string
+  source: string | null
   price: number | null
   signed_date: string | null
   status: string
@@ -156,12 +157,12 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
               onClick={() => setStageFilter('all')}
               className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                 stageFilter === 'all'
-                  ? 'border-purple-600 text-purple-700'
+                  ? 'border-blue-600 text-blue-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
               All
-              <span className={`ml-1.5 text-xs ${stageFilter === 'all' ? 'text-purple-600' : 'text-gray-400'}`}>
+              <span className={`ml-1.5 text-xs ${stageFilter === 'all' ? 'text-blue-600' : 'text-gray-400'}`}>
                 {stageCounts.all}
               </span>
             </button>
@@ -172,12 +173,12 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                 onClick={() => setStageFilter(stage.key)}
                 className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                   stageFilter === stage.key
-                    ? 'border-purple-600 text-purple-700'
+                    ? 'border-blue-600 text-blue-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
                 {stage.label}
-                <span className={`ml-1.5 text-xs ${stageFilter === stage.key ? 'text-purple-600' : 'text-gray-400'}`}>
+                <span className={`ml-1.5 text-xs ${stageFilter === stage.key ? 'text-blue-600' : 'text-gray-400'}`}>
                   {stageCounts[stage.key] ?? 0}
                 </span>
               </button>
@@ -194,7 +195,7 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search by name or company…"
-              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
           </div>
         </div>
@@ -216,6 +217,7 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                     <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Signed</th>
                   </>
                 )}
+                <th scope="col" className="hidden xl:table-cell px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Source</th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Added</th>
                 <th scope="col" className="relative px-4 py-3"><span className="sr-only">Actions</span></th>
               </tr>
@@ -224,7 +226,7 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 8 : 7) : (context.leadType === 'agency' ? 6 : 5)}
+                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 9 : 8) : (context.leadType === 'agency' ? 7 : 6)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
                     {search || stageFilter !== 'all'
@@ -268,6 +270,13 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                         </td>
                       </>
                     )}
+                    <td className="hidden xl:table-cell px-4 py-3 whitespace-nowrap">
+                      {lead.source && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                          {lead.source}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
                       {formatDate(lead.created_at)}
                     </td>

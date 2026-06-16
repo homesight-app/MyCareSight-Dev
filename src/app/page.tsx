@@ -153,7 +153,7 @@ export default async function Home({ searchParams }: HomePageProps) {
 
           {/* Feature 3 */}
           <div className="bg-white rounded-2xl p-8 shadow-lg hover:shadow-2xl transition-all transform hover:-translate-y-2 border border-gray-100">
-            <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mb-6">
+            <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-6">
               <BarChart3 className="w-7 h-7 text-white" />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-3">Compliance Tracking</h3>

@@ -66,7 +66,7 @@ export default async function AgenciesPage() {
       <div className="space-y-4 md:space-y-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2 md:gap-3">
-            <Building2 className="w-6 h-6 md:w-8 md:h-8 text-purple-600" />
+            <Building2 className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
             <span className="break-words">Agencies</span>
           </h1>
           <p className="text-sm md:text-base text-gray-600 mt-1">

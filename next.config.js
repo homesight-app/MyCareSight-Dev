@@ -2,6 +2,18 @@
 const nextConfig = {
 
   reactStrictMode: true,
+  async headers() {
+    return [
+      {
+        // Allow the /contact page to be iFramed from any origin (WordPress embed)
+        source: '/contact',
+        headers: [
+          { key: 'X-Frame-Options', value: 'ALLOWALL' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors *" },
+        ],
+      },
+    ]
+  },
   images: {
     unoptimized: false,
     remotePatterns: [

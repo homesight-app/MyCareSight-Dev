@@ -150,7 +150,7 @@ function FieldRow({ label, value, isEditing, onChange, type = 'text', className,
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder}
-          className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+          className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
         />
       ) : (
         <p className="text-sm text-gray-900">{value || '—'}</p>
@@ -175,7 +175,7 @@ function SelectRow({ label, value, isEditing, onChange, options, className }: {
         <select
           value={value}
           onChange={e => onChange(e.target.value)}
-          className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+          className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
         >
           <option value="">Select…</option>
           {options.map(opt => (
@@ -328,7 +328,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
   return (
     <div className="bg-white rounded-xl shadow-md border border-gray-100">
       <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
-        <Users className="w-5 h-5 text-purple-600" />
+        <Users className="w-5 h-5 text-blue-600" />
         <h2 className="text-base font-semibold text-gray-900">Key Staff</h2>
       </div>
 
@@ -416,7 +416,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                             onChange={e => setOfficerField('ssn', e.target.value)}
                             placeholder="Enter to update (leave blank to keep existing)"
                             autoComplete="new-password"
-                            className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                            className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                           />
                         ) : (
                           <p className="text-sm text-gray-900 font-mono">
@@ -459,7 +459,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                             type="checkbox"
                             checked={editForm.is_licensed}
                             onChange={e => setOfficerField('is_licensed', e.target.checked)}
-                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                           />
                           Licensed (physician, RN, or nursing home administrator)
                         </label>
@@ -496,7 +496,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                         type="button"
                         onClick={handleSaveOfficer}
                         disabled={isSavingOfficer}
-                        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                       >
                         {isSavingOfficer && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                         Save
@@ -517,7 +517,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
           <button
             type="button"
             onClick={() => { setShowAddOwner(true); setAddOwnerForm(emptyMemberOwnerForm()); setAddOwnerError(null) }}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-purple-700 border border-purple-300 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 border border-blue-300 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
           >
             <Plus className="w-3 h-3" />
             Add Member/Owner
@@ -578,7 +578,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                         <select
                           value=""
                           onChange={e => { if (e.target.value) copyFromOfficerToEdit(e.target.value) }}
-                          className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:ring-2 focus:ring-purple-500 outline-none text-gray-600"
+                          className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none text-gray-600"
                         >
                           <option value="">Select officer to copy…</option>
                           {filledOfficers.map(s => (
@@ -601,7 +601,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                           onChange={e => setOwnerEditField('ssn', e.target.value)}
                           placeholder="Enter to update"
                           autoComplete="new-password"
-                          className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                          className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                         />
                       </div>
                       <FieldRow label="Home Street" value={ownerEditForm.home_address_street} isEditing onChange={v => setOwnerEditField('home_address_street', v)} className="sm:col-span-2" />
@@ -617,7 +617,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                         type="button"
                         onClick={handleSaveOwner}
                         disabled={isSavingOwner}
-                        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                       >
                         {isSavingOwner && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                         Save
@@ -651,7 +651,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                 <select
                   value=""
                   onChange={e => { if (e.target.value) copyFromOfficerToAdd(e.target.value) }}
-                  className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:ring-2 focus:ring-purple-500 outline-none text-gray-600"
+                  className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none text-gray-600"
                 >
                   <option value="">Select officer to copy…</option>
                   {filledOfficers.map(s => (
@@ -674,7 +674,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                   onChange={e => setAddOwnerField('ssn', e.target.value)}
                   placeholder="Optional"
                   autoComplete="new-password"
-                  className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                  className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                 />
               </div>
               <FieldRow label="Home Street" value={addOwnerForm.home_address_street} isEditing onChange={v => setAddOwnerField('home_address_street', v)} className="sm:col-span-2" />
@@ -690,7 +690,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                 type="button"
                 onClick={handleAddOwner}
                 disabled={isAddingOwner}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
                 {isAddingOwner && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 Add

@@ -32,6 +32,7 @@ interface Lead {
   company_name: string | null
   service_type: string | null
   stage: string
+  source: string | null
   price: number | null
   retainer_amount: number | null
   retainer_paid_date: string | null
@@ -109,7 +110,7 @@ function isDueToday(task: LeadTask) {
 const noteTypeColorMap: Record<string, string> = {
   call:    'bg-blue-100 text-blue-700',
   email:   'bg-indigo-100 text-indigo-700',
-  meeting: 'bg-purple-100 text-purple-700',
+  meeting: 'bg-blue-100 text-blue-700',
   general: 'bg-gray-100 text-gray-600',
 }
 
@@ -138,6 +139,8 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
   // Conversion state
   const [converting, setConverting] = useState(false)
   const [convertError, setConvertError] = useState<string | null>(null)
+  const [showAgencyNamePrompt, setShowAgencyNamePrompt] = useState(false)
+  const [agencyNameInput, setAgencyNameInput] = useState('')
 
   const stageColorMap = Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.color]))
   const serviceTypeLabel = (key: string | null) =>
@@ -157,9 +160,24 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
   // ─── Convert to Agency ────────────────────────────────────────
 
   const handleConvertToAgency = async () => {
+    if (!lead.company_name?.trim()) {
+      setShowAgencyNamePrompt(true)
+      return
+    }
     setConverting(true)
     setConvertError(null)
     const result = await convertLeadToAgency(lead.id)
+    setConverting(false)
+    if (result.error) { setConvertError(result.error); return }
+    router.push(`/pages/admin/agencies/${result.agencyId}`)
+  }
+
+  const handleConvertWithName = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!agencyNameInput.trim()) return
+    setConverting(true)
+    setConvertError(null)
+    const result = await convertLeadToAgency(lead.id, agencyNameInput.trim())
     setConverting(false)
     if (result.error) { setConvertError(result.error); return }
     router.push(`/pages/admin/agencies/${result.agencyId}`)
@@ -220,7 +238,7 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
   const pendingTasks = tasks.filter(t => !t.completed_at)
   const completedTasks = tasks.filter(t => t.completed_at)
 
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none'
+  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none'
 
   return (
     <>
@@ -258,7 +276,7 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                 onClick={() => setTab(t)}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors capitalize ${
                   tab === t
-                    ? 'border-purple-600 text-purple-700'
+                    ? 'border-blue-600 text-blue-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -344,7 +362,7 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                     value={lead.stage}
                     onChange={e => handleStageChange(e.target.value)}
                     disabled={isPending}
-                    className="w-full appearance-none pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none disabled:opacity-50"
+                    className="w-full appearance-none pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
                   >
                     {LEAD_STAGES.map(s => (
                       <option key={s.key} value={s.key}>{s.label}</option>
@@ -383,14 +401,47 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                     <div>
                       {context.conversionAction === 'agency' ? (
                         <>
-                          <button
-                            type="button"
-                            onClick={handleConvertToAgency}
-                            disabled={converting}
-                            className="w-full px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-                          >
-                            {converting ? 'Converting…' : context.conversionLabel}
-                          </button>
+                          {showAgencyNamePrompt ? (
+                            <form onSubmit={handleConvertWithName} className="space-y-2">
+                              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                No company name on this lead. Enter the agency name to continue.
+                              </p>
+                              <input
+                                type="text"
+                                value={agencyNameInput}
+                                onChange={e => setAgencyNameInput(e.target.value)}
+                                placeholder="Agency name…"
+                                required
+                                autoFocus
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => { setShowAgencyNamePrompt(false); setAgencyNameInput('') }}
+                                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="submit"
+                                  disabled={converting || !agencyNameInput.trim()}
+                                  className="flex-1 px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                                >
+                                  {converting ? 'Converting…' : 'Convert →'}
+                                </button>
+                              </div>
+                            </form>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleConvertToAgency}
+                              disabled={converting}
+                              className="w-full px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                            >
+                              {converting ? 'Converting…' : context.conversionLabel}
+                            </button>
+                          )}
                           {convertError && <p className="mt-2 text-xs text-red-600">{convertError}</p>}
                         </>
                       ) : (
@@ -425,6 +476,16 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                       {lead.status === 'archived' ? 'Archived' : 'Active'}
                     </dd>
                   </div>
+                  {lead.source && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Source</dt>
+                      <dd>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                          {lead.source}
+                        </span>
+                      </dd>
+                    </div>
+                  )}
                 </dl>
                 {lead.status === 'active' && (
                   <button
@@ -563,7 +624,7 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                   type="date"
                   value={newTaskDueDate}
                   onChange={e => setNewTaskDueDate(e.target.value)}
-                  className="flex-shrink-0 w-10 px-0 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none cursor-pointer"
+                  className="flex-shrink-0 w-100 px-0 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none cursor-pointer"
                   title="Due date"
                 />
                 <button

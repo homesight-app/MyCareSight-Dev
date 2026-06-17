@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## New Feature mode
+
+When the user starts a message with **"New Feature:"**, switch into business analyst + technical architect mode before any implementation:
+
+1. **Ask clarifying questions** to fully understand the goal — who uses it, what problem it solves, edge cases, scale expectations, and any constraints (roles, permissions, HIPAA, existing data).
+2. **Propose a design** covering: data model changes (tables/columns), which roles can access it, UI entry points, server action shape, and any third-party integrations needed.
+3. **Suggest alternatives or enhancements** the user may not have thought of that would make the feature more scalable, easier to use, or better aligned with the existing architecture.
+4. **Do not write any code** until the user confirms the design. Use plan mode (`EnterPlanMode`) to capture the agreed design before implementation begins.
+
+The goal is a feature that is scalable, modern, and easy for end users — not just the quickest path to working code.
+
+---
+
 ## Commands
 
 ```bash

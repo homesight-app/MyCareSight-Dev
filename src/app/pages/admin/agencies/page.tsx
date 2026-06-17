@@ -5,7 +5,6 @@ import * as q from '@/lib/supabase/query'
 import { getCachedAgenciesOrdered } from '@/lib/server-cache/reference-lists'
 import AdminLayout from '@/components/AdminLayout'
 import AgenciesContent from '@/components/AgenciesContent'
-import { Building2 } from 'lucide-react'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 
 export default async function AgenciesPage() {
@@ -64,16 +63,6 @@ export default async function AgenciesPage() {
       unreadNotifications={unreadNotifications || 0}
     >
       <div className="space-y-4 md:space-y-6">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2 md:gap-3">
-            <Building2 className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
-            <span className="break-words">Agencies</span>
-          </h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">
-            Manage agencies (companies) and tie them to agency admins.
-          </p>
-        </div>
-
         <AgenciesContent
           agencies={agencies || []}
           agencyAdmins={agencyAdmins.map((a) => ({

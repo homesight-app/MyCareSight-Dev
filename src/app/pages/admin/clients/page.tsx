@@ -82,14 +82,6 @@ export default async function ClientsPage() {
   return (
     <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <div className="space-y-4 md:space-y-6">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2 md:gap-3">
-            <Building2 className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
-            <span className="break-words">Client Management</span>
-          </h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">Manage and track all client licensing applications</p>
-        </div>
-
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
           <div className="bg-white rounded-xl p-4 md:p-6 shadow-md border border-gray-100">
             <div className="flex items-center justify-between mb-3 md:mb-4">

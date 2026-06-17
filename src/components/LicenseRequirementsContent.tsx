@@ -27,11 +27,6 @@ export default function LicenseRequirementsContent() {
   
   return (
     <div className="space-y-4 md:space-y-6">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">License Requirements Management</h1>
-        <p className="text-sm md:text-base text-gray-600 mt-1">Manage steps and documents required for each license type in each state.</p>
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Left Panel - License Types */}

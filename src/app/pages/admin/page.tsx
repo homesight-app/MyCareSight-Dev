@@ -5,13 +5,12 @@ import AdminLayout from '@/components/AdminLayout'
 import CasesByStatusChart from '@/components/CasesByStatusChart'
 import CasesByStateChart from '@/components/CasesByStateChart'
 import CasesTableWithFilters from '@/components/CasesTableWithFilters'
-import { 
-  Users, 
-  Clock, 
-  AlertCircle, 
+import {
+  Users,
+  Clock,
+  AlertCircle,
   CheckCircle2,
   TrendingUp,
-  LayoutDashboard
 } from 'lucide-react'
 
 export default async function AdminDashboardPage() {
@@ -86,15 +85,6 @@ export default async function AdminDashboardPage() {
       unreadNotifications={unreadNotifications || 0}
     >
       <div className="space-y-4 md:space-y-6">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2 md:gap-3">
-            <LayoutDashboard className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
-            <span className="break-words">Admin Dashboard</span>
-          </h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">Monitor and manage all licensing cases</p>
-        </div>
-
         {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-6">
           <div className="bg-white rounded-xl p-4 md:p-6 shadow-md border border-gray-100">

@@ -253,14 +253,6 @@ export default async function DashboardPage() {
       unreadNotifications={unreadNotifications}
     >
       <div className="space-y-4 sm:space-y-6">
-        {/* Welcome Section */}
-        <div>
-          <h1 className="text-xl sm:text-2xl lg:text-2xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-          <p className="text-gray-600 text-xs sm:text-sm lg:text-sm">
-            Here&apos;s an overview of your home care licensing operations
-          </p>
-        </div>
-
         {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Active Licenses */}

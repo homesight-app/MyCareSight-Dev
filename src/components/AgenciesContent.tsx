@@ -112,7 +112,7 @@ export default function AgenciesContent({
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className="px-4 py-4 sm:px-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h2 className="text-lg font-semibold text-gray-900">All Agencies</h2>
+          <h2 className="text-lg font-semibold text-gray-900"></h2>
           <button
             type="button"
             onClick={() => setModalOpen(true)}

@@ -12,6 +12,7 @@ import {
   Building2,
   Target,
   BarChart3,
+  FileStack,
 } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
@@ -31,15 +32,16 @@ interface AdminLayoutProps {
 }
 
 const MENU_ITEMS = [
-  { href: '/pages/admin',                    label: 'Dashboard',           icon: Home },
-  { href: '/pages/admin/licenses',           label: 'Licenses',            icon: FileBadge },
-  { href: '/pages/admin/license-requirements', label: 'License Requirements', icon: FileText },
-  { href: '/pages/admin/billing',            label: 'Billing & Invoicing', icon: DollarSign },
-  { href: '/pages/admin/agencies',           label: 'Agency',              icon: Building2 },
-  { href: '/pages/admin/leads',              label: 'Leads',               icon: Target },
-  { href: '/pages/admin/reports',            label: 'Reports',             icon: BarChart3 },
-  { href: '/pages/admin/users',              label: 'User Management',     icon: UserCog },
-  { href: '/pages/admin/configuration',      label: 'Configuration',       icon: Settings },
+  { href: '/pages/admin',                      label: 'Dashboard',           icon: Home,      title: 'Dashboard',           subtitle: 'Monitor and manage all licensing cases' },
+  { href: '/pages/admin/licenses',             label: 'Licenses',            icon: FileBadge, title: 'License Applications', subtitle: 'Review and manage all license application requests' },
+  { href: '/pages/admin/license-requirements', label: 'License Requirements', icon: FileText, title: 'License Requirements' },
+  { href: '/pages/admin/billing',              label: 'Billing & Invoicing', icon: DollarSign, title: 'Billing & Invoicing',  subtitle: 'View all agencies and their license applications for invoicing' },
+  { href: '/pages/admin/agencies',             label: 'Agency',              icon: Building2, title: 'Agencies' },
+  { href: '/pages/admin/leads',                label: 'Leads',               icon: Target,    title: 'Leads' },
+  { href: '/pages/admin/templates',            label: 'Templates',           icon: FileStack, title: 'Templates' },
+  { href: '/pages/admin/reports',              label: 'Reports',             icon: BarChart3, title: 'Reports',              subtitle: 'Pipeline and revenue analytics for your leads' },
+  { href: '/pages/admin/users',                label: 'User Management',     icon: UserCog,   title: 'User Management',     subtitle: 'Manage users, clients, and licensing experts' },
+  { href: '/pages/admin/configuration',        label: 'Configuration',       icon: Settings,  title: 'Configuration' },
 ]
 
 export default function AdminLayout({
@@ -61,6 +63,10 @@ export default function AdminLayout({
     }
   }, [pathname, currentPath])
 
+  const activePage = [...MENU_ITEMS]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find(item => pathname.startsWith(item.href))
+
   return (
     <div className="min-h-screen bg-slate-50">
       {isLoading && <LoadingSpinner />}
@@ -73,6 +79,9 @@ export default function AdminLayout({
         onMobileMenuToggle={() => setMobileOpen(v => !v)}
         profileUrl="/pages/admin/profile"
         changePasswordUrl="/pages/auth/change-password"
+        pageTitle={activePage?.title ?? activePage?.label}
+        pageSubtitle={activePage?.subtitle}
+        sidebarCollapsed={collapsed}
       />
 
       <div className="flex pt-[90px]">

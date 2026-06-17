@@ -212,10 +212,10 @@ export default function ConfigurationContent({
       {/* Header */}
       <div>
         <div className="flex items-center gap-3 mb-2">
-          <Settings className="w-8 h-8 text-blue-600" />
-          <h1 className="text-2xl font-bold text-gray-900">Configuration</h1>
+          
+          <h1 className="text-2xl font-bold text-gray-900"></h1>
         </div>
-        <p className="text-sm text-gray-600">Manage pricing and license type settings</p>
+        
       </div>
 
       {/* User License Pricing Section */}

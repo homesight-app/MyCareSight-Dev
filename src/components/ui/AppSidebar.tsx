@@ -11,6 +11,8 @@ export interface MenuItemDef {
   label: string
   icon: LucideIcon
   badge?: number
+  title?: string
+  subtitle?: string
 }
 
 interface AppSidebarProps {

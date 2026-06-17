@@ -47,11 +47,6 @@ export async function POST(request: NextRequest) {
     // Build notes block
     const noteLines: string[] = ['[Website Contact Form]']
     if (body.bestTime?.trim()) noteLines.push(`Best Time to Call: ${body.bestTime.trim()}`)
-    const addrParts = [body.address1?.trim(), body.address2?.trim()].filter(Boolean)
-    const cityStateZip = [body.city?.trim(), body.state?.trim(), body.zip?.trim()].filter(Boolean).join(' ')
-    if (addrParts.length || cityStateZip) {
-      noteLines.push(`Address: ${[...addrParts, cityStateZip].filter(Boolean).join(', ')}`)
-    }
     if (body.message?.trim()) {
       noteLines.push('---')
       noteLines.push(body.message.trim())
@@ -70,6 +65,11 @@ export async function POST(request: NextRequest) {
       status: 'active',
       source: 'Website',
       sms_consent: body.smsConsent === 'yes' ? true : body.smsConsent === 'no' ? false : null,
+      contact_address1: body.address1?.trim() || null,
+      contact_address2: body.address2?.trim() || null,
+      contact_city: body.city?.trim() || null,
+      contact_state: body.state?.trim() || null,
+      contact_zip: body.zip?.trim() || null,
       notes: noteLines.join('\n'),
       updated_at: new Date().toISOString(),
     })

@@ -23,3 +23,40 @@ html {
 textarea::placeholder {
   white-space: pre-line;
 }
+
+/* TipTap template editor — table styles */
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  table-layout: fixed;
+}
+.ProseMirror table td,
+.ProseMirror table th {
+  border: 1px solid #d1d5db;
+  padding: 6px 10px;
+  min-width: 60px;
+  vertical-align: top;
+  position: relative;
+  word-break: break-word;
+}
+.ProseMirror table th {
+  background: #f3f4f6;
+  font-weight: 600;
+  text-align: left;
+}
+.ProseMirror .selectedCell::after {
+  background: rgba(99, 102, 241, 0.15);
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: #9ca3af;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

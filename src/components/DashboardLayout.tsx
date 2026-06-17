@@ -12,6 +12,7 @@ import {
   BarChart3,
   Settings,
   Target,
+  FileStack,
 } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
@@ -95,22 +96,23 @@ export default function DashboardLayout({
 
   const menuItems: MenuItemDef[] = profile?.role === 'care_coordinator'
     ? [
-        { href: '/pages/agency/clients',     label: 'Clients',       icon: UserCircle },
-        { href: '/pages/agency/caregiver',   label: 'Caregivers',    icon: Users },
-        { href: '/pages/agency/care-visits', label: 'Care Visits',   icon: CalendarDays, badge: resolvedCareVisits || undefined },
-        { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign, badge: resolvedTimeBilling || undefined },
-        { href: '/pages/agency/reports',     label: 'Reports',       icon: BarChart3 },
+        { href: '/pages/agency/clients',      label: 'Clients',        icon: UserCircle, title: 'Clients' },
+        { href: '/pages/agency/caregiver',    label: 'Caregivers',     icon: Users,      title: 'Caregivers' },
+        { href: '/pages/agency/care-visits',  label: 'Care Visits',    icon: CalendarDays, badge: resolvedCareVisits || undefined, title: 'Care Visits' },
+        { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign, badge: resolvedTimeBilling || undefined, title: 'Time & Billing' },
+        { href: '/pages/agency/reports',      label: 'Reports',        icon: BarChart3,  title: 'Reports' },
       ]
     : [
-        { href: '/pages/agency',             label: 'Home',          icon: Home },
-        { href: '/pages/agency/licenses',    label: 'Licenses',      icon: FileBadge },
-        { href: '/pages/agency/clients',     label: 'Clients',       icon: UserCircle },
-        { href: '/pages/agency/caregiver',   label: 'Caregivers',    icon: Users },
-        { href: '/pages/agency/care-visits', label: 'Care Visits',   icon: CalendarDays, badge: resolvedCareVisits || undefined },
-        { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign, badge: resolvedTimeBilling || undefined },
-        { href: '/pages/agency/leads',       label: 'Leads',         icon: Target },
-        { href: '/pages/agency/reports',     label: 'Reports',       icon: BarChart3 },
-        { href: '/pages/agency/configuration', label: 'Configuration', icon: Settings },
+        { href: '/pages/agency',              label: 'Home',           icon: Home,        title: 'Home' },
+        { href: '/pages/agency/licenses',     label: 'Licenses',       icon: FileBadge,   title: 'Licenses' },
+        { href: '/pages/agency/clients',      label: 'Clients',        icon: UserCircle,  title: 'Clients' },
+        { href: '/pages/agency/caregiver',    label: 'Caregivers',     icon: Users,       title: 'Caregivers' },
+        { href: '/pages/agency/care-visits',  label: 'Care Visits',    icon: CalendarDays, badge: resolvedCareVisits || undefined, title: 'Care Visits' },
+        { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign,  badge: resolvedTimeBilling || undefined, title: 'Time & Billing' },
+        { href: '/pages/agency/leads',        label: 'Leads',          icon: Target,      title: 'Leads' },
+        { href: '/pages/agency/templates',    label: 'Templates',      icon: FileStack,   title: 'Templates' },
+        { href: '/pages/agency/reports',      label: 'Reports',        icon: BarChart3,   title: 'Reports' },
+        { href: '/pages/agency/configuration', label: 'Configuration', icon: Settings,    title: 'Configuration' },
       ]
 
   const licenseWidget = isApplicationDetailPage && application ? (
@@ -132,6 +134,10 @@ export default function DashboardLayout({
     </div>
   ) : null
 
+  const activePage = [...menuItems]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find(item => pathname.startsWith(item.href))
+
   return (
     <div className="min-h-screen bg-slate-50">
       <LinkNavigationOverlay />
@@ -144,6 +150,9 @@ export default function DashboardLayout({
         onMobileMenuToggle={() => setMobileOpen(v => !v)}
         profileUrl="/pages/agency/profile"
         changePasswordUrl="/pages/auth/change-password"
+        pageTitle={activePage?.title ?? activePage?.label}
+        pageSubtitle={activePage?.subtitle}
+        sidebarCollapsed={collapsed}
       />
 
       <div className="flex pt-[90px]">

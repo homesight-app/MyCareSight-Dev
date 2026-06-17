@@ -40,11 +40,6 @@ export default async function AdminReportsPage() {
   return (
     <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications ?? 0}>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-          <p className="text-gray-500 text-sm mt-1">Pipeline and revenue analytics for your leads</p>
-        </div>
-
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {REPORTS.map(report => {
             const Icon = report.icon

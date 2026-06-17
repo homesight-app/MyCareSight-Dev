@@ -271,13 +271,14 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
 
   const { data: lead, error: fetchErr } = await supabase
     .from('leads')
-    .select('id, lead_type, converted_agency_id, company_name')
+    .select('id, lead_type, stage, converted_agency_id, company_name')
     .eq('id', leadId)
     .single()
 
   if (fetchErr || !lead) return { error: 'Lead not found' }
   if (lead.lead_type !== 'agency') return { error: 'Not an agency lead' }
   if (lead.converted_agency_id) return { error: 'Already converted' }
+  if (lead.stage !== 'signed') return { error: 'Lead must be at the Signed stage before converting to an agency' }
 
   const agencyName = agencyNameOverride?.trim() || lead.company_name?.trim()
   if (!agencyName) return { error: 'NEEDS_AGENCY_NAME' }

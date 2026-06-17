@@ -21,13 +21,7 @@ export default async function LicenseRequirementsPage() {
       unreadNotifications={unreadNotifications || 0}
     >
       <div className="space-y-4 md:space-y-6">
-        {/* Page Header */}
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">License Requirements Management</h1>
-            <p className="text-sm md:text-base text-gray-600 mt-1">Manage steps and documents required for each license type in each state.</p>
-          </div>
-        </div>
+
 
         {/* License Types Table */}
         <LicenseTypesTable licenseTypes={(licenseTypes ?? []) as unknown as Parameters<typeof LicenseTypesTable>[0]['licenseTypes']} />

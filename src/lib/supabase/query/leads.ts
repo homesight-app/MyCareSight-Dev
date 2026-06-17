@@ -38,7 +38,12 @@ export async function getLeads(
       created_at,
       updated_at,
       assigned_to,
-      created_by
+      created_by,
+      contact_address1,
+      contact_address2,
+      contact_city,
+      contact_state,
+      contact_zip
     `)
     .eq('lead_type', opts.leadType)
     .order('created_at', { ascending: false })
@@ -95,6 +100,11 @@ export async function getLeadById(supabase: SupabaseClient, leadId: string) {
       updated_at,
       assigned_to,
       created_by,
+      contact_address1,
+      contact_address2,
+      contact_city,
+      contact_state,
+      contact_zip,
       converted_agency:agencies!leads_converted_agency_id_fkey(id, name)
     `)
     .eq('id', leadId)

@@ -237,14 +237,6 @@ export default function AdminLicensesContent({
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl sm:text-2xl lg:text-2xl font-bold text-gray-900 mb-2">License Applications</h1>
-        <p className="text-gray-600 text-xs sm:text-sm lg:text-sm">
-          Review and manage all license application requests from owners
-        </p>
-      </div>
-
       {/* Search Bar */}
       <div className="relative">
         <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />

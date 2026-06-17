@@ -366,14 +366,8 @@ export default function BillingContent({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing & Invoicing</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            View all agencies and their license applications for invoicing
-          </p>
-        </div>
+      {/* Export */}
+      <div className="flex justify-end">
         <button
           onClick={handleExportCSV}
           className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { Users, Building2, FileText } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
-import AppSidebar from './ui/AppSidebar'
+import AppSidebar, { type MenuItemDef } from './ui/AppSidebar'
 
 interface ExpertDashboardLayoutProps {
   children: React.ReactNode
@@ -20,10 +20,10 @@ interface ExpertDashboardLayoutProps {
   unreadNotifications?: number
 }
 
-const MENU_ITEMS = [
-  { href: '/pages/expert/clients',      label: 'Licenses',     icon: Users },
-  { href: '/pages/expert/agencies',     label: 'Agency',       icon: Building2 },
-  { href: '/pages/expert/applications', label: 'Applications', icon: FileText },
+const MENU_ITEMS: MenuItemDef[] = [
+  { href: '/pages/expert/clients',      label: 'Licenses',     icon: Users,      title: 'Licenses' },
+  { href: '/pages/expert/agencies',     label: 'Agency',       icon: Building2,  title: 'Agencies' },
+  { href: '/pages/expert/applications', label: 'Applications', icon: FileText,   title: 'Applications' },
 ]
 
 export default function ExpertDashboardLayout({
@@ -45,6 +45,10 @@ export default function ExpertDashboardLayout({
     }
   }, [pathname, currentPath])
 
+  const activePage = [...MENU_ITEMS]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find(item => pathname.startsWith(item.href))
+
   return (
     <div className="min-h-screen bg-slate-50">
       {isLoading && <LoadingSpinner />}
@@ -57,6 +61,9 @@ export default function ExpertDashboardLayout({
         onMobileMenuToggle={() => setMobileOpen(v => !v)}
         profileUrl="/pages/expert/profile"
         changePasswordUrl="/pages/auth/change-password"
+        pageTitle={activePage?.title ?? activePage?.label}
+        pageSubtitle={activePage?.subtitle}
+        sidebarCollapsed={collapsed}
       />
 
       <div className="flex pt-[90px]">

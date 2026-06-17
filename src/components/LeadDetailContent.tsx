@@ -45,6 +45,11 @@ interface Lead {
   converted_at: string | null
   status: string
   created_at: string
+  contact_address1: string | null
+  contact_address2: string | null
+  contact_city: string | null
+  contact_state: string | null
+  contact_zip: string | null
   converted_agency: ConvertedAgency | null
 }
 
@@ -315,6 +320,20 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                   )}
                   <dt className="text-gray-500">Service Type</dt>
                   <dd className="text-gray-900">{serviceTypeLabel(lead.service_type)}</dd>
+                  {(lead.contact_address1 || lead.contact_city) && (
+                    <>
+                      <dt className="text-gray-500">Address</dt>
+                      <dd className="text-gray-900">
+                        {lead.contact_address1 && <div>{lead.contact_address1}</div>}
+                        {lead.contact_address2 && <div>{lead.contact_address2}</div>}
+                        {(lead.contact_city || lead.contact_state || lead.contact_zip) && (
+                          <div>
+                            {[lead.contact_city, lead.contact_state, lead.contact_zip].filter(Boolean).join(', ')}
+                          </div>
+                        )}
+                      </dd>
+                    </>
+                  )}
                 </dl>
               </div>
 
@@ -401,7 +420,11 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                     <div>
                       {context.conversionAction === 'agency' ? (
                         <>
-                          {showAgencyNamePrompt ? (
+                          {lead.stage !== 'signed' ? (
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-500">
+                              Lead must reach the <span className="font-semibold text-gray-700">Signed</span> stage before it can be converted to an agency.
+                            </div>
+                          ) : showAgencyNamePrompt ? (
                             <form onSubmit={handleConvertWithName} className="space-y-2">
                               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                                 No company name on this lead. Enter the agency name to continue.

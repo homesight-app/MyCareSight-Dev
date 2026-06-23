@@ -5,6 +5,16 @@ import { Building2, CheckCircle2, Loader2, Plus, Trash2 } from 'lucide-react'
 import { submitOnboardingForm, type OnboardingFormData } from '@/app/actions/agency-onboarding'
 import { STATE_AGENCY_CONFIGS, type StateField } from '@/lib/constants/state-agency-configs'
 
+const ENTITY_TYPES = ['LLC','S Corporation','C Corporation','Partnership','Sole Proprietorship','Non-profit']
+
+const US_STATES = [
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
+  'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+  'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+  'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC',
+]
+
 const OFFICER_ROLES = [
   { key: 'president', label: 'President' },
   { key: 'vice_president', label: 'Vice President' },
@@ -186,6 +196,16 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
     mailing_city: (agency?.mailing_city as string) ?? '',
     mailing_state: (agency?.mailing_state as string) ?? '',
     mailing_zip_code: (agency?.mailing_zip_code as string) ?? '',
+    // Legal entity fields (migration 122)
+    legal_entity_name: (agency?.legal_entity_name as string) ?? '',
+    entity_type: (agency?.entity_type as string) ?? '',
+    state_of_incorporation: (agency?.state_of_incorporation as string) ?? '',
+    date_of_incorporation: (agency?.date_of_incorporation as string) ?? '',
+    licensed_office_street: (agency?.licensed_office_street as string) ?? '',
+    licensed_office_city: (agency?.licensed_office_city as string) ?? '',
+    licensed_office_state: (agency?.licensed_office_state as string) ?? '',
+    licensed_office_zip: (agency?.licensed_office_zip as string) ?? '',
+    licensed_same_as_physical: (agency?.licensed_same_as_physical as boolean) ?? false,
   })
 
   const [stateData, setStateData] = useState<Record<string, string | boolean>>(
@@ -295,18 +315,47 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
           <h2 className="text-base font-semibold text-gray-900 mb-4">Agency Information</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField
-              label="Agency Name"
+              label="Legal Entity Name"
+              value={form.legal_entity_name}
+              onChange={v => setField('legal_entity_name', v)}
+              placeholder="Full registered legal name"
+              className="sm:col-span-2"
+            />
+            <FormField
+              label="Agency Name (DBA)"
               value={form.name}
               onChange={v => setField('name', v)}
               required
               placeholder="Acme Home Care LLC"
             />
             <FormField
-              label="DBA Name"
+              label="DBA / Trade Name"
               value={form.dba_name}
               onChange={v => setField('dba_name', v)}
               placeholder="If different from legal name"
             />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Entity Type</label>
+              <select
+                value={form.entity_type}
+                onChange={e => setField('entity_type', e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+              >
+                <option value="">— Select —</option>
+                {ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">State of Incorporation</label>
+              <select
+                value={form.state_of_incorporation}
+                onChange={e => setField('state_of_incorporation', e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+              >
+                <option value="">— Select State —</option>
+                {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
             <FormField
               label="Tax ID / EIN"
               value={form.tax_id}
@@ -326,10 +375,17 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
               type="date"
             />
             <FormField
+              label="Date of Incorporation"
+              value={form.date_of_incorporation}
+              onChange={v => setField('date_of_incorporation', v)}
+              type="date"
+            />
+            <FormField
               label="Hours of Operation"
               value={form.hours_of_operation}
               onChange={v => setField('hours_of_operation', v)}
               placeholder="Mon–Fri 9am–5pm"
+              className="sm:col-span-2"
             />
           </div>
         </section>
@@ -490,6 +546,57 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
           )}
           {form.same_as_physical && (
             <p className="text-sm text-gray-500 italic">Same as physical address</p>
+          )}
+        </section>
+
+        {/* Licensed Office Address */}
+        <section className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Office Address (Licensed)</h2>
+              <p className="text-xs text-gray-500 mt-0.5">The address that appears on your license application</p>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
+              <input
+                type="checkbox"
+                checked={form.licensed_same_as_physical}
+                onChange={e => setField('licensed_same_as_physical', e.target.checked)}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              Same as corporate
+            </label>
+          </div>
+          {!form.licensed_same_as_physical && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                label="Street Address"
+                value={form.licensed_office_street}
+                onChange={v => setField('licensed_office_street', v)}
+                placeholder="123 Office Blvd"
+                className="sm:col-span-2"
+              />
+              <FormField
+                label="City"
+                value={form.licensed_office_city}
+                onChange={v => setField('licensed_office_city', v)}
+                placeholder="Miami"
+              />
+              <FormField
+                label="State"
+                value={form.licensed_office_state}
+                onChange={v => setField('licensed_office_state', v)}
+                placeholder="FL"
+              />
+              <FormField
+                label="ZIP Code"
+                value={form.licensed_office_zip}
+                onChange={v => setField('licensed_office_zip', v)}
+                placeholder="33101"
+              />
+            </div>
+          )}
+          {form.licensed_same_as_physical && (
+            <p className="text-sm text-gray-500 italic">Same as corporate address</p>
           )}
         </section>
 

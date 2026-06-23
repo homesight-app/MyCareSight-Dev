@@ -71,6 +71,16 @@ interface Agency {
   is_on_call?: boolean | null
   previously_licensed?: boolean | null
   prev_license_closed_date?: string | null
+  // Fields added in migration 122 — legal entity + licensed office
+  legal_entity_name?: string | null
+  entity_type?: string | null
+  state_of_incorporation?: string | null
+  date_of_incorporation?: string | null
+  licensed_office_street?: string | null
+  licensed_office_city?: string | null
+  licensed_office_state?: string | null
+  licensed_office_zip?: string | null
+  licensed_same_as_physical?: boolean | null
 }
 
 interface License {
@@ -143,6 +153,16 @@ type OrgFormState = {
   isOnCall: boolean
   previouslyLicensed: boolean
   prevLicenseClosedDate: string
+  // Legal entity fields (migration 122)
+  legalEntityName: string
+  entityType: string
+  stateOfIncorporation: string
+  dateOfIncorporation: string
+  licensedOfficeStreet: string
+  licensedOfficeCity: string
+  licensedOfficeState: string
+  licensedOfficeZip: string
+  licensedSameAsPhysical: boolean
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -150,6 +170,18 @@ const STATUS_COLORS: Record<string, string> = {
   expiring: 'bg-orange-100 text-orange-700',
   expired: 'bg-red-100 text-red-700',
 }
+
+type AgencySection = 'business' | 'addresses' | 'ownership' | 'tax' | 'contacts' | 'additional'
+
+const US_STATES = [
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
+  'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+  'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+  'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC',
+]
+
+const ENTITY_TYPES = ['LLC','S Corporation','C Corporation','Partnership','Sole Proprietorship','Non-profit']
 
 const APP_STATUS_COLORS: Record<string, string> = {
   requested: 'bg-blue-100 text-blue-700',
@@ -225,7 +257,8 @@ export default function AgencyDetailContent({
     rawTab === 'organization' ? 'organization' : rawTab === 'users' ? 'users' : 'licenses'
   const [activeTab, setActiveTab] = useState<'licenses' | 'organization' | 'users'>(initialTab)
   const [usersTabActivated, setUsersTabActivated] = useState(initialTab === 'users')
-  const [isEditing, setIsEditing] = useState(false)
+  const [activeSection, setActiveSection] = useState<AgencySection>('business')
+  const [editingSection, setEditingSection] = useState<AgencySection | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [addLicenseOpen, setAddLicenseOpen] = useState(false)
@@ -266,6 +299,15 @@ export default function AgencyDetailContent({
     isOnCall: agency.is_on_call ?? false,
     previouslyLicensed: agency.previously_licensed ?? false,
     prevLicenseClosedDate: agency.prev_license_closed_date ?? '',
+    legalEntityName: agency.legal_entity_name ?? '',
+    entityType: agency.entity_type ?? '',
+    stateOfIncorporation: agency.state_of_incorporation ?? '',
+    dateOfIncorporation: agency.date_of_incorporation ?? '',
+    licensedOfficeStreet: agency.licensed_office_street ?? '',
+    licensedOfficeCity: agency.licensed_office_city ?? '',
+    licensedOfficeState: agency.licensed_office_state ?? '',
+    licensedOfficeZip: agency.licensed_office_zip ?? '',
+    licensedSameAsPhysical: agency.licensed_same_as_physical ?? false,
   })
 
   const [orgForm, setOrgForm] = useState<OrgFormState>(buildInitialForm)
@@ -303,10 +345,19 @@ export default function AgencyDetailContent({
         isOnCall: orgForm.isOnCall,
         previouslyLicensed: orgForm.previouslyLicensed,
         prevLicenseClosedDate: orgForm.prevLicenseClosedDate || undefined,
+        legalEntityName: orgForm.legalEntityName || undefined,
+        entityType: orgForm.entityType || undefined,
+        stateOfIncorporation: orgForm.stateOfIncorporation || undefined,
+        dateOfIncorporation: orgForm.dateOfIncorporation || undefined,
+        licensedOfficeStreet: orgForm.licensedOfficeStreet || undefined,
+        licensedOfficeCity: orgForm.licensedOfficeCity || undefined,
+        licensedOfficeState: orgForm.licensedOfficeState || undefined,
+        licensedOfficeZip: orgForm.licensedOfficeZip || undefined,
+        licensedSameAsPhysical: orgForm.licensedSameAsPhysical,
       }
       const { error } = await updateAgency(agency.id, payload, currentAdminIds)
       if (error) throw new Error(error)
-      setIsEditing(false)
+      setEditingSection(null)
       router.refresh()
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Save failed')
@@ -318,7 +369,7 @@ export default function AgencyDetailContent({
   const handleCancel = () => {
     setOrgForm(buildInitialForm())
     setSaveError(null)
-    setIsEditing(false)
+    setEditingSection(null)
   }
 
   const activeLicenses = licenses.filter((l) => l.status === 'active' && !isExpiringSoon(l.expiry_date))
@@ -774,306 +825,318 @@ export default function AgencyDetailContent({
 
       {/* Organization tab */}
       {activeTab === 'organization' && (
-        <div className="space-y-6">
-          {/* Agency Details card */}
-          <div className="bg-white rounded-xl shadow-md border border-gray-100">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-gray-900">Agency Details</h2>
-              {canEdit && !isEditing && (
+        <div className="bg-white rounded-xl shadow-md border border-gray-100">
+          <div className="flex min-h-[500px]">
+            {/* Left sidebar */}
+            <div className="w-48 flex-shrink-0 border-r border-gray-200 py-4 pr-2 space-y-1">
+              {(([
+                { id: 'business',   label: 'Business Info' },
+                { id: 'addresses',  label: 'Addresses' },
+                { id: 'ownership',  label: 'Ownership' },
+                { id: 'tax',        label: 'Tax Info' },
+                { id: 'contacts',   label: 'Contacts' },
+                { id: 'additional', label: 'Additional' },
+              ]) as { id: AgencySection; label: string }[]).map(s => (
                 <button
+                  key={s.id}
                   type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  onClick={() => {
+                    if (editingSection) { setOrgForm(buildInitialForm()); setSaveError(null) }
+                    setEditingSection(null)
+                    setActiveSection(s.id)
+                  }}
+                  className={`flex items-center w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeSection === s.id
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
                 >
-                  <Pencil className="w-3.5 h-3.5" />
-                  Edit
+                  {s.label}
                 </button>
-              )}
-              {canEdit && isEditing && (
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleCancel}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                  >
-                    {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    Save
-                  </button>
-                </div>
-              )}
+              ))}
             </div>
-            <div className="p-6 space-y-6">
+
+            {/* Right content panel */}
+            <div className="flex-1 p-6 min-w-0">
               {saveError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{saveError}</div>
+                <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{saveError}</div>
               )}
 
-              {/* Business Information */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Business Information</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field
-                    label="Agency Name"
-                    value={orgForm.companyName}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, companyName: val }))}
-                  />
-                  <Field
-                    label="DBA Name"
-                    value={orgForm.dbaName}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, dbaName: val }))}
-                  />
-                  <Field
-                    label="Business Type"
-                    value={orgForm.businessType}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, businessType: val }))}
-                  />
-                  <Field
-                    label="Hours of Operation"
-                    value={orgForm.hoursOfOperation}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, hoursOfOperation: val }))}
-                  />
-                  <Field
-                    label="Date of Formation"
-                    value={orgForm.dateOfFormation}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, dateOfFormation: val }))}
-                  />
-                </div>
-              </section>
-
-              {/* Identification */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Identification</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field
-                    label="Tax ID / EIN"
-                    value={orgForm.taxId}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, taxId: val }))}
-                  />
-                  <Field
-                    label="NPI"
-                    value={orgForm.npi}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, npi: val }))}
-                  />
-                  <Field
-                    label="Primary License #"
-                    value={orgForm.primaryLicenseNumber}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, primaryLicenseNumber: val }))}
-                  />
-                </div>
-              </section>
-
-              {/* Contact */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Contact</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field
-                    label="Website"
-                    value={orgForm.website}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, website: val }))}
-                  />
-                  <Field
-                    label="Fax Number"
-                    value={orgForm.faxNumber}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, faxNumber: val }))}
-                  />
-                </div>
-              </section>
-
-              {/* Contact Information */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Contact Information</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field
-                    label="Phone Number"
-                    value={orgForm.phoneNumber}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, phoneNumber: val }))}
-                  />
-                  <Field
-                    label="Email"
-                    value={orgForm.agencyEmail}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, agencyEmail: val }))}
-                  />
-                  <Field
-                    label="Region / Service Area"
-                    value={orgForm.regionServiceArea}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, regionServiceArea: val }))}
-                    className="sm:col-span-2"
-                  />
-                </div>
-                <div className="mt-3 space-y-2">
-                  {isEditing ? (
-                    <>
-                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={orgForm.isOnCall}
-                          onChange={e => setOrgForm(f => ({ ...f, isOnCall: e.target.checked }))}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        Agency provides on-call services
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={orgForm.previouslyLicensed}
-                          onChange={e => setOrgForm(f => ({ ...f, previouslyLicensed: e.target.checked }))}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        Previously licensed
-                      </label>
-                      {orgForm.previouslyLicensed && (
-                        <Field
-                          label="Previous License Closed Date"
-                          value={orgForm.prevLicenseClosedDate}
-                          isEditing
-                          onChange={val => setOrgForm(f => ({ ...f, prevLicenseClosedDate: val }))}
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div>
-                        <span className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">On-Call</span>
-                        <span className="text-gray-900">{agency.is_on_call === true ? 'Yes' : agency.is_on_call === false ? 'No' : '—'}</span>
+              {/* ── Business Information ── */}
+              {activeSection === 'business' && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-base font-semibold text-gray-900">Business Information</h3>
+                    {canEdit && editingSection !== 'business' && (
+                      <button type="button" onClick={() => setEditingSection('business')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />Edit
+                      </button>
+                    )}
+                    {canEdit && editingSection === 'business' && (
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
+                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
+                        </button>
                       </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Legal Entity Name" value={orgForm.legalEntityName} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, legalEntityName: val }))} className="sm:col-span-2" />
+                    <Field label="DBA / Trade Name" value={orgForm.dbaName} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, dbaName: val }))} />
+                    <Field label="Agency Name" value={orgForm.companyName} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, companyName: val }))} />
+                    {editingSection === 'business' ? (
                       <div>
-                        <span className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">Previously Licensed</span>
-                        <span className="text-gray-900">
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Entity Type</label>
+                        <select value={orgForm.entityType} onChange={e => setOrgForm(f => ({ ...f, entityType: e.target.value }))} className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
+                          <option value="">— Select —</option>
+                          {ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Entity Type</label>
+                        <p className="text-sm text-gray-900">{orgForm.entityType || '—'}</p>
+                      </div>
+                    )}
+                    <Field label="Tax ID / FEIN" value={orgForm.taxId} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, taxId: val }))} />
+                    <Field label="NPI" value={orgForm.npi} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, npi: val }))} />
+                    <Field label="Date of Formation" value={orgForm.dateOfFormation} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, dateOfFormation: val }))} />
+                    <Field label="Date of Incorporation" value={orgForm.dateOfIncorporation} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, dateOfIncorporation: val }))} />
+                    {editingSection === 'business' ? (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">State of Incorporation</label>
+                        <select value={orgForm.stateOfIncorporation} onChange={e => setOrgForm(f => ({ ...f, stateOfIncorporation: e.target.value }))} className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
+                          <option value="">— Select State —</option>
+                          {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">State of Incorporation</label>
+                        <p className="text-sm text-gray-900">{orgForm.stateOfIncorporation || '—'}</p>
+                      </div>
+                    )}
+                    <Field label="Primary License #" value={orgForm.primaryLicenseNumber} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, primaryLicenseNumber: val }))} />
+                  </div>
+                </div>
+              )}
+
+              {/* ── Addresses ── */}
+              {activeSection === 'addresses' && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-base font-semibold text-gray-900">Addresses</h3>
+                    {canEdit && editingSection !== 'addresses' && (
+                      <button type="button" onClick={() => setEditingSection('addresses')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />Edit
+                      </button>
+                    )}
+                    {canEdit && editingSection === 'addresses' && (
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
+                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-6">
+                    {/* Corporate */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Corporate Address</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Field label="Street" value={orgForm.physicalStreetAddress} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, physicalStreetAddress: val }))} className="sm:col-span-2" />
+                        <Field label="City" value={orgForm.physicalCity} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, physicalCity: val }))} />
+                        <Field label="State" value={orgForm.physicalState} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, physicalState: val }))} />
+                        <Field label="ZIP Code" value={orgForm.physicalZipCode} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, physicalZipCode: val }))} />
+                      </div>
+                    </div>
+                    {/* Licensed Office */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Office Address (Licensed)</p>
+                      {editingSection === 'addresses' && (
+                        <label className="flex items-center gap-2 mb-3 text-sm text-gray-700 cursor-pointer select-none">
+                          <input type="checkbox" checked={orgForm.licensedSameAsPhysical} onChange={e => setOrgForm(f => ({ ...f, licensedSameAsPhysical: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                          Same as corporate address
+                        </label>
+                      )}
+                      {orgForm.licensedSameAsPhysical && editingSection !== 'addresses' ? (
+                        <p className="text-sm text-gray-500 italic">Same as corporate address</p>
+                      ) : !orgForm.licensedSameAsPhysical ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Field label="Street" value={orgForm.licensedOfficeStreet} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, licensedOfficeStreet: val }))} className="sm:col-span-2" />
+                          <Field label="City" value={orgForm.licensedOfficeCity} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, licensedOfficeCity: val }))} />
+                          <Field label="State" value={orgForm.licensedOfficeState} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, licensedOfficeState: val }))} />
+                          <Field label="ZIP Code" value={orgForm.licensedOfficeZip} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, licensedOfficeZip: val }))} />
+                        </div>
+                      ) : null}
+                    </div>
+                    {/* Mailing */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Mailing Address</p>
+                      {editingSection === 'addresses' && (
+                        <label className="flex items-center gap-2 mb-3 text-sm text-gray-700 cursor-pointer select-none">
+                          <input type="checkbox" checked={orgForm.sameAsPhysical} onChange={e => setOrgForm(f => ({ ...f, sameAsPhysical: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                          Same as corporate address
+                        </label>
+                      )}
+                      {orgForm.sameAsPhysical && editingSection !== 'addresses' ? (
+                        <p className="text-sm text-gray-500 italic">Same as corporate address</p>
+                      ) : !orgForm.sameAsPhysical ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Field label="Street" value={orgForm.mailingStreetAddress} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, mailingStreetAddress: val }))} className="sm:col-span-2" />
+                          <Field label="City" value={orgForm.mailingCity} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, mailingCity: val }))} />
+                          <Field label="State" value={orgForm.mailingState} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, mailingState: val }))} />
+                          <Field label="ZIP Code" value={orgForm.mailingZipCode} isEditing={editingSection === 'addresses'} onChange={val => setOrgForm(f => ({ ...f, mailingZipCode: val }))} />
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Ownership ── */}
+              {activeSection === 'ownership' && (
+                <div>
+                  <div className="mb-6">
+                    <h3 className="text-base font-semibold text-gray-900">Ownership</h3>
+                  </div>
+                  <AgencyKeyStaffSection agencyId={agency.id} keyStaff={keyStaff} />
+                </div>
+              )}
+
+              {/* ── Tax Information ── */}
+              {activeSection === 'tax' && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-base font-semibold text-gray-900">Tax Information</h3>
+                    {canEdit && editingSection !== 'tax' && (
+                      <button type="button" onClick={() => setEditingSection('tax')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />Edit
+                      </button>
+                    )}
+                    {canEdit && editingSection === 'tax' && (
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
+                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Tax ID / FEIN</label>
+                      <p className="text-sm text-gray-900">{agency.tax_id || '—'}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Edit in Business Info</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Entity Type</label>
+                      <p className="text-sm text-gray-900">{agency.entity_type || '—'}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Edit in Business Info</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">State of Incorporation</label>
+                      <p className="text-sm text-gray-900">{agency.state_of_incorporation || '—'}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Edit in Business Info</p>
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-4 space-y-3">
+                    {editingSection === 'tax' ? (
+                      <>
+                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                          <input type="checkbox" checked={orgForm.previouslyLicensed} onChange={e => setOrgForm(f => ({ ...f, previouslyLicensed: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                          Previously licensed
+                        </label>
+                        {orgForm.previouslyLicensed && (
+                          <Field label="Previous License Closed Date" value={orgForm.prevLicenseClosedDate} isEditing onChange={val => setOrgForm(f => ({ ...f, prevLicenseClosedDate: val }))} />
+                        )}
+                      </>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Previously Licensed</label>
+                        <p className="text-sm text-gray-900">
                           {agency.previously_licensed === true
                             ? `Yes${agency.prev_license_closed_date ? ` (closed ${formatDate(agency.prev_license_closed_date)})` : ''}`
                             : agency.previously_licensed === false ? 'No' : '—'}
-                        </span>
+                        </p>
                       </div>
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {/* Physical Address */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Physical Address</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field
-                    label="Street"
-                    value={orgForm.physicalStreetAddress}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, physicalStreetAddress: val }))}
-                    className="sm:col-span-2"
-                  />
-                  <Field
-                    label="City"
-                    value={orgForm.physicalCity}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, physicalCity: val }))}
-                  />
-                  <Field
-                    label="State"
-                    value={orgForm.physicalState}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, physicalState: val }))}
-                  />
-                  <Field
-                    label="ZIP Code"
-                    value={orgForm.physicalZipCode}
-                    isEditing={isEditing}
-                    onChange={val => setOrgForm(f => ({ ...f, physicalZipCode: val }))}
-                  />
-                </div>
-              </section>
-
-              {/* Mailing Address */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Mailing Address</h3>
-                {isEditing && (
-                  <label className="flex items-center gap-2 mb-3 text-sm text-gray-700 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={orgForm.sameAsPhysical}
-                      onChange={e => setOrgForm(f => ({ ...f, sameAsPhysical: e.target.checked }))}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    Same as physical address
-                  </label>
-                )}
-                {orgForm.sameAsPhysical && !isEditing && (
-                  <p className="text-sm text-gray-500 italic">Same as physical address</p>
-                )}
-                {!orgForm.sameAsPhysical && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field
-                      label="Street"
-                      value={orgForm.mailingStreetAddress}
-                      isEditing={isEditing}
-                      onChange={val => setOrgForm(f => ({ ...f, mailingStreetAddress: val }))}
-                      className="sm:col-span-2"
-                    />
-                    <Field
-                      label="City"
-                      value={orgForm.mailingCity}
-                      isEditing={isEditing}
-                      onChange={val => setOrgForm(f => ({ ...f, mailingCity: val }))}
-                    />
-                    <Field
-                      label="State"
-                      value={orgForm.mailingState}
-                      isEditing={isEditing}
-                      onChange={val => setOrgForm(f => ({ ...f, mailingState: val }))}
-                    />
-                    <Field
-                      label="ZIP Code"
-                      value={orgForm.mailingZipCode}
-                      isEditing={isEditing}
-                      onChange={val => setOrgForm(f => ({ ...f, mailingZipCode: val }))}
-                    />
+                    )}
                   </div>
-                )}
-              </section>
+                </div>
+              )}
+
+              {/* ── Contacts ── */}
+              {activeSection === 'contacts' && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-base font-semibold text-gray-900">Contacts</h3>
+                    {canEdit && editingSection !== 'contacts' && (
+                      <button type="button" onClick={() => setEditingSection('contacts')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />Edit
+                      </button>
+                    )}
+                    {canEdit && editingSection === 'contacts' && (
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
+                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Phone Number" value={orgForm.phoneNumber} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, phoneNumber: val }))} />
+                    <Field label="Email" value={orgForm.agencyEmail} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, agencyEmail: val }))} />
+                    <Field label="Fax Number" value={orgForm.faxNumber} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, faxNumber: val }))} />
+                    <Field label="Website" value={orgForm.website} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, website: val }))} />
+                    <Field label="Region / Service Area" value={orgForm.regionServiceArea} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, regionServiceArea: val }))} className="sm:col-span-2" />
+                  </div>
+                  <div className="mt-3">
+                    {editingSection === 'contacts' ? (
+                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input type="checkbox" checked={orgForm.isOnCall} onChange={e => setOrgForm(f => ({ ...f, isOnCall: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        Agency provides on-call services
+                      </label>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">On-Call Services</label>
+                        <p className="text-sm text-gray-900">{agency.is_on_call === true ? 'Yes' : agency.is_on_call === false ? 'No' : '—'}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Additional Details ── */}
+              {activeSection === 'additional' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-gray-900">Additional Details</h3>
+                    {canEdit && editingSection !== 'additional' && (
+                      <button type="button" onClick={() => setEditingSection('additional')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />Edit
+                      </button>
+                    )}
+                    {canEdit && editingSection === 'additional' && (
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
+                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <Field label="Hours of Operation" value={orgForm.hoursOfOperation} isEditing={editingSection === 'additional'} onChange={val => setOrgForm(f => ({ ...f, hoursOfOperation: val }))} />
+                  {canEdit && (
+                    <AgencyOnboardingLinkPanel agencyId={agency.id} agencyName={agency.name} activeToken={activeToken} />
+                  )}
+                  <AgencyAdminsSection agencyId={agency.id} agencyAdmins={agencyAdmins} availableAdmins={availableAdmins} />
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Onboarding Link */}
-          {canEdit && (
-            <AgencyOnboardingLinkPanel
-              agencyId={agency.id}
-              agencyName={agency.name}
-              activeToken={activeToken}
-            />
-          )}
-
-          {/* Key Staff */}
-          {canEdit && (
-            <AgencyKeyStaffSection
-              agencyId={agency.id}
-              keyStaff={keyStaff}
-            />
-          )}
-
-          {/* Agency Admins */}
-          <AgencyAdminsSection
-            agencyId={agency.id}
-            agencyAdmins={agencyAdmins}
-            availableAdmins={availableAdmins}
-          />
         </div>
       )}
 

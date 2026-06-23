@@ -48,6 +48,16 @@ const agencyFormSchema = z.object({
   isOnCall: z.boolean().optional(),
   previouslyLicensed: z.boolean().optional(),
   prevLicenseClosedDate: z.string().optional(),
+  // Legal entity fields (migration 122)
+  legalEntityName: z.string().optional(),
+  entityType: z.string().optional(),
+  stateOfIncorporation: z.string().optional(),
+  dateOfIncorporation: z.string().optional(),
+  licensedOfficeStreet: z.string().optional(),
+  licensedOfficeCity: z.string().optional(),
+  licensedOfficeState: z.string().optional(),
+  licensedOfficeZip: z.string().optional(),
+  licensedSameAsPhysical: z.boolean().optional(),
 })
 
 export type AgencyFormData = z.infer<typeof agencyFormSchema>
@@ -80,6 +90,15 @@ function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
     is_on_call: data.isOnCall ?? null,
     previously_licensed: data.previouslyLicensed ?? null,
     prev_license_closed_date: data.prevLicenseClosedDate || null,
+    legal_entity_name: data.legalEntityName?.trim() || null,
+    entity_type: data.entityType?.trim() || null,
+    state_of_incorporation: data.stateOfIncorporation?.trim().toUpperCase() || null,
+    date_of_incorporation: data.dateOfIncorporation || null,
+    licensed_office_street: data.licensedOfficeStreet?.trim() || null,
+    licensed_office_city: data.licensedOfficeCity?.trim() || null,
+    licensed_office_state: data.licensedOfficeState?.trim().toUpperCase() || null,
+    licensed_office_zip: data.licensedOfficeZip?.trim() || null,
+    licensed_same_as_physical: data.licensedSameAsPhysical ?? false,
     updated_at: new Date().toISOString(),
   }
 }
@@ -230,6 +249,15 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
       mailing_city: validData.mailingCity?.trim() || null,
       mailing_state: validData.mailingState?.trim() || null,
       mailing_zip_code: validData.mailingZipCode?.trim() || null,
+      legal_entity_name: validData.legalEntityName?.trim() || null,
+      entity_type: validData.entityType?.trim() || null,
+      state_of_incorporation: validData.stateOfIncorporation?.trim().toUpperCase() || null,
+      date_of_incorporation: validData.dateOfIncorporation || null,
+      licensed_office_street: validData.licensedOfficeStreet?.trim() || null,
+      licensed_office_city: validData.licensedOfficeCity?.trim() || null,
+      licensed_office_state: validData.licensedOfficeState?.trim().toUpperCase() || null,
+      licensed_office_zip: validData.licensedOfficeZip?.trim() || null,
+      licensed_same_as_physical: validData.licensedSameAsPhysical ?? false,
       updated_at: new Date().toISOString(),
     }
 

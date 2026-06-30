@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Modal from './Modal'
 import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
 import { createLead, updateLead } from '@/app/actions/leads'
+import { createClient } from '@/lib/supabase/client'
 
 interface Lead {
   id: string
@@ -22,7 +23,10 @@ interface Lead {
   installment_amount: number | null
   signed_date: string | null
   notes: string | null
+  converted_agency_id?: string | null
 }
+
+const CLIENT_SOURCE_KEYS = ['Current Client', 'Former Client']
 
 interface AddLeadModalProps {
   isOpen: boolean
@@ -39,6 +43,10 @@ const SOURCE_OPTIONS = [
   { key: 'Referral',    label: 'Referral' },
   { key: 'Trade Show',  label: 'Trade Show' },
   { key: 'Event',       label: 'Event' },
+  { key: '21st Century Client', label: '21st Century Client' },
+  { key: 'Current Client',  label: 'Current Client' },
+  { key: 'Former Client',       label: 'Former Client' },
+  { key: 'Social Media', label: 'Social Media' },
 ]
 
 const emptyForm = {
@@ -57,6 +65,7 @@ const emptyForm = {
   installmentAmount: '',
   signedDate: '',
   notes: '',
+  linkedAgencyId: '',
 }
 
 export default function AddLeadModal({
@@ -69,8 +78,11 @@ export default function AddLeadModal({
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [agencies, setAgencies] = useState<{ id: string; name: string }[]>([])
+  const [loadingAgencies, setLoadingAgencies] = useState(false)
 
   const isEdit = !!editLead
+  const showAgencyLink = CLIENT_SOURCE_KEYS.includes(form.source) && context.leadType === 'agency'
 
   useEffect(() => {
     if (!isOpen) return
@@ -91,6 +103,7 @@ export default function AddLeadModal({
         installmentAmount: editLead.installment_amount != null ? String(editLead.installment_amount) : '',
         signedDate: editLead.signed_date ?? '',
         notes: editLead.notes ?? '',
+        linkedAgencyId: editLead.converted_agency_id ?? '',
       })
     } else {
       setForm(emptyForm)
@@ -98,8 +111,30 @@ export default function AddLeadModal({
     setError(null)
   }, [isOpen, editLead])
 
+  useEffect(() => {
+    if (!showAgencyLink || agencies.length > 0) return
+    setLoadingAgencies(true)
+    const supabase = createClient()
+    supabase
+      .from('agencies')
+      .select('id, name')
+      .eq('status', 'active')
+      .order('name')
+      .then(({ data }) => {
+        setAgencies(data ?? [])
+        setLoadingAgencies(false)
+      })
+  }, [showAgencyLink, agencies.length])
+
   const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setForm(prev => ({ ...prev, [field]: e.target.value }))
+    setForm(prev => {
+      const next = { ...prev, [field]: e.target.value }
+      // Clear agency link when source changes away from client sources
+      if (field === 'source' && !CLIENT_SOURCE_KEYS.includes(e.target.value)) {
+        next.linkedAgencyId = ''
+      }
+      return next
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -136,6 +171,8 @@ export default function AddLeadModal({
         installmentAmount: context.billingVisible ? numericOrNull(form.installmentAmount) : undefined,
         signedDate: context.billingVisible ? dateOrNull(form.signedDate) : undefined,
         notes: form.notes || null,
+        source: form.source || null,
+        convertedAgencyId: showAgencyLink ? (form.linkedAgencyId || null) : undefined,
       })
       setSaving(false)
       if (result.error) { setError(result.error); return }
@@ -159,6 +196,7 @@ export default function AddLeadModal({
         installmentAmount: context.billingVisible ? numericOrNull(form.installmentAmount) : null,
         signedDate: context.billingVisible ? dateOrNull(form.signedDate) : null,
         notes: form.notes || undefined,
+        convertedAgencyId: showAgencyLink ? (form.linkedAgencyId || null) : null,
       })
       setSaving(false)
       if (result.error) { setError(result.error); return }
@@ -234,6 +272,24 @@ export default function AddLeadModal({
             </select>
           </div>
         </div>
+
+        {showAgencyLink && (
+          <div>
+            <label className={labelCls}>Associated Agency <span className="text-gray-400 font-normal">(optional)</span></label>
+            <select
+              className={inputCls}
+              value={form.linkedAgencyId}
+              onChange={set('linkedAgencyId')}
+              disabled={loadingAgencies}
+            >
+              <option value="">— Select existing agency —</option>
+              {agencies.map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Link this lead to an existing agency account.</p>
+          </div>
+        )}
 
         {/* Billing (admin agency leads only) */}
         {context.billingVisible && (

@@ -33,10 +33,11 @@ export default async function AgencyLeadDetailPage({
 
   const { id } = await params
 
-  const [{ data: lead }, { data: notes }, { data: tasks }] = await Promise.all([
+  const [{ data: lead }, { data: notes }, { data: tasks }, { data: documents }] = await Promise.all([
     q.getLeadById(supabase, id),
     q.getLeadNotes(supabase, id),
     q.getLeadTasks(supabase, id),
+    q.getLeadDocuments(supabase, id),
   ])
 
   if (!lead || lead.agency_id !== agencyId) redirect('/pages/agency/leads')
@@ -63,7 +64,9 @@ export default async function AgencyLeadDetailPage({
         lead={lead as unknown as LeadDetailProps['lead']}
         notes={(notes ?? []) as unknown as LeadDetailProps['notes']}
         tasks={tasks ?? []}
+        documents={(documents ?? []) as unknown as LeadDetailProps['documents']}
         context={context}
+        currentUserRole={profile?.role}
       />
     </DashboardLayout>
   )

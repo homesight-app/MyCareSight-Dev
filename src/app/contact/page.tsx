@@ -14,8 +14,15 @@ const SERVICE_TYPES = [
   { key: 'non_skilled',            label: 'Non-Skilled' },
   { key: 'skilled_achc',           label: 'Skilled; ACHC Accredited' },
   { key: 'nurse_registry',         label: 'Nurse Registry' },
-  { key: 'consulting_90_days',     label: '90 Days Consulting' },
-  { key: 'resurvey_deficiencies',  label: '18 Resurvey Deficiencies' },
+  { key: 'plan_of_correction',     label: 'Plan of Correction' },
+  { key: 'license_renewal',        label: 'License Renewal' },
+  { key: 'mock_survey',            label: 'Mock Survey' },
+  { key: 'skilled_chap',           label: 'Skilled; CHAP Accredited' },
+  { key: 'homemaker_companion',    label: 'Homemaker Companion' },
+  { key: 'policies',               label: 'Policies' },
+  { key: 'licensure_changes',      label: 'Licensure Changes' },
+  { key: 'emergency_plan',  label: 'Emergency Plan' },
+  { key: 'other',     label: 'Other' },
 ]
 
 const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
@@ -259,10 +266,10 @@ export default function ContactPage() {
           {submitting ? 'Sending…' : 'Send'}
         </button>
 
-        <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 16 }}>
+        {/* <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 16 }}>
           <a href="#" style={{ fontSize: 12, color: '#6b7280' }}>SMS Privacy Policy</a>
           <a href="#" style={{ fontSize: 12, color: '#6b7280' }}>SMS Terms &amp; Conditions</a>
-        </div>
+        </div> */}
       </form>
     </div>
   )

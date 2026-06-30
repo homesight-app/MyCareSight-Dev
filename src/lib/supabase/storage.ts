@@ -4,6 +4,7 @@ export const STORAGE_BUCKET = {
   APPLICATION: 'application-documents',
   PATIENT: 'patient-documents',
   STAFF_MEMBER: 'staff-member-documents',
+  LEAD: 'lead-documents',
 } as const
 
 /**

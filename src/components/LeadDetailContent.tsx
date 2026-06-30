@@ -15,7 +15,9 @@ import {
   deleteLeadTask,
   convertLeadToAgency,
   archiveLead,
+  unlinkLeadFromAgency,
 } from '@/app/actions/leads'
+import LeadDocumentsTab, { type LeadDocument } from './LeadDocumentsTab'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -75,7 +77,9 @@ interface LeadDetailContentProps {
   lead: Lead
   notes: LeadNote[]
   tasks: LeadTask[]
+  documents: LeadDocument[]
   context: LeadContext
+  currentUserRole?: string | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -121,9 +125,10 @@ const noteTypeColorMap: Record<string, string> = {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function LeadDetailContent({ lead, notes, tasks, context }: LeadDetailContentProps) {
+export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserRole }: LeadDetailContentProps) {
   const router = useRouter()
-  const [tab, setTab] = useState<'overview' | 'notes' | 'tasks'>('overview')
+  const [tab, setTab] = useState<'overview' | 'notes' | 'tasks' | 'documents'>('overview')
+  const [unlinking, setUnlinking] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
@@ -274,7 +279,7 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
         {/* Tabs */}
         <div className="border-b border-gray-200">
           <nav className="flex gap-1">
-            {(['overview', 'notes', 'tasks'] as const).map(t => (
+            {(['overview', 'notes', 'tasks', 'documents'] as const).map(t => (
               <button
                 key={t}
                 type="button"
@@ -291,6 +296,9 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                 )}
                 {t === 'tasks' && pendingTasks.length > 0 && (
                   <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5">{pendingTasks.length}</span>
+                )}
+                {t === 'documents' && documents.length > 0 && (
+                  <span className="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{documents.length}</span>
                 )}
               </button>
             ))}
@@ -400,7 +408,7 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
               {context.conversionAction && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
                   <h3 className="text-sm font-semibold text-gray-900 mb-3">Conversion</h3>
-                  {lead.converted_agency_id && lead.converted_agency ? (
+                  {lead.converted_agency_id && lead.converted_agency && lead.converted_at ? (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                       <p className="text-xs font-medium text-green-700 mb-1">Converted</p>
                       <a
@@ -411,6 +419,33 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
                         {lead.converted_agency.name}
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
+                    </div>
+                  ) : lead.converted_agency_id && lead.converted_agency && !lead.converted_at ? (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                      <p className="text-xs font-medium text-blue-700">Associated Agency</p>
+                      <a
+                        href={`/pages/admin/agencies/${lead.converted_agency.id}`}
+                        className="flex items-center gap-1.5 text-sm text-blue-800 font-medium hover:underline"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {lead.converted_agency.name}
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                      {(currentUserRole === 'admin' || currentUserRole === 'expert') && (
+                        <button
+                          type="button"
+                          disabled={unlinking}
+                          onClick={async () => {
+                            setUnlinking(true)
+                            await unlinkLeadFromAgency(lead.id)
+                            setUnlinking(false)
+                            router.refresh()
+                          }}
+                          className="text-xs text-blue-500 hover:text-blue-700 transition-colors disabled:opacity-50"
+                        >
+                          {unlinking ? 'Removing…' : 'Remove link'}
+                        </button>
+                      )}
                     </div>
                   ) : lead.converted_client_id ? (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-3">
@@ -754,6 +789,15 @@ export default function LeadDetailContent({ lead, notes, tasks, context }: LeadD
               </div>
             )}
           </div>
+        )}
+
+        {/* ─── Documents Tab ──────────────────────────────────────────── */}
+        {tab === 'documents' && (
+          <LeadDocumentsTab
+            leadId={lead.id}
+            initialDocuments={documents}
+            canUpload={currentUserRole === 'admin' || currentUserRole === 'expert'}
+          />
         )}
       </div>
 

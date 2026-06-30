@@ -15,8 +15,15 @@ export const AGENCY_SERVICE_TYPES = [
   { key: 'non_skilled',           label: 'Non-Skilled' },
   { key: 'skilled_achc',          label: 'Skilled; ACHC Accred' },
   { key: 'nurse_registry',        label: 'Nurse Registry' },
-  { key: 'consulting_90_days',    label: '90 Days Consulting' },
-  { key: 'resurvey_deficiencies', label: '18 Resurvey Deficiencies' },
+  { key: 'plan_of_correction',     label: 'Plan of Correction' },
+  { key: 'license_renewal',        label: 'License Renewal' },
+  { key: 'mock_survey',            label: 'Mock Survey' },
+  { key: 'skilled_chap',           label: 'Skilled; CHAP Accredited' },
+  { key: 'homemaker_companion',    label: 'Homemaker Companion' },
+  { key: 'policies',               label: 'Policies' },
+  { key: 'licensure_changes',      label: 'Licensure Changes' },
+  { key: 'emergency_plan',  label: 'Emergency Plan' },
+  { key: 'other',     label: 'Other' },
 ]
 
 export const PATIENT_SERVICE_TYPES = [

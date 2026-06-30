@@ -18,12 +18,13 @@ export default async function AdminLeadDetailPage({
   const { id } = await params
   const supabase = await createClient()
 
-  const [{ count: unreadNotifications }, { data: lead }, { data: notes }, { data: tasks }] =
+  const [{ count: unreadNotifications }, { data: lead }, { data: notes }, { data: tasks }, { data: documents }] =
     await Promise.all([
       q.getUnreadNotificationsCount(supabase, user.id),
       q.getLeadById(supabase, id),
       q.getLeadNotes(supabase, id),
       q.getLeadTasks(supabase, id),
+      q.getLeadDocuments(supabase, id),
     ])
 
   if (!lead) redirect('/pages/admin/leads')
@@ -38,7 +39,9 @@ export default async function AdminLeadDetailPage({
         lead={lead as unknown as LeadDetailProps['lead']}
         notes={(notes ?? []) as unknown as LeadDetailProps['notes']}
         tasks={tasks ?? []}
+        documents={(documents ?? []) as unknown as LeadDetailProps['documents']}
         context={ADMIN_LEAD_CONTEXT}
+        currentUserRole={profile?.role}
       />
     </AdminLayout>
   )

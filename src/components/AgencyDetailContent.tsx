@@ -24,11 +24,14 @@ import {
   Loader2,
   X,
   ChevronDown,
+  TrendingUp,
+  ExternalLink,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
+import { LEAD_STAGES } from '@/lib/constants/lead-configs'
 import CreateLicenseModal from './CreateLicenseModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
 import AgencyOnboardingLinkPanel from './AgencyOnboardingLinkPanel'
@@ -113,6 +116,32 @@ interface AgencyAdmin {
   contact_email?: string | null
 }
 
+interface AgencyLead {
+  id: string
+  contact_first_name: string | null
+  contact_last_name: string | null
+  company_name: string | null
+  service_type: string | null
+  stage: string
+  source: string | null
+  price: number | null
+  retainer_amount: number | null
+  installment_amount: number | null
+  signed_date: string | null
+  converted_at: string | null
+  created_at: string
+}
+
+interface AgencyLeadDocument {
+  id: string
+  lead_id: string
+  document_name: string
+  file_url: string
+  file_name: string | null
+  document_type: string | null
+  created_at: string
+}
+
 interface AgencyDetailContentProps {
   agency: Agency
   licenses: License[]
@@ -123,6 +152,8 @@ interface AgencyDetailContentProps {
   canEdit?: boolean
   activeToken?: OnboardingToken | null
   keyStaff?: AgencyKeyStaff[]
+  agencyLeads?: AgencyLead[]
+  agencyLeadDocuments?: AgencyLeadDocument[]
 }
 
 type OrgFormState = {
@@ -249,13 +280,15 @@ export default function AgencyDetailContent({
   canEdit = false,
   activeToken = null,
   keyStaff = [],
+  agencyLeads = [],
+  agencyLeadDocuments = [],
 }: AgencyDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const rawTab = searchParams.get('tab')
-  const initialTab: 'licenses' | 'organization' | 'users' =
-    rawTab === 'organization' ? 'organization' : rawTab === 'users' ? 'users' : 'licenses'
-  const [activeTab, setActiveTab] = useState<'licenses' | 'organization' | 'users'>(initialTab)
+  const initialTab: 'licenses' | 'organization' | 'users' | 'leads' =
+    rawTab === 'organization' ? 'organization' : rawTab === 'users' ? 'users' : rawTab === 'leads' ? 'leads' : 'licenses'
+  const [activeTab, setActiveTab] = useState<'licenses' | 'organization' | 'users' | 'leads'>(initialTab)
   const [usersTabActivated, setUsersTabActivated] = useState(initialTab === 'users')
   const [activeSection, setActiveSection] = useState<AgencySection>('business')
   const [editingSection, setEditingSection] = useState<AgencySection | null>(null)
@@ -544,6 +577,7 @@ export default function AgencyDetailContent({
         <div className="flex border-b border-gray-200">
           {([
             { key: 'licenses', label: 'Licenses' },
+            { key: 'leads', label: `Leads${agencyLeads.length > 0 ? ` (${agencyLeads.length})` : ''}` },
             { key: 'organization', label: 'Organization' },
             { key: 'users', label: 'Users' },
           ] as const).map(({ key: tab, label }) => (
@@ -1139,6 +1173,137 @@ export default function AgencyDetailContent({
           </div>
         </div>
       )}
+
+      {/* Leads tab */}
+      {activeTab === 'leads' && (() => {
+        const stageColorMap = Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.color]))
+        const totalDeals = agencyLeads.length
+        const totalValue = agencyLeads.reduce((sum, l) => sum + (l.price ?? 0), 0)
+        const signedLeads = agencyLeads.filter(l => l.stage === 'signed' || l.converted_at)
+        const signedValue = signedLeads.reduce((sum, l) => sum + (l.price ?? 0), 0)
+        const retainerCollected = agencyLeads.reduce((sum, l) => sum + (l.retainer_amount ?? 0), 0)
+
+        const fmtCurrency = (n: number) =>
+          new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+
+        const leadNameMap = Object.fromEntries(
+          agencyLeads.map(l => [l.id, `${l.contact_first_name ?? ''} ${l.contact_last_name ?? ''}`.trim() || l.company_name || '(No name)'])
+        )
+
+        return (
+          <div className="space-y-6">
+            {/* Revenue summary cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[
+                { label: 'Total Deals', value: String(totalDeals), icon: <Briefcase className="w-8 h-8 text-blue-400" /> },
+                { label: 'Total Value', value: fmtCurrency(totalValue), icon: <TrendingUp className="w-8 h-8 text-indigo-400" /> },
+                { label: 'Signed Value', value: fmtCurrency(signedValue), icon: <CheckCircle2 className="w-8 h-8 text-green-500" /> },
+                { label: 'Retainer Collected', value: fmtCurrency(retainerCollected), icon: <Hash className="w-8 h-8 text-orange-400" /> },
+              ].map(card => (
+                <div key={card.label} className="bg-white rounded-xl p-5 shadow-md border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">{card.label}</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">{card.value}</p>
+                  </div>
+                  {card.icon}
+                </div>
+              ))}
+            </div>
+
+            {/* Deals table */}
+            <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-blue-600" />
+                <h2 className="text-base font-semibold text-gray-900">Deals</h2>
+              </div>
+              {agencyLeads.length === 0 ? (
+                <div className="py-12 text-center text-gray-400">
+                  <Briefcase className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">No associated leads yet.</p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-5 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Lead</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Stage</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-40">Service Type</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Price</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Signed Date</th>
+                      <th className="px-4 py-3 w-10" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {agencyLeads.map(lead => (
+                      <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-3">
+                          <p className="text-sm font-medium text-gray-900">{leadNameMap[lead.id]}</p>
+                          {lead.company_name && (
+                            <p className="text-xs text-gray-400 mt-0.5">{lead.company_name}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {LEAD_STAGES.find(s => s.key === lead.stage)?.label ?? lead.stage}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{lead.service_type ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{lead.price != null ? fmtCurrency(lead.price) : '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {lead.signed_date ? new Date(lead.signed_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <a href={`/pages/admin/leads/${lead.id}`} className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors inline-flex">
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Documents across all leads */}
+            {agencyLeadDocuments.length > 0 && (
+              <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                  <h2 className="text-base font-semibold text-gray-900">Proposal Documents</h2>
+                </div>
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-5 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Document</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">Type</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-40">Lead</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {agencyLeadDocuments.map(doc => (
+                      <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            <span className="text-sm font-medium text-gray-900">{doc.document_name}</span>
+                          </div>
+                          {doc.file_name && <p className="text-xs text-gray-400 ml-6 mt-0.5">{doc.file_name}</p>}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{doc.document_type ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{leadNameMap[doc.lead_id] ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">
+                          {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Users tab — lazy-mounted on first activation, kept in DOM after that */}
       <div className={activeTab === 'users' ? '' : 'hidden'}>

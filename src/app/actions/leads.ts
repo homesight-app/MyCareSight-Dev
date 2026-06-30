@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
+import * as q from '@/lib/supabase/query'
+import { STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 function revalidateLeadPaths() {
   revalidatePath('/pages/admin/leads')
@@ -52,6 +54,7 @@ export async function createLead(payload: {
   notes?: string
   assignedTo?: string | null
   source?: string
+  convertedAgencyId?: string | null
 }) {
   let userId: string
 
@@ -88,6 +91,7 @@ export async function createLead(payload: {
       signed_date: payload.signedDate ?? null,
       notes: payload.notes ?? null,
       source: payload.source ?? null,
+      converted_agency_id: payload.convertedAgencyId ?? null,
       status: 'active',
       updated_at: new Date().toISOString(),
     })
@@ -116,28 +120,34 @@ export async function updateLead(
     signedDate?: string | null
     notes?: string | null
     assignedTo?: string | null
+    source?: string | null
+    convertedAgencyId?: string | null
   }
 ) {
   const supabase = await createClient()
+  const updateData: Record<string, unknown> = {
+    contact_first_name: payload.contactFirstName,
+    contact_last_name: payload.contactLastName,
+    contact_email: payload.contactEmail,
+    contact_phone: payload.contactPhone,
+    company_name: payload.companyName,
+    service_type: payload.serviceType,
+    price: payload.price,
+    retainer_amount: payload.retainerAmount,
+    retainer_paid_date: payload.retainerPaidDate,
+    installments: payload.installments,
+    installment_amount: payload.installmentAmount,
+    signed_date: payload.signedDate,
+    notes: payload.notes,
+    assigned_to: payload.assignedTo,
+    updated_at: new Date().toISOString(),
+  }
+  if (payload.source !== undefined) updateData.source = payload.source
+  if ('convertedAgencyId' in payload) updateData.converted_agency_id = payload.convertedAgencyId ?? null
+
   const { error } = await supabase
     .from('leads')
-    .update({
-      contact_first_name: payload.contactFirstName,
-      contact_last_name: payload.contactLastName,
-      contact_email: payload.contactEmail,
-      contact_phone: payload.contactPhone,
-      company_name: payload.companyName,
-      service_type: payload.serviceType,
-      price: payload.price,
-      retainer_amount: payload.retainerAmount,
-      retainer_paid_date: payload.retainerPaidDate,
-      installments: payload.installments,
-      installment_amount: payload.installmentAmount,
-      signed_date: payload.signedDate,
-      notes: payload.notes,
-      assigned_to: payload.assignedTo,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq('id', leadId)
 
   if (error) return { error: error.message }
@@ -271,13 +281,13 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
 
   const { data: lead, error: fetchErr } = await supabase
     .from('leads')
-    .select('id, lead_type, stage, converted_agency_id, company_name')
+    .select('id, lead_type, stage, converted_agency_id, converted_at, company_name')
     .eq('id', leadId)
     .single()
 
   if (fetchErr || !lead) return { error: 'Lead not found' }
   if (lead.lead_type !== 'agency') return { error: 'Not an agency lead' }
-  if (lead.converted_agency_id) return { error: 'Already converted' }
+  if (lead.converted_agency_id && lead.converted_at) return { error: 'Already converted' }
   if (lead.stage !== 'signed') return { error: 'Lead must be at the Signed stage before converting to an agency' }
 
   const agencyName = agencyNameOverride?.trim() || lead.company_name?.trim()
@@ -312,6 +322,78 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
   revalidateLeadDetail(leadId)
   revalidatePath('/pages/admin/agencies')
   return { error: null, agencyId: agency.id }
+}
+
+export async function linkLeadToExistingAgency(leadId: string, agencyId: string) {
+  const { error: authErr } = await requirePlatformStaff()
+  if (authErr) return { error: authErr }
+
+  const supabase = await createClient()
+  const { error } = await q.linkLeadToExistingAgency(supabase, leadId, agencyId)
+  if (error) return { error: error.message }
+  revalidateLeadDetail(leadId)
+  return { error: null }
+}
+
+export async function unlinkLeadFromAgency(leadId: string) {
+  const { error: authErr } = await requirePlatformStaff()
+  if (authErr) return { error: authErr }
+
+  const supabase = await createClient()
+  const { error } = await q.unlinkLeadFromAgency(supabase, leadId)
+  if (error) return { error: error.message }
+  revalidateLeadDetail(leadId)
+  return { error: null }
+}
+
+export async function uploadLeadDocument(
+  leadId: string,
+  formData: FormData
+): Promise<{ error: string | null; doc?: { id: string; document_name: string; file_url: string } }> {
+  const { error: authErr, session } = await requirePlatformStaff()
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+
+  const file = formData.get('file') as File | null
+  const documentName = formData.get('document_name') as string | null
+  const documentType = formData.get('document_type') as string | null
+
+  if (!file || !documentName?.trim()) return { error: 'File and document name are required' }
+
+  const supabase = await createClient()
+  const ext = file.name.split('.').pop()
+  const filePath = `${leadId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+
+  const { error: uploadErr } = await supabase.storage.from(STORAGE_BUCKET.LEAD).upload(filePath, file)
+  if (uploadErr) return { error: uploadErr.message }
+
+  const { data, error: insertErr } = await q.insertLeadDocument(supabase, {
+    lead_id: leadId,
+    document_name: documentName.trim(),
+    file_url: filePath,
+    file_name: file.name,
+    document_type: documentType ?? null,
+    uploaded_by: session.user.id,
+  })
+
+  if (insertErr) {
+    await supabase.storage.from(STORAGE_BUCKET.LEAD).remove([filePath])
+    return { error: insertErr.message }
+  }
+
+  revalidateLeadDetail(leadId)
+  return { error: null, doc: { id: data!.id, document_name: documentName.trim(), file_url: filePath } }
+}
+
+export async function deleteLeadDocumentAction(leadId: string, docId: string, filePath: string) {
+  const { error: authErr } = await requirePlatformStaff()
+  if (authErr) return { error: authErr }
+
+  const supabase = await createClient()
+  await supabase.storage.from(STORAGE_BUCKET.LEAD).remove([filePath])
+  const { error } = await q.deleteLeadDocument(supabase, docId)
+  if (error) return { error: error.message }
+  revalidateLeadDetail(leadId)
+  return { error: null }
 }
 
 export async function linkLeadToPatient(leadId: string, patientId: string) {

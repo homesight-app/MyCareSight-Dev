@@ -146,3 +146,68 @@ export async function getLeadTasks(supabase: SupabaseClient, leadId: string) {
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true })
 }
+
+export async function getLeadDocuments(supabase: SupabaseClient, leadId: string) {
+  return supabase
+    .from('lead_documents')
+    .select('id, lead_id, document_name, file_url, file_name, document_type, description, uploaded_by, created_at')
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false })
+}
+
+export async function insertLeadDocument(
+  supabase: SupabaseClient,
+  data: { lead_id: string; document_name: string; file_url: string; file_name?: string | null; document_type?: string | null; description?: string | null; uploaded_by: string }
+) {
+  return supabase.from('lead_documents').insert(data).select('id').single()
+}
+
+export async function deleteLeadDocument(supabase: SupabaseClient, docId: string) {
+  return supabase.from('lead_documents').delete().eq('id', docId)
+}
+
+export async function getLeadsByAgency(supabase: SupabaseClient, agencyId: string) {
+  return supabase
+    .from('leads')
+    .select(`
+      id,
+      contact_first_name,
+      contact_last_name,
+      company_name,
+      service_type,
+      stage,
+      source,
+      price,
+      retainer_amount,
+      installment_amount,
+      signed_date,
+      converted_at,
+      created_at
+    `)
+    .eq('lead_type', 'agency')
+    .eq('converted_agency_id', agencyId)
+    .order('created_at', { ascending: false })
+}
+
+export async function getLeadDocumentsByLeadIds(supabase: SupabaseClient, leadIds: string[]) {
+  if (leadIds.length === 0) return { data: [], error: null }
+  return supabase
+    .from('lead_documents')
+    .select('id, lead_id, document_name, file_url, file_name, document_type, created_at')
+    .in('lead_id', leadIds)
+    .order('created_at', { ascending: false })
+}
+
+export async function linkLeadToExistingAgency(supabase: SupabaseClient, leadId: string, agencyId: string) {
+  return supabase
+    .from('leads')
+    .update({ converted_agency_id: agencyId, updated_at: new Date().toISOString() })
+    .eq('id', leadId)
+}
+
+export async function unlinkLeadFromAgency(supabase: SupabaseClient, leadId: string) {
+  return supabase
+    .from('leads')
+    .update({ converted_agency_id: null, updated_at: new Date().toISOString() })
+    .eq('id', leadId)
+}

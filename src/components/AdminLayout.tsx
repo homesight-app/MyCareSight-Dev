@@ -13,6 +13,8 @@ import {
   Target,
   BarChart3,
   FileStack,
+  ClipboardList,
+  BookOpen,
 } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
@@ -33,7 +35,9 @@ interface AdminLayoutProps {
 
 const MENU_ITEMS = [
   { href: '/pages/admin',                      label: 'Dashboard',           icon: Home,      title: 'Dashboard',           subtitle: 'Monitor and manage all licensing cases' },
-  { href: '/pages/admin/licenses',             label: 'Licenses',            icon: FileBadge, title: 'License Applications', subtitle: 'Review and manage all license application requests' },
+  { href: '/pages/admin/licenses',             label: 'Licenses',            icon: FileBadge,       title: 'License Applications', subtitle: 'Review and manage all license application requests' },
+  { href: '/pages/admin/programs',             label: 'Programs',            icon: ClipboardList,   title: 'Programs',             subtitle: 'Track active license programs, requirements, and progress' },
+  { href: '/pages/admin/playbooks',            label: 'Playbooks',           icon: BookOpen, title: 'Playbooks',            subtitle: 'Create and manage reusable playbook templates' },
   { href: '/pages/admin/license-requirements', label: 'License Requirements', icon: FileText, title: 'License Requirements' },
   { href: '/pages/admin/billing',              label: 'Billing & Invoicing', icon: DollarSign, title: 'Billing & Invoicing',  subtitle: 'View all agencies and their license applications for invoicing' },
   { href: '/pages/admin/agencies',             label: 'Agency',              icon: Building2, title: 'Agencies' },

@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Modal from './Modal'
-import { Heart, Users, ArrowRight, DollarSign, Clock, RefreshCw, Loader2 } from 'lucide-react'
+import { Heart, Users, BookOpen, ArrowRight, DollarSign, Clock, RefreshCw, Loader2 } from 'lucide-react'
 import { LicenseType } from '@/types/license'
+import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 
@@ -12,6 +13,7 @@ interface SelectLicenseTypeModalProps {
   onClose: () => void
   state: string
   onSelectLicenseType: (licenseType: LicenseType) => void
+  onSelectPlaybook?: (playbook: StandalonePlaybook) => void
   onBack: () => void
 }
 
@@ -24,9 +26,11 @@ export default function SelectLicenseTypeModal({
   onClose,
   state,
   onSelectLicenseType,
+  onSelectPlaybook,
   onBack
 }: SelectLicenseTypeModalProps) {
   const [licenseTypes, setLicenseTypes] = useState<LicenseType[]>([])
+  const [standalonePlaybooks, setStandalonePlaybooks] = useState<StandalonePlaybook[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,15 +40,15 @@ export default function SelectLicenseTypeModal({
 
     try {
       const supabase = createClient()
-      
-      const { data, error: fetchError } = await q.getLicenseTypes(supabase, { state, isActive: true })
 
-      if (fetchError) {
-        throw fetchError
-      }
+      const [licenseResult, playbookResult] = await Promise.all([
+        q.getLicenseTypes(supabase, { state, isActive: true }),
+        q.getStandalonePlaybooksByState(supabase, state),
+      ])
 
-      // Transform database data to LicenseType format
-      const transformedData: LicenseType[] = (data || []).map((item) => ({
+      if (licenseResult.error) throw licenseResult.error
+
+      const transformedData: LicenseType[] = (licenseResult.data || []).map((item) => ({
         id: item.id,
         name: item.name,
         description: item.description,
@@ -58,9 +62,9 @@ export default function SelectLicenseTypeModal({
       }))
 
       setLicenseTypes(transformedData)
+      setStandalonePlaybooks((playbookResult.data ?? []) as StandalonePlaybook[])
     } catch (err: any) {
       setError(err.message || 'Failed to load license types. Please try again.')
-      console.error('Error fetching license types:', err)
     } finally {
       setIsLoading(false)
     }
@@ -71,10 +75,6 @@ export default function SelectLicenseTypeModal({
       fetchLicenseTypes()
     }
   }, [isOpen, state, fetchLicenseTypes])
-
-  const handleLicenseTypeClick = (licenseType: LicenseType) => {
-    onSelectLicenseType(licenseType)
-  }
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Select License Type - ${getStateAbbr(state)}`} size="lg">
@@ -91,20 +91,20 @@ export default function SelectLicenseTypeModal({
           </div>
         )}
 
-        {!isLoading && !error && licenseTypes.length === 0 && (
+        {!isLoading && !error && licenseTypes.length === 0 && standalonePlaybooks.length === 0 && (
           <div className="text-center py-12">
             <p className="text-gray-600">No license types available for {state}.</p>
           </div>
         )}
 
+        {/* License types */}
         {!isLoading && licenseTypes.map((licenseType) => (
           <button
             key={licenseType.id}
-            onClick={() => handleLicenseTypeClick(licenseType)}
+            onClick={() => onSelectLicenseType(licenseType)}
             className="w-full text-left bg-gray-50 hover:bg-gray-100 rounded-xl p-5 transition-all border border-gray-200 hover:border-gray-300 hover:shadow-md"
           >
             <div className="flex items-center gap-4">
-              {/* Icon */}
               <div className="w-16 h-16 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                 {licenseType.icon === 'heart' ? (
                   <Heart className="w-8 h-8 text-blue-600" />
@@ -112,13 +112,9 @@ export default function SelectLicenseTypeModal({
                   <Users className="w-8 h-8 text-blue-600" />
                 )}
               </div>
-
-              {/* Content */}
               <div className="flex-1">
                 <h3 className="font-bold text-gray-900 text-lg mb-1">{licenseType.name}</h3>
                 <p className="text-gray-600 text-sm mb-3">{licenseType.description}</p>
-
-                {/* Details */}
                 <div className="flex flex-wrap gap-4 text-sm">
                   <div className="flex items-center gap-2">
                     <DollarSign className="w-4 h-4 text-green-600" />
@@ -144,8 +140,54 @@ export default function SelectLicenseTypeModal({
                   </div>
                 </div>
               </div>
+              <div className="flex-shrink-0">
+                <ArrowRight className="w-6 h-6 text-gray-400" />
+              </div>
+            </div>
+          </button>
+        ))}
 
-              {/* Arrow */}
+        {/* Standalone playbooks (programs) */}
+        {!isLoading && standalonePlaybooks.length > 0 && onSelectPlaybook && standalonePlaybooks.map((playbook) => (
+          <button
+            key={playbook.id}
+            onClick={() => onSelectPlaybook(playbook)}
+            className="w-full text-left bg-gray-50 hover:bg-gray-100 rounded-xl p-5 transition-all border border-gray-200 hover:border-teal-300 hover:shadow-md"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 bg-teal-100 rounded-lg flex items-center justify-center flex-shrink-0 relative">
+                <BookOpen className="w-8 h-8 text-teal-600" />
+                <span className="absolute -top-1.5 -right-1.5 text-[10px] font-bold bg-teal-500 text-white px-1.5 py-0.5 rounded-full leading-none">
+                  Program
+                </span>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-gray-900 text-lg mb-1">{playbook.name}</h3>
+                <p className="text-gray-600 text-sm mb-3">{playbook.description}</p>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  {playbook.cost_display && (
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="w-4 h-4 text-green-600" />
+                      <span className="text-gray-700 font-medium">Fee:</span>
+                      <span className="text-gray-600">{playbook.cost_display}</span>
+                    </div>
+                  )}
+                  {playbook.service_fee_display && (
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="w-4 h-4 text-blue-600" />
+                      <span className="text-gray-700 font-medium">Service Fee:</span>
+                      <span className="text-gray-600">{playbook.service_fee_display}</span>
+                    </div>
+                  )}
+                  {playbook.processing_time_display && (
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-orange-600" />
+                      <span className="text-gray-700 font-medium">Timeline:</span>
+                      <span className="text-gray-600">{playbook.processing_time_display}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="flex-shrink-0">
                 <ArrowRight className="w-6 h-6 text-gray-400" />
               </div>

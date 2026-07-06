@@ -68,7 +68,11 @@
 
     "@tiptap/starter-kit": "^3.27.0",
 
+    "@types/pdf-parse": "^1.1.5",
+
     "dayjs": "^1.11.20",
+
+    "docx-preview": "^0.3.7",
 
     "eslint-config-prettier": "^9.1.0",
 
@@ -83,6 +87,8 @@
     "next-sitemap": "^4.2.3",
 
     "nodemailer": "^8.0.1",
+
+    "pdf-parse": "^2.4.5",
 
     "prettier": "^3.4.2",
 

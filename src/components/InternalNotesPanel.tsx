@@ -71,7 +71,7 @@ interface CaregiverTagOption {
   last_name: string
 }
 
-const APPLICATION_SUBJECT_TYPES = new Set(['application', 'application_step', 'application_document'])
+const APPLICATION_SUBJECT_TYPES = new Set(['application', 'application_step', 'application_document', 'application_playbook_item'])
 
 interface InternalNotesPanelProps {
   subjectType: InternalNoteSubjectType

@@ -17,6 +17,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import Modal from './Modal'
+import { acceptApplicationRequest } from '@/app/actions/applications'
 
 interface Application {
   id: string
@@ -31,6 +32,7 @@ interface Application {
   company_owner_id: string
   assigned_expert_id?: string | null
   license_type_id?: string | null
+  playbook_id?: string | null
   user_profiles: {
     full_name: string | null
     email: string | null
@@ -50,12 +52,14 @@ interface AdminLicensesContentProps {
   requestedApplications: Application[]
   allApplications: Application[]
   experts: Expert[]
+  playbookSet?: Set<string>
 }
 
-export default function AdminLicensesContent({ 
+export default function AdminLicensesContent({
   requestedApplications,
   allApplications,
-  experts 
+  experts,
+  playbookSet,
 }: AdminLicensesContentProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState<string | null>(null)
@@ -166,29 +170,18 @@ export default function AdminLicensesContent({
   }, [pendingApproveApplicationId, requestedApplications])
 
   const handleApprove = async (applicationId: string) => {
+    const application = requestedApplications.find(a => a.id === applicationId)
+    if (!application || !application.assigned_expert_id) {
+      alert('Please assign an expert before approving the application')
+      return
+    }
     setIsLoading(applicationId)
     try {
-      const supabase = createClient()
-      
-      const application = requestedApplications.find(a => a.id === applicationId)
-      if (!application || !application.assigned_expert_id) {
-        alert('Please assign an expert before approving the application')
-        setIsLoading(null)
-        return
-      }
-      
-      const { error } = await q.updateApplicationById(supabase, applicationId, {
-        status: 'in_progress',
-        last_updated_date: new Date().toISOString().split('T')[0]
-      })
-
-      if (error) {
-        throw error
-      }
-
+      const { error } = await acceptApplicationRequest(applicationId)
+      if (error) throw new Error(error)
       setPendingApproveApplicationId(applicationId)
       router.refresh()
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error approving application:', err)
       alert('Failed to approve application. Please try again.')
     } finally {
@@ -299,7 +292,12 @@ export default function AdminLicensesContent({
                           {getStateAbbr(application.state)}
                         </div>
                         <div>
-                          <h3 className="font-semibold text-gray-900 text-lg">{application.application_name}</h3>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold text-gray-900 text-lg">{application.application_name}</h3>
+                            {(!!application.playbook_id || playbookSet?.has(`${application.state}|${application.application_name}`)) && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">Program</span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 mt-1">
                             <User className="w-4 h-4 text-gray-500" />
                             <span className="text-sm text-gray-600">
@@ -367,7 +365,7 @@ export default function AdminLicensesContent({
                         ) : (
                           <>
                             <Check className="w-4 h-4" />
-                            Approve
+                            {(!!application.playbook_id || playbookSet?.has(`${application.state}|${application.application_name}`)) ? 'Approve & Launch' : 'Approve'}
                           </>
                         )}
                       </button>

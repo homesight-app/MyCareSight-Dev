@@ -10,13 +10,21 @@ export default async function AdminLicensesPage() {
 
   const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
 
-  const { data: requestedApplicationsData, error: requestedError } = await q.getApplicationsByStatus(supabase, 'requested')
-  const { data: allApplicationsData, error: allAppsError } = await q.getApplicationsByStatuses(supabase, [
+  const [
+    { data: requestedApplicationsData, error: requestedError },
+    { data: allApplicationsData, error: allAppsError },
+    { data: playbooksData },
+  ] = await Promise.all([
+    q.getApplicationsByStatus(supabase, 'requested'),
+    q.getApplicationsByStatuses(supabase, [
     'in_progress',
     'under_review',
     'needs_revision',
     'approved',
     'rejected',
+    ],
+  ),
+    q.getPlaybooksWithRequirements(supabase),
   ])
 
   const requestedOwnerIds = requestedApplicationsData?.map(app => app.company_owner_id).filter(id => id !== null) || []
@@ -31,6 +39,14 @@ export default async function AdminLicensesPage() {
   // Create a map of owner profiles by ID for quick lookup
   const ownerProfilesMap = new Map(
     (ownerProfiles || []).map(profile => [profile.id, profile])
+  )
+
+  // Build playbook availability set: "state|licenseTypeName"
+  const playbookSet = new Set(
+    (playbooksData ?? []).map(p => {
+      const lr = p.license_requirement as unknown as { state: string; license_type: string } | null
+      return lr ? `${lr.state}|${lr.license_type}` : null
+    }).filter(Boolean) as string[]
   )
 
   // Merge owner profiles with applications
@@ -90,10 +106,11 @@ export default async function AdminLicensesPage() {
       profile={profile} 
       unreadNotifications={unreadNotifications || 0}
     >
-      <AdminLicensesContent 
+      <AdminLicensesContent
         requestedApplications={requestedApplications || []}
         allApplications={allApplications || []}
         experts={experts || []}
+        playbookSet={playbookSet}
       />
     </AdminLayout>
   )

@@ -17,6 +17,8 @@ interface ReviewLicenseRequestModalProps {
   onBack: () => void
   /** When provided, the application is created for the agency (admin/expert mode). */
   agencyId?: string
+  /** When true, approving this request will automatically launch a Program checklist. */
+  hasPlaybook?: boolean
 }
 
 const getStateAbbr = (state: string) => {
@@ -30,6 +32,7 @@ export default function ReviewLicenseRequestModal({
   licenseType,
   onBack,
   agencyId,
+  hasPlaybook,
 }: ReviewLicenseRequestModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -188,6 +191,14 @@ export default function ReviewLicenseRequestModal({
             ))}
           </div>
         </div>
+
+        {/* Program launch notice */}
+        {hasPlaybook && (
+          <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 flex-shrink-0" />
+            <p className="text-sm text-blue-800">A Program checklist will be launched automatically when this request is approved.</p>
+          </div>
+        )}
 
         {/* What happens next? */}
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-5">

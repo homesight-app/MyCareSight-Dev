@@ -44,6 +44,7 @@ import Modal from './Modal'
 import ExpertStepsPanel from './ExpertStepsPanel'
 import ApplicationNotesModal from './ApplicationNotesModal'
 import ApplicationInternalNotesTab from './ApplicationInternalNotesTab'
+import ApplicationRequirementsTab from './ApplicationRequirementsTab'
 
 interface Application {
   id: string
@@ -130,6 +131,7 @@ interface ApplicationDetailContentProps {
   agencyName?: string | null
   ownerProfile?: { id: string; full_name: string | null; email: string | null } | null
   assignedExpertProfile?: { id: string; full_name: string | null; email: string | null } | null
+  mode?: 'program' // When 'program': shows Requirements/Messages/Templates/Program Notes tabs only
 }
 
 type TabType = 'next-steps' | 'documents' | 'requirements' | 'templates' | 'message' | 'expert-process' | 'internal-notes'
@@ -143,15 +145,20 @@ export default function ApplicationDetailContent({
   agencyName,
   ownerProfile,
   assignedExpertProfile,
+  mode,
 }: ApplicationDetailContentProps) {
   const [infoModalStep, setInfoModalStep] = useState<any | null>(null)
+  const [programProgressPct, setProgramProgressPct] = useState<number | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [internalActiveTab, setInternalActiveTab] = useState<TabType>(showInlineTabs ? 'next-steps' : 'message')
+  const [internalActiveTab, setInternalActiveTab] = useState<TabType>(
+    mode === 'program' ? 'requirements' : (showInlineTabs ? 'next-steps' : 'message')
+  )
   const activeTab = externalActiveTab ?? internalActiveTab
   const fromNotification = searchParams?.get('fromNotification') === 'true'
   
   const [unreadMessageCount, setUnreadMessageCount] = useState(0)
+  const [programNotesCount, setProgramNotesCount] = useState(0)
 
   const handleTabChange = (tab: TabType) => {
     if (tab === 'message') setUnreadMessageCount(0)
@@ -627,6 +634,18 @@ export default function ApplicationDetailContent({
       fetchExpertSteps()
     }
   }, [activeTab, fetchExpertSteps])
+
+  // Program notes count — fetch on mount and refresh whenever the notes tab is closed
+  useEffect(() => {
+    if (mode !== 'program') return
+    const client = createClient()
+    client
+      .from('internal_notes')
+      .select('id', { count: 'exact', head: true })
+      .eq('subject_type', 'application')
+      .eq('subject_id', application.id)
+      .then(({ count }) => setProgramNotesCount(count ?? 0))
+  }, [mode, application.id, activeTab])
 
   const fetchNoteCounts = useCallback(async (subjectIds: string[]) => {
     if (!subjectIds.length) return
@@ -1574,7 +1593,7 @@ export default function ApplicationDetailContent({
     }
   }
   const statusStyles = getStatusStyles(application.status)
-  const pct = computedProgress
+  const pct = (mode === 'program' && programProgressPct !== null) ? programProgressPct : computedProgress
 
   // Compact header - always shown
   const summaryBlocks = (
@@ -1690,7 +1709,12 @@ export default function ApplicationDetailContent({
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 -mt-2">
       <div className="border-b border-gray-200">
         <nav className="flex space-x-4 px-6 overflow-x-auto" aria-label="Tabs">
-          {[
+          {(mode === 'program' ? [
+            { id: 'requirements',   label: 'Next Steps',    badge: 0 },
+            { id: 'templates',      label: 'Templates',     badge: 0 },
+            { id: 'message',        label: 'Messages',      badge: unreadMessageCount },
+            { id: 'internal-notes', label: 'Program Notes', badge: programNotesCount },
+          ] : [
             { id: 'next-steps',     label: 'Next Steps',    badge: incompleteStepsCount },
             { id: 'documents',      label: 'Documents',     badge: incompleteDocsCount },
             { id: 'templates',      label: 'Templates',     badge: 0 },
@@ -1701,7 +1725,7 @@ export default function ApplicationDetailContent({
             ...(currentUserRole === 'expert' || currentUserRole === 'admin'
               ? [{ id: 'internal-notes', label: 'Internal Notes', badge: 0 }]
               : []),
-          ].map((tab) => (
+          ]).map((tab) => (
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id as TabType)}
@@ -2459,6 +2483,17 @@ export default function ApplicationDetailContent({
         </div>
       )}
 
+
+      {activeTab === 'requirements' && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <ApplicationRequirementsTab
+            applicationId={application.id}
+            agencyId={application.agency_id ?? null}
+            isStaff={currentUserRole === 'admin' || currentUserRole === 'expert'}
+            onProgressChange={mode === 'program' ? setProgramProgressPct : undefined}
+          />
+        </div>
+      )}
 
       {activeTab === 'internal-notes' && (currentUserRole === 'admin' || currentUserRole === 'expert') && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">

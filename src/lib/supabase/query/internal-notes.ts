@@ -7,6 +7,7 @@ export type InternalNoteSubjectType =
   | 'application'
   | 'application_step'
   | 'application_document'
+  | 'application_playbook_item'
 
 export async function getInternalNotesBySubject(
   supabase: SupabaseClient,

@@ -13,7 +13,7 @@ import type { InternalNoteSubjectType } from '@/lib/supabase/query/internal-note
 // is the primary enforcement gate; this check is defense-in-depth only.
 const AGENCY_ROLES = new Set(['agency_admin', 'company_owner', 'care_coordinator'])
 const PLATFORM_ROLES = new Set(['admin', 'expert'])
-const APPLICATION_SUBJECT_TYPES = new Set(['application', 'application_step', 'application_document'])
+const APPLICATION_SUBJECT_TYPES = new Set(['application', 'application_step', 'application_document', 'application_playbook_item'])
 
 function isAllowedRole(subjectType: InternalNoteSubjectType, role: string): boolean {
   if (APPLICATION_SUBJECT_TYPES.has(subjectType)) return PLATFORM_ROLES.has(role)
@@ -23,6 +23,7 @@ function isAllowedRole(subjectType: InternalNoteSubjectType, role: string): bool
 const subjectTypeSchema = z.enum([
   'patient', 'caregiver', 'visit',
   'application', 'application_step', 'application_document',
+  'application_playbook_item',
 ])
 
 const addNoteSchema = z.object({

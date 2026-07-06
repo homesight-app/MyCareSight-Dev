@@ -13,6 +13,7 @@ import {
   Settings,
   Target,
   FileStack,
+  ClipboardList,
 } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
@@ -103,9 +104,10 @@ export default function DashboardLayout({
         { href: '/pages/agency/reports',      label: 'Reports',        icon: BarChart3,  title: 'Reports' },
       ]
     : [
-        { href: '/pages/agency',              label: 'Home',           icon: Home,        title: 'Home' },
-        { href: '/pages/agency/licenses',     label: 'Licenses',       icon: FileBadge,   title: 'Licenses' },
-        { href: '/pages/agency/clients',      label: 'Clients',        icon: UserCircle,  title: 'Clients' },
+        { href: '/pages/agency',              label: 'Home',           icon: Home,          title: 'Home' },
+        { href: '/pages/agency/licenses',     label: 'Licenses',       icon: FileBadge,     title: 'Licenses' },
+        { href: '/pages/agency/programs',     label: 'Programs',       icon: ClipboardList, title: 'Programs' },
+        { href: '/pages/agency/clients',      label: 'Clients',        icon: UserCircle,    title: 'Clients' },
         { href: '/pages/agency/caregiver',    label: 'Caregivers',     icon: Users,       title: 'Caregivers' },
         { href: '/pages/agency/care-visits',  label: 'Care Visits',    icon: CalendarDays, badge: resolvedCareVisits || undefined, title: 'Care Visits' },
         { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign,  badge: resolvedTimeBilling || undefined, title: 'Time & Billing' },

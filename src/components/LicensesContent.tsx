@@ -24,8 +24,10 @@ import {
 import NewLicenseApplicationModal from './NewLicenseApplicationModal'
 import SelectLicenseTypeModal from './SelectLicenseTypeModal'
 import ReviewLicenseRequestModal from './ReviewLicenseRequestModal'
+import ReviewPlaybookRequestModal from './ReviewPlaybookRequestModal'
 import CreateLicenseModal from './CreateLicenseModal'
 import { LicenseType } from '@/types/license'
+import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { useRouter } from 'next/navigation'
@@ -59,13 +61,15 @@ interface LicensesContentProps {
   documentCounts: Record<string, number>
   applications?: Application[]
   applicationDocumentCounts?: Record<string, number>
+  playbookSet?: Set<string>
 }
 
-export default function LicensesContent({ 
-  licenses, 
-  documentCounts, 
-  applications = [], 
-  applicationDocumentCounts = {} 
+export default function LicensesContent({
+  licenses,
+  documentCounts,
+  applications = [],
+  applicationDocumentCounts = {},
+  playbookSet,
 }: LicensesContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -74,9 +78,11 @@ export default function LicensesContent({
   const [isLicenseTypeModalOpen, setIsLicenseTypeModalOpen] = useState(false)
   const [resubmittingId, setResubmittingId] = useState<string | null>(null)
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false)
+  const [isPlaybookReviewModalOpen, setIsPlaybookReviewModalOpen] = useState(false)
   const [isCreateLicenseModalOpen, setIsCreateLicenseModalOpen] = useState(false)
   const [selectedState, setSelectedState] = useState<string>('')
   const [selectedLicenseType, setSelectedLicenseType] = useState<LicenseType | null>(null)
+  const [selectedPlaybook, setSelectedPlaybook] = useState<StandalonePlaybook | null>(null)
   const [loadingLicenseId, setLoadingLicenseId] = useState<string | null>(null)
   const [loadingApplicationId, setLoadingApplicationId] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
@@ -118,6 +124,12 @@ export default function LicensesContent({
     setIsReviewModalOpen(true)
   }
 
+  const handlePlaybookSelect = (playbook: StandalonePlaybook) => {
+    setSelectedPlaybook(playbook)
+    setIsLicenseTypeModalOpen(false)
+    setIsPlaybookReviewModalOpen(true)
+  }
+
   const handleBackToStateSelection = () => {
     setIsLicenseTypeModalOpen(false)
     setIsStateModalOpen(true)
@@ -128,12 +140,19 @@ export default function LicensesContent({
     setIsLicenseTypeModalOpen(true)
   }
 
+  const handleBackToTypesFromPlaybook = () => {
+    setIsPlaybookReviewModalOpen(false)
+    setIsLicenseTypeModalOpen(true)
+  }
+
   const handleCloseAll = () => {
     setIsStateModalOpen(false)
     setIsLicenseTypeModalOpen(false)
     setIsReviewModalOpen(false)
+    setIsPlaybookReviewModalOpen(false)
     setSelectedState('')
     setSelectedLicenseType(null)
+    setSelectedPlaybook(null)
   }
 
   const handleResubmit = async (applicationId: string) => {
@@ -1095,13 +1114,14 @@ export default function LicensesContent({
         onStateSelect={handleStateSelect}
       />
 
-      {/* License Type Selection Modal */}
+      {/* License Type / Program Selection Modal */}
       {selectedState && (
         <SelectLicenseTypeModal
           isOpen={isLicenseTypeModalOpen}
           onClose={handleCloseAll}
           state={selectedState}
           onSelectLicenseType={handleLicenseTypeSelect}
+          onSelectPlaybook={handlePlaybookSelect}
           onBack={handleBackToStateSelection}
         />
       )}
@@ -1114,6 +1134,18 @@ export default function LicensesContent({
           state={selectedState}
           licenseType={selectedLicenseType}
           onBack={handleBackToLicenseTypes}
+          hasPlaybook={playbookSet?.has(`${selectedState}|${selectedLicenseType?.name}`) ?? false}
+        />
+      )}
+
+      {/* Review Program Request Modal */}
+      {selectedState && selectedPlaybook && (
+        <ReviewPlaybookRequestModal
+          isOpen={isPlaybookReviewModalOpen}
+          onClose={handleCloseAll}
+          state={selectedState}
+          playbook={selectedPlaybook}
+          onBack={handleBackToTypesFromPlaybook}
         />
       )}
 

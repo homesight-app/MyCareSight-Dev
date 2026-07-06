@@ -12,6 +12,7 @@ interface UploadDocumentModalProps {
   applicationId: string
   onSuccess?: () => void
   licenseRequirementDocumentId?: string
+  applicationPlaybookItemId?: string
   defaultDocumentName?: string
   defaultDocumentType?: string
   autoApprove?: boolean
@@ -23,6 +24,7 @@ export default function UploadDocumentModal({
   applicationId,
   onSuccess,
   licenseRequirementDocumentId,
+  applicationPlaybookItemId,
   defaultDocumentName,
   defaultDocumentType,
   autoApprove = false,
@@ -124,6 +126,9 @@ export default function UploadDocumentModal({
         }
         if (licenseRequirementDocumentId) {
           insertPayload.license_requirement_document_id = licenseRequirementDocumentId
+        }
+        if (applicationPlaybookItemId) {
+          insertPayload.application_playbook_item_id = applicationPlaybookItemId
         }
         const { error: insertError } = await q.insertApplicationDocument(supabase, insertPayload)
 

@@ -17,10 +17,18 @@ export default async function LicensesPage() {
   const { data: up } = await q.getAgencyIdFromProfile(supabase, session.user.id)
   const agencyId = up?.agency_id ?? null
 
-  const [licensesResult, applicationsResult] = await Promise.all([
+  const [licensesResult, applicationsResult, playbooksResult] = await Promise.all([
     agencyId ? q.getLicensesByAgencyIdOrdered(supabase, agencyId) : Promise.resolve({ data: [] }),
     agencyId ? q.getApplicationsByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
+    q.getPlaybooksWithRequirements(supabase),
   ])
+
+  const playbookSet = new Set(
+    (playbooksResult.data ?? []).map(p => {
+      const lr = p.license_requirement as unknown as { state: string; license_type: string } | null
+      return lr ? `${lr.state}|${lr.license_type}` : null
+    }).filter(Boolean) as string[]
+  )
   const licenses = licensesResult.data ?? []
 
   const licenseIds = licenses.map(l => l.id)
@@ -45,11 +53,12 @@ export default async function LicensesPage() {
   return (
     <DashboardLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <Suspense fallback={<div className="p-6">Loading...</div>}>
-        <LicensesContent 
-          licenses={licenses} 
+        <LicensesContent
+          licenses={licenses}
           documentCounts={documentCounts}
           applications={applications}
           applicationDocumentCounts={applicationDocumentCounts}
+          playbookSet={playbookSet}
         />
       </Suspense>
     </DashboardLayout>

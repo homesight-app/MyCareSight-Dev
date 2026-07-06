@@ -23,6 +23,9 @@ import {
 } from '@/app/actions/license-requirements'
 import { updateLicenseType } from '@/app/actions/configuration'
 import ExpertProcessComingSoonModal from '@/components/ExpertProcessComingSoonModal'
+import PlaybookTab from '@/components/PlaybookTab'
+import { getOrCreatePlaybook, getPlaybookItems } from '@/app/actions/playbooks'
+import type { PlaybookItem } from '@/lib/supabase/query/playbooks'
 import Modal from '@/components/Modal'
 import { getAllLicenseRequirements, getStepsFromRequirement, getDocumentsFromRequirement, getExpertStepsFromRequirement, copySteps, copyDocuments, copyExpertSteps, getAllStepsWithRequirementInfo, getAllDocumentsWithRequirementInfo, getAllExpertStepsWithRequirementInfo, type StepWithRequirementInfo, type DocumentWithRequirementInfo, type ExpertStepWithRequirementInfo } from '@/app/actions/license-requirements'
 import { EXPERT_STEP_PHASES, DEFAULT_EXPERT_STEP_PHASE } from '@/lib/constants'
@@ -43,7 +46,7 @@ interface LicenseTypeDetailsProps {
   selectedState: string
 }
 
-type TabType = 'general' | 'steps' | 'documents' | 'templates' | 'expert'
+type TabType = 'general' | 'steps' | 'documents' | 'templates' | 'expert' | 'playbook'
 
 
 interface Step {
@@ -81,6 +84,8 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
   const [stepsCount, setStepsCount] = useState(0)
   const [documentsCount, setDocumentsCount] = useState(0)
   const [templatesCount, setTemplatesCount] = useState(0)
+  const [playbookId, setPlaybookId] = useState<string | null>(null)
+  const [playbookItems, setPlaybookItems] = useState<PlaybookItem[]>([])
   const [steps, setSteps] = useState<Step[]>([])
   const [expertSteps, setExpertSteps] = useState<Step[]>([])
   const [documents, setDocuments] = useState<Document[]>([])
@@ -408,6 +413,8 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
       setStepsCount(0)
       setDocumentsCount(0)
       setTemplatesCount(0)
+      setPlaybookId(null)
+      setPlaybookItems([])
       setIsLoading(false)
       setRequirementId(null)
     }
@@ -422,6 +429,21 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
       loadData()
     }
   }, [activeTab, licenseType, loadData])
+
+  // Load playbook when the Playbook tab is first opened for this license type.
+  // setPlaybookId is called LAST so PlaybookTab mounts only after playbookItems is ready.
+  useEffect(() => {
+    if (activeTab !== 'playbook' || !requirementId) return
+    if (playbookId) return // already loaded
+
+    ;(async () => {
+      const pb = await getOrCreatePlaybook(requirementId)
+      if (pb.error || !pb.playbook) return
+      const itemsResult = await getPlaybookItems(pb.playbook.id)
+      setPlaybookItems(itemsResult.error ? [] : itemsResult.items)
+      setPlaybookId(pb.playbook.id) // set last — triggers PlaybookTab mount with items already populated
+    })()
+  }, [activeTab, requirementId, playbookId])
 
   const handleAddStep = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1320,6 +1342,17 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
           >
             <Users2 className="w-4 h-4" />
             Expert Process
+          </button>
+          <button
+            onClick={() => setActiveTab('playbook')}
+            className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+              activeTab === 'playbook'
+                ? 'border-blue-600 text-blue-600 bg-gray-50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            Playbook {playbookItems.length > 0 && `(${playbookItems.length})`}
           </button>
         </nav>
       </div>
@@ -3044,6 +3077,23 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                     </div>
                   ))
                 })()}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'playbook' && (
+          <div>
+            {requirementId && playbookId ? (
+              <PlaybookTab
+                key={playbookId}
+                playbookId={playbookId}
+                licenseRequirementId={requirementId}
+                initialItems={playbookItems}
+              />
+            ) : (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
               </div>
             )}
           </div>

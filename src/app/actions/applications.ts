@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { getApplicationForClose, closeApplicationUpdate, updateApplicationStatus } from '@/lib/supabase/query'
+import { applyPlaybookToApplication } from './playbooks'
 
 /**
  * Admin action to approve an application under review.
@@ -149,4 +150,77 @@ export async function createApplicationForAgency(
   revalidatePath('/pages/admin/agencies/[id]', 'page')
   revalidatePath('/pages/expert/agencies/[id]', 'page')
   return { error: null, data: { id: application.id } }
+}
+
+/**
+ * Admin action to accept a pending application request.
+ * Moves status to 'in_progress'. If an active playbook exists for the
+ * application's license type + state, it is applied automatically to
+ * launch a Program, and the agency owner is notified.
+ */
+export async function acceptApplicationRequest(applicationId: string): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
+
+  const supabase = await createClient()
+  const today = new Date().toISOString().split('T')[0]
+
+  const { data: app, error: fetchErr } = await q.getApplicationById(supabase, applicationId)
+  if (fetchErr || !app) return { error: 'Application not found' }
+
+  const { error: updateErr } = await q.updateApplicationById(supabase, applicationId, {
+    status: 'in_progress',
+    last_updated_date: today,
+  })
+  if (updateErr) return { error: updateErr.message }
+
+  // Check if a playbook will be applied: direct reference (standalone) or state+name match (license-linked)
+  const appRow = app as unknown as { application_name: string; state: string; company_owner_id: string | null; agency_id: string | null; playbook_id: string | null }
+
+  let hasPlaybook = !!appRow.playbook_id
+  if (!hasPlaybook) {
+    const { data: playbooks } = await q.getPlaybooksWithRequirements(supabase)
+    const matchKey = `${appRow.state}|${appRow.application_name}`
+    hasPlaybook = (playbooks ?? []).some(p => {
+      const lr = p.license_requirement as unknown as { state: string; license_type: string } | null
+      return lr && `${lr.state}|${lr.license_type}` === matchKey
+    })
+  }
+
+  if (hasPlaybook) {
+    await applyPlaybookToApplication(applicationId)
+
+    const adminClient = createAdminClient()
+    const notifPayload = {
+      title: 'Program Launched',
+      message: `Your "${appRow.application_name}" program is now active and ready to begin.`,
+      type: 'application_update',
+      icon_type: 'check',
+    }
+
+    if (appRow.agency_id) {
+      // Notify all agency admins for this agency
+      const { data: admins } = await adminClient
+        .from('agency_admins')
+        .select('user_id')
+        .eq('agency_id', appRow.agency_id)
+      if (admins && admins.length > 0) {
+        await adminClient.from('notifications').insert(
+          admins.map(a => ({ ...notifPayload, user_id: a.user_id }))
+        )
+      }
+    } else if (appRow.company_owner_id) {
+      // Legacy: owner-scoped application
+      await adminClient.from('notifications').insert({
+        ...notifPayload,
+        user_id: appRow.company_owner_id,
+      })
+    }
+  }
+
+  revalidatePath('/pages/admin/licenses', 'page')
+  revalidatePath('/pages/admin/licenses/applications/[id]', 'page')
+  revalidatePath('/pages/agency/programs', 'page')
+  return { error: null }
 }

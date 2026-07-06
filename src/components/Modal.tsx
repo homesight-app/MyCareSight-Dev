@@ -12,7 +12,7 @@ interface ModalProps {
   /** Rendered below the subtitle — e.g. pill tab switcher in the sticky header. */
   headerAccessory?: ReactNode
   children: React.ReactNode
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl'
   /** e.g. z-[100] when stacking a second modal above another. */
   overlayClassName?: string
   /** Set false for a stacked inner modal so the outer modal keeps body scroll locked. */
@@ -69,6 +69,8 @@ export default function Modal({
     md: 'max-w-lg',
     lg: 'max-w-2xl',
     xl: 'max-w-4xl',
+    '2xl': 'max-w-6xl',
+    '3xl': 'max-w-7xl',
   }
 
   return (

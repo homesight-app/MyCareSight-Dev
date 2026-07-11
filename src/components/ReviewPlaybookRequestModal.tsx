@@ -7,6 +7,7 @@ import { BookOpen, MapPin, DollarSign, Clock, CheckCircle2, ArrowRight, Loader2 
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
+import { createProgramForAgency } from '@/app/actions/applications'
 
 interface ReviewPlaybookRequestModalProps {
   isOpen: boolean
@@ -14,6 +15,8 @@ interface ReviewPlaybookRequestModalProps {
   state: string
   playbook: StandalonePlaybook
   onBack: () => void
+  /** When provided (admin/expert flow), creates the program directly as in_progress. */
+  agencyId?: string
 }
 
 const getStateAbbr = (state: string) =>
@@ -25,6 +28,7 @@ export default function ReviewPlaybookRequestModal({
   state,
   playbook,
   onBack,
+  agencyId,
 }: ReviewPlaybookRequestModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -35,6 +39,20 @@ export default function ReviewPlaybookRequestModal({
     setError(null)
 
     try {
+      if (agencyId) {
+        // Admin/expert flow: create program directly as in_progress
+        const { error: actionError } = await createProgramForAgency(agencyId, {
+          application_name: playbook.name,
+          state,
+          playbook_id: playbook.id,
+        })
+        if (actionError) { setError(actionError); return }
+        onClose()
+        router.refresh()
+        return
+      }
+
+      // Agency owner flow: submit as requested, awaits admin approval
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -42,7 +60,6 @@ export default function ReviewPlaybookRequestModal({
         return
       }
 
-      // Resolve agency_id — all agency-scoped RLS uses agency_id, not company_owner_id
       const { data: profile } = await supabase
         .from('user_profiles')
         .select('agency_id')

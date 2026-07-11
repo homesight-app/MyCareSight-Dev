@@ -110,6 +110,19 @@ interface Application {
   created_at: string
 }
 
+type ProgramItemStatus = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
+
+interface Program {
+  id: string
+  application_name: string
+  state: string
+  status: string
+  agency_id: string | null
+  assigned_expert_id: string | null
+  created_at: string
+  application_playbook_items: { status: ProgramItemStatus; requirement_type: string }[]
+}
+
 interface AgencyAdmin {
   id: string
   contact_name?: string | null
@@ -146,6 +159,7 @@ interface AgencyDetailContentProps {
   agency: Agency
   licenses: License[]
   applications: Application[]
+  programs?: Program[]
   agencyAdmins: AgencyAdmin[]
   availableAdmins: AgencyAdmin[]
   backPath: string
@@ -282,6 +296,7 @@ export default function AgencyDetailContent({
   keyStaff = [],
   agencyLeads = [],
   agencyLeadDocuments = [],
+  programs = [],
 }: AgencyDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -841,6 +856,98 @@ export default function AgencyDetailContent({
                           <td className="px-4 py-3 text-right whitespace-nowrap">
                             <Link
                               href={appDetailPath}
+                              className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                              View Details
+                            </Link>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Programs section */}
+          <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-blue-600" />
+              <h2 className="text-base font-semibold text-gray-900">Programs</h2>
+            </div>
+            <div className="w-auto">
+                <ApplyForNewLicenseButton
+                  agencyId={agency.id}
+                  agencyName={agency.name}
+                  label="New Program"
+                  programsOnly
+                />
+              </div>
+            </div>
+
+            {programs.length === 0 ? (
+              <div className="px-6 py-10 text-center text-sm text-gray-500">
+                No programs found for this agency.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Program Name</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">State</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Progress</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Items</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {programs.map((program) => {
+                      const items = program.application_playbook_items ?? []
+                      const na = items.filter(i => i.status === 'not_applicable').length
+                      const countable = items.length - na
+                      const approved = items.filter(i => i.status === 'approved').length
+                      const pct = countable > 0 ? Math.round((approved / countable) * 100) : 0
+                      const programDetailPath = `${backPath.startsWith('/pages/admin') ? '/pages/admin/programs' : '/pages/expert/programs'}/${program.id}`
+                      return (
+                        <tr key={program.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <TrendingUp className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                              <span className="text-sm font-medium text-gray-900">{program.application_name}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                              <MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                              {program.state}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${APP_STATUS_COLORS[program.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                              {program.status.replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2 min-w-[120px]">
+                              <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                                <div
+                                  className="bg-blue-600 h-1.5 rounded-full transition-all"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-gray-500 w-8 text-right">{pct}%</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                            {items.length} items
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <Link
+                              href={programDetailPath}
                               className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
                             >
                               View Details

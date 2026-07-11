@@ -35,6 +35,7 @@ export default async function AdminAgencyDetailPage({
     { data: activeToken },
     { data: keyStaff },
     { data: agencyLeads },
+    { data: programs },
   ] = await Promise.all([
     adminIds.length > 0
       ? q.getAgencyAdminsByIds(supabaseAdmin, adminIds)
@@ -45,6 +46,7 @@ export default async function AdminAgencyDetailPage({
     q.getActiveOnboardingToken(supabaseAdmin, id),
     q.getKeyStaffByAgencyId(supabaseAdmin, id),
     q.getLeadsByAgency(supabase, id),
+    q.getApplicationsWithProgramsByAgencyId(supabaseAdmin, id),
   ])
 
   const leadIds = (agencyLeads ?? []).map((l: { id: string }) => l.id)
@@ -66,6 +68,7 @@ export default async function AdminAgencyDetailPage({
         keyStaff={keyStaff ?? []}
         agencyLeads={agencyLeads ?? []}
         agencyLeadDocuments={agencyLeadDocuments ?? []}
+        programs={programs ?? []}
       />
     </AdminLayout>
   )

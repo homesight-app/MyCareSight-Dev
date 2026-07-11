@@ -27,10 +27,9 @@ const STATUS_CONFIG: Record<Status, { label: string; color: string; dot: string 
   in_progress:   { label: 'In Progress',   color: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500' },
   review_needed: { label: 'Review Needed', color: 'bg-amber-100 text-amber-700',  dot: 'bg-amber-500' },
   approved:      { label: 'Approved',      color: 'bg-green-100 text-green-700',  dot: 'bg-green-500' },
-  not_applicable:{ label: 'N/A',           color: 'bg-gray-100 text-gray-400',    dot: 'bg-gray-300' },
 }
 
-const STATUS_ORDER: Status[] = ['not_started', 'in_progress', 'review_needed', 'approved', 'not_applicable']
+const STATUS_ORDER: Status[] = ['not_started', 'in_progress', 'review_needed', 'approved']
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -44,9 +43,7 @@ interface Props {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 function computePct(list: ApplicationPlaybookItem[]) {
-  const notApplicable = list.filter(i => i.status === 'not_applicable').length
-  const countable = list.length - notApplicable
-  return countable > 0 ? Math.round((list.filter(i => i.status === 'approved').length / countable) * 100) : 0
+  return list.length > 0 ? Math.round((list.filter(i => i.status === 'approved').length / list.length) * 100) : 0
 }
 
 export default function ApplicationRequirementsTab({ applicationId, agencyId, isStaff, onProgressChange }: Props) {
@@ -162,9 +159,7 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
   const inProgress = items.filter(i => i.status === 'in_progress').length
   const reviewNeeded = items.filter(i => i.status === 'review_needed').length
   const notStarted = items.filter(i => i.status === 'not_started').length
-  const notApplicable = items.filter(i => i.status === 'not_applicable').length
-  const countable = items.length - notApplicable
-  const pct = countable > 0 ? Math.round((approved / countable) * 100) : 0
+  const pct = items.length > 0 ? Math.round((approved / items.length) * 100) : 0
 
   // ── Filtered items ──────────────────────────────────────────────────────────
 
@@ -261,13 +256,6 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
               <Circle className="w-4 h-4 text-gray-400" />
               <span className="font-semibold text-gray-800">{notStarted}</span>
               <span className="text-gray-500">Not Started</span>
-            </div>
-          )}
-          {notApplicable > 0 && (
-            <div className="flex items-center gap-1.5 text-sm">
-              <XCircle className="w-4 h-4 text-gray-300" />
-              <span className="font-semibold text-gray-800">{notApplicable}</span>
-              <span className="text-gray-500">N/A</span>
             </div>
           )}
         </div>

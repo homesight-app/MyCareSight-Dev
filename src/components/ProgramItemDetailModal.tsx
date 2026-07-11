@@ -38,6 +38,7 @@ import {
   getValidationRuleLibrary,
   deleteApplicationDocument,
   sendBackProgramItem,
+  submitProgramItem,
   getLatestValidationSummary,
   type DraftValidationResult,
 } from '@/app/actions/playbooks'
@@ -85,7 +86,6 @@ const STATUS_LABELS: Record<string, string> = {
   in_progress:   'In Progress',
   review_needed: 'Review Needed',
   approved:      'Approved',
-  not_applicable:'N/A',
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -93,7 +93,6 @@ const STATUS_COLORS: Record<string, string> = {
   in_progress:    'bg-blue-100 text-blue-700',
   review_needed:  'bg-amber-100 text-amber-700',
   approved:       'bg-green-100 text-green-700',
-  not_applicable: 'bg-slate-100 text-slate-500',
 }
 
 type ItemDoc = {
@@ -234,6 +233,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
   const [showSendBack, setShowSendBack] = useState(false)
   const [sendBackNote, setSendBackNote] = useState('')
   const [isSendingBack, setIsSendingBack] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Document delete
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
@@ -390,6 +390,59 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
     if (!error) loadDocs()
   }
 
+  // Client-facing computed permissions
+  const canReplace = !isStaff && isDocument &&
+    (item.status === 'not_started' || item.status === 'review_needed') &&
+    (item.assignment === 'client' || item.assignment === 'both')
+
+  const clientCanSubmit = !isStaff &&
+    (item.status === 'not_started' || item.status === 'review_needed') &&
+    (item.assignment === 'client' || item.assignment === 'both')
+
+  const handleClientSubmit = async () => {
+    setIsSubmitting(true)
+    const { error } = await submitProgramItem(item.id)
+    setIsSubmitting(false)
+    if (!error) onItemUpdated({ ...item, status: 'in_progress' })
+  }
+
+  const generateSendBackMessage = (): string => {
+    if (!isDocument) {
+      return 'This step requires revision. Please review the feedback below and resubmit when complete.'
+    }
+    if (!latestRun || latestRun.results.length === 0) {
+      return 'There were issues found with the uploaded document. Please review, replace it with a corrected version, and resubmit.'
+    }
+
+    const passedResults = latestRun.results.filter(r => r.is_checked)
+    const failedResults = latestRun.results.filter(r => !r.is_checked && r.auto_result === 'not_found')
+    const unreadResults = latestRun.results.filter(r => !r.is_checked && r.auto_result === 'extraction_failed')
+
+    const lines: string[] = ['There were issues found with the uploaded document.\n']
+
+    if (passedResults.length > 0) {
+      lines.push(`✓ Passed (${passedResults.length}):`)
+      passedResults.forEach(r => lines.push(`  • ${r.rule_name}`))
+      lines.push('')
+    }
+
+    if (failedResults.length > 0) {
+      lines.push(`✗ Not Found (${failedResults.length}):`)
+      failedResults.forEach(r => lines.push(`  • ${r.rule_name}`))
+      lines.push('')
+    }
+
+    if (unreadResults.length > 0) {
+      lines.push(`? Could Not Read (${unreadResults.length}):`)
+      unreadResults.forEach(r => lines.push(`  • ${r.rule_name}`))
+      lines.push('')
+    }
+
+    lines.push('Please review, replace the document with a corrected version, and resubmit.')
+
+    return lines.join('\n')
+  }
+
   const handleSendBack = async () => {
     if (!sendBackNote.trim()) return
     setIsSendingBack(true)
@@ -456,7 +509,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
         <div className="flex items-center gap-2 flex-shrink-0">
           {item.status === 'in_progress' && !showSendBack && (
             <button
-              onClick={() => setShowSendBack(true)}
+              onClick={() => { setShowSendBack(true); setSendBackNote(generateSendBackMessage()) }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-700 border border-amber-300 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors"
             >
               <CornerDownLeft className="w-3.5 h-3.5" />
@@ -479,6 +532,27 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
             >
               {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
               Mark as Approved
+            </button>
+          )}
+        </div>
+      )}
+
+      {!isStaff && (
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {item.status === 'in_progress' ? (
+            <span className="flex items-center gap-1.5 text-sm text-blue-600 font-medium">
+              <Loader2 className="w-3.5 h-3.5" />
+              Submitted — awaiting expert review
+            </span>
+          ) : clientCanSubmit && (
+            <button
+              onClick={handleClientSubmit}
+              disabled={isSubmitting || (isDocument && documents.length === 0)}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title={isDocument && documents.length === 0 ? 'Upload a document first' : undefined}
+            >
+              {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              {item.status === 'review_needed' ? 'Resubmit for Review' : 'Submit for Review'}
             </button>
           )}
         </div>
@@ -522,8 +596,8 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
               value={sendBackNote}
               onChange={e => setSendBackNote(e.target.value)}
               placeholder="Describe what the client needs to fix or provide…"
-              rows={3}
-              className="w-full text-sm border border-amber-300 rounded-lg p-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+              rows={8}
+              className="w-full text-sm border border-amber-300 rounded-lg p-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y font-mono"
             />
             <div className="flex items-center gap-2 justify-end">
               <button onClick={() => { setShowSendBack(false); setSendBackNote('') }} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 transition-colors">Cancel</button>
@@ -596,12 +670,13 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-gray-700">Documents</h3>
-                    {isStaff && (
+                    {(isStaff || canReplace) && (
                       <button
                         onClick={() => setIsUploadOpen(true)}
                         className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors"
                       >
-                        <Upload className="w-3.5 h-3.5" /> Upload Document
+                        <Upload className="w-3.5 h-3.5" />
+                        {canReplace && documents.length > 0 ? 'Replace Document' : 'Upload Document'}
                       </button>
                     )}
                   </div>
@@ -618,7 +693,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
                           <th className="text-left py-2 pr-3">Name</th>
                           <th className="text-left py-2 pr-3">Type</th>
                           <th className="text-left py-2">Date</th>
-                          <th className="w-8" />
+                          <th className="w-16" />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
@@ -633,16 +708,32 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
                             <td className="py-2 pr-3 text-gray-500 capitalize text-xs">{doc.document_type ?? '—'}</td>
                             <td className="py-2 text-gray-500 text-xs">{new Date(doc.created_at).toLocaleDateString()}</td>
                             <td className="py-2">
-                              <button
-                                onClick={() => handleDownload(doc)}
-                                disabled={downloadingDocId === doc.id}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                              >
-                                {downloadingDocId === doc.id
-                                  ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
-                                  : <Download className="w-3.5 h-3.5 text-gray-400" />
-                                }
-                              </button>
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  onClick={() => handleDownload(doc)}
+                                  disabled={downloadingDocId === doc.id}
+                                  className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                  title="Download"
+                                >
+                                  {downloadingDocId === doc.id
+                                    ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                                    : <Download className="w-3.5 h-3.5 text-gray-400" />
+                                  }
+                                </button>
+                                {isStaff && (
+                                  <button
+                                    onClick={() => handleDeleteDoc(doc)}
+                                    disabled={deletingDocId === doc.id}
+                                    className="p-1 hover:bg-red-50 rounded transition-colors"
+                                    title="Delete"
+                                  >
+                                    {deletingDocId === doc.id
+                                      ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                                      : <Trash2 className="w-3.5 h-3.5 text-gray-400 hover:text-red-500" />
+                                    }
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -700,12 +791,13 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
           <div>
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm text-gray-500">{documents.length} document{documents.length !== 1 ? 's' : ''} uploaded</p>
-              {isStaff && (
+              {(isStaff || canReplace) && (
                 <button
                   onClick={() => setIsUploadOpen(true)}
                   className="inline-flex items-center gap-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors"
                 >
-                  <Upload className="w-4 h-4" /> Upload Document
+                  <Upload className="w-4 h-4" />
+                  {canReplace && documents.length > 0 ? 'Replace Document' : 'Upload Document'}
                 </button>
               )}
             </div>
@@ -718,7 +810,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
               <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
                 <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                 <p className="text-sm text-gray-500">No documents uploaded for this requirement yet.</p>
-                {isStaff && (
+                {(isStaff || canReplace) && (
                   <button onClick={() => setIsUploadOpen(true)} className="mt-3 text-sm text-blue-600 hover:underline">
                     Upload the first document
                   </button>
@@ -770,17 +862,19 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
                                 : <Download className="w-4 h-4 text-gray-400" />
                               }
                             </button>
-                            <button
-                              onClick={() => handleDeleteDoc(doc)}
-                              disabled={deletingDocId === doc.id}
-                              className="p-2 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Delete"
-                            >
-                              {deletingDocId === doc.id
-                                ? <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                                : <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" />
-                              }
-                            </button>
+                            {isStaff && (
+                              <button
+                                onClick={() => handleDeleteDoc(doc)}
+                                disabled={deletingDocId === doc.id}
+                                className="p-2 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Delete"
+                              >
+                                {deletingDocId === doc.id
+                                  ? <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                                  : <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" />
+                                }
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1299,8 +1393,11 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
           onClose={() => setIsUploadOpen(false)}
           applicationId={item.application_id}
           applicationPlaybookItemId={item.id}
-          onSuccess={() => {
+          onSuccess={async () => {
             setIsUploadOpen(false)
+            if (canReplace && documents.length > 0) {
+              await Promise.all(documents.map(d => deleteApplicationDocument(d.id)))
+            }
             loadDocs()
           }}
         />

@@ -15,6 +15,8 @@ interface SelectLicenseTypeModalProps {
   onSelectLicenseType: (licenseType: LicenseType) => void
   onSelectPlaybook?: (playbook: StandalonePlaybook) => void
   onBack: () => void
+  /** When true, hide license types and show only standalone playbooks (programs). */
+  programsOnly?: boolean
 }
 
 const getStateAbbr = (state: string) => {
@@ -27,7 +29,8 @@ export default function SelectLicenseTypeModal({
   state,
   onSelectLicenseType,
   onSelectPlaybook,
-  onBack
+  onBack,
+  programsOnly = false,
 }: SelectLicenseTypeModalProps) {
   const [licenseTypes, setLicenseTypes] = useState<LicenseType[]>([])
   const [standalonePlaybooks, setStandalonePlaybooks] = useState<StandalonePlaybook[]>([])
@@ -77,7 +80,7 @@ export default function SelectLicenseTypeModal({
   }, [isOpen, state, fetchLicenseTypes])
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Select License Type - ${getStateAbbr(state)}`} size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={programsOnly ? `Select Program - ${getStateAbbr(state)}` : `Select License Type - ${getStateAbbr(state)}`} size="lg">
       <div className="space-y-4">
         {isLoading && (
           <div className="flex items-center justify-center py-12">
@@ -91,14 +94,14 @@ export default function SelectLicenseTypeModal({
           </div>
         )}
 
-        {!isLoading && !error && licenseTypes.length === 0 && standalonePlaybooks.length === 0 && (
+        {!isLoading && !error && (programsOnly ? standalonePlaybooks.length === 0 : licenseTypes.length === 0 && standalonePlaybooks.length === 0) && (
           <div className="text-center py-12">
-            <p className="text-gray-600">No license types available for {state}.</p>
+            <p className="text-gray-600">{programsOnly ? `No programs available for ${state}.` : `No license types available for ${state}.`}</p>
           </div>
         )}
 
-        {/* License types */}
-        {!isLoading && licenseTypes.map((licenseType) => (
+        {/* License types — hidden in programsOnly mode */}
+        {!isLoading && !programsOnly && licenseTypes.map((licenseType) => (
           <button
             key={licenseType.id}
             onClick={() => onSelectLicenseType(licenseType)}

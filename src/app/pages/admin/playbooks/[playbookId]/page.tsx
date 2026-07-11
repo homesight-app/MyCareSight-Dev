@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import AdminLayout from '@/components/AdminLayout'
 import PlaybookDetailContent, { type PlaybookRow } from '@/components/PlaybookDetailContent'
+import PlaybookNameHeading from '@/components/PlaybookNameHeading'
 
 const TYPE_LABELS: Record<string, string> = {
   license_requirement: 'License Requirement',
@@ -50,7 +51,7 @@ export default async function AdminPlaybookDetailPage({
 
         {/* Page header — mirrors license requirements page */}
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{pb.name}</h1>
+          <PlaybookNameHeading playbookId={pb.id} initialName={pb.name} />
           <p className="text-sm md:text-base text-gray-600 mt-1">
             {displayState && <>{displayState} • </>}
             {TYPE_LABELS[pb.playbook_type] ?? pb.playbook_type}

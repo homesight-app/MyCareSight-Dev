@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Users, Pencil, Loader2, X, Plus, ChevronDown, Trash2 } from 'lucide-react'
-import { saveKeyStaffAdmin, removeKeyStaff, addMemberOwner } from '@/app/actions/agency-onboarding'
+import { saveKeyStaffAdmin, removeKeyStaff, addMemberOwner, updateMemberOwner } from '@/app/actions/agency-onboarding'
 import type { AgencyKeyStaff } from '@/lib/supabase/query'
 
 const OFFICER_ROLES = [
@@ -209,6 +209,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
   const [isSavingOwner, setIsSavingOwner] = useState(false)
   const [ownerSaveError, setOwnerSaveError] = useState<string | null>(null)
   const [isRemoving, setIsRemoving] = useState<string | null>(null)
+  const [expandedOwnerIds, setExpandedOwnerIds] = useState<Set<string>>(new Set())
 
   const officerStaff = keyStaff.filter(s => s.officer_role !== 'member_owner')
   const memberOwners = keyStaff.filter(s => s.officer_role === 'member_owner')
@@ -220,6 +221,14 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
     setExpandedRoles(prev => {
       const next = new Set(prev)
       next.has(roleKey) ? next.delete(roleKey) : next.add(roleKey)
+      return next
+    })
+  }
+
+  const toggleExpandOwner = (ownerId: string) => {
+    setExpandedOwnerIds(prev => {
+      const next = new Set(prev)
+      next.has(ownerId) ? next.delete(ownerId) : next.add(ownerId)
       return next
     })
   }
@@ -278,13 +287,14 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
     setOwnerEditForm(staffToMemberOwnerForm(owner))
     setEditingOwnerId(owner.id)
     setOwnerSaveError(null)
+    setExpandedOwnerIds(prev => new Set([...prev, owner.id]))
   }
 
   const handleSaveOwner = async () => {
     if (!editingOwnerId) return
     setIsSavingOwner(true)
     setOwnerSaveError(null)
-    const result = await saveKeyStaffAdmin(agencyId, 'member_owner', {
+    const result = await updateMemberOwner(editingOwnerId, agencyId, {
       ...ownerEditForm,
       ssn: ownerEditForm.ssn || undefined,
     })
@@ -531,15 +541,24 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
         <div className="divide-y divide-gray-100">
           {memberOwners.map(owner => {
             const isEditingThis = editingOwnerId === owner.id
+            const isExpanded = expandedOwnerIds.has(owner.id)
             return (
               <div key={owner.id} className="px-6 py-4">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate">
-                      {owner.full_legal_name ?? <span className="italic text-gray-400">Unnamed</span>}
-                    </p>
+                {/* Header row */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpandOwner(owner.id)}
+                      className="flex items-center gap-2 text-left min-w-0"
+                    >
+                      <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      <span className="text-sm font-semibold text-gray-800 truncate">
+                        {owner.full_legal_name || <span className="italic text-gray-400">Unnamed</span>}
+                      </span>
+                    </button>
                     {owner.ownership_percentage && (
-                      <p className="text-xs text-gray-500">{owner.ownership_percentage}% ownership</p>
+                      <span className="text-xs text-gray-500 hidden sm:block">{owner.ownership_percentage}% ownership</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -567,12 +586,14 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                   </div>
                 </div>
 
-                {isEditingThis && (
-                  <div className="space-y-4">
-                    {ownerSaveError && (
+                {/* Expanded detail / edit panel */}
+                {(isExpanded || isEditingThis) && (
+                  <div className="mt-4 space-y-4">
+                    {isEditingThis && ownerSaveError && (
                       <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">{ownerSaveError}</div>
                     )}
-                    {filledOfficers.length > 0 && (
+
+                    {isEditingThis && filledOfficers.length > 0 && (
                       <div>
                         <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Copy from Officer</label>
                         <select
@@ -587,50 +608,70 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                         </select>
                       </div>
                     )}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <FieldRow label="Full Legal Name" value={ownerEditForm.full_legal_name} isEditing onChange={v => setOwnerEditField('full_legal_name', v)} />
-                      <FieldRow label="Phone" value={ownerEditForm.telephone} isEditing onChange={v => setOwnerEditField('telephone', v)} />
-                      <FieldRow label="Email" value={ownerEditForm.email} isEditing onChange={v => setOwnerEditField('email', v)} type="email" />
-                      <FieldRow label="Ownership %" value={ownerEditForm.ownership_percentage} isEditing onChange={v => setOwnerEditField('ownership_percentage', v)} placeholder="e.g. 25" />
-                      <FieldRow label="Date of Birth" value={ownerEditForm.date_of_birth} isEditing onChange={v => setOwnerEditField('date_of_birth', v)} type="date" />
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">SSN</label>
-                        <input
-                          type="password"
-                          value={ownerEditForm.ssn}
-                          onChange={e => setOwnerEditField('ssn', e.target.value)}
-                          placeholder="Enter to update"
-                          autoComplete="new-password"
-                          className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        />
-                      </div>
-                      <FieldRow label="Home Street" value={ownerEditForm.home_address_street} isEditing onChange={v => setOwnerEditField('home_address_street', v)} className="sm:col-span-2" />
-                      <FieldRow label="City" value={ownerEditForm.home_address_city} isEditing onChange={v => setOwnerEditField('home_address_city', v)} />
-                      <FieldRow label="State" value={ownerEditForm.home_address_state} isEditing onChange={v => setOwnerEditField('home_address_state', v)} />
-                      <FieldRow label="ZIP" value={ownerEditForm.home_address_zip} isEditing onChange={v => setOwnerEditField('home_address_zip', v)} />
-                    </div>
-                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-                      <button type="button" onClick={() => setEditingOwnerId(null)} className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveOwner}
-                        disabled={isSavingOwner}
-                        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                      >
-                        {isSavingOwner && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                )}
 
-                {!isEditingThis && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-sm text-gray-600">
-                    {owner.telephone && <span>{owner.telephone}</span>}
-                    {owner.email && <span className="truncate">{owner.email}</span>}
-                    {owner.ssn_last4 && <span className="font-mono text-gray-500">SSN: •••-••-{owner.ssn_last4}</span>}
+                    {/* Contact */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Contact</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <FieldRow label="Full Legal Name" value={isEditingThis ? ownerEditForm.full_legal_name : owner.full_legal_name ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('full_legal_name', v)} />
+                        <FieldRow label="Phone" value={isEditingThis ? ownerEditForm.telephone : owner.telephone ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('telephone', v)} />
+                        <FieldRow label="Email" value={isEditingThis ? ownerEditForm.email : owner.email ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('email', v)} type="email" />
+                      </div>
+                    </div>
+
+                    {/* Ownership */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Ownership</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <FieldRow label="Ownership %" value={isEditingThis ? ownerEditForm.ownership_percentage : owner.ownership_percentage ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('ownership_percentage', v)} placeholder="e.g. 25" />
+                        <FieldRow label="Date of Birth" value={isEditingThis ? ownerEditForm.date_of_birth : owner.date_of_birth ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('date_of_birth', v)} type="date" />
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">SSN</label>
+                          {isEditingThis ? (
+                            <input
+                              type="password"
+                              value={ownerEditForm.ssn}
+                              onChange={e => setOwnerEditField('ssn', e.target.value)}
+                              placeholder="Enter to update (leave blank to keep existing)"
+                              autoComplete="new-password"
+                              className="block w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                            />
+                          ) : (
+                            <p className="text-sm text-gray-900 font-mono">
+                              {owner.ssn_last4 ? `•••-••-${owner.ssn_last4}` : '—'}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Home Address */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Home Address</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <FieldRow label="Street" value={isEditingThis ? ownerEditForm.home_address_street : owner.home_address_street ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('home_address_street', v)} className="sm:col-span-2" />
+                        <FieldRow label="City" value={isEditingThis ? ownerEditForm.home_address_city : owner.home_address_city ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('home_address_city', v)} />
+                        <FieldRow label="State" value={isEditingThis ? ownerEditForm.home_address_state : owner.home_address_state ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('home_address_state', v)} />
+                        <FieldRow label="ZIP" value={isEditingThis ? ownerEditForm.home_address_zip : owner.home_address_zip ?? ''} isEditing={isEditingThis} onChange={v => setOwnerEditField('home_address_zip', v)} />
+                      </div>
+                    </div>
+
+                    {isEditingThis && (
+                      <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+                        <button type="button" onClick={() => setEditingOwnerId(null)} className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveOwner}
+                          disabled={isSavingOwner}
+                          className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                        >
+                          {isSavingOwner && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                          Save
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

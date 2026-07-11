@@ -53,6 +53,7 @@ export default async function AgencyProgramDetailPage({
           agencyId={app.agency_id}
           licenseTypeId={app.license_type_id}
           initialItems={items as import('@/lib/supabase/query/playbooks').ApplicationPlaybookItem[]}
+          initialPct={app.progress_percentage ?? 0}
         />
       </div>
     </DashboardLayout>

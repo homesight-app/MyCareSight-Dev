@@ -57,6 +57,25 @@ export async function closeApplication(applicationId: string): Promise<{ error: 
 }
 
 /**
+ * Admin action to approve a completed program (under_review → closed).
+ */
+export async function approveProgramComplete(applicationId: string): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
+
+  const supabase = await createClient()
+  const { error } = await updateApplicationStatus(supabase, applicationId, { status: 'closed' })
+  if (error) return { error: error.message }
+
+  revalidatePath('/pages/admin/programs')
+  revalidatePath(`/pages/admin/programs/${applicationId}`)
+  revalidatePath(`/pages/expert/programs/${applicationId}`)
+  revalidatePath(`/pages/agency/programs/${applicationId}`)
+  return { error: null }
+}
+
+/**
  * Admin/expert action to create a license application on behalf of an agency.
  * Sets agency_id; leaves company_owner_id null (agency-owned, not user-owned).
  */
@@ -222,5 +241,70 @@ export async function acceptApplicationRequest(applicationId: string): Promise<{
   revalidatePath('/pages/admin/licenses', 'page')
   revalidatePath('/pages/admin/licenses/applications/[id]', 'page')
   revalidatePath('/pages/agency/programs', 'page')
+  return { error: null }
+}
+
+/**
+ * Admin/expert action to create a program (playbook-based application) directly
+ * for an agency, bypassing the "requested" review step.
+ */
+export async function createProgramForAgency(
+  agencyId: string,
+  data: { application_name: string; state: string; playbook_id: string }
+): Promise<{ error: string | null; data: { id: string } | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+
+  const supabaseAdmin = createAdminClient()
+  const today = new Date().toISOString().split('T')[0]
+  const assignedExpertId = role === 'expert' ? session.user.id : null
+
+  const { data: application, error: insertError } = await q.insertApplicationRow(supabaseAdmin, {
+    agency_id: agencyId,
+    company_owner_id: null,
+    application_name: data.application_name,
+    state: data.state,
+    license_type_id: null,
+    playbook_id: data.playbook_id,
+    status: 'in_progress',
+    assigned_expert_id: assignedExpertId,
+    progress_percentage: 0,
+    started_date: today,
+    last_updated_date: today,
+    submitted_date: today,
+  })
+
+  if (insertError || !application) return { error: insertError?.message ?? 'Insert failed', data: null }
+
+  await applyPlaybookToApplication(application.id)
+
+  revalidatePath('/pages/admin/agencies/[id]', 'page')
+  revalidatePath('/pages/expert/agencies/[id]', 'page')
+  revalidatePath('/pages/admin/programs', 'page')
+  return { error: null, data: { id: application.id } }
+}
+
+/** Rename a program (application_name). Admin and expert only. */
+export async function renameApplication(
+  applicationId: string,
+  name: string,
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
+
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Name is required' }
+
+  const supabase = await createClient()
+  const { error } = await q.updateApplicationById(supabase, applicationId, { application_name: trimmed })
+  if (error) return { error: error.message }
+
+  revalidatePath('/pages/admin/programs', 'page')
+  revalidatePath('/pages/admin/programs/[applicationId]', 'page')
+  revalidatePath('/pages/expert/clients', 'page')
   return { error: null }
 }

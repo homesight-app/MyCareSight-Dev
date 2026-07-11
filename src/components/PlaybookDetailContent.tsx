@@ -361,7 +361,7 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
             </div>
 
             {/* Icon */}
-            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            {/* <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
               <label className="block text-sm font-semibold text-gray-900 mb-2">Icon</label>
               <select
                 value={overviewFields.iconType}
@@ -372,7 +372,7 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
                 <option value="heart">Heart (Home Care)</option>
                 <option value="users">Users (Agency)</option>
               </select>
-            </div>
+            </div> */}
 
             {/* Key Requirements */}
             <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
@@ -405,16 +405,6 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
               </div>
             </div>
 
-            {/* Playbook Name */}
-            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-              <label className="block text-sm font-semibold text-gray-900 mb-2">Playbook Name</label>
-              <input
-                type="text"
-                value={overviewFields.name}
-                onChange={e => scheduleFieldSave('name', e.target.value)}
-                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
           </div>
         )}
 

@@ -23,6 +23,7 @@ export const AGENCY_SERVICE_TYPES = [
   { key: 'policies',               label: 'Policies' },
   { key: 'licensure_changes',      label: 'Licensure Changes' },
   { key: 'emergency_plan',  label: 'Emergency Plan' },
+  { key: 'chow',                   label: 'Chow' },
   { key: 'other',     label: 'Other' },
 ]
 

@@ -33,7 +33,7 @@ async function requireStaff() {
   return { error: null, session }
 }
 
-/** Get an existing playbook for a license requirement, or create an empty one. */
+/** Get an existing playbook for a license requirement, or create one pre-populated from the license type. */
 export async function getOrCreatePlaybook(licenseRequirementId: string) {
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden', playbook: null }
@@ -43,7 +43,6 @@ export async function getOrCreatePlaybook(licenseRequirementId: string) {
   const { data: existing } = await q.getPlaybookByRequirementId(supabase, licenseRequirementId)
   if (existing) return { error: null, playbook: existing }
 
-  // Need the license type name for the playbook name — look it up from license_requirements
   const { data: lr } = await supabase
     .from('license_requirements')
     .select('state, license_type')
@@ -52,10 +51,23 @@ export async function getOrCreatePlaybook(licenseRequirementId: string) {
 
   const name = lr ? `${lr.state} – ${lr.license_type}` : 'Playbook'
 
+  // Pre-populate all display fields from the matching license type
+  let ltFields: Partial<Parameters<typeof q.insertPlaybook>[1]> = {}
+  if (lr?.license_type) {
+    const { data: lt } = await supabase
+      .from('license_types')
+      .select('description, cost_min, cost_max, cost_display, service_fee, service_fee_display, processing_time_min, processing_time_max, processing_time_display, renewal_period_years, renewal_period_display, icon_type, requirements')
+      .eq('name', lr.license_type)
+      .maybeSingle()
+    if (lt) ltFields = lt
+  }
+
   const { data, error } = await q.insertPlaybook(supabase, {
     name,
     license_requirement_id: licenseRequirementId,
+    state: lr?.state ?? null,
     created_by: session.user.id,
+    ...ltFields,
   })
 
   if (error) return { error: error.message, playbook: null }
@@ -146,6 +158,62 @@ export async function importFromRequirement(playbookId: string, licenseRequireme
 
   const { error } = await q.bulkInsertPlaybookItems(supabase, items)
   if (error) return { error: error.message }
+
+  // ── General Info + Templates are best-effort — don't fail the whole import ─
+  try {
+    const [lrRes, lrTemplatesRes] = await Promise.all([
+      supabase
+        .from('license_requirements')
+        .select('state, license_type')
+        .eq('id', licenseRequirementId)
+        .maybeSingle(),
+      supabase
+        .from('license_requirement_templates')
+        .select('template_name, description, file_url, file_name')
+        .eq('license_requirement_id', licenseRequirementId),
+    ])
+
+    if (lrRes.data) {
+      const { data: lt } = await supabase
+        .from('license_types')
+        .select('description, cost_min, cost_max, cost_display, service_fee, service_fee_display, processing_time_min, processing_time_max, processing_time_display, renewal_period_years, renewal_period_display, icon_type, requirements')
+        .eq('name', lrRes.data.license_type)
+        .maybeSingle()
+
+      if (lt) {
+        await q.updatePlaybookRecord(supabase, playbookId, {
+          description: lt.description,
+          cost_min: lt.cost_min,
+          cost_max: lt.cost_max,
+          cost_display: lt.cost_display,
+          service_fee: lt.service_fee,
+          service_fee_display: lt.service_fee_display,
+          processing_time_min: lt.processing_time_min,
+          processing_time_max: lt.processing_time_max,
+          processing_time_display: lt.processing_time_display,
+          renewal_period_years: lt.renewal_period_years,
+          renewal_period_display: lt.renewal_period_display,
+          icon_type: lt.icon_type,
+          requirements: lt.requirements,
+        })
+      }
+    }
+
+    const lrTemplates = lrTemplatesRes.data ?? []
+    if (lrTemplates.length > 0) {
+      await supabase
+        .from('playbook_templates')
+        .insert(lrTemplates.map(t => ({
+          playbook_id: playbookId,
+          template_name: t.template_name,
+          description: t.description ?? null,
+          file_url: t.file_url,
+          file_name: t.file_name,
+        })))
+    }
+  } catch {
+    // General info / template import is non-critical — items already committed above
+  }
 
   revalidatePath('/pages/admin/license-requirements')
   return { error: null, count: items.length }
@@ -731,7 +799,7 @@ export async function applyPlaybookToApplication(applicationId: string): Promise
 export async function updateProgramItem(
   itemId: string,
   payload: { status?: ApplicationPlaybookItem['status']; due_date?: string | null; notes?: string | null }
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; applicationStatus?: string }> {
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
@@ -748,6 +816,52 @@ export async function updateProgramItem(
   const supabase = await createClient()
   const { error } = await q.updateApplicationPlaybookItemRow(supabase, itemId, update as Parameters<typeof q.updateApplicationPlaybookItemRow>[2])
   if (error) return { error: error.message }
+
+  // ── Auto-transition application to under_review when all items complete ──────
+  if (payload.status === 'approved') {
+    const { data: itemRow } = await supabase
+      .from('application_playbook_items')
+      .select('application_id')
+      .eq('id', itemId)
+      .single()
+
+    if (itemRow?.application_id) {
+      const appId = itemRow.application_id
+      const [{ count: incomplete }, { count: total }] = await Promise.all([
+        supabase
+          .from('application_playbook_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('application_id', appId)
+          .in('status', ['not_started', 'in_progress', 'review_needed']),
+        supabase
+          .from('application_playbook_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('application_id', appId),
+      ])
+
+      if (incomplete === 0 && (total ?? 0) > 0) {
+        const { data: app } = await supabase
+          .from('applications')
+          .select('status')
+          .eq('id', appId)
+          .single()
+
+        if (app?.status === 'in_progress' || app?.status === 'approved') {
+          const adminSupabase = await createAdminClient()
+          await adminSupabase
+            .from('applications')
+            .update({ status: 'under_review', last_updated_date: new Date().toISOString() })
+            .eq('id', appId)
+
+          revalidatePath(`/pages/admin/programs/${appId}`)
+          revalidatePath(`/pages/expert/programs/${appId}`)
+          revalidatePath(`/pages/agency/programs/${appId}`)
+          return { error: null, applicationStatus: 'under_review' }
+        }
+      }
+    }
+  }
+
   return { error: null }
 }
 
@@ -1222,6 +1336,9 @@ export async function submitProgramItem(itemId: string): Promise<{ error: string
   revalidatePath('/pages/agency/programs')
   revalidatePath('/pages/admin/programs')
   revalidatePath('/pages/expert/programs')
+  revalidatePath(`/pages/agency/programs/${item.application_id}`)
+  revalidatePath(`/pages/admin/programs/${item.application_id}`)
+  revalidatePath(`/pages/expert/programs/${item.application_id}`)
   return { error: null }
 }
 
@@ -1281,6 +1398,9 @@ export async function sendBackProgramItem(itemId: string, notes: string): Promis
   revalidatePath('/pages/admin/programs')
   revalidatePath('/pages/expert/programs')
   revalidatePath('/pages/agency/programs')
+  revalidatePath(`/pages/admin/programs/${item.application_id}`)
+  revalidatePath(`/pages/expert/programs/${item.application_id}`)
+  revalidatePath(`/pages/agency/programs/${item.application_id}`)
   return { error: null }
 }
 

@@ -5,20 +5,26 @@ import { FileText } from 'lucide-react'
 import NewLicenseApplicationModal from './NewLicenseApplicationModal'
 import SelectLicenseTypeModal from './SelectLicenseTypeModal'
 import ReviewLicenseRequestModal from './ReviewLicenseRequestModal'
+import ReviewPlaybookRequestModal from './ReviewPlaybookRequestModal'
 import { LicenseType } from '@/types/license'
+import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 
 interface ApplyForNewLicenseButtonProps {
   agencyId?: string
   agencyName?: string
   label?: string
+  /** When true, the type-selection modal shows only programs (standalone playbooks), not license types. */
+  programsOnly?: boolean
 }
 
-export default function ApplyForNewLicenseButton({ agencyId, agencyName, label }: ApplyForNewLicenseButtonProps = {}) {
+export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, programsOnly = false }: ApplyForNewLicenseButtonProps = {}) {
   const [isStateModalOpen, setIsStateModalOpen] = useState(false)
   const [isLicenseTypeModalOpen, setIsLicenseTypeModalOpen] = useState(false)
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false)
+  const [isPlaybookReviewModalOpen, setIsPlaybookReviewModalOpen] = useState(false)
   const [selectedState, setSelectedState] = useState<string>('')
   const [selectedLicenseType, setSelectedLicenseType] = useState<LicenseType | null>(null)
+  const [selectedPlaybook, setSelectedPlaybook] = useState<StandalonePlaybook | null>(null)
 
   const handleStateSelect = (state: string) => {
     setSelectedState(state)
@@ -32,6 +38,12 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label }
     setIsReviewModalOpen(true)
   }
 
+  const handlePlaybookSelect = (playbook: StandalonePlaybook) => {
+    setSelectedPlaybook(playbook)
+    setIsLicenseTypeModalOpen(false)
+    setIsPlaybookReviewModalOpen(true)
+  }
+
   const handleBackToStateSelection = () => {
     setIsLicenseTypeModalOpen(false)
     setIsStateModalOpen(true)
@@ -42,12 +54,19 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label }
     setIsLicenseTypeModalOpen(true)
   }
 
+  const handleBackToTypesFromPlaybook = () => {
+    setIsPlaybookReviewModalOpen(false)
+    setIsLicenseTypeModalOpen(true)
+  }
+
   const handleCloseAll = () => {
     setIsStateModalOpen(false)
     setIsLicenseTypeModalOpen(false)
     setIsReviewModalOpen(false)
+    setIsPlaybookReviewModalOpen(false)
     setSelectedState('')
     setSelectedLicenseType(null)
+    setSelectedPlaybook(null)
   }
 
   return (
@@ -67,14 +86,16 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label }
         onStateSelect={handleStateSelect}
       />
 
-      {/* License Type Selection Modal */}
+      {/* License Type + Program Selection Modal */}
       {selectedState && (
         <SelectLicenseTypeModal
           isOpen={isLicenseTypeModalOpen}
           onClose={handleCloseAll}
           state={selectedState}
           onSelectLicenseType={handleLicenseTypeSelect}
+          onSelectPlaybook={handlePlaybookSelect}
           onBack={handleBackToStateSelection}
+          programsOnly={programsOnly}
         />
       )}
 
@@ -86,6 +107,18 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label }
           state={selectedState}
           licenseType={selectedLicenseType}
           onBack={handleBackToLicenseTypes}
+          agencyId={agencyId}
+        />
+      )}
+
+      {/* Review Program Request Modal */}
+      {selectedState && selectedPlaybook && (
+        <ReviewPlaybookRequestModal
+          isOpen={isPlaybookReviewModalOpen}
+          onClose={handleCloseAll}
+          state={selectedState}
+          playbook={selectedPlaybook}
+          onBack={handleBackToTypesFromPlaybook}
           agencyId={agencyId}
         />
       )}

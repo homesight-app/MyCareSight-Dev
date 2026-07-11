@@ -56,16 +56,36 @@ export async function getPlaybookByRequirementId(supabase: Supabase, licenseRequ
 
 export async function insertPlaybook(
   supabase: Supabase,
-  payload: { name: string; license_requirement_id: string; created_by: string }
+  payload: {
+    name: string
+    license_requirement_id: string
+    created_by: string
+    state?: string | null
+    description?: string | null
+    cost_min?: number | null
+    cost_max?: number | null
+    cost_display?: string | null
+    service_fee?: number | null
+    service_fee_display?: string | null
+    processing_time_min?: number | null
+    processing_time_max?: number | null
+    processing_time_display?: string | null
+    renewal_period_years?: number | null
+    renewal_period_display?: string | null
+    icon_type?: string | null
+    requirements?: string[] | null
+  }
 ) {
+  const { name, license_requirement_id, created_by, ...rest } = payload
   return supabase
     .from('playbooks')
     .insert({
-      name: payload.name,
+      name,
       playbook_type: 'license_requirement',
-      license_requirement_id: payload.license_requirement_id,
-      created_by: payload.created_by,
+      license_requirement_id,
+      created_by,
       updated_at: new Date().toISOString(),
+      ...rest,
     })
     .select('id, name, playbook_type, description, license_requirement_id, is_active, created_at')
     .single()
@@ -221,7 +241,7 @@ export interface ApplicationPlaybookItem {
   phase: string | null
   assignment: 'client' | 'expert' | 'both'
   requirement_type: 'required' | 'optional'
-  status: 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
+  status: 'not_started' | 'in_progress' | 'review_needed' | 'approved'
   due_date: string | null
   notes: string | null
   updated_by: string | null
@@ -326,6 +346,15 @@ export async function getDocumentsByPlaybookItem(supabase: Supabase, application
     .order('created_at', { ascending: false })
 }
 
+export async function getRequestedProgramApplications(supabase: Supabase) {
+  return supabase
+    .from('applications')
+    .select('id, application_name, state, status, agency_id, playbook_id, created_at, agencies(id, name)')
+    .eq('status', 'requested')
+    .not('playbook_id', 'is', null)
+    .order('created_at', { ascending: false })
+}
+
 export async function getApplicationsWithPrograms(supabase: Supabase, expertId?: string) {
   let query = supabase
     .from('applications')
@@ -341,6 +370,17 @@ export async function getApplicationsWithPrograms(supabase: Supabase, expertId?:
   }
 
   return query
+}
+
+export async function getApplicationsWithProgramsByAgencyId(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('applications')
+    .select(`
+      id, application_name, state, status, agency_id, assigned_expert_id, created_at,
+      application_playbook_items!inner(status, requirement_type)
+    `)
+    .eq('agency_id', agencyId)
+    .order('created_at', { ascending: false })
 }
 
 // ─── Rule check management ────────────────────────────────────────────────────
@@ -607,13 +647,21 @@ export interface StandalonePlaybook {
 }
 
 export async function getStandalonePlaybooksByState(supabase: Supabase, state: string) {
-  return supabase
+  const result = await supabase
     .from('playbooks')
-    .select('id, name, playbook_type, description, state, cost_display, service_fee_display, processing_time_display, renewal_period_display, icon_type, requirements, is_active')
-    .eq('state', state)
+    .select('id, name, playbook_type, description, state, cost_display, service_fee_display, processing_time_display, renewal_period_display, icon_type, requirements, is_active, license_requirement:license_requirement_id(state)')
     .eq('is_active', true)
     .order('name')
-    .returns<StandalonePlaybook[]>()
+
+  if (result.error) return result
+
+  const filtered = (result.data ?? []).filter(p => {
+    const lr = p.license_requirement as unknown as { state: string } | null
+    const effectiveState = p.state ?? lr?.state
+    return effectiveState === state
+  })
+
+  return { ...result, data: filtered as unknown as StandalonePlaybook[] }
 }
 
 // ── Cross-playbook copy helpers ───────────────────────────────────────────────

@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { GripVertical, Plus, Edit2, Trash2, Download, FileText, Loader2 } from 'lucide-react'
+import { GripVertical, Plus, Copy, Edit2, Trash2, Download, FileText, Loader2 } from 'lucide-react'
 import PlaybookItemModal from '@/components/PlaybookItemModal'
 import AddPlaybookItemModal from '@/components/AddPlaybookItemModal'
+import CopyPlaybookItemModal from '@/components/CopyPlaybookItemModal'
 import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbooks'
 import {
   addPlaybookItem,
@@ -52,6 +53,7 @@ export default function PlaybookTab({ playbookId, licenseRequirementId, initialI
 
   // Modal
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showCopyModal, setShowCopyModal] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState<PlaybookItem | null>(null)
   const [editItemRuleIds, setEditItemRuleIds] = useState<string[]>([])
@@ -81,7 +83,7 @@ export default function PlaybookTab({ playbookId, licenseRequirementId, initialI
   // ── Import ──────────────────────────────────────────────────────────────────
 
   const handleImport = async () => {
-    if (!confirm('Import all current Steps, Expert Steps, and Documents into this Playbook? This will bring in everything from the Steps, Documents, and Expert Process tabs in one ordered list.')) return
+    if (!confirm('Import from all existing tabs? This will copy Steps, Expert Steps, Documents, Document Templates, and General Info (cost, processing time, etc.) into this Playbook.')) return
     setIsImporting(true)
     setError(null)
     const result = await importFromRequirement(playbookId, licenseRequirementId!)
@@ -106,7 +108,7 @@ export default function PlaybookTab({ playbookId, licenseRequirementId, initialI
 
   const handleItemsCopied = (newItems: PlaybookItem[]) => {
     setItems(prev => [...prev, ...newItems].sort((a, b) => a.item_order - b.item_order))
-    setShowAddModal(false)
+    setShowCopyModal(false)
   }
 
   const openEdit = async (item: PlaybookItem) => {
@@ -258,11 +260,18 @@ export default function PlaybookTab({ playbookId, licenseRequirementId, initialI
             </button>
           )}
           <button
+            onClick={() => setShowCopyModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+          >
+            <Copy className="w-4 h-4" />
+            Copy from Playbook
+          </button>
+          <button
             onClick={openAdd}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
           >
             <Plus className="w-4 h-4" />
-            Add Item
+            Add New Item
           </button>
         </div>
       </div>
@@ -429,6 +438,12 @@ export default function PlaybookTab({ playbookId, licenseRequirementId, initialI
         playbookId={playbookId}
         ruleLibrary={ruleLibrary}
         onItemAdded={handleItemAdded}
+      />
+
+      <CopyPlaybookItemModal
+        isOpen={showCopyModal}
+        onClose={() => setShowCopyModal(false)}
+        playbookId={playbookId}
         onItemsCopied={handleItemsCopied}
       />
 

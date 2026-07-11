@@ -61,12 +61,12 @@ export default async function AdminProgramDetailPage({
           >
             <ArrowLeft className="w-4 h-4" /> Back to Programs
           </Link>
-          <Link
+          {/* <Link
             href={`/pages/admin/licenses/applications/${applicationId}`}
             className="text-xs text-blue-600 hover:underline"
           >
             Open full application →
-          </Link>
+          </Link> */}
         </div>
 
         <ExpertProgramView
@@ -78,6 +78,7 @@ export default async function AdminProgramDetailPage({
           agencyName={agencyData?.name ?? null}
           playbookId={playbookId}
           initialItems={typedItems}
+          isAdmin
         />
       </div>
     </AdminLayout>

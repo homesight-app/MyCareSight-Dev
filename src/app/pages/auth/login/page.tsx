@@ -108,8 +108,6 @@ function LoginPageContent() {
       if (authData.session) {
         // Get user profile to check role
         const { data: profile } = await q.getUserProfileRoleById(supabase, authData.user.id)
-        // Refresh so middleware and server components see the new session
-        router.refresh()
         // Redirect based on role
         if (profile?.role === 'admin') {
           router.push('/pages/admin')

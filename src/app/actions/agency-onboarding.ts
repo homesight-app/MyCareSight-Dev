@@ -320,6 +320,56 @@ export async function removeKeyStaff(agencyId: string, staffId: string) {
   }
 }
 
+export async function updateMemberOwner(
+  staffId: string,
+  agencyId: string,
+  payload: {
+    full_legal_name?: string
+    telephone?: string
+    email?: string
+    ownership_percentage?: string
+    date_of_birth?: string
+    ssn?: string
+    home_address_street?: string
+    home_address_city?: string
+    home_address_state?: string
+    home_address_zip?: string
+  }
+) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+
+  const supabase = createAdminClient()
+  try {
+    const clean: Record<string, unknown> = {
+      full_legal_name: payload.full_legal_name?.trim() || null,
+      telephone: payload.telephone?.trim() || null,
+      email: payload.email?.trim() || null,
+      ownership_percentage: payload.ownership_percentage?.trim() || null,
+      date_of_birth: payload.date_of_birth || null,
+      home_address_street: payload.home_address_street?.trim() || null,
+      home_address_city: payload.home_address_city?.trim() || null,
+      home_address_state: payload.home_address_state?.trim() || null,
+      home_address_zip: payload.home_address_zip?.trim() || null,
+    }
+
+    const rawSsn = payload.ssn?.replace(/\D/g, '')
+    if (rawSsn && rawSsn.length >= 4) {
+      clean.ssn_encrypted = encryptSSN(rawSsn)
+      clean.ssn_last4 = ssnToLast4(rawSsn)
+    }
+
+    const { data, error } = await q.updateKeyStaffById(supabase, staffId, clean)
+    if (error) return { error: error.message, data: null }
+    revalidateAgencyDetailPages(agencyId)
+    return { error: null, data }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to update member/owner', data: null }
+  }
+}
+
 export async function addMemberOwner(
   agencyId: string,
   payload: {

@@ -4,20 +4,24 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   CheckCircle2, Clock, AlertCircle, Circle,
   FileText, Loader2, ChevronRight, CalendarDays,
-  Download, Send, Info, SquarePen,
+  Download, Send, Info, SquarePen, CheckCheck,
+  MessageSquare, FolderOpen, Pencil, Check, X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
 import {
   getProgramItemNoteCounts,
+  updateProgramItem,
 } from '@/app/actions/playbooks'
+import { approveProgramComplete, renameApplication } from '@/app/actions/applications'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
 import InternalNotesPanel from './InternalNotesPanel'
+import Modal from './Modal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'items' | 'documents' | 'templates' | 'notes' | 'messages'
+type Tab = 'items' | 'documents' | 'notes'
 type TabId = 'overview' | 'documents' | 'validation' | 'notes' | 'history'
 type Status = ApplicationPlaybookItem['status']
 
@@ -36,7 +40,6 @@ const STATUS_CONFIG: Record<Status, { label: string; color: string; dot: string 
   in_progress:    { label: 'In Progress',   color: 'bg-blue-100 text-blue-700',   dot: 'bg-blue-500' },
   review_needed:  { label: 'Review Needed', color: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
   approved:       { label: 'Approved',      color: 'bg-green-100 text-green-700', dot: 'bg-green-500' },
-  not_applicable: { label: 'N/A',           color: 'bg-gray-100 text-gray-400',   dot: 'bg-gray-300' },
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -50,6 +53,7 @@ interface Props {
   agencyName: string | null
   playbookId: string | null
   initialItems: ApplicationPlaybookItem[]
+  isAdmin?: boolean
 }
 
 export default function ExpertProgramView({
@@ -61,17 +65,55 @@ export default function ExpertProgramView({
   agencyName,
   playbookId,
   initialItems,
+  isAdmin = false,
 }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const supabase = createClient()
+
+  // ── Name editing ─────────────────────────────────────────────────────────────
+  const [displayName, setDisplayName] = useState(applicationName)
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState(applicationName)
+  const [nameSaving, setNameSaving] = useState(false)
+
+  const handleSaveName = async () => {
+    const trimmed = nameDraft.trim()
+    if (!trimmed || trimmed === displayName) { setEditingName(false); setNameDraft(displayName); return }
+    setNameSaving(true)
+    await renameApplication(applicationId, trimmed)
+    setDisplayName(trimmed)
+    setEditingName(false)
+    setNameSaving(false)
+  }
+
+  const handleCancelName = () => { setNameDraft(displayName); setEditingName(false) }
 
   // ── Tab ───────────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>('items')
   const activeTabRef = useRef<Tab>('items')
   useEffect(() => { activeTabRef.current = activeTab }, [activeTab])
 
+  // ── Header modals (messages + templates) ─────────────────────────────────────
+  const [isMessagesOpen, setIsMessagesOpen] = useState(false)
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false)
+  const isMessagesOpenRef = useRef(false)
+  useEffect(() => { isMessagesOpenRef.current = isMessagesOpen }, [isMessagesOpen])
+
   // ── Items ─────────────────────────────────────────────────────────────────────
   const [items, setItems] = useState(initialItems)
+  const isFirstPctWrite = useRef(true)
+
+  // ── Application status (reactive — auto-transitions when all items complete) ──
+  const [currentStatus, setCurrentStatus] = useState(status)
+  const [isApprovingProgram, setIsApprovingProgram] = useState(false)
+
+  useEffect(() => {
+    if (items.length === 0) return
+    const allComplete = items.every(i => i.status === 'approved')
+    if (allComplete && (currentStatus === 'in_progress' || currentStatus === 'approved')) {
+      setCurrentStatus('under_review')
+    }
+  }, [items, currentStatus])
 
   // ── Filter ────────────────────────────────────────────────────────────────────
   const [filterType, setFilterType] = useState<'all' | 'required' | 'optional'>('all')
@@ -84,6 +126,19 @@ export default function ExpertProgramView({
 
   // ── Selected doc item (inline detail) ────────────────────────────────────────
   const [selectedDocItem, setSelectedDocItem] = useState<ApplicationPlaybookItem | null>(null)
+
+  // ── Due date editing ──────────────────────────────────────────────────────────
+  const [editingDueDateId, setEditingDueDateId] = useState<string | null>(null)
+  const [savingDueDateId, setSavingDueDateId] = useState<string | null>(null)
+
+  const handleDueDateChange = async (itemId: string, value: string) => {
+    setSavingDueDateId(itemId)
+    const due = value || null
+    await updateProgramItem(itemId, { due_date: due })
+    setItems(prev => prev.map(i => i.id === itemId ? { ...i, due_date: due } : i))
+    setEditingDueDateId(null)
+    setSavingDueDateId(null)
+  }
 
 
   // ── Templates ─────────────────────────────────────────────────────────────────
@@ -111,6 +166,12 @@ export default function ExpertProgramView({
   const docReviewNeeded = docItems.filter(i => i.status === 'review_needed').length
   const notStarted      = items.filter(i => i.status === 'not_started').length
   const pct             = items.length > 0 ? Math.round((approved / items.length) * 100) : 0
+
+  // Persist pct to the applications table so the client view always shows the same value
+  useEffect(() => {
+    if (isFirstPctWrite.current) { isFirstPctWrite.current = false; return }
+    supabase.from('applications').update({ progress_percentage: pct }).eq('id', applicationId).then(() => {})
+  }, [pct])
 
   // ── Filtered visible step items ───────────────────────────────────────────────
   const visible = stepItems.filter(i => {
@@ -152,8 +213,8 @@ export default function ExpertProgramView({
   }, [playbookId, supabase])
 
   useEffect(() => {
-    if (activeTab === 'templates') fetchTemplates()
-  }, [activeTab, fetchTemplates])
+    if (isTemplatesOpen) fetchTemplates()
+  }, [isTemplatesOpen, fetchTemplates])
 
   // ── Conversation setup ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -201,7 +262,7 @@ export default function ExpertProgramView({
         const unread = enriched.filter((m: any) =>
           !m.is_own && (!Array.isArray(m.is_read) || !m.is_read.includes(currentUserId))
         )
-        if (activeTabRef.current !== 'messages') setUnreadCount(unread.length)
+        if (!isMessagesOpenRef.current) setUnreadCount(unread.length)
         if (unread.length > 0) {
           const ids = unread.map((m: any) => m.id).filter(Boolean) as string[]
           if (ids.length) await q.rpcMarkMessagesAsReadByUser(supabase, ids, currentUserId!)
@@ -236,7 +297,7 @@ export default function ExpertProgramView({
               new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
             )
           })
-          if (!enriched.is_own && activeTabRef.current !== 'messages') {
+          if (!enriched.is_own && !isMessagesOpenRef.current) {
             setUnreadCount(c => c + 1)
           }
           setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
@@ -325,14 +386,12 @@ export default function ExpertProgramView({
       default:               return { bg: 'bg-gray-100',   text: 'text-gray-600',   label: s }
     }
   }
-  const appBadge = getAppBadge(status)
+  const appBadge = getAppBadge(currentStatus)
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: 'items',     label: 'Next Steps', badge: reviewNeeded + inProgress || undefined },
     { id: 'documents', label: 'Documents',  badge: docReviewNeeded || undefined },
-    { id: 'templates', label: 'Templates' },
     { id: 'notes',     label: 'Notes' },
-    { id: 'messages',  label: 'Messages',   badge: unreadCount || undefined },
   ]
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -346,7 +405,27 @@ export default function ExpertProgramView({
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-bold text-gray-900 truncate">{applicationName}</h1>
+              {editingName ? (
+                <>
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    onChange={e => setNameDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') handleCancelName() }}
+                    disabled={nameSaving}
+                    className="text-lg font-bold text-gray-900 border-b-2 border-blue-500 focus:outline-none bg-transparent min-w-0"
+                  />
+                  <button onClick={handleSaveName} disabled={nameSaving || !nameDraft.trim()} className="p-1 text-green-600 hover:text-green-700 disabled:opacity-50 flex-shrink-0" title="Save"><Check className="w-4 h-4" /></button>
+                  <button onClick={handleCancelName} className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0" title="Cancel"><X className="w-4 h-4" /></button>
+                </>
+              ) : (
+                <div className="flex items-center gap-1 group">
+                  <h1 className="text-lg font-bold text-gray-900 truncate">{displayName}</h1>
+                  {isAdmin && (
+                    <button onClick={() => { setNameDraft(displayName); setEditingName(true) }} className="p-1 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" title="Edit name"><Pencil className="w-3.5 h-3.5" /></button>
+                  )}
+                </div>
+              )}
               {agencyName && <span className="text-gray-400 text-sm hidden sm:inline">·</span>}
               {agencyName && <span className="text-sm text-gray-500">{agencyName}</span>}
               {state && <span className="text-gray-400 text-sm hidden sm:inline">·</span>}
@@ -355,12 +434,51 @@ export default function ExpertProgramView({
                 {appBadge.label}
               </span>
             </div>
+            <p className="text-xs text-gray-400 mt-0.5">{`PRG-${applicationId.substring(0, 8).toUpperCase()}`}</p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-32 bg-gray-200 rounded-full h-2">
-              <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-32 bg-gray-200 rounded-full h-2">
+                <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="text-sm font-semibold text-gray-700 w-9 text-right">{pct}%</span>
             </div>
-            <span className="text-sm font-semibold text-gray-700 w-9 text-right">{pct}%</span>
+            <button
+              onClick={() => setIsTemplatesOpen(true)}
+              title="Templates"
+              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <FolderOpen className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => { setIsMessagesOpen(true); setUnreadCount(0) }}
+              title="Messages"
+              className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <MessageSquare className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none flex items-center justify-center">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </button>
+            {isAdmin && currentStatus === 'under_review' && (
+              <button
+                onClick={async () => {
+                  setIsApprovingProgram(true)
+                  const { error } = await approveProgramComplete(applicationId)
+                  setIsApprovingProgram(false)
+                  if (!error) setCurrentStatus('closed')
+                }}
+                disabled={isApprovingProgram}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isApprovingProgram
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <CheckCheck className="w-4 h-4" />}
+                Approve Program
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -372,10 +490,7 @@ export default function ExpertProgramView({
             {tabs.map(tab => (
               <button
                 key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id)
-                  if (tab.id === 'messages') setUnreadCount(0)
-                }}
+                onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-1.5 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'border-blue-600 text-blue-600'
@@ -539,10 +654,28 @@ export default function ExpertProgramView({
                         </span>
                       </div>
 
-                      <span className="text-xs text-gray-500 flex items-center gap-1">
-                        <CalendarDays className="w-3 h-3 flex-shrink-0" />
-                        {item.due_date ?? '—'}
-                      </span>
+                      {editingDueDateId === item.id ? (
+                        <input
+                          type="date"
+                          autoFocus
+                          defaultValue={item.due_date ?? ''}
+                          disabled={savingDueDateId === item.id}
+                          onChange={e => handleDueDateChange(item.id, e.target.value)}
+                          onBlur={e => { if (savingDueDateId !== item.id) { handleDueDateChange(item.id, e.target.value) } }}
+                          onKeyDown={e => { if (e.key === 'Escape') setEditingDueDateId(null) }}
+                          onClick={e => e.stopPropagation()}
+                          className="text-xs border border-blue-400 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 w-32"
+                        />
+                      ) : (
+                        <button
+                          onClick={e => { e.stopPropagation(); setEditingDueDateId(item.id) }}
+                          className="text-xs text-gray-500 flex items-center gap-1 hover:text-blue-600 transition-colors"
+                          title="Set due date"
+                        >
+                          <CalendarDays className="w-3 h-3 flex-shrink-0" />
+                          {item.due_date ?? '—'}
+                        </button>
+                      )}
 
                       <button
                         onClick={e => { e.stopPropagation(); setModalItem(item); setModalDefaultTab('notes') }}
@@ -655,150 +788,130 @@ export default function ExpertProgramView({
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════════════════
-          TEMPLATES TAB
-      ══════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'templates' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Document Templates</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Templates uploaded for this playbook. Clients can download these to complete their requirements.
-            </p>
-            {!playbookId ? (
-              <div className="text-center py-8 text-gray-500">
-                <p className="text-sm">No playbook linked to this program yet. Templates will appear here once a playbook is applied.</p>
-              </div>
-            ) : isLoadingTemplates ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
-              </div>
-            ) : templates.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <p className="text-sm">No templates have been uploaded for this playbook yet.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {templates.map(tpl => (
-                  <div
-                    key={tpl.id}
-                    className="flex items-start gap-4 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <FileText className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-gray-900">{tpl.template_name}</h4>
-                      {tpl.description && (
-                        <p className="text-sm text-gray-600 mt-0.5">{tpl.description}</p>
-                      )}
-                      <p className="text-sm text-gray-500 mt-1">{tpl.file_name}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (tpl.file_url.startsWith('http')) { window.open(tpl.file_url, '_blank'); return }
-                        const { data } = await supabase.storage.from('license-templates').createSignedUrl(tpl.file_url, 3600)
-                        if (data?.signedUrl) window.open(data.signedUrl, '_blank')
-                      }}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors flex-shrink-0"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+      {/* Templates Modal */}
+      <Modal isOpen={isTemplatesOpen} onClose={() => setIsTemplatesOpen(false)} title="Document Templates" size="lg">
+        <p className="text-sm text-gray-600 mb-4">
+          Templates uploaded for this playbook. Clients can download these to complete their requirements.
+        </p>
+        {!playbookId ? (
+          <div className="text-center py-8 text-gray-500">
+            <p className="text-sm">No playbook linked to this program yet. Templates will appear here once a playbook is applied.</p>
           </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════════════
-          MESSAGES TAB
-      ══════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'messages' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">Application Messages</h2>
-              <p className="text-sm text-gray-600">Communicate with the agency about this program</p>
-            </div>
-            <div className="p-6">
-              <div className="space-y-4 mb-6 max-h-96 overflow-y-auto">
-                {isLoadingConversation ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <p className="text-sm">No messages yet</p>
-                    <p className="text-xs mt-1">Start a conversation with the agency</p>
-                  </div>
-                ) : (
-                  <>
-                    {messages.map(msg => {
-                      const senderName = getSenderName(msg)
-                      const senderRole = getSenderRole(msg)
-                      const initials = getInitials(senderName)
-                      const roleTagColor = getRoleTagColor(senderRole)
-                      return (
-                        <div
-                          key={msg.id}
-                          className={`flex items-start gap-3 ${msg.is_own ? 'flex-row-reverse' : ''}`}
-                        >
-                          <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                            {initials}
-                          </div>
-                          <div className={`flex-1 min-w-0 ${msg.is_own ? 'flex flex-col items-end' : ''}`}>
-                            <div className={`flex items-center gap-2 mb-1 ${msg.is_own ? 'flex-row-reverse' : ''}`}>
-                              <span className="text-sm font-semibold text-gray-900">{senderName}</span>
-                              <span className={`text-xs font-medium px-2 py-0.5 rounded border ${roleTagColor}`}>
-                                {senderRole}
-                              </span>
-                              <span className="text-xs text-gray-500">{formatMessageTime(msg.created_at)}</span>
-                            </div>
-                            <div className={`rounded-lg p-3 ${msg.is_own ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200'}`}>
-                              <p className={`text-sm whitespace-pre-wrap ${msg.is_own ? 'text-white' : 'text-gray-900'}`}>
-                                {msg.content}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                    <div ref={messagesEndRef} />
-                  </>
-                )}
-              </div>
-
-              <div className="border-t border-gray-200 pt-4">
-                <div className="flex gap-3">
-                  <textarea
-                    value={messageContent}
-                    onChange={e => setMessageContent(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() }
-                    }}
-                    placeholder="Type your message…"
-                    rows={2}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={!messageContent.trim() || isSendingMessage || !conversationId}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                  >
-                    {isSendingMessage
-                      ? <Loader2 className="w-5 h-5 animate-spin" />
-                      : <Send className="w-5 h-5" />
-                    }
-                  </button>
+        ) : isLoadingTemplates ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+          </div>
+        ) : templates.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <p className="text-sm">No templates have been uploaded for this playbook yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {templates.map(tpl => (
+              <div
+                key={tpl.id}
+                className="flex items-start gap-4 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <FileText className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-gray-900">{tpl.template_name}</h4>
+                  {tpl.description && (
+                    <p className="text-sm text-gray-600 mt-0.5">{tpl.description}</p>
+                  )}
+                  <p className="text-sm text-gray-500 mt-1">{tpl.file_name}</p>
                 </div>
-                <p className="text-xs text-gray-500 mt-2">Press Enter to send, Shift+Enter for new line</p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (tpl.file_url.startsWith('http')) { window.open(tpl.file_url, '_blank'); return }
+                    const { data } = await supabase.storage.from('license-templates').createSignedUrl(tpl.file_url, 3600)
+                    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors flex-shrink-0"
+                >
+                  <Download className="w-4 h-4" />
+                  Download
+                </button>
               </div>
-            </div>
+            ))}
           </div>
+        )}
+      </Modal>
+
+      {/* Messages Modal */}
+      <Modal isOpen={isMessagesOpen} onClose={() => setIsMessagesOpen(false)} title="Messages" size="lg">
+        <div className="space-y-4 mb-4 max-h-[50vh] overflow-y-auto">
+          {isLoadingConversation ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p className="text-sm">No messages yet</p>
+              <p className="text-xs mt-1">Start a conversation with the agency</p>
+            </div>
+          ) : (
+            <>
+              {messages.map(msg => {
+                const senderName = getSenderName(msg)
+                const senderRole = getSenderRole(msg)
+                const initials = getInitials(senderName)
+                const roleTagColor = getRoleTagColor(senderRole)
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex items-start gap-3 ${msg.is_own ? 'flex-row-reverse' : ''}`}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
+                      {initials}
+                    </div>
+                    <div className={`flex-1 min-w-0 ${msg.is_own ? 'flex flex-col items-end' : ''}`}>
+                      <div className={`flex items-center gap-2 mb-1 ${msg.is_own ? 'flex-row-reverse' : ''}`}>
+                        <span className="text-sm font-semibold text-gray-900">{senderName}</span>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded border ${roleTagColor}`}>
+                          {senderRole}
+                        </span>
+                        <span className="text-xs text-gray-500">{formatMessageTime(msg.created_at)}</span>
+                      </div>
+                      <div className={`rounded-lg p-3 ${msg.is_own ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200'}`}>
+                        <p className={`text-sm whitespace-pre-wrap ${msg.is_own ? 'text-white' : 'text-gray-900'}`}>
+                          {msg.content}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              <div ref={messagesEndRef} />
+            </>
+          )}
         </div>
-      )}
+        <div className="border-t border-gray-200 pt-4">
+          <div className="flex gap-3">
+            <textarea
+              value={messageContent}
+              onChange={e => setMessageContent(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() }
+              }}
+              placeholder="Type your message…"
+              rows={2}
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+            />
+            <button
+              onClick={handleSendMessage}
+              disabled={!messageContent.trim() || isSendingMessage || !conversationId}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {isSendingMessage
+                ? <Loader2 className="w-5 h-5 animate-spin" />
+                : <Send className="w-5 h-5" />
+              }
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">Press Enter to send, Shift+Enter for new line</p>
+        </div>
+      </Modal>
     </div>
   )
 }

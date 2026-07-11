@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Modal from '@/components/Modal'
 import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbooks'
+import { EXPERT_STEP_PHASES } from '@/lib/constants'
 
 type ItemType = 'step' | 'document'
 type Assignment = 'client' | 'expert' | 'both'
@@ -211,11 +212,10 @@ export default function PlaybookItemModal({
         )}
 
         <div className="grid grid-cols-3 gap-3 pt-1">
-          {field('Phase', input({
-            value: form.phase,
-            onChange: e => setForm(f => ({ ...f, phase: e.target.value })),
-            placeholder: 'e.g., Client Intake',
-          }))}
+          {field('Phase', select(form.phase, v => setForm(f => ({ ...f, phase: v })), [
+            { value: '', label: '— None —' },
+            ...EXPERT_STEP_PHASES.map(p => ({ value: p.value, label: p.label })),
+          ]))}
 
           {field('Assignment', select(form.assignment, v => setForm(f => ({ ...f, assignment: v })), [
             { value: 'client', label: 'Client' },

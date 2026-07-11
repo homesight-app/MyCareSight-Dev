@@ -258,7 +258,7 @@ export default function AddLeadModal({
             <label className={labelCls}>Service Type</label>
             <select className={inputCls} value={form.serviceType} onChange={set('serviceType')}>
               <option value="">— Select —</option>
-              {context.serviceTypes.map(s => (
+              {[...new Map(context.serviceTypes.map(s => [s.key, s])).values()].sort((a, b) => a.label.localeCompare(b.label)).map(s => (
                 <option key={s.key} value={s.key}>{s.label}</option>
               ))}
             </select>

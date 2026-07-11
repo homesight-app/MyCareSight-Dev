@@ -31,13 +31,14 @@ export default async function ExpertAgencyDetailPage({
 
   const adminIds = normalizeAgencyAdminIds(agency.agency_admin_ids as string[] | string | null)
 
-  const [{ data: agencyAdmins }, { data: licenses }, { data: applications }, { data: availableAdmins }] = await Promise.all([
+  const [{ data: agencyAdmins }, { data: licenses }, { data: applications }, { data: availableAdmins }, { data: programs }] = await Promise.all([
     adminIds.length > 0
       ? q.getAgencyAdminsByIds(supabaseAdmin, adminIds)
       : Promise.resolve({ data: [] }),
     q.getLicensesByAgencyId(supabaseAdmin, id),
     q.getApplicationsByAgencyId(supabaseAdmin, id),
     q.getUnassignedAgencyAdmins(supabaseAdmin),
+    q.getApplicationsWithProgramsByAgencyId(supabaseAdmin, id),
   ])
 
   return (
@@ -49,6 +50,7 @@ export default async function ExpertAgencyDetailPage({
         agencyAdmins={agencyAdmins ?? []}
         availableAdmins={availableAdmins ?? []}
         backPath="/pages/expert/agencies"
+        programs={programs ?? []}
       />
     </ExpertDashboardLayout>
   )

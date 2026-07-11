@@ -228,7 +228,8 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
                   >
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900">{pb.name}</p>
-                      {pb.description && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{pb.description}</p>}
+                      <p className="text-xs text-gray-400 mt-0.5">{`PB-${pb.id.substring(0, 8).toUpperCase()}`}</p>
+                      {pb.description && <p className="text-xs text-gray-400 truncate max-w-xs">{pb.description}</p>}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TYPE_COLORS[pb.playbook_type] ?? 'bg-gray-100 text-gray-600'}`}>

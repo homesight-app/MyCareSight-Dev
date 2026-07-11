@@ -454,6 +454,63 @@ export async function reorderPlaybookItems(playbookId: string, orderedIds: strin
   return { error: null }
 }
 
+/** Add an ad-hoc step or document directly to a live program (application_playbook_items). */
+export async function addProgramItem(
+  applicationId: string,
+  item: {
+    item_type: 'step' | 'document'
+    name: string
+    description?: string | null
+    instructions?: string | null
+    document_type?: string | null
+    phase?: string | null
+    assignment: 'client' | 'expert' | 'both'
+    requirement_type: 'required' | 'optional'
+  }
+) {
+  const { error: authError, session } = await requireStaff()
+  if (authError || !session) return { error: authError ?? 'Forbidden', data: null }
+
+  const supabase = await createClient()
+
+  const { data: maxRow } = await supabase
+    .from('application_playbook_items')
+    .select('item_order')
+    .eq('application_id', applicationId)
+    .order('item_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const nextOrder = (maxRow?.item_order ?? 0) + 1
+
+  const { data, error } = await supabase
+    .from('application_playbook_items')
+    .insert({
+      application_id: applicationId,
+      item_order: nextOrder,
+      item_type: item.item_type,
+      name: item.name.trim(),
+      description: item.description ?? null,
+      instructions: item.instructions ?? null,
+      document_type: item.document_type ?? null,
+      phase: item.phase ?? null,
+      assignment: item.assignment,
+      requirement_type: item.requirement_type,
+      status: 'not_started',
+      updated_by: session.user.id,
+    })
+    .select()
+    .single()
+
+  if (error) return { error: error.message, data: null }
+
+  revalidatePath(`/pages/admin/programs/${applicationId}`)
+  revalidatePath(`/pages/expert/programs/${applicationId}`)
+  revalidatePath(`/pages/agency/programs/${applicationId}`)
+
+  return { error: null, data }
+}
+
 // ─── Application-level Program actions ───────────────────────────────────────
 
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'

@@ -5,7 +5,7 @@ import {
   CheckCircle2, Clock, AlertCircle, Circle,
   FileText, Loader2, ChevronRight, CalendarDays,
   Download, Send, Info, SquarePen, CheckCheck,
-  MessageSquare, FolderOpen, Pencil, Check, X,
+  MessageSquare, FolderOpen, Pencil, Check, X, Plus,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -16,6 +16,7 @@ import {
 } from '@/app/actions/playbooks'
 import { approveProgramComplete, renameApplication } from '@/app/actions/applications'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
+import AddProgramItemModal from './AddProgramItemModal'
 import InternalNotesPanel from './InternalNotesPanel'
 import Modal from './Modal'
 
@@ -126,6 +127,10 @@ export default function ExpertProgramView({
 
   // ── Selected doc item (inline detail) ────────────────────────────────────────
   const [selectedDocItem, setSelectedDocItem] = useState<ApplicationPlaybookItem | null>(null)
+
+  // ── Add item modal ────────────────────────────────────────────────────────────
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [addItemDefaultType, setAddItemDefaultType] = useState<'step' | 'document'>('step')
 
   // ── Due date editing ──────────────────────────────────────────────────────────
   const [editingDueDateId, setEditingDueDateId] = useState<string | null>(null)
@@ -576,6 +581,20 @@ export default function ExpertProgramView({
               <option value="expert">Expert</option>
               <option value="both">Both</option>
             </select>
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={() => { setAddItemDefaultType('step'); setShowAddModal(true) }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <Plus className="w-4 h-4" /> Add Step
+              </button>
+              <button
+                onClick={() => { setAddItemDefaultType('document'); setShowAddModal(true) }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <Plus className="w-4 h-4" /> Add Document
+              </button>
+            </div>
           </div>
 
           {/* Step items list */}
@@ -912,6 +931,19 @@ export default function ExpertProgramView({
           <p className="text-xs text-gray-500 mt-2">Press Enter to send, Shift+Enter for new line</p>
         </div>
       </Modal>
+
+      {showAddModal && (
+        <AddProgramItemModal
+          isOpen={showAddModal}
+          applicationId={applicationId}
+          defaultType={addItemDefaultType}
+          onClose={() => setShowAddModal(false)}
+          onItemAdded={(newItem) => {
+            setItems(prev => [...prev, newItem])
+            setShowAddModal(false)
+          }}
+        />
+      )}
     </div>
   )
 }

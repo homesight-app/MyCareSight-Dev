@@ -55,6 +55,7 @@ export async function createLead(payload: {
   assignedTo?: string | null
   source?: string
   convertedAgencyId?: string | null
+  leadOwnerId?: string | null
 }) {
   let userId: string
 
@@ -92,6 +93,7 @@ export async function createLead(payload: {
       notes: payload.notes ?? null,
       source: payload.source ?? null,
       converted_agency_id: payload.convertedAgencyId ?? null,
+      lead_owner_id: payload.leadOwnerId ?? null,
       status: 'active',
       updated_at: new Date().toISOString(),
     })
@@ -122,6 +124,8 @@ export async function updateLead(
     assignedTo?: string | null
     source?: string | null
     convertedAgencyId?: string | null
+    leadOwnerId?: string | null
+    proposalSentDate?: string | null
   }
 ) {
   const supabase = await createClient()
@@ -144,6 +148,8 @@ export async function updateLead(
   }
   if (payload.source !== undefined) updateData.source = payload.source
   if ('convertedAgencyId' in payload) updateData.converted_agency_id = payload.convertedAgencyId ?? null
+  if ('leadOwnerId' in payload) updateData.lead_owner_id = payload.leadOwnerId ?? null
+  if ('proposalSentDate' in payload) updateData.proposal_sent_date = payload.proposalSentDate ?? null
 
   const { error } = await supabase
     .from('leads')
@@ -157,11 +163,20 @@ export async function updateLead(
 
 export async function updateLeadStage(leadId: string, stage: string) {
   const supabase = await createClient()
-  const { error } = await supabase
-    .from('leads')
-    .update({ stage, updated_at: new Date().toISOString() })
-    .eq('id', leadId)
+  const updates: Record<string, unknown> = { stage, updated_at: new Date().toISOString() }
 
+  if (stage === 'proposal_sent') {
+    const { data: existing } = await supabase
+      .from('leads')
+      .select('proposal_sent_date')
+      .eq('id', leadId)
+      .single()
+    if (!existing?.proposal_sent_date) {
+      updates.proposal_sent_date = new Date().toISOString().split('T')[0]
+    }
+  }
+
+  const { error } = await supabase.from('leads').update(updates).eq('id', leadId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
   revalidateLeadPaths()

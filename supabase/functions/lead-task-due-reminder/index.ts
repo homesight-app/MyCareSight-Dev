@@ -46,6 +46,7 @@ type NotificationInsert = {
   message: string
   type: string
   icon_type: string
+  action_url: string
 }
 
 // ─── Email helpers ────────────────────────────────────────────────────────────
@@ -228,9 +229,10 @@ Deno.serve(async (req) => {
       notifications.push({
         user_id: userId,
         title: `Task due today: ${task.title}`,
-        message: `Your task "${task.title}" for ${leadName} is due today.`,
+        message: `Lead: ${leadName}`,
         type: 'general',
         icon_type: 'bell',
+        action_url: `${leadUrl}?tab=tasks`,
       })
 
       // Email (skip if no email address or no API key)

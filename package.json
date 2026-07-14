@@ -8,7 +8,7 @@
 
     "dev": "next dev",
 
-    "build": "next build",
+    "build": "NODE_OPTIONS=--use-system-ca next build",
 
     "start": "next start",
 

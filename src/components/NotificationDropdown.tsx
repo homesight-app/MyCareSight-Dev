@@ -19,8 +19,10 @@ interface ApplicationNotification {
 interface AdminNotificationItem {
   id: string
   title: string
+  message: string | null
   type: string
   created_at: string
+  action_url: string | null
 }
 
 /** Matches title built in DB: notify_agency_staff_schedule_assignment_request */
@@ -165,11 +167,13 @@ export default function NotificationDropdown({
   const fetchUnreadNotificationItems = async (): Promise<AdminNotificationItem[]> => {
     if (!userId || !roleSeesInAppNotificationList(userRole)) return []
     const { data: notificationRows } = await q.getUnreadNotificationItems(supabase, userId)
-    const allItems = (notificationRows || []).map((n: { id: string; title: string; type: string; created_at: string }) => ({
+    const allItems = (notificationRows || []).map((n: { id: string; title: string; message?: string | null; type: string; created_at: string; action_url?: string | null }) => ({
       id: n.id,
       title: n.title,
+      message: n.message ?? null,
       type: n.type,
-      created_at: n.created_at
+      created_at: n.created_at,
+      action_url: n.action_url ?? null,
     }))
     return allItems.filter(n => !(n.type === 'general' && n.title === 'New Message'))
   }
@@ -552,6 +556,10 @@ export default function NotificationDropdown({
       console.error('Error marking notification as read:', err)
     }
     setIsOpen(false)
+    if (notif.action_url) {
+      navigateWithLoading(notif.action_url)
+      return
+    }
     if (
       notif.title.includes(SCHEDULE_ASSIGNMENT_REQUEST_SNIPPET) ||
       notif.title.includes(SCHEDULE_ASSIGNMENT_CANCEL_SNIPPET)
@@ -652,6 +660,9 @@ export default function NotificationDropdown({
                   <FileText className="w-5 h-5 mt-0.5 flex-shrink-0 text-amber-600" />
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-sm text-gray-900">{notif.title}</div>
+                    {notif.message && (
+                      <div className="text-xs text-gray-600 mt-0.5 truncate">{notif.message}</div>
+                    )}
                     <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
                       <Clock className="w-3 h-3" />
                       {formatDate(notif.created_at)}

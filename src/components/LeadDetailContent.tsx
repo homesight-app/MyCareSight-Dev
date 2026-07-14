@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, CheckSquare, Square, Trash2, ExternalLink, Pencil, Plus, ChevronDown } from 'lucide-react'
 import AddLeadModal from './AddLeadModal'
 import { type LeadContext, LEAD_STAGES, NOTE_TYPES } from '@/lib/constants/lead-configs'
 import {
+  updateLead,
   updateLeadStage,
   addLeadNote,
   deleteLeadNote,
@@ -53,6 +54,9 @@ interface Lead {
   contact_state: string | null
   contact_zip: string | null
   converted_agency: ConvertedAgency | null
+  lead_owner_id: string | null
+  proposal_sent_date: string | null
+  lead_owner?: { id: string; full_name: string | null } | { id: string; full_name: string | null }[] | null
 }
 
 interface LeadNote {
@@ -80,14 +84,20 @@ interface LeadDetailContentProps {
   documents: LeadDocument[]
   context: LeadContext
   currentUserRole?: string | null
+  platformStaff?: { id: string; full_name: string | null }[]
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// Date-only strings (YYYY-MM-DD) are parsed as UTC by JS; append T00:00:00 to force local time.
+function parseDate(val: string): Date {
+  return val.includes('T') ? new Date(val) : new Date(val + 'T00:00:00')
+}
+
 function formatDate(val: string | null, opts?: Intl.DateTimeFormatOptions) {
   if (!val) return '—'
   try {
-    return new Date(val).toLocaleDateString('en-US', opts ?? { month: 'short', day: 'numeric', year: 'numeric' })
+    return parseDate(val).toLocaleDateString('en-US', opts ?? { month: 'short', day: 'numeric', year: 'numeric' })
   } catch { return '—' }
 }
 
@@ -108,12 +118,12 @@ function relativeTime(iso: string) {
 
 function isOverdue(task: LeadTask) {
   if (task.completed_at || !task.due_date) return false
-  return new Date(task.due_date) < new Date(new Date().toDateString())
+  return parseDate(task.due_date) < new Date(new Date().toDateString())
 }
 
 function isDueToday(task: LeadTask) {
   if (task.completed_at || !task.due_date) return false
-  return new Date(task.due_date).toDateString() === new Date().toDateString()
+  return parseDate(task.due_date).toDateString() === new Date().toDateString()
 }
 
 const noteTypeColorMap: Record<string, string> = {
@@ -125,9 +135,11 @@ const noteTypeColorMap: Record<string, string> = {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserRole }: LeadDetailContentProps) {
+export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserRole, platformStaff = [] }: LeadDetailContentProps) {
   const router = useRouter()
-  const [tab, setTab] = useState<'overview' | 'notes' | 'tasks' | 'documents'>('overview')
+  const searchParams = useSearchParams()
+  const initialTab = (['overview', 'notes', 'tasks', 'documents'] as const).find(t => t === searchParams.get('tab')) ?? 'overview'
+  const [tab, setTab] = useState<'overview' | 'notes' | 'tasks' | 'documents'>(initialTab)
   const [unlinking, setUnlinking] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -151,6 +163,8 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   const [convertError, setConvertError] = useState<string | null>(null)
   const [showAgencyNamePrompt, setShowAgencyNamePrompt] = useState(false)
   const [agencyNameInput, setAgencyNameInput] = useState('')
+
+  const owners = platformStaff
 
   const stageColorMap = Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.color]))
   const serviceTypeLabel = (key: string | null) =>
@@ -374,6 +388,23 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     )}
                     <dt className="text-gray-500">Signed Date</dt>
                     <dd className="text-gray-900">{formatDate(lead.signed_date)}</dd>
+                    <dt className="text-gray-500">Proposal Sent</dt>
+                    <dd>
+                      <input
+                        type="date"
+                        defaultValue={lead.proposal_sent_date ?? ''}
+                        onBlur={e => {
+                          const val = e.target.value || null
+                          if (val !== (lead.proposal_sent_date ?? null)) {
+                            startTransition(async () => {
+                              await updateLead(lead.id, { proposalSentDate: val })
+                              router.refresh()
+                            })
+                          }
+                        }}
+                        className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full"
+                      />
+                    </dd>
                   </dl>
                 </div>
               )}
@@ -402,6 +433,29 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     {LEAD_STAGES.find(s => s.key === lead.stage)?.label ?? lead.stage}
                   </span>
                 </div>
+                {context.billingVisible && (
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">Lead Owner</label>
+                    <select
+                      value={lead.lead_owner_id ?? ''}
+                      onChange={e => {
+                        startTransition(async () => {
+                          await updateLead(lead.id, { leadOwnerId: e.target.value || null })
+                          router.refresh()
+                        })
+                      }}
+                      disabled={isPending}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
+                    >
+                      <option value="">— Unassigned —</option>
+                      {owners.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.full_name ?? ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Conversion */}

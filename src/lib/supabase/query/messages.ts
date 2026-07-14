@@ -121,14 +121,14 @@ export async function getUnreadNotificationsByUserId(supabase: Supabase, userId:
     .eq('is_read', false)
 }
 
-/** Get unread notification items (id, title, type, created_at) for dropdown, limit 20. */
+/** Get unread notification items for dropdown, limit 20. */
 export async function getUnreadNotificationItems(
   supabase: Supabase,
   userId: string
 ) {
   return supabase
     .from('notifications')
-    .select('id, title, type, created_at')
+    .select('id, title, message, type, created_at, action_url')
     .eq('user_id', userId)
     .eq('is_read', false)
     .order('created_at', { ascending: false })

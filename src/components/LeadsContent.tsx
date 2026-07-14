@@ -22,6 +22,9 @@ interface Lead {
   signed_date: string | null
   status: string
   created_at: string
+  lead_owner_id: string | null
+  proposal_sent_date: string | null
+  lead_owner?: { id: string; full_name: string | null } | { id: string; full_name: string | null }[] | null
 }
 
 interface LeadsContentProps {
@@ -367,6 +370,12 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                     {sortKey === 'source' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
                   </span>
                 </th>
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                  Owner
+                </th>
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                  Proposal Sent
+                </th>
                 <th
                   scope="col"
                   onClick={() => handleSort('created_at')}
@@ -384,7 +393,7 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 9 : 8) : (context.leadType === 'agency' ? 7 : 6)}
+                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 11 : 10) : (context.leadType === 'agency' ? 9 : 8)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
                     {search || (stageFilter !== 'all' && stageFilter !== 'active')
@@ -436,6 +445,15 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                           {lead.source}
                         </span>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                      {(() => {
+                        const o = Array.isArray(lead.lead_owner) ? lead.lead_owner[0] ?? null : lead.lead_owner
+                        return o?.full_name?.trim() || '—'
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                      {formatDate(lead.proposal_sent_date)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
                       {formatDate(lead.created_at)}

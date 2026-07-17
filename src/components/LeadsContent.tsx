@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, MoreVertical, Archive, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Plus, Search, MoreVertical, Archive, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, Info, X } from 'lucide-react'
 import AddLeadModal from './AddLeadModal'
 import LeadsKanbanBoard from './LeadsKanbanBoard'
 import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
@@ -20,6 +20,7 @@ interface Lead {
   source: string | null
   price: number | null
   signed_date: string | null
+  retainer_paid_date: string | null
   status: string
   created_at: string
   lead_owner_id: string | null
@@ -30,9 +31,10 @@ interface Lead {
 interface LeadsContentProps {
   leads: Lead[]
   context: LeadContext
+  taskStatus?: Record<string, 'overdue' | 'today'>
 }
 
-export default function LeadsContent({ leads, context }: LeadsContentProps) {
+export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsContentProps) {
   const router = useRouter()
   type SortKey = 'name' | 'company' | 'service_type' | 'stage' | 'price' | 'signed_date' | 'source' | 'created_at'
 
@@ -45,6 +47,7 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
   const [modalOpen, setModalOpen] = useState(false)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
+  const [infoLeadId, setInfoLeadId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => {
     if (typeof window === 'undefined') return 'list'
     return (localStorage.getItem(`leads-view-${context.leadType}`) as 'list' | 'kanban') ?? 'list'
@@ -86,7 +89,8 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     const base = leads.filter(lead => {
-      if (stageFilter === 'active' && ['signed', 'on_hold', 'lost'].includes(lead.stage)) return false
+      if (stageFilter === 'active' && ['on_hold', 'lost'].includes(lead.stage)) return false
+      if (stageFilter === 'active' && lead.stage === 'signed' && !!lead.retainer_paid_date) return false
       if (stageFilter !== 'all' && stageFilter !== 'active' && lead.stage !== stageFilter) return false
       if (serviceTypeFilter !== 'all' && lead.service_type !== serviceTypeFilter) return false
       if (sourceFilter !== 'all' && (lead.source ?? '') !== sourceFilter) return false
@@ -144,7 +148,10 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
 
   const stageCounts = useMemo(() => {
     const counts: Record<string, number> = { all: leads.length }
-    counts.active = leads.filter(l => !['signed', 'on_hold', 'lost'].includes(l.stage)).length
+    counts.active = leads.filter(l =>
+      !['on_hold', 'lost'].includes(l.stage) &&
+      !(l.stage === 'signed' && !!l.retainer_paid_date)
+    ).length
     for (const s of LEAD_STAGES) {
       counts[s.key] = leads.filter(l => l.stage === s.key).length
     }
@@ -340,25 +347,16 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                   )
                 })}
                 {context.billingVisible && (
-                  <>
-                    {(['price', 'signed_date'] as const).map(key => {
-                      const labels: Record<string, string> = { price: 'Price', signed_date: 'Signed' }
-                      const active = sortKey === key
-                      return (
-                        <th
-                          key={key}
-                          scope="col"
-                          onClick={() => handleSort(key)}
-                          className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
-                        >
-                          <span className="flex items-center gap-1">
-                            {labels[key]}
-                            {active ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
-                          </span>
-                        </th>
-                      )
-                    })}
-                  </>
+                  <th
+                    scope="col"
+                    onClick={() => handleSort('price')}
+                    className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                  >
+                    <span className="flex items-center gap-1">
+                      Price
+                      {sortKey === 'price' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
+                    </span>
+                  </th>
                 )}
                 <th
                   scope="col"
@@ -376,16 +374,6 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                   Proposal Sent
                 </th>
-                <th
-                  scope="col"
-                  onClick={() => handleSort('created_at')}
-                  className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
-                >
-                  <span className="flex items-center gap-1">
-                    Added
-                    {sortKey === 'created_at' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
-                  </span>
-                </th>
                 <th scope="col" className="relative px-4 py-3"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -393,7 +381,7 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 11 : 10) : (context.leadType === 'agency' ? 9 : 8)}
+                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 9 : 8) : (context.leadType === 'agency' ? 7 : 6)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
                     {search || (stageFilter !== 'all' && stageFilter !== 'active')
@@ -408,7 +396,10 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                   <tr
                     key={lead.id}
                     onClick={() => handleRowClick(lead.id)}
-                    className="cursor-pointer hover:bg-gray-50 transition-colors"
+                    className={`cursor-pointer hover:bg-gray-50 transition-colors ${
+                      taskStatus[lead.id] === 'overdue' ? 'shadow-[inset_4px_0_0_#ef4444]' :
+                      taskStatus[lead.id] === 'today'   ? 'shadow-[inset_4px_0_0_#facc15]' : ''
+                    }`}
                   >
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
                       {displayName(lead)}
@@ -430,14 +421,9 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                       </span>
                     </td>
                     {context.billingVisible && (
-                      <>
-                        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-                          {formatCurrency(lead.price)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                          {formatDate(lead.signed_date)}
-                        </td>
-                      </>
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {formatCurrency(lead.price)}
+                      </td>
                     )}
                     <td className="hidden xl:table-cell px-4 py-3 whitespace-nowrap">
                       {lead.source && (
@@ -455,11 +441,16 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
                       {formatDate(lead.proposal_sent_date)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                      {formatDate(lead.created_at)}
-                    </td>
                     <td className="px-4 py-3 whitespace-nowrap text-right" onClick={e => e.stopPropagation()}>
-                      <div className="relative inline-block">
+                      <div className="relative inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setInfoLeadId(lead.id) }}
+                          className="p-1 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          aria-label="More details"
+                        >
+                          <Info className="w-4 h-4" />
+                        </button>
                         <button
                           type="button"
                           onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === lead.id ? null : lead.id) }}
@@ -496,6 +487,35 @@ export default function LeadsContent({ leads, context }: LeadsContentProps) {
           <LeadsKanbanBoard leads={leads} context={context} search={search} />
         </div>
       )}
+
+      {infoLeadId && (() => {
+        const lead = filtered.find(l => l.id === infoLeadId)
+        if (!lead) return null
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setInfoLeadId(null)}>
+            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold text-gray-900">{displayName(lead)}</h3>
+                <button type="button" onClick={() => setInfoLeadId(null)} className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <dl className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Added</dt>
+                  <dd className="text-gray-900 font-medium">{formatDate(lead.created_at)}</dd>
+                </div>
+                {context.billingVisible && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Signed</dt>
+                    <dd className="text-gray-900 font-medium">{formatDate(lead.signed_date)}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          </div>
+        )
+      })()}
 
       <AddLeadModal
         isOpen={modalOpen}

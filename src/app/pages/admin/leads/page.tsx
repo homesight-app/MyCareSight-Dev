@@ -14,6 +14,22 @@ export default async function AdminLeadsPage() {
     q.getLeads(supabase, { leadType: 'agency' }),
   ])
 
+  const today = new Date().toISOString().slice(0, 10)
+  const activeLeadIds = (leads ?? [])
+    .filter(l =>
+      !['on_hold', 'lost'].includes(l.stage) &&
+      !(l.stage === 'signed' && !!l.retainer_paid_date)
+    )
+    .map(l => l.id)
+  const { data: taskRows } = await q.getLeadTaskStatusByLeadIds(supabase, activeLeadIds, today)
+
+  const taskStatus: Record<string, 'overdue' | 'today'> = {}
+  for (const row of taskRows ?? []) {
+    if (!row.lead_id || !row.due_date) continue
+    if (taskStatus[row.lead_id] === 'overdue') continue
+    taskStatus[row.lead_id] = row.due_date < today ? 'overdue' : 'today'
+  }
+
   return (
     <AdminLayout
       user={user}
@@ -23,6 +39,7 @@ export default async function AdminLeadsPage() {
       <LeadsContent
         leads={leads ?? []}
         context={ADMIN_LEAD_CONTEXT}
+        taskStatus={taskStatus}
       />
     </AdminLayout>
   )

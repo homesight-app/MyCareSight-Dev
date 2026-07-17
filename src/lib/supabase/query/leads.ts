@@ -204,6 +204,20 @@ export async function getLeadDocumentsByLeadIds(supabase: SupabaseClient, leadId
     .order('created_at', { ascending: false })
 }
 
+export async function getLeadTaskStatusByLeadIds(
+  supabase: SupabaseClient,
+  leadIds: string[],
+  today: string
+) {
+  if (leadIds.length === 0) return { data: [], error: null }
+  return supabase
+    .from('lead_tasks')
+    .select('lead_id, due_date')
+    .in('lead_id', leadIds)
+    .is('completed_at', null)
+    .lte('due_date', today)
+}
+
 export async function linkLeadToExistingAgency(supabase: SupabaseClient, leadId: string, agencyId: string) {
   return supabase
     .from('leads')

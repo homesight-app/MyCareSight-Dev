@@ -164,6 +164,12 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   const [showAgencyNamePrompt, setShowAgencyNamePrompt] = useState(false)
   const [agencyNameInput, setAgencyNameInput] = useState('')
 
+  // Signed stage prompt state
+  const [signedPromptOpen, setSignedPromptOpen]           = useState(false)
+  const [signedDateInput, setSignedDateInput]             = useState('')
+  const [retainerAmountInput, setRetainerAmountInput]     = useState('')
+  const [retainerPaidDateInput, setRetainerPaidDateInput] = useState('')
+
   const owners = platformStaff
 
   const stageColorMap = Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.color]))
@@ -175,8 +181,28 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   // ─── Stage change ──────────────────────────────────────────────
 
   const handleStageChange = (stage: string) => {
+    if (stage === 'signed') {
+      setSignedDateInput(new Date().toISOString().slice(0, 10))
+      setRetainerAmountInput(lead.retainer_amount != null ? String(lead.retainer_amount) : '')
+      setRetainerPaidDateInput('')
+      setSignedPromptOpen(true)
+      return
+    }
     startTransition(async () => {
       await updateLeadStage(lead.id, stage)
+      router.refresh()
+    })
+  }
+
+  const handleSignedConfirm = () => {
+    setSignedPromptOpen(false)
+    startTransition(async () => {
+      await updateLead(lead.id, {
+        signedDate: signedDateInput || undefined,
+        retainerAmount: retainerAmountInput ? parseFloat(retainerAmountInput) : undefined,
+        retainerPaidDate: retainerPaidDateInput || undefined,
+      })
+      await updateLeadStage(lead.id, 'signed')
       router.refresh()
     })
   }
@@ -862,6 +888,68 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
         context={context}
         editLead={lead}
       />
+
+      {signedPromptOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-base font-semibold text-gray-900 mb-4">Mark as Signed</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Signed Date</label>
+                <input
+                  type="date"
+                  value={signedDateInput}
+                  onChange={e => setSignedDateInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              {lead.retainer_amount == null && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Retainer Amount</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={retainerAmountInput}
+                    onChange={e => setRetainerAmountInput(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Retainer Collected Date
+                  <span className="text-gray-400 font-normal ml-1">(leave blank if not yet collected)</span>
+                </label>
+                <input
+                  type="date"
+                  value={retainerPaidDateInput}
+                  onChange={e => setRetainerPaidDateInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setSignedPromptOpen(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSignedConfirm}
+                disabled={!signedDateInput || isPending}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

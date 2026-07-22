@@ -2,13 +2,13 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, MoreVertical, Archive, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, Info, X } from 'lucide-react'
+import { Plus, Search, MoreVertical, Archive, ArchiveRestore, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, Info, X } from 'lucide-react'
 import AddLeadModal from './AddLeadModal'
 import LeadsKanbanBoard from './LeadsKanbanBoard'
 import LeadSignedModal from './LeadSignedModal'
 import LeadCollectRetainerModal from './LeadCollectRetainerModal'
 import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
-import { archiveLead, updateLeadStage } from '@/app/actions/leads'
+import { archiveLead, unarchiveLead, updateLeadStage } from '@/app/actions/leads'
 
 interface Lead {
   id: string
@@ -51,6 +51,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [modalOpen, setModalOpen] = useState(false)
   const [archivingId, setArchivingId] = useState<string | null>(null)
+  const [unarchivingId, setUnarchivingId] = useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [infoLeadId, setInfoLeadId] = useState<string | null>(null)
   const [signedModalLead, setSignedModalLead] = useState<Lead | null>(null)
@@ -97,8 +98,13 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     const base = leads.filter(lead => {
-      if (stageFilter === 'active' && ['on_hold', 'lost', 'signed'].includes(lead.stage)) return false
-      if (stageFilter !== 'all' && stageFilter !== 'active' && lead.stage !== stageFilter) return false
+      if (stageFilter === 'archived') {
+        if (lead.status !== 'archived') return false
+      } else {
+        if (lead.status === 'archived') return false
+        if (stageFilter === 'active' && ['on_hold', 'lost', 'signed'].includes(lead.stage)) return false
+        if (stageFilter !== 'all' && stageFilter !== 'active' && lead.stage !== stageFilter) return false
+      }
       if (serviceTypeFilter !== 'all' && lead.service_type !== serviceTypeFilter) return false
       if (sourceFilter !== 'all' && (lead.source ?? '') !== sourceFilter) return false
       if (!term) return true
@@ -157,12 +163,12 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
   }, [leads, search, stageFilter, serviceTypeFilter, sourceFilter, sortKey, sortDir])
 
   const stageCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: leads.length }
-    counts.active = leads.filter(l =>
-      !['on_hold', 'lost', 'signed'].includes(l.stage)
-    ).length
+    const nonArchived = leads.filter(l => l.status !== 'archived')
+    const counts: Record<string, number> = { all: nonArchived.length }
+    counts.active = nonArchived.filter(l => !['on_hold', 'lost', 'signed'].includes(l.stage)).length
+    counts.archived = leads.filter(l => l.status === 'archived').length
     for (const s of LEAD_STAGES) {
-      counts[s.key] = leads.filter(l => l.stage === s.key).length
+      counts[s.key] = nonArchived.filter(l => l.stage === s.key).length
     }
     return counts
   }, [leads])
@@ -173,6 +179,15 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
     setArchivingId(leadId)
     await archiveLead(leadId)
     setArchivingId(null)
+    router.refresh()
+  }
+
+  const handleUnarchive = async (e: React.MouseEvent, leadId: string) => {
+    e.stopPropagation()
+    setMenuOpenId(null)
+    setUnarchivingId(leadId)
+    await unarchiveLead(leadId)
+    setUnarchivingId(null)
     router.refresh()
   }
 
@@ -284,6 +299,20 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                 </span>
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setStageFilter('archived')}
+              className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                stageFilter === 'archived'
+                  ? 'border-gray-500 text-gray-700'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              Archived
+              <span className={`ml-1.5 text-xs ${stageFilter === 'archived' ? 'text-gray-600' : 'text-gray-400'}`}>
+                {stageCounts.archived ?? 0}
+              </span>
+            </button>
           </div>
         </div>}
 
@@ -396,7 +425,9 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                     colSpan={context.billingVisible ? (context.leadType === 'agency' ? 9 : 8) : (context.leadType === 'agency' ? 7 : 6)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
-                    {search || (stageFilter !== 'all' && stageFilter !== 'active')
+                    {stageFilter === 'archived'
+                      ? (search ? 'No archived leads match your search.' : 'No archived leads.')
+                      : search || (stageFilter !== 'all' && stageFilter !== 'active')
                       ? 'No leads match your search or filter.'
                       : stageFilter === 'active'
                       ? 'No active leads. All leads are signed, on hold, or lost.'
@@ -431,35 +462,41 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                       {serviceTypeLabel(lead.service_type)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                      <div className={`relative inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'} ${stageUpdatingId === lead.id ? 'opacity-50' : ''}`}>
-                        {stageLabelMap[lead.stage] ?? lead.stage}
-                        <ChevronDown className="w-3 h-3 opacity-60" />
-                        <select
-                          value={lead.stage}
-                          disabled={stageUpdatingId === lead.id}
-                          onChange={async e => {
-                            const newStage = e.target.value
-                            if (newStage === lead.stage) return
-                            if (newStage === 'signed' || newStage === 'retainer') {
-                              if (lead.stage === 'retainer' && newStage === 'signed') {
-                                setCollectRetainerLeadId(lead.id)
+                      {lead.status === 'archived' ? (
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'} opacity-60`}>
+                          {stageLabelMap[lead.stage] ?? lead.stage}
+                        </span>
+                      ) : (
+                        <div className={`relative inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'} ${stageUpdatingId === lead.id ? 'opacity-50' : ''}`}>
+                          {stageLabelMap[lead.stage] ?? lead.stage}
+                          <ChevronDown className="w-3 h-3 opacity-60" />
+                          <select
+                            value={lead.stage}
+                            disabled={stageUpdatingId === lead.id}
+                            onChange={async e => {
+                              const newStage = e.target.value
+                              if (newStage === lead.stage) return
+                              if (newStage === 'signed' || newStage === 'retainer') {
+                                if (lead.stage === 'retainer' && newStage === 'signed') {
+                                  setCollectRetainerLeadId(lead.id)
+                                } else {
+                                  setSignedModalLead(lead)
+                                }
                               } else {
-                                setSignedModalLead(lead)
+                                setStageUpdatingId(lead.id)
+                                await updateLeadStage(lead.id, newStage)
+                                setStageUpdatingId(null)
+                                router.refresh()
                               }
-                            } else {
-                              setStageUpdatingId(lead.id)
-                              await updateLeadStage(lead.id, newStage)
-                              setStageUpdatingId(null)
-                              router.refresh()
-                            }
-                          }}
-                          className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          {LEAD_STAGES.map(s => (
-                            <option key={s.key} value={s.key}>{s.label}</option>
-                          ))}
-                        </select>
-                      </div>
+                            }}
+                            className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            {LEAD_STAGES.map(s => (
+                              <option key={s.key} value={s.key}>{s.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </td>
                     {/* {context.billingVisible && (
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
@@ -515,16 +552,28 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                           <MoreVertical className="w-4 h-4" />
                         </button>
                         {menuOpenId === lead.id && (
-                          <div className="absolute right-0 z-10 mt-1 w-36 bg-white rounded-lg shadow-lg border border-gray-100 py-1">
-                            <button
-                              type="button"
-                              disabled={archivingId === lead.id}
-                              onClick={e => handleArchive(e, lead.id)}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                            >
-                              <Archive className="w-3.5 h-3.5" />
-                              {archivingId === lead.id ? 'Archiving…' : 'Archive'}
-                            </button>
+                          <div className="absolute right-0 z-10 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-100 py-1">
+                            {lead.status === 'archived' ? (
+                              <button
+                                type="button"
+                                disabled={unarchivingId === lead.id}
+                                onClick={e => handleUnarchive(e, lead.id)}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                              >
+                                <ArchiveRestore className="w-3.5 h-3.5" />
+                                {unarchivingId === lead.id ? 'Restoring…' : 'Unarchive'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={archivingId === lead.id}
+                                onClick={e => handleArchive(e, lead.id)}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                              >
+                                <Archive className="w-3.5 h-3.5" />
+                                {archivingId === lead.id ? 'Archiving…' : 'Archive'}
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>

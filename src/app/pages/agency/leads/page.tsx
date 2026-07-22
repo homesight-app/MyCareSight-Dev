@@ -26,7 +26,7 @@ export default async function AgencyLeadsPage() {
 
   const context: LeadContext = { ...AGENCY_LEAD_CONTEXT, agencyId }
 
-  const { data: leads } = await q.getLeads(supabase, { leadType: 'patient', agencyId })
+  const { data: leads } = await q.getLeads(supabase, { leadType: 'patient', agencyId, includeArchived: true })
 
   return (
     <DashboardLayout

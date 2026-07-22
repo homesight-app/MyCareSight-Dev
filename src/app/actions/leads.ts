@@ -199,6 +199,18 @@ export async function archiveLead(leadId: string) {
   return { error: null }
 }
 
+export async function unarchiveLead(leadId: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('leads')
+    .update({ status: 'active', updated_at: new Date().toISOString() })
+    .eq('id', leadId)
+
+  if (error) return { error: error.message }
+  revalidateLeadPaths()
+  return { error: null }
+}
+
 // ——— Notes ——————————————————————————————————————————————————
 
 export async function addLeadNote(

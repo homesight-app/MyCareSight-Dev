@@ -11,15 +11,12 @@ export default async function AdminLeadsPage() {
 
   const [{ count: unreadNotifications }, { data: leads }] = await Promise.all([
     q.getUnreadNotificationsCount(supabase, user.id),
-    q.getLeads(supabase, { leadType: 'agency' }),
+    q.getLeads(supabase, { leadType: 'agency', includeArchived: true }),
   ])
 
   const today = new Date().toISOString().slice(0, 10)
   const activeLeadIds = (leads ?? [])
-    .filter(l =>
-      !['on_hold', 'lost'].includes(l.stage) &&
-      !(l.stage === 'signed' && !!l.retainer_paid_date)
-    )
+    .filter(l => l.status !== 'archived' && !['on_hold', 'lost', 'signed'].includes(l.stage))
     .map(l => l.id)
   const { data: taskRows } = await q.getLeadTaskStatusByLeadIds(supabase, activeLeadIds, today)
 

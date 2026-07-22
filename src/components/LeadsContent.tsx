@@ -16,10 +16,12 @@ interface Lead {
   contact_first_name: string | null
   contact_last_name: string | null
   contact_email: string | null
+  contact_phone: string | null
   company_name: string | null
   service_type: string | null
   stage: string
   retainer_amount: number | null
+  service_states: string[] | null
   source: string | null
   price: number | null
   signed_date: string | null
@@ -103,7 +105,10 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
       const name = `${lead.contact_first_name ?? ''} ${lead.contact_last_name ?? ''}`.toLowerCase()
       const company = (lead.company_name ?? '').toLowerCase()
       const email = (lead.contact_email ?? '').toLowerCase()
-      return name.includes(term) || company.includes(term) || email.includes(term)
+      const phone = (lead.contact_phone ?? '').replace(/\D/g, '')
+      const termDigits = term.replace(/\D/g, '')
+      return name.includes(term) || company.includes(term) || email.includes(term) ||
+        (termDigits.length >= 3 && phone.includes(termDigits))
     })
 
     return [...base].sort((a, b) => {
@@ -290,7 +295,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
               type="search"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search by name or agency…"
+              placeholder="Search by name, phone or agency…"
               className="w-48 sm:w-56 pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
           </div>
@@ -362,6 +367,9 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                     </span>
                   </th>
                 )} */}
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                  State
+                </th>
                 <th
                   scope="col"
                   onClick={() => handleSort('source')}
@@ -410,6 +418,9 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                       {lead.contact_email && (
                         <div className="text-xs text-gray-400 font-normal">{lead.contact_email}</div>
                       )}
+                      {lead.contact_phone && (
+                        <div className="text-xs text-gray-400 font-normal">{lead.contact_phone}</div>
+                      )}
                     </td>
                     {context.leadType === 'agency' && (
                       <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">
@@ -455,6 +466,21 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                         {formatCurrency(lead.price)}
                       </td>
                     )} */}
+                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                      {(() => {
+                        const states = lead.service_states
+                        if (!states || states.length === 0) return <span className="text-gray-400">—</span>
+                        if (states.length === 1) return states[0]
+                        return (
+                          <span
+                            title={states.slice().sort().join(', ')}
+                            className="cursor-default underline decoration-dotted decoration-gray-400"
+                          >
+                            Multiple
+                          </span>
+                        )
+                      })()}
+                    </td>
                     <td className="hidden xl:table-cell px-4 py-3 whitespace-nowrap">
                       {lead.source && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">

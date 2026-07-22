@@ -2,6 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import Modal from './Modal'
+
+const US_STATES = [
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
+  'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+  'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+  'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC',
+]
 import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
 import { createLead, updateLead } from '@/app/actions/leads'
 import { createClient } from '@/lib/supabase/client'
@@ -14,6 +22,7 @@ interface Lead {
   contact_phone: string | null
   company_name: string | null
   service_type: string | null
+  service_states: string[] | null
   stage: string
   source: string | null
   price: number | null
@@ -55,6 +64,7 @@ const emptyForm = {
   contactPhone: '',
   companyName: '',
   serviceType: '',
+  serviceStates: [] as string[],
   stage: 'new',
   source: 'Other',
   price: '',
@@ -107,6 +117,7 @@ export default function AddLeadModal({
         contactPhone: editLead.contact_phone ?? '',
         companyName: editLead.company_name ?? '',
         serviceType: editLead.service_type ?? '',
+        serviceStates: editLead.service_states ?? [],
         stage: editLead.stage ?? 'new',
         source: editLead.source ?? 'Other',
         price: editLead.price != null ? String(editLead.price) : '',
@@ -269,6 +280,7 @@ export default function AddLeadModal({
         source: form.source || null,
         convertedAgencyId,
         leadOwnerId: context.billingVisible ? (form.leadOwnerId || null) : undefined,
+        serviceStates: form.serviceStates.length > 0 ? form.serviceStates : null,
       })
       setSaving(false)
       if (result.error) { setError(result.error); return }
@@ -294,6 +306,7 @@ export default function AddLeadModal({
         notes: form.notes || undefined,
         convertedAgencyId,
         leadOwnerId: context.billingVisible ? (form.leadOwnerId || null) : null,
+        serviceStates: form.serviceStates.length > 0 ? form.serviceStates : null,
       })
       setSaving(false)
       if (result.error) { setError(result.error); return }
@@ -421,6 +434,32 @@ export default function AddLeadModal({
                 <option key={s.key} value={s.key}>{s.label}</option>
               ))}
             </select>
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Service State(s)</label>
+            <div className="border border-gray-300 rounded-lg p-2 max-h-32 overflow-y-auto grid grid-cols-6 gap-1">
+              {US_STATES.map(st => (
+                <label key={st} className="flex items-center gap-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.serviceStates.includes(st)}
+                    onChange={e => {
+                      setForm(prev => ({
+                        ...prev,
+                        serviceStates: e.target.checked
+                          ? [...prev.serviceStates, st]
+                          : prev.serviceStates.filter(s => s !== st),
+                      }))
+                    }}
+                    className="w-3 h-3 text-blue-600 border-gray-300 rounded"
+                  />
+                  <span className="text-xs text-gray-700">{st}</span>
+                </label>
+              ))}
+            </div>
+            {form.serviceStates.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">Selected: {form.serviceStates.sort().join(', ')}</p>
+            )}
           </div>
           <div>
             <label className={labelCls}>Source</label>

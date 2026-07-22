@@ -58,6 +58,7 @@ interface Lead {
   converted_agency: ConvertedAgency | null
   lead_owner_id: string | null
   proposal_sent_date: string | null
+  service_states: string[] | null
   lead_owner?: { id: string; full_name: string | null } | { id: string; full_name: string | null }[] | null
 }
 
@@ -356,6 +357,12 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   )}
                   <dt className="text-gray-500">Service Type</dt>
                   <dd className="text-gray-900">{serviceTypeLabel(lead.service_type)}</dd>
+                  {lead.service_states && lead.service_states.length > 0 && (
+                    <>
+                      <dt className="text-gray-500">Service State(s)</dt>
+                      <dd className="text-gray-900">{lead.service_states.slice().sort().join(', ')}</dd>
+                    </>
+                  )}
                   {(lead.contact_address1 || lead.contact_city) && (
                     <>
                       <dt className="text-gray-500">Address</dt>

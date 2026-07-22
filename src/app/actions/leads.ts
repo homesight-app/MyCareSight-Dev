@@ -56,6 +56,7 @@ export async function createLead(payload: {
   source?: string
   convertedAgencyId?: string | null
   leadOwnerId?: string | null
+  serviceStates?: string[] | null
 }) {
   let userId: string
 
@@ -94,6 +95,7 @@ export async function createLead(payload: {
       source: payload.source ?? null,
       converted_agency_id: payload.convertedAgencyId ?? null,
       lead_owner_id: payload.leadOwnerId ?? null,
+      service_states: payload.serviceStates ?? null,
       status: 'active',
       updated_at: new Date().toISOString(),
     })
@@ -126,6 +128,7 @@ export async function updateLead(
     convertedAgencyId?: string | null
     leadOwnerId?: string | null
     proposalSentDate?: string | null
+    serviceStates?: string[] | null
   }
 ) {
   const supabase = await createClient()
@@ -150,6 +153,7 @@ export async function updateLead(
   if ('convertedAgencyId' in payload) updateData.converted_agency_id = payload.convertedAgencyId ?? null
   if ('leadOwnerId' in payload) updateData.lead_owner_id = payload.leadOwnerId ?? null
   if ('proposalSentDate' in payload) updateData.proposal_sent_date = payload.proposalSentDate ?? null
+  if ('serviceStates' in payload) updateData.service_states = payload.serviceStates ?? null
 
   const { error } = await supabase
     .from('leads')

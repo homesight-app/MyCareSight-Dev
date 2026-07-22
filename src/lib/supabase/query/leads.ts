@@ -46,6 +46,7 @@ export async function getLeads(
       contact_zip,
       lead_owner_id,
       proposal_sent_date,
+      service_states,
       lead_owner:user_profiles!leads_lead_owner_id_fkey(id, full_name)
     `)
     .eq('lead_type', opts.leadType)
@@ -110,6 +111,7 @@ export async function getLeadById(supabase: SupabaseClient, leadId: string) {
       contact_zip,
       lead_owner_id,
       proposal_sent_date,
+      service_states,
       lead_owner:user_profiles!leads_lead_owner_id_fkey(id, full_name),
       converted_agency:agencies!leads_converted_agency_id_fkey(id, name)
     `)

@@ -231,3 +231,20 @@ export async function unlinkLeadFromAgency(supabase: SupabaseClient, leadId: str
     .update({ converted_agency_id: null, updated_at: new Date().toISOString() })
     .eq('id', leadId)
 }
+
+export async function getLeadNotesByLeadIds(supabase: SupabaseClient, leadIds: string[]) {
+  if (leadIds.length === 0) return { data: [], error: null }
+  return supabase
+    .from('lead_notes')
+    .select(`
+      id,
+      lead_id,
+      author_id,
+      content,
+      note_type,
+      created_at,
+      author:user_profiles!lead_notes_author_id_fkey(full_name)
+    `)
+    .in('lead_id', leadIds)
+    .order('created_at', { ascending: false })
+}

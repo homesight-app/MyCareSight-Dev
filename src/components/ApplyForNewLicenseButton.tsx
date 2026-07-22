@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { FileText } from 'lucide-react'
+import { FileText, Plus } from 'lucide-react'
 import NewLicenseApplicationModal from './NewLicenseApplicationModal'
 import SelectLicenseTypeModal from './SelectLicenseTypeModal'
 import ReviewLicenseRequestModal from './ReviewLicenseRequestModal'
@@ -73,9 +73,9 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, 
     <>
       <button
         onClick={() => setIsStateModalOpen(true)}
-        className="w-full text-center py-2.5 px-4 bg-black hover:bg-gray-800 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+        className="w-full text-center py-2 px-4 bg-black hover:bg-gray-800 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
       >
-        <FileText className="w-4 h-4" />
+        <Plus className="w-4 h-4" />
         {label ?? 'Apply for New License'}
       </button>
 

@@ -396,7 +396,7 @@ export default function AddLeadModal({
             </div>
             {context.leadType === 'agency' && (
               <div className="col-span-2">
-                <label className={labelCls}>Company Name</label>
+                <label className={labelCls}>Agency Name</label>
                 <input className={inputCls} value={form.companyName} onChange={set('companyName')} />
               </div>
             )}

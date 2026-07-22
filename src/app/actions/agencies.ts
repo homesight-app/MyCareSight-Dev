@@ -7,6 +7,7 @@ import { revalidatePath, revalidateTag } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
+import { STORAGE_BUCKET } from '@/lib/supabase/storage'
 import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
   CACHE_TAG_AGENCIES_ID_NAME,
@@ -422,4 +423,83 @@ export async function setAgencyStatus(agencyId: string, status: 'active' | 'inac
   } catch (err: any) {
     return { error: err?.message || 'Failed to update agency status', data: null }
   }
+}
+
+// ——— Agency Notes ————————————————————————————————————————————
+
+export async function addAgencyNote(
+  agencyId: string,
+  payload: { content: string; noteType: string }
+) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+
+  const supabase = await createClient()
+  const { error } = await supabase.from('agency_notes').insert({
+    agency_id: agencyId,
+    author_id: session.user.id,
+    content: payload.content,
+    note_type: payload.noteType,
+  })
+
+  if (error) return { error: error.message }
+  revalidateAgencyDetailPages()
+  return { error: null }
+}
+
+export async function deleteAgencyNote(agencyId: string, noteId: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('agency_notes').delete().eq('id', noteId)
+  if (error) return { error: error.message }
+  revalidateAgencyDetailPages()
+  return { error: null }
+}
+
+// ——— Agency Documents ————————————————————————————————————————
+
+export async function uploadAgencyDocument(
+  agencyId: string,
+  formData: FormData
+): Promise<{ error: string | null; doc?: { id: string; document_name: string; file_url: string } }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+
+  const file = formData.get('file') as File | null
+  const documentName = formData.get('document_name') as string | null
+  const documentType = formData.get('document_type') as string | null
+
+  if (!file || !documentName?.trim()) return { error: 'File and document name are required' }
+
+  const supabase = await createClient()
+  const ext = file.name.split('.').pop()
+  const filePath = `${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+
+  const { error: uploadErr } = await supabase.storage.from(STORAGE_BUCKET.AGENCY).upload(filePath, file)
+  if (uploadErr) return { error: uploadErr.message }
+
+  const { data, error: insertErr } = await q.insertAgencyDocument(supabase, {
+    agency_id: agencyId,
+    document_name: documentName.trim(),
+    file_url: filePath,
+    file_name: file.name,
+    document_type: documentType ?? null,
+    uploaded_by: session.user.id,
+  })
+
+  if (insertErr) {
+    await supabase.storage.from(STORAGE_BUCKET.AGENCY).remove([filePath])
+    return { error: insertErr.message }
+  }
+
+  revalidateAgencyDetailPages()
+  return { error: null, doc: { id: data!.id, document_name: documentName.trim(), file_url: filePath } }
+}
+
+export async function deleteAgencyDocumentAction(agencyId: string, docId: string, filePath: string) {
+  const supabase = await createClient()
+  await supabase.storage.from(STORAGE_BUCKET.AGENCY).remove([filePath])
+  const { error } = await q.deleteAgencyDocument(supabase, docId)
+  if (error) return { error: error.message }
+  revalidateAgencyDetailPages()
+  return { error: null }
 }

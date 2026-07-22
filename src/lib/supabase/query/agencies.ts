@@ -216,3 +216,38 @@ export async function upsertAgencyConfiguration(
     .select()
     .single()
 }
+
+export async function getAgencyNotes(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('agency_notes')
+    .select('id, agency_id, author_id, content, note_type, created_at')
+    .eq('agency_id', agencyId)
+    .order('created_at', { ascending: false })
+}
+
+export async function getAgencyDocuments(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('agency_documents')
+    .select('id, agency_id, document_name, file_url, file_name, document_type, description, uploaded_by, created_at')
+    .eq('agency_id', agencyId)
+    .order('created_at', { ascending: false })
+}
+
+export async function insertAgencyDocument(
+  supabase: Supabase,
+  data: {
+    agency_id: string
+    document_name: string
+    file_url: string
+    file_name?: string | null
+    document_type?: string | null
+    description?: string | null
+    uploaded_by: string
+  }
+) {
+  return supabase.from('agency_documents').insert(data).select('id').single()
+}
+
+export async function deleteAgencyDocument(supabase: Supabase, docId: string) {
+  return supabase.from('agency_documents').delete().eq('id', docId)
+}

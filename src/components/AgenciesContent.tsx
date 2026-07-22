@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Loader2 } from 'lucide-react'
+import { Plus, Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import AddAgencyModal, { type AgencyAdminOption } from './AddAgencyModal'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import { setAgencyStatus } from '@/app/actions/agencies'
@@ -36,6 +36,8 @@ interface AgenciesContentProps {
   detailBasePath?: string
 }
 
+type SortKey = 'name' | 'admin' | 'created' | 'status'
+
 export default function AgenciesContent({
   agencies,
   agencyAdmins,
@@ -47,6 +49,8 @@ export default function AgenciesContent({
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'active' | 'inactive' | 'all'>('active')
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   const closeModal = () => setModalOpen(false)
 
@@ -77,9 +81,19 @@ export default function AgenciesContent({
     }
   }
 
+  function handleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 opacity-40" />
+    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+  }
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
-    return agencies.filter((a) => {
+    const list = agencies.filter((a) => {
       const matchesStatus =
         statusFilter === 'all' ||
         (statusFilter === 'active' ? (a.status ?? 'active') === 'active' : (a.status ?? 'active') === 'inactive')
@@ -89,8 +103,25 @@ export default function AgenciesContent({
         getAdminsDisplay(normalizeAgencyAdminIds(a.agency_admin_ids)).toLowerCase().includes(term)
       return matchesStatus && matchesSearch
     })
+
+    return list.sort((a, b) => {
+      let cmp = 0
+      if (sortKey === 'name') cmp = a.name.localeCompare(b.name)
+      if (sortKey === 'admin') {
+        const aA = getAdminsDisplay(normalizeAgencyAdminIds(a.agency_admin_ids))
+        const bA = getAdminsDisplay(normalizeAgencyAdminIds(b.agency_admin_ids))
+        cmp = aA.localeCompare(bA)
+      }
+      if (sortKey === 'created') cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      if (sortKey === 'status') {
+        const aS = (a.status ?? 'active') === 'active' ? 0 : 1
+        const bS = (b.status ?? 'active') === 'active' ? 0 : 1
+        cmp = aS - bS
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agencies, search, statusFilter])
+  }, [agencies, search, statusFilter, sortKey, sortDir])
 
   const counts = useMemo(() => ({
     active: agencies.filter(a => (a.status ?? 'active') === 'active').length,
@@ -98,7 +129,7 @@ export default function AgenciesContent({
     all: agencies.length,
   }), [agencies])
 
-  const handleToggleStatus = async (e: React.MouseEvent, agency: Agency) => {
+  const handleToggleStatus = async (e: React.ChangeEvent<HTMLInputElement>, agency: Agency) => {
     e.stopPropagation()
     const next = (agency.status ?? 'active') === 'active' ? 'inactive' : 'active'
     setTogglingId(agency.id)
@@ -106,6 +137,8 @@ export default function AgenciesContent({
     setTogglingId(null)
     router.refresh()
   }
+
+  const thCls = 'px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:text-gray-900'
 
   return (
     <>
@@ -168,17 +201,17 @@ export default function AgenciesContent({
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Agency Name
+                <th scope="col" className={thCls} onClick={() => handleSort('name')}>
+                  <span className="inline-flex items-center gap-1">Agency Name <SortIcon col="name" /></span>
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Agency Admin
+                <th scope="col" className={thCls} onClick={() => handleSort('admin')}>
+                  <span className="inline-flex items-center gap-1">Agency Admin <SortIcon col="admin" /></span>
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Created
+                <th scope="col" className={thCls} onClick={() => handleSort('created')}>
+                  <span className="inline-flex items-center gap-1">Created <SortIcon col="created" /></span>
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Status
+                <th scope="col" className={thCls} onClick={() => handleSort('status')}>
+                  <span className="inline-flex items-center gap-1">Status <SortIcon col="status" /></span>
                 </th>
               </tr>
             </thead>
@@ -212,23 +245,18 @@ export default function AgenciesContent({
                         {formatDate(agency.created_at)}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                          }`}>
+                        <label className={`relative inline-flex items-center gap-3 ${isToggling ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                          <input
+                            type="checkbox"
+                            checked={isActive}
+                            onChange={(e) => handleToggleStatus(e, agency)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
+                          <span className="text-sm font-medium text-gray-700">
                             {isActive ? 'Active' : 'Inactive'}
                           </span>
-                          <button
-                            type="button"
-                            onClick={(e) => handleToggleStatus(e, agency)}
-                            disabled={isToggling}
-                            className="text-xs px-2 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                          >
-                            {isToggling
-                              ? <Loader2 className="w-3 h-3 animate-spin" />
-                              : isActive ? 'Disable' : 'Enable'}
-                          </button>
-                        </div>
+                        </label>
                       </td>
                     </tr>
                   )

@@ -4,6 +4,8 @@ import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, CheckSquare, Square, Trash2, ExternalLink, Pencil, Plus, ChevronDown } from 'lucide-react'
 import AddLeadModal from './AddLeadModal'
+import LeadSignedModal from './LeadSignedModal'
+import LeadCollectRetainerModal from './LeadCollectRetainerModal'
 import { type LeadContext, LEAD_STAGES, NOTE_TYPES } from '@/lib/constants/lead-configs'
 import {
   updateLead,
@@ -164,11 +166,9 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   const [showAgencyNamePrompt, setShowAgencyNamePrompt] = useState(false)
   const [agencyNameInput, setAgencyNameInput] = useState('')
 
-  // Signed stage prompt state
-  const [signedPromptOpen, setSignedPromptOpen]           = useState(false)
-  const [signedDateInput, setSignedDateInput]             = useState('')
-  const [retainerAmountInput, setRetainerAmountInput]     = useState('')
-  const [retainerPaidDateInput, setRetainerPaidDateInput] = useState('')
+  // Signed / retainer modal state
+  const [signedPromptOpen, setSignedPromptOpen]         = useState(false)
+  const [collectRetainerOpen, setCollectRetainerOpen]   = useState(false)
 
   const owners = platformStaff
 
@@ -181,28 +181,16 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   // ─── Stage change ──────────────────────────────────────────────
 
   const handleStageChange = (stage: string) => {
-    if (stage === 'signed') {
-      setSignedDateInput(new Date().toISOString().slice(0, 10))
-      setRetainerAmountInput(lead.retainer_amount != null ? String(lead.retainer_amount) : '')
-      setRetainerPaidDateInput('')
-      setSignedPromptOpen(true)
+    if (stage === 'signed' || stage === 'retainer') {
+      if (lead.stage === 'retainer' && stage === 'signed') {
+        setCollectRetainerOpen(true)
+      } else {
+        setSignedPromptOpen(true)
+      }
       return
     }
     startTransition(async () => {
       await updateLeadStage(lead.id, stage)
-      router.refresh()
-    })
-  }
-
-  const handleSignedConfirm = () => {
-    setSignedPromptOpen(false)
-    startTransition(async () => {
-      await updateLead(lead.id, {
-        signedDate: signedDateInput || undefined,
-        retainerAmount: retainerAmountInput ? parseFloat(retainerAmountInput) : undefined,
-        retainerPaidDate: retainerPaidDateInput || undefined,
-      })
-      await updateLeadStage(lead.id, 'signed')
       router.refresh()
     })
   }
@@ -362,7 +350,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   <dd className="text-gray-900">{lead.contact_phone || '—'}</dd>
                   {context.leadType === 'agency' && (
                     <>
-                      <dt className="text-gray-500">Company</dt>
+                      <dt className="text-gray-500">Agency</dt>
                       <dd className="text-gray-900">{lead.company_name || '—'}</dd>
                     </>
                   )}
@@ -454,10 +442,19 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   </select>
                   <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 </div>
-                <div className="mt-3">
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'}`}>
                     {LEAD_STAGES.find(s => s.key === lead.stage)?.label ?? lead.stage}
                   </span>
+                  {lead.stage === 'retainer' && (
+                    <button
+                      type="button"
+                      onClick={() => setCollectRetainerOpen(true)}
+                      className="px-3 py-1 text-xs font-medium bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
+                    >
+                      Collect Retainer
+                    </button>
+                  )}
                 </div>
                 {context.billingVisible && (
                   <div className="mt-4 pt-4 border-t border-gray-100">
@@ -542,7 +539,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                           ) : showAgencyNamePrompt ? (
                             <form onSubmit={handleConvertWithName} className="space-y-2">
                               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                                No company name on this lead. Enter the agency name to continue.
+                                No agency name on this lead. Enter the agency name to continue.
                               </p>
                               <input
                                 type="text"
@@ -889,67 +886,18 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
         editLead={lead}
       />
 
-      {signedPromptOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">Mark as Signed</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Signed Date</label>
-                <input
-                  type="date"
-                  value={signedDateInput}
-                  onChange={e => setSignedDateInput(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-              {lead.retainer_amount == null && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Retainer Amount</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={retainerAmountInput}
-                    onChange={e => setRetainerAmountInput(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Retainer Collected Date
-                  <span className="text-gray-400 font-normal ml-1">(leave blank if not yet collected)</span>
-                </label>
-                <input
-                  type="date"
-                  value={retainerPaidDateInput}
-                  onChange={e => setRetainerPaidDateInput(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                type="button"
-                onClick={() => setSignedPromptOpen(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSignedConfirm}
-                disabled={!signedDateInput || isPending}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <LeadSignedModal
+        lead={lead}
+        open={signedPromptOpen}
+        onClose={() => setSignedPromptOpen(false)}
+        onSuccess={() => { setSignedPromptOpen(false); router.refresh() }}
+      />
+      <LeadCollectRetainerModal
+        leadId={lead.id}
+        open={collectRetainerOpen}
+        onClose={() => setCollectRetainerOpen(false)}
+        onSuccess={() => { setCollectRetainerOpen(false); router.refresh() }}
+      />
     </>
   )
 }

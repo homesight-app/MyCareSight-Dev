@@ -35,7 +35,7 @@ interface Props {
   search: string
 }
 
-const ACTIVE_STAGE_KEYS = ['new', 'contacted', 'proposal_sent', 'verbal', 'probable', 'signed']
+const ACTIVE_STAGE_KEYS = ['new', 'contacted', 'proposal_sent', 'verbal', 'probable', 'retainer', 'signed']
 const TERMINAL_STAGE_KEYS = ['on_hold', 'lost']
 
 const STAGE_HEADER_BG: Record<string, string> = {
@@ -45,6 +45,7 @@ const STAGE_HEADER_BG: Record<string, string> = {
   verbal: 'bg-yellow-50',
   probable: 'bg-orange-50',
   signed: 'bg-green-50',
+  retainer: 'bg-purple-50',
   on_hold: 'bg-gray-100',
   lost: 'bg-red-50',
 }
@@ -56,6 +57,7 @@ const STAGE_BORDER_COLOR: Record<string, string> = {
   verbal: 'border-l-yellow-500',
   probable: 'border-l-orange-500',
   signed: 'border-l-green-500',
+  retainer: 'border-l-purple-500',
   on_hold: 'border-l-gray-400',
   lost: 'border-l-red-500',
 }

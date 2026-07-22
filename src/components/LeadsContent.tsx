@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation'
 import { Plus, Search, MoreVertical, Archive, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, Info, X } from 'lucide-react'
 import AddLeadModal from './AddLeadModal'
 import LeadsKanbanBoard from './LeadsKanbanBoard'
+import LeadSignedModal from './LeadSignedModal'
+import LeadCollectRetainerModal from './LeadCollectRetainerModal'
 import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
-import { archiveLead } from '@/app/actions/leads'
+import { archiveLead, updateLeadStage } from '@/app/actions/leads'
 
 interface Lead {
   id: string
@@ -17,6 +19,7 @@ interface Lead {
   company_name: string | null
   service_type: string | null
   stage: string
+  retainer_amount: number | null
   source: string | null
   price: number | null
   signed_date: string | null
@@ -48,6 +51,9 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [infoLeadId, setInfoLeadId] = useState<string | null>(null)
+  const [signedModalLead, setSignedModalLead] = useState<Lead | null>(null)
+  const [collectRetainerLeadId, setCollectRetainerLeadId] = useState<string | null>(null)
+  const [stageUpdatingId, setStageUpdatingId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => {
     if (typeof window === 'undefined') return 'list'
     return (localStorage.getItem(`leads-view-${context.leadType}`) as 'list' | 'kanban') ?? 'list'
@@ -89,8 +95,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     const base = leads.filter(lead => {
-      if (stageFilter === 'active' && ['on_hold', 'lost'].includes(lead.stage)) return false
-      if (stageFilter === 'active' && lead.stage === 'signed' && !!lead.retainer_paid_date) return false
+      if (stageFilter === 'active' && ['on_hold', 'lost', 'signed'].includes(lead.stage)) return false
       if (stageFilter !== 'all' && stageFilter !== 'active' && lead.stage !== stageFilter) return false
       if (serviceTypeFilter !== 'all' && lead.service_type !== serviceTypeFilter) return false
       if (sourceFilter !== 'all' && (lead.source ?? '') !== sourceFilter) return false
@@ -149,8 +154,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
   const stageCounts = useMemo(() => {
     const counts: Record<string, number> = { all: leads.length }
     counts.active = leads.filter(l =>
-      !['on_hold', 'lost'].includes(l.stage) &&
-      !(l.stage === 'signed' && !!l.retainer_paid_date)
+      !['on_hold', 'lost', 'signed'].includes(l.stage)
     ).length
     for (const s of LEAD_STAGES) {
       counts[s.key] = leads.filter(l => l.stage === s.key).length
@@ -286,7 +290,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
               type="search"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search by name or company…"
+              placeholder="Search by name or agency…"
               className="w-48 sm:w-56 pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
           </div>
@@ -329,7 +333,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
             <thead className="bg-gray-50">
               <tr>
                 {(['name', context.leadType === 'agency' ? 'company' : null, 'service_type', 'stage'] as const).filter(Boolean).map(col => {
-                  const labels: Record<string, string> = { name: 'Name', company: 'Company', service_type: 'Service Type', stage: 'Stage' }
+                  const labels: Record<string, string> = { name: 'Name', company: 'Agency', service_type: 'Service Type', stage: 'Stage' }
                   const key = col as SortKey
                   const active = sortKey === key
                   return (
@@ -346,18 +350,18 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                     </th>
                   )
                 })}
-                {context.billingVisible && (
+                {/* {context.billingVisible && (
                   <th
                     scope="col"
                     onClick={() => handleSort('price')}
                     className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
                   >
                     <span className="flex items-center gap-1">
-                      Price
+                      Price2
                       {sortKey === 'price' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
                     </span>
                   </th>
-                )}
+                )} */}
                 <th
                   scope="col"
                   onClick={() => handleSort('source')}
@@ -374,7 +378,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                   Proposal Sent
                 </th>
-                <th scope="col" className="relative px-4 py-3"><span className="sr-only">Actions</span></th>
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -415,16 +419,42 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                     <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                       {serviceTypeLabel(lead.service_type)}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'}`}>
+                    <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                      <div className={`relative inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'} ${stageUpdatingId === lead.id ? 'opacity-50' : ''}`}>
                         {stageLabelMap[lead.stage] ?? lead.stage}
-                      </span>
+                        <ChevronDown className="w-3 h-3 opacity-60" />
+                        <select
+                          value={lead.stage}
+                          disabled={stageUpdatingId === lead.id}
+                          onChange={async e => {
+                            const newStage = e.target.value
+                            if (newStage === lead.stage) return
+                            if (newStage === 'signed' || newStage === 'retainer') {
+                              if (lead.stage === 'retainer' && newStage === 'signed') {
+                                setCollectRetainerLeadId(lead.id)
+                              } else {
+                                setSignedModalLead(lead)
+                              }
+                            } else {
+                              setStageUpdatingId(lead.id)
+                              await updateLeadStage(lead.id, newStage)
+                              setStageUpdatingId(null)
+                              router.refresh()
+                            }
+                          }}
+                          className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          {LEAD_STAGES.map(s => (
+                            <option key={s.key} value={s.key}>{s.label}</option>
+                          ))}
+                        </select>
+                      </div>
                     </td>
-                    {context.billingVisible && (
+                    {/* {context.billingVisible && (
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                         {formatCurrency(lead.price)}
                       </td>
-                    )}
+                    )} */}
                     <td className="hidden xl:table-cell px-4 py-3 whitespace-nowrap">
                       {lead.source && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
@@ -505,6 +535,10 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                   <dt className="text-gray-500">Added</dt>
                   <dd className="text-gray-900 font-medium">{formatDate(lead.created_at)}</dd>
                 </div>
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Price</dt>
+                  <dd className="text-gray-900 font-medium">{formatCurrency(lead.price)}</dd>
+                </div>
                 {context.billingVisible && (
                   <div className="flex justify-between">
                     <dt className="text-gray-500">Signed</dt>
@@ -523,6 +557,25 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
         onSuccess={() => { setModalOpen(false); router.refresh() }}
         context={context}
       />
+
+      {signedModalLead && (
+        <LeadSignedModal
+          lead={signedModalLead}
+          open={true}
+          onClose={() => setSignedModalLead(null)}
+          onSuccess={() => { setSignedModalLead(null); router.refresh() }}
+        />
+      )}
+
+      {collectRetainerLeadId && (
+        <LeadCollectRetainerModal
+          leadId={collectRetainerLeadId}
+          open={true}
+          onClose={() => setCollectRetainerLeadId(null)}
+          onSuccess={() => { setCollectRetainerLeadId(null); router.refresh() }}
+        />
+      )}
+
     </>
   )
 }

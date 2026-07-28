@@ -427,6 +427,22 @@ export async function deleteLeadDocumentAction(leadId: string, docId: string, fi
   return { error: null }
 }
 
+// ——— On-demand reads (called from client components) ——————————————————————
+
+export async function fetchLeadDocumentsAction(leadId: string) {
+  const supabase = await createClient()
+  const { data, error } = await q.getLeadDocuments(supabase, leadId)
+  if (error) return { error: error.message, data: null }
+  return { error: null, data: data ?? [] }
+}
+
+export async function fetchLeadNotesAction(leadId: string) {
+  const supabase = await createClient()
+  const { data, error } = await q.getLeadNotes(supabase, leadId)
+  if (error) return { error: error.message, data: null }
+  return { error: null, data: data ?? [] }
+}
+
 export async function linkLeadToPatient(leadId: string, patientId: string) {
   const supabase = await createClient()
   const { error } = await supabase

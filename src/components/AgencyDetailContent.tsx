@@ -29,11 +29,15 @@ import {
   TrendingUp,
   ExternalLink,
   Search,
+  MessageSquare,
+  StickyNote,
+  Eye,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
+import { fetchLeadDocumentsAction, fetchLeadNotesAction } from '@/app/actions/leads'
 import { LEAD_STAGES } from '@/lib/constants/lead-configs'
 import CreateLicenseModal from './CreateLicenseModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
@@ -158,6 +162,25 @@ interface AgencyLeadDocument {
   file_name: string | null
   document_type: string | null
   created_at: string
+}
+
+interface FetchedDocument {
+  id: string
+  document_name: string
+  file_url: string
+  file_name: string | null
+  document_type: string | null
+  description: string | null
+  created_at: string
+}
+
+interface FetchedNote {
+  id: string
+  author_id: string
+  content: string
+  note_type: string
+  created_at: string
+  author: { full_name: string | null } | { full_name: string | null }[] | null
 }
 
 interface AgencyDetailContentProps {
@@ -317,6 +340,57 @@ export default function AgencyDetailContent({
   const [usersTabActivated, setUsersTabActivated] = useState(initialTab === 'users')
   const [notesTabActivated, setNotesTabActivated] = useState(initialTab === 'notes')
   const [documentsTabActivated, setDocumentsTabActivated] = useState(initialTab === 'documents')
+
+  const [docsPanel, setDocsPanel] = useState<{ leadId: string; leadName: string } | null>(null)
+  const [notesPanel, setNotesPanel] = useState<{ leadId: string; leadName: string } | null>(null)
+  const [docsCache, setDocsCache] = useState<Record<string, FetchedDocument[]>>({})
+  const [notesCache, setNotesCache] = useState<Record<string, FetchedNote[]>>({})
+  const [loadingDocs, setLoadingDocs] = useState(false)
+  const [loadingNotes, setLoadingNotes] = useState(false)
+
+  const openDocsPanel = async (leadId: string, leadName: string) => {
+    setDocsPanel({ leadId, leadName })
+    if (docsCache[leadId] !== undefined) return
+    setLoadingDocs(true)
+    const result = await fetchLeadDocumentsAction(leadId)
+    if (result.data) setDocsCache(prev => ({ ...prev, [leadId]: result.data as FetchedDocument[] }))
+    setLoadingDocs(false)
+  }
+
+  const openNotesPanel = async (leadId: string, leadName: string) => {
+    setNotesPanel({ leadId, leadName })
+    if (notesCache[leadId] !== undefined) return
+    setLoadingNotes(true)
+    const result = await fetchLeadNotesAction(leadId)
+    if (result.data) setNotesCache(prev => ({ ...prev, [leadId]: result.data as FetchedNote[] }))
+    setLoadingNotes(false)
+  }
+
+  const handleViewLeadDoc = async (fileUrl: string) => {
+    const supabase = createClient()
+    const url = await createSignedStorageUrl(supabase, STORAGE_BUCKET.LEAD, fileUrl)
+    if (url) window.open(url, '_blank')
+  }
+
+  const handleDownloadLeadDoc = async (fileUrl: string, fileName: string) => {
+    const supabase = createClient()
+    const url = await createSignedStorageUrl(supabase, STORAGE_BUCKET.LEAD, fileUrl)
+    if (!url) return
+    try {
+      const res = await fetch(url)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = fileName || 'document'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+    } catch {
+      window.open(url, '_blank')
+    }
+  }
 
   const leadNameMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -1552,81 +1626,68 @@ export default function AgencyDetailContent({
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="px-5 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Lead</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Stage</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-36">Stage</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-40">Service Type</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Price</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Signed Date</th>
-                      <th className="px-4 py-3 w-10" />
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {agencyLeads.map(lead => (
-                      <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-5 py-3">
-                          <p className="text-sm font-medium text-gray-900">{leadNameMap[lead.id]}</p>
-                          {lead.company_name && (
-                            <p className="text-xs text-gray-400 mt-0.5">{lead.company_name}</p>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'}`}>
-                            {LEAD_STAGES.find(s => s.key === lead.stage)?.label ?? lead.stage}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{lead.service_type ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{lead.price != null ? fmtCurrency(lead.price) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {lead.signed_date ? new Date(lead.signed_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <a href={`/pages/admin/leads/${lead.id}`} className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors inline-flex">
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
+                  <tbody className="divide-y divide-gray-100">
+                    {agencyLeads.map(lead => {
+                      const name = leadNameMap[lead.id]
+                      return (
+                        <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-5 py-3">
+                            <p className="text-sm font-medium text-gray-900">{name}</p>
+                            {lead.company_name && (
+                              <p className="text-xs text-gray-400 mt-0.5">{lead.company_name}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'}`}>
+                              {LEAD_STAGES.find(s => s.key === lead.stage)?.label ?? lead.stage}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{lead.service_type ?? '—'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{lead.price != null ? fmtCurrency(lead.price) : '—'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {lead.signed_date ? new Date(lead.signed_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                title="View documents"
+                                onClick={() => openDocsPanel(lead.id, name)}
+                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                title="View notes"
+                                onClick={() => openNotesPanel(lead.id, name)}
+                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              >
+                                <StickyNote className="w-4 h-4" />
+                              </button>
+                              <a
+                                href={`/pages/admin/leads/${lead.id}`}
+                                title="Open lead"
+                                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors inline-flex"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               )}
             </div>
-
-            {/* Documents across all leads */}
-            {agencyLeadDocuments.length > 0 && (
-              <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-blue-600" />
-                  <h2 className="text-base font-semibold text-gray-900">Proposal Documents</h2>
-                </div>
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="px-5 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Document</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-40">Lead</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {agencyLeadDocuments.map(doc => (
-                      <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                            <span className="text-sm font-medium text-gray-900">{doc.document_name}</span>
-                          </div>
-                          {doc.file_name && <p className="text-xs text-gray-400 ml-6 mt-0.5">{doc.file_name}</p>}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{doc.document_type ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{leadNameMap[doc.lead_id] ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         )
       })()}
@@ -1657,6 +1718,124 @@ export default function AgencyDetailContent({
           />
         )}
       </div>
+
+      {/* Lead Documents panel */}
+      {docsPanel && (
+        <Modal
+          isOpen={true}
+          onClose={() => setDocsPanel(null)}
+          title={`Documents — ${docsPanel.leadName}`}
+          size="lg"
+        >
+          <div className="p-6">
+            {loadingDocs && docsCache[docsPanel.leadId] === undefined ? (
+              <div className="flex items-center justify-center py-10 gap-2 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm">Loading documents…</span>
+              </div>
+            ) : (docsCache[docsPanel.leadId] ?? []).length === 0 ? (
+              <div className="py-10 text-center text-gray-400">
+                <FileText className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                <p className="text-sm">No documents attached to this lead.</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="pb-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Document</th>
+                    <th className="pb-2 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">Type</th>
+                    <th className="pb-2 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">Date</th>
+                    <th className="pb-2 w-20 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {(docsCache[docsPanel.leadId] ?? []).map(doc => (
+                    <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="py-3">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                          <span className="text-sm font-medium text-gray-900">{doc.document_name}</span>
+                        </div>
+                        {doc.file_name && <p className="text-xs text-gray-400 ml-6 mt-0.5">{doc.file_name}</p>}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-gray-500">{doc.document_type ?? '—'}</td>
+                      <td className="py-3 px-4 text-sm text-gray-500 whitespace-nowrap">
+                        {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      <td className="py-3">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            title="View"
+                            onClick={() => handleViewLeadDoc(doc.file_url)}
+                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Download"
+                            onClick={() => handleDownloadLeadDoc(doc.file_url, doc.file_name ?? doc.document_name)}
+                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Lead Notes panel */}
+      {notesPanel && (
+        <Modal
+          isOpen={true}
+          onClose={() => setNotesPanel(null)}
+          title={`Notes — ${notesPanel.leadName}`}
+          size="lg"
+        >
+          <div className="p-6">
+            {loadingNotes && notesCache[notesPanel.leadId] === undefined ? (
+              <div className="flex items-center justify-center py-10 gap-2 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm">Loading notes…</span>
+              </div>
+            ) : (notesCache[notesPanel.leadId] ?? []).length === 0 ? (
+              <div className="py-10 text-center text-gray-400">
+                <MessageSquare className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                <p className="text-sm">No notes on this lead.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {(notesCache[notesPanel.leadId] ?? []).map(note => {
+                  const author = Array.isArray(note.author) ? note.author[0] : note.author
+                  return (
+                    <div key={note.id} className="border border-gray-100 rounded-xl p-4 bg-gray-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-700">{author?.full_name ?? 'Unknown'}</span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-600 capitalize">
+                            {note.note_type.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400">
+                          {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{note.content}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {/* Modals — always mounted regardless of active tab */}
       {editingLicense && (

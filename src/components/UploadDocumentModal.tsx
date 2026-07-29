@@ -242,13 +242,13 @@ export default function UploadDocumentModal({
             >
               <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
               <p className="text-gray-600 font-medium mb-1">Click to upload or drag and drop</p>
-              <p className="text-sm text-gray-500">PDF, DOC, DOCX, JPG, PNG (Max 10MB)</p>
+              <p className="text-sm text-gray-500">PDF, DOCX (Max 10MB)</p>
               <input
                 ref={fileInputRef}
                 type="file"
                 onChange={handleFileSelect}
                 className="hidden"
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                accept=".pdf,.docx"
                 disabled={isUploading}
                 multiple
               />

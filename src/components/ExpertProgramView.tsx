@@ -7,6 +7,7 @@ import {
   Download, Send, Info, SquarePen, CheckCheck,
   MessageSquare, FolderOpen, Pencil, Check, X, Plus,
 } from 'lucide-react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
@@ -432,7 +433,18 @@ export default function ExpertProgramView({
                 </div>
               )}
               {agencyName && <span className="text-gray-400 text-sm hidden sm:inline">·</span>}
-              {agencyName && <span className="text-sm text-gray-500">{agencyName}</span>}
+              {agencyName && (
+                agencyId ? (
+                  <Link
+                    href={isAdmin ? `/pages/admin/agencies/${agencyId}` : `/pages/expert/agencies/${agencyId}`}
+                    className="text-sm text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
+                  >
+                    {agencyName}
+                  </Link>
+                ) : (
+                  <span className="text-sm text-gray-500">{agencyName}</span>
+                )
+              )}
               {state && <span className="text-gray-400 text-sm hidden sm:inline">·</span>}
               {state && <span className="text-sm text-gray-500">{state}</span>}
               <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${appBadge.bg} ${appBadge.text}`}>

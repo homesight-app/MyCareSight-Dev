@@ -1144,9 +1144,11 @@ export async function runDocumentValidation(itemId: string, agencyId: string | n
           extractedText += '\n' + result.value
           successCount++
         } else if (ext === 'pdf') {
-          const pdfModule = await import('pdf-parse')
-          const pdfParse = pdfModule as unknown as (buf: Buffer) => Promise<{ text: string }>
-          const result = await pdfParse(buffer)
+          // pdf-parse v2 uses a class-based API: new PDFParse({ data }).getText()
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          const { PDFParse } = await import('pdf-parse') as any
+          const parser = new PDFParse({ data: new Uint8Array(buffer) })
+          const result = await parser.getText()
           extractedText += '\n' + result.text
           successCount++
         } else {

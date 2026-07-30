@@ -42,8 +42,8 @@ import { LEAD_STAGES } from '@/lib/constants/lead-configs'
 import CreateLicenseModal from './CreateLicenseModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
 import AgencyOnboardingLinkPanel from './AgencyOnboardingLinkPanel'
-import AgencyKeyStaffSection from './AgencyKeyStaffSection'
-import AgencyUsersTab from './AgencyUsersTab'
+import AgencyPeopleTab from './AgencyPeopleTab'
+import AgencyCaregiversTab from './AgencyCaregiversTab'
 import AgencyNotesTab from './AgencyNotesTab'
 import AgencyDocumentsTab from './AgencyDocumentsTab'
 import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
@@ -244,7 +244,7 @@ const STATUS_COLORS: Record<string, string> = {
   expired: 'bg-red-100 text-red-700',
 }
 
-type AgencySection = 'business' | 'addresses' | 'ownership' | 'tax' | 'contacts' | 'additional'
+type AgencySection = 'business' | 'addresses' | 'tax' | 'contacts' | 'additional'
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
@@ -329,15 +329,17 @@ export default function AgencyDetailContent({
   const router = useRouter()
   const searchParams = useSearchParams()
   const rawTab = searchParams.get('tab')
-  const initialTab: 'licenses' | 'organization' | 'users' | 'leads' | 'notes' | 'documents' =
+  const initialTab: 'licenses' | 'organization' | 'people' | 'caregivers' | 'leads' | 'notes' | 'documents' =
     rawTab === 'organization' ? 'organization'
-    : rawTab === 'users' ? 'users'
+    : rawTab === 'people' ? 'people'
+    : rawTab === 'caregivers' ? 'caregivers'
     : rawTab === 'leads' ? 'leads'
     : rawTab === 'notes' ? 'notes'
     : rawTab === 'documents' ? 'documents'
     : 'licenses'
-  const [activeTab, setActiveTab] = useState<'licenses' | 'organization' | 'users' | 'leads' | 'notes' | 'documents'>(initialTab)
-  const [usersTabActivated, setUsersTabActivated] = useState(initialTab === 'users')
+  const [activeTab, setActiveTab] = useState<'licenses' | 'organization' | 'people' | 'caregivers' | 'leads' | 'notes' | 'documents'>(initialTab)
+  const [peopleTabActivated, setPeopleTabActivated] = useState(initialTab === 'people')
+  const [caregiversTabActivated, setCaregiversTabActivated] = useState(initialTab === 'caregivers')
   const [notesTabActivated, setNotesTabActivated] = useState(initialTab === 'notes')
   const [documentsTabActivated, setDocumentsTabActivated] = useState(initialTab === 'documents')
 
@@ -787,7 +789,8 @@ export default function AgencyDetailContent({
             { key: 'licenses', label: 'Licenses' },
             { key: 'leads', label: `Leads${agencyLeads.length > 0 ? ` (${agencyLeads.length})` : ''}` },
             { key: 'organization', label: 'Organization' },
-            { key: 'users', label: 'Users' },
+            { key: 'people', label: 'People' },
+            { key: 'caregivers', label: 'Caregivers' },
             { key: 'notes', label: 'Notes' },
             { key: 'documents', label: 'Documents' },
           ] as const).map(({ key: tab, label }) => (
@@ -796,7 +799,8 @@ export default function AgencyDetailContent({
               type="button"
               onClick={() => {
                 setActiveTab(tab)
-                if (tab === 'users') setUsersTabActivated(true)
+                if (tab === 'people') setPeopleTabActivated(true)
+                if (tab === 'caregivers') setCaregiversTabActivated(true)
                 if (tab === 'notes') setNotesTabActivated(true)
                 if (tab === 'documents') setDocumentsTabActivated(true)
               }}
@@ -1266,7 +1270,6 @@ export default function AgencyDetailContent({
               {(([
                 { id: 'business',   label: 'Business Info' },
                 { id: 'addresses',  label: 'Addresses' },
-                { id: 'ownership',  label: 'Ownership' },
                 { id: 'tax',        label: 'Tax Info' },
                 { id: 'contacts',   label: 'Contacts' },
                 { id: 'additional', label: 'Additional' },
@@ -1427,16 +1430,6 @@ export default function AgencyDetailContent({
                       ) : null}
                     </div>
                   </div>
-                </div>
-              )}
-
-              {/* ── Ownership ── */}
-              {activeSection === 'ownership' && (
-                <div>
-                  <div className="mb-6">
-                    <h3 className="text-base font-semibold text-gray-900">Ownership</h3>
-                  </div>
-                  <AgencyKeyStaffSection agencyId={agency.id} keyStaff={keyStaff} />
                 </div>
               )}
 
@@ -1692,9 +1685,14 @@ export default function AgencyDetailContent({
         )
       })()}
 
-      {/* Users tab — lazy-mounted on first activation, kept in DOM after that */}
-      <div className={activeTab === 'users' ? '' : 'hidden'}>
-        {usersTabActivated && <AgencyUsersTab agencyId={agency.id} />}
+      {/* People tab — lazy-mounted on first activation, kept in DOM after that */}
+      <div className={activeTab === 'people' ? '' : 'hidden'}>
+        {peopleTabActivated && <AgencyPeopleTab agencyId={agency.id} />}
+      </div>
+
+      {/* Caregivers tab — lazy-mounted on first activation, kept in DOM after that */}
+      <div className={activeTab === 'caregivers' ? '' : 'hidden'}>
+        {caregiversTabActivated && <AgencyCaregiversTab agencyId={agency.id} />}
       </div>
 
       {/* Notes tab */}

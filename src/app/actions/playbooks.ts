@@ -1145,7 +1145,6 @@ export async function runDocumentValidation(itemId: string, agencyId: string | n
           successCount++
         } else if (ext === 'pdf') {
           // pdf-parse v2 uses a class-based API: new PDFParse({ data }).getText()
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           const { PDFParse } = await import('pdf-parse') as any
           const parser = new PDFParse({ data: new Uint8Array(buffer) })
           const result = await parser.getText()

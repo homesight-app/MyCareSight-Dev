@@ -342,3 +342,84 @@ export async function updateAgencyAdminProfile(
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
 }
+
+// ——— Promote informational key staff to credentialed user ——
+
+export async function promoteKeyStaffToUser(
+  keyStaffId: string,
+  agencyId: string,
+  role: 'company_owner' | 'care_coordinator',
+  opts: { firstName: string; lastName: string; email: string; tempPassword: string }
+): Promise<{ error: string | null }> {
+  const { error: authErr } = await requirePlatformStaff()
+  if (authErr) return { error: authErr }
+
+  const supabaseAdmin = createAdminClient()
+  const normalizedEmail = opts.email.toLowerCase().trim()
+  const fullName = `${opts.firstName} ${opts.lastName}`.trim()
+
+  const { data: authData, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+    email: normalizedEmail,
+    password: opts.tempPassword,
+    email_confirm: true,
+    user_metadata: { full_name: fullName, role },
+  })
+  if (createErr) return { error: createErr.message }
+
+  const userId = authData.user.id
+
+  const profileAppeared = await waitForProfile(supabaseAdmin, userId)
+  if (!profileAppeared) {
+    await supabaseAdmin.auth.admin.deleteUser(userId)
+    return { error: 'User profile did not initialize in time. Please try again.' }
+  }
+
+  await supabaseAdmin
+    .from('user_profiles')
+    .update({ full_name: fullName, role, agency_id: agencyId, updated_at: new Date().toISOString() })
+    .eq('id', userId)
+
+  if (role === 'company_owner') {
+    const { error: roleErr } = await supabaseAdmin.from('agency_admins').insert({
+      user_id: userId,
+      company_owner_id: userId,
+      contact_name: fullName,
+      contact_email: normalizedEmail,
+      status: 'active',
+      agency_id: agencyId,
+    })
+    if (roleErr) {
+      await supabaseAdmin.auth.admin.deleteUser(userId)
+      return { error: `Failed to create admin record: ${roleErr.message}` }
+    }
+    const { data: agency } = await supabaseAdmin.from('agencies').select('agency_admin_ids').eq('id', agencyId).single()
+    const adminIds = (agency?.agency_admin_ids as string[] | null) ?? []
+    await supabaseAdmin
+      .from('agencies')
+      .update({ agency_admin_ids: [...adminIds, userId], updated_at: new Date().toISOString() })
+      .eq('id', agencyId)
+  } else {
+    const { error: roleErr } = await supabaseAdmin.from('care_coordinators').insert({
+      user_id: userId,
+      agency_id: agencyId,
+      first_name: opts.firstName,
+      last_name: opts.lastName,
+      email: normalizedEmail,
+      status: 'active',
+    })
+    if (roleErr) {
+      await supabaseAdmin.auth.admin.deleteUser(userId)
+      return { error: `Failed to create coordinator record: ${roleErr.message}` }
+    }
+  }
+
+  const { error: linkErr } = await supabaseAdmin
+    .from('agency_key_staff')
+    .update({ user_profile_id: userId, updated_at: new Date().toISOString() })
+    .eq('id', keyStaffId)
+    .eq('agency_id', agencyId)
+  if (linkErr) return { error: `User created but failed to link: ${linkErr.message}` }
+
+  revalidateAgencyDetailPages(agencyId)
+  return { error: null }
+}

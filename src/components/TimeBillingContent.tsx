@@ -1,13 +1,18 @@
 'use client'
 
 import { useMemo, useState, useTransition } from 'react'
-import { CalendarDays, ChevronDown, ChevronUp, Pencil, Search, SlidersHorizontal } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, Search, SlidersHorizontal } from 'lucide-react'
 import type { TimeBillingRow, TimeBillingStatus } from '@/lib/time-billing-dashboard'
 import { approveTimeBillingRowAction, voidTimeBillingRowAction } from '@/app/actions/time-billing'
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 type Props = {
   rows: TimeBillingRow[]
   loadError?: string
+  selectedMonth: number
+  selectedYear: number
 }
 
 function money(n: number): string {
@@ -38,8 +43,22 @@ function noteCellLabel(note: string | null | undefined): string {
   return `${s.slice(0, 10)}…`
 }
 
-export default function TimeBillingContent({ rows, loadError }: Props) {
+export default function TimeBillingContent({ rows, loadError, selectedMonth, selectedYear }: Props) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<TimeBillingStatus>('pending')
+
+  const navigatePeriod = (direction: -1 | 1) => {
+    let m = selectedMonth + direction
+    let y = selectedYear
+    if (m < 1)  { m = 12; y-- }
+    if (m > 12) { m = 1;  y++ }
+    router.push(`?month=${m}&year=${y}`)
+  }
+
+  const isCurrentMonth = (() => {
+    const now = new Date()
+    return selectedMonth === now.getMonth() + 1 && selectedYear === now.getFullYear()
+  })()
   const [pendingEdits, setPendingEdits] = useState<
     Record<
       string,
@@ -156,11 +175,35 @@ export default function TimeBillingContent({ rows, loadError }: Props) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-3xl font-semibold text-gray-900">Hours Approval</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Review completed visits, confirm hours and service type, then approve for payroll.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold text-gray-900">Hours Approval</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            Review completed visits, confirm hours and service type, then approve for payroll.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => navigatePeriod(-1)}
+            className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600 transition-colors"
+            aria-label="Previous month"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div className="text-sm font-medium text-gray-900 min-w-[120px] text-center">
+            {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
+          </div>
+          <button
+            type="button"
+            onClick={() => navigatePeriod(1)}
+            disabled={isCurrentMonth}
+            className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Next month"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

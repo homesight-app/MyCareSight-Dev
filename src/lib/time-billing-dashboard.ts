@@ -34,14 +34,22 @@ function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
-export async function fetchTimeBillingRows(supabase: Supabase): Promise<{ rows: TimeBillingRow[]; error?: string }> {
-  const { data: visits, error: visitsErr } = await supabase
+export async function fetchTimeBillingRows(
+  supabase: Supabase,
+  opts?: { startDate?: string; endDate?: string }
+): Promise<{ rows: TimeBillingRow[]; error?: string }> {
+  let visitsQuery = supabase
     .from('scheduled_visits')
     .select(
       'id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, scheduled_end_date, service_type, mileage_miles'
     )
     .eq('status', 'completed')
     .order('visit_date', { ascending: false })
+
+  if (opts?.startDate) visitsQuery = visitsQuery.gte('visit_date', opts.startDate)
+  if (opts?.endDate)   visitsQuery = visitsQuery.lte('visit_date', opts.endDate)
+
+  const { data: visits, error: visitsErr } = await visitsQuery
   if (visitsErr) return { rows: [], error: visitsErr.message }
 
   const visitList = visits ?? []

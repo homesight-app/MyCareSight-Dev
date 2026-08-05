@@ -35,7 +35,7 @@ export default async function ExpertAgencyDetailPage({
     adminIds.length > 0
       ? q.getAgencyAdminsByIds(supabaseAdmin, adminIds)
       : Promise.resolve({ data: [] }),
-    q.getLicensesByAgencyId(supabaseAdmin, id),
+    q.getAgencyCertificationsWithHistory(supabaseAdmin, id),
     q.getApplicationsByAgencyId(supabaseAdmin, id),
     q.getUnassignedAgencyAdmins(supabaseAdmin),
     q.getApplicationsWithProgramsByAgencyId(supabaseAdmin, id),
@@ -45,11 +45,12 @@ export default async function ExpertAgencyDetailPage({
     <ExpertDashboardLayout user={user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <AgencyDetailContent
         agency={agency}
-        licenses={licenses ?? []}
+        licenses={(licenses ?? []) as unknown as Parameters<typeof AgencyDetailContent>[0]['licenses']}
         applications={applications ?? []}
         agencyAdmins={agencyAdmins ?? []}
         availableAdmins={availableAdmins ?? []}
         backPath="/pages/expert/agencies"
+        canEdit={true}
         programs={programs ?? []}
       />
     </ExpertDashboardLayout>

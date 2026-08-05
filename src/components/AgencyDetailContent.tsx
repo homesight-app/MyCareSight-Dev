@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -19,10 +19,8 @@ import {
   Users,
   Calendar,
   Download,
-  Upload,
   Pencil,
   Loader2,
-  X,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
@@ -34,12 +32,12 @@ import {
   Eye,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
 import { fetchLeadDocumentsAction, fetchLeadNotesAction } from '@/app/actions/leads'
 import { LEAD_STAGES } from '@/lib/constants/lead-configs'
 import CreateLicenseModal from './CreateLicenseModal'
+import CertificationDetailModal from './CertificationDetailModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
 import AgencyOnboardingLinkPanel from './AgencyOnboardingLinkPanel'
 import AgencyPeopleTab from './AgencyPeopleTab'
@@ -95,17 +93,54 @@ interface Agency {
   licensed_same_as_physical?: boolean | null
 }
 
+interface LicenseDocument {
+  id: string
+  document_name: string
+  document_url: string
+  document_type: string | null
+  created_at: string
+}
+
+interface LinkedApplication {
+  id: string
+  link_type: 'created_from' | 'renewal_of'
+  linked_at: string
+  applications: {
+    id: string
+    status: string
+    application_name: string
+    started_date: string | null
+  } | null
+}
+
 interface License {
   id: string
   license_name: string
   license_number?: string | null
-  state: string
+  state?: string | null
   status: string
   activated_date?: string | null
+  first_issued_date?: string | null
   expiry_date?: string | null
   renewal_due_date?: string | null
+  issuing_body?: string | null
+  certification_category?: string | null
+  previous_version_id?: string | null
   created_at: string
+  license_documents?: LicenseDocument[] | null
+  certification_applications?: LinkedApplication[] | null
 }
+
+const CERT_CATEGORIES: { value: string; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'state_license', label: 'State License' },
+  { value: 'medicare', label: 'Medicare' },
+  { value: 'medicaid', label: 'Medicaid' },
+  { value: 'accreditation', label: 'Accreditation' },
+  { value: 'bond', label: 'Bond' },
+  { value: 'insurance', label: 'Insurance' },
+  { value: 'other', label: 'Other' },
+]
 
 interface Application {
   id: string
@@ -312,6 +347,8 @@ function Field({ label, value, isEditing, onChange, className }: FieldProps) {
   )
 }
 
+
+
 export default function AgencyDetailContent({
   agency,
   licenses,
@@ -406,15 +443,9 @@ export default function AgencyDetailContent({
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [addLicenseOpen, setAddLicenseOpen] = useState(false)
-  const [editingLicense, setEditingLicense] = useState<License | null>(null)
+  const [selectedCertId, setSelectedCertId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expiring' | 'expired'>('all')
-  const [downloadingId, setDownloadingId] = useState<string | null>(null)
-  const [uploadDocLicense, setUploadDocLicense] = useState<License | null>(null)
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [uploadDocName, setUploadDocName] = useState('')
-  const [isUploadingDoc, setIsUploadingDoc] = useState(false)
-  const [uploadDocError, setUploadDocError] = useState<string | null>(null)
-  const uploadFileRef = useRef<HTMLInputElement>(null)
+  const [certCatFilter, setCertCatFilter] = useState<string>('all')
 
   // License table search + sort
   const [licSearch, setLicSearch] = useState('')
@@ -559,13 +590,14 @@ export default function AgencyDetailContent({
       if (statusFilter === 'active' && !(l.status === 'active' && !isExpiringSoon(l.expiry_date))) return false
       if (statusFilter === 'expiring' && !(l.status === 'active' && isExpiringSoon(l.expiry_date))) return false
       if (statusFilter === 'expired' && l.status !== 'expired') return false
-      if (term && !l.license_name.toLowerCase().includes(term) && !l.state.toLowerCase().includes(term) && !(l.license_number ?? '').toLowerCase().includes(term)) return false
+      if (certCatFilter !== 'all' && (l.certification_category ?? 'state_license') !== certCatFilter) return false
+      if (term && !l.license_name.toLowerCase().includes(term) && !(l.state ?? '').toLowerCase().includes(term) && !(l.license_number ?? '').toLowerCase().includes(term)) return false
       return true
     })
     return list.sort((a, b) => {
       let cmp = 0
       if (licSortKey === 'name') cmp = a.license_name.localeCompare(b.license_name)
-      if (licSortKey === 'state') cmp = a.state.localeCompare(b.state)
+      if (licSortKey === 'state') cmp = (a.state ?? '').localeCompare(b.state ?? '')
       if (licSortKey === 'number') cmp = (a.license_number ?? '').localeCompare(b.license_number ?? '')
       if (licSortKey === 'activated') cmp = (a.activated_date ?? '').localeCompare(b.activated_date ?? '')
       if (licSortKey === 'expires') cmp = (a.expiry_date ?? '').localeCompare(b.expiry_date ?? '')
@@ -627,66 +659,6 @@ export default function AgencyDetailContent({
   const appStatuses = useMemo(() => Array.from(new Set(applications.map(a => a.status))).sort(), [applications])
   const programStatuses = useMemo(() => Array.from(new Set(programs.map(p => p.status))).sort(), [programs])
 
-  const handleDownloadLicense = async (license: License) => {
-    setDownloadingId(license.id)
-    try {
-      const supabase = createClient()
-      const { data } = await q.getLatestLicenseDocumentByLicenseId(supabase, license.id)
-      if (!data?.document_url) {
-        alert('No document has been uploaded for this license yet.')
-        return
-      }
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, data.document_url)
-      if (!signedUrl) throw new Error('Failed to generate download URL')
-      const response = await fetch(signedUrl)
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = data.document_name || license.license_name
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch {
-      alert('Failed to download document.')
-    } finally {
-      setDownloadingId(null)
-    }
-  }
-
-  const handleUploadDoc = async () => {
-    if (!uploadFile || !uploadDocLicense) return
-    setIsUploadingDoc(true)
-    setUploadDocError(null)
-    try {
-      const supabase = createClient()
-      const fileExt = uploadFile.name.split('.').pop()
-      const filePath = `license-${uploadDocLicense.id}/${Date.now()}.${fileExt}`
-      const { error: uploadError } = await supabase.storage
-        .from('application-documents')
-        .upload(filePath, uploadFile, { upsert: false, contentType: uploadFile.type || `application/${fileExt}` })
-      if (uploadError) throw uploadError
-
-      const { error: docError } = await q.insertLicenseDocument(supabase, {
-        license_id: uploadDocLicense.id,
-        document_name: uploadDocName.trim() || uploadFile.name,
-        document_url: filePath,
-        document_type: null,
-      })
-      if (docError) {
-        await supabase.storage.from('application-documents').remove([filePath])
-        throw docError
-      }
-      setUploadDocLicense(null)
-      setUploadFile(null)
-      setUploadDocName('')
-    } catch (err: unknown) {
-      setUploadDocError(err instanceof Error ? err.message : 'Upload failed.')
-    } finally {
-      setIsUploadingDoc(false)
-    }
-  }
 
   const physicalAddress = [
     agency.physical_street_address,
@@ -729,15 +701,6 @@ export default function AgencyDetailContent({
               <div>
                 <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Tax ID</p>
                 <p className="text-gray-900">{agency.tax_id}</p>
-              </div>
-            </div>
-          )}
-          {agency.primary_license_number && (
-            <div className="flex items-start gap-2">
-              <Briefcase className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Primary License #</p>
-                <p className="text-gray-900">{agency.primary_license_number}</p>
               </div>
             </div>
           )}
@@ -786,7 +749,7 @@ export default function AgencyDetailContent({
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
         <div className="flex border-b border-gray-200">
           {([
-            { key: 'licenses', label: 'Licenses' },
+            { key: 'licenses', label: 'Certifications' },
             { key: 'leads', label: `Leads${agencyLeads.length > 0 ? ` (${agencyLeads.length})` : ''}` },
             { key: 'organization', label: 'Organization' },
             { key: 'people', label: 'People' },
@@ -849,7 +812,7 @@ export default function AgencyDetailContent({
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 shrink-0">
                 <FileText className="w-5 h-5 text-blue-600" />
-                <h2 className="text-base font-semibold text-gray-900">Client Licenses</h2>
+                <h2 className="text-base font-semibold text-gray-900">Certifications</h2>
               </div>
               <div className="flex items-center gap-2">
                 <div className="relative">
@@ -881,18 +844,36 @@ export default function AgencyDetailContent({
                   className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
                 >
                   <Plus className="w-4 h-4" />
-                  Add License
+                  Add Certification
                 </button>
               </div>
             </div>
 
+            {/* Category filter pills */}
+            <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap gap-1.5">
+              {CERT_CATEGORIES.map(cat => (
+                <button
+                  key={cat.value}
+                  type="button"
+                  onClick={() => setCertCatFilter(cat.value)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    certCatFilter === cat.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
             {licenses.length === 0 ? (
               <div className="px-6 py-10 text-center text-sm text-gray-500">
-                No licenses yet. Click &quot;Add License&quot; to create one.
+                No certifications yet. Click &quot;Add Certification&quot; to create one.
               </div>
             ) : displayedLicenses.length === 0 ? (
               <div className="px-6 py-10 text-center text-sm text-gray-500">
-                No licenses match the selected filter.
+                No certifications match the selected filters.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -900,10 +881,10 @@ export default function AgencyDetailContent({
                   <thead className="bg-gray-50">
                     <tr>
                       {([
-                        ['name',      'License'],
+                        ['name',      'Certification'],
                         ['state',     'State'],
-                        ['number',    'License #'],
-                        ['activated', 'Activated'],
+                        ['number',    'Cert #'],
+                        ['activated', 'Issued'],
                         ['expires',   'Expires'],
                         ['status',    'Status'],
                       ] as const).map(([key, label]) => (
@@ -917,19 +898,26 @@ export default function AgencyDetailContent({
                           </span>
                         </th>
                       ))}
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {displayedLicenses.map((license) => (
-                      <tr key={license.id} className="hover:bg-gray-50">
+                      <tr
+                        key={license.id}
+                        onClick={() => setSelectedCertId(license.id)}
+                        className="hover:bg-blue-50 cursor-pointer transition-colors"
+                      >
                         <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
                           {license.license_name}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                            {license.state}
-                          </span>
+                          {license.state ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                              {license.state}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">Federal</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                           {license.license_number || '—'}
@@ -950,42 +938,6 @@ export default function AgencyDetailContent({
                               ? 'Expiring Soon'
                               : license.status}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setEditingLicense(license)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadLicense(license)}
-                              disabled={downloadingId === license.id}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-                            >
-                              {downloadingId === license.id
-                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                : <Download className="w-3.5 h-3.5" />}
-                              Download
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setUploadDocLicense(license)
-                                setUploadFile(null)
-                                setUploadDocName('')
-                                setUploadDocError(null)
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                              Upload
-                            </button>
-                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1339,7 +1291,6 @@ export default function AgencyDetailContent({
                     <Field label="Tax ID / FEIN" value={orgForm.taxId} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, taxId: val }))} />
                     <Field label="NPI" value={orgForm.npi} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, npi: val }))} />
                     <Field label="Date of Formation" value={orgForm.dateOfFormation} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, dateOfFormation: val }))} />
-                    <Field label="Date of Incorporation" value={orgForm.dateOfIncorporation} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, dateOfIncorporation: val }))} />
                     {editingSection === 'business' ? (
                       <div>
                         <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">State of Incorporation</label>
@@ -1354,7 +1305,6 @@ export default function AgencyDetailContent({
                         <p className="text-sm text-gray-900">{orgForm.stateOfIncorporation || '—'}</p>
                       </div>
                     )}
-                    <Field label="Primary License #" value={orgForm.primaryLicenseNumber} isEditing={editingSection === 'business'} onChange={val => setOrgForm(f => ({ ...f, primaryLicenseNumber: val }))} />
                   </div>
                 </div>
               )}
@@ -1836,88 +1786,18 @@ export default function AgencyDetailContent({
       )}
 
       {/* Modals — always mounted regardless of active tab */}
-      {editingLicense && (
-        <CreateLicenseModal
-          isOpen={!!editingLicense}
-          onClose={() => setEditingLicense(null)}
-          onSuccess={() => setEditingLicense(null)}
-          agencyId={agency.id}
-          licenseToEdit={editingLicense}
-        />
-      )}
-
-      <Modal
-        isOpen={!!uploadDocLicense}
-        onClose={() => { setUploadDocLicense(null); setUploadFile(null); setUploadDocName(''); setUploadDocError(null) }}
-        title={`Upload Document — ${uploadDocLicense?.license_name ?? ''}`}
-        size="md"
-      >
-        <div className="p-6 space-y-4">
-          {uploadDocError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{uploadDocError}</div>
-          )}
-          {!uploadFile ? (
-            <div
-              onClick={() => uploadFileRef.current?.click()}
-              className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-colors"
-            >
-              <Upload className="w-10 h-10 mx-auto mb-2 text-gray-400" />
-              <p className="text-gray-600 font-medium text-sm">Click to select a file</p>
-              <p className="text-xs text-gray-500 mt-0.5">PDF, DOC, DOCX, JPG, PNG</p>
-              <input
-                ref={uploadFileRef}
-                type="file"
-                className="hidden"
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) { setUploadFile(f); setUploadDocName(f.name) }
-                }}
-              />
-            </div>
-          ) : (
-            <div className="border border-gray-300 rounded-xl p-4 bg-gray-50 flex items-center gap-3">
-              <FileText className="w-8 h-8 text-blue-600 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{uploadFile.name}</p>
-                <p className="text-xs text-gray-500">{(uploadFile.size / 1024).toFixed(1)} KB</p>
-              </div>
-              <button type="button" onClick={() => { setUploadFile(null); setUploadDocName('') }} className="p-1.5 hover:bg-gray-200 rounded-lg">
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
-          )}
-          {uploadFile && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Document name</label>
-              <input
-                type="text"
-                value={uploadDocName}
-                onChange={(e) => setUploadDocName(e.target.value)}
-                className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-              />
-            </div>
-          )}
-          <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={() => { setUploadDocLicense(null); setUploadFile(null); setUploadDocName(''); setUploadDocError(null) }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleUploadDoc}
-              disabled={!uploadFile || isUploadingDoc}
-              className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              {isUploadingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              Upload
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {selectedCertId && (() => {
+        const cert = licenses.find(l => l.id === selectedCertId)
+        return cert ? (
+          <CertificationDetailModal
+            license={cert}
+            agencyId={agency.id}
+            backPath={backPath}
+            canEdit={canEdit}
+            onClose={() => setSelectedCertId(null)}
+          />
+        ) : null
+      })()}
 
       <CreateLicenseModal
         isOpen={addLicenseOpen}

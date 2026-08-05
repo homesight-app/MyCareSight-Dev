@@ -40,7 +40,7 @@ export default async function AdminAgencyDetailPage({
     adminIds.length > 0
       ? q.getAgencyAdminsByIds(supabaseAdmin, adminIds)
       : Promise.resolve({ data: [] }),
-    q.getLicensesByAgencyId(supabaseAdmin, id),
+    q.getAgencyCertificationsWithHistory(supabaseAdmin, id),
     q.getApplicationsByAgencyId(supabaseAdmin, id),
     q.getUnassignedAgencyAdmins(supabaseAdmin),
     q.getActiveOnboardingToken(supabaseAdmin, id),
@@ -58,7 +58,7 @@ export default async function AdminAgencyDetailPage({
     <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <AgencyDetailContent
         agency={agency}
-        licenses={licenses ?? []}
+        licenses={(licenses ?? []) as unknown as Parameters<typeof AgencyDetailContent>[0]['licenses']}
         applications={applications ?? []}
         agencyAdmins={agencyAdmins ?? []}
         availableAdmins={availableAdmins ?? []}

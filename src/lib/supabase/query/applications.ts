@@ -1,6 +1,6 @@
 import type { Supabase } from '../types'
 
-const APPLICATIONS_COLUMNS = 'id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id'
+const APPLICATIONS_COLUMNS = 'id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason'
 const APPLICATION_STEPS_COLUMNS = 'id, application_id, step_name, step_order, is_completed, completed_at, completed_by, notes, created_at, updated_at, is_expert_step, created_by_expert_id, description, phase, instructions'
 const APPLICATION_DOCUMENTS_COLUMNS = 'id, application_id, document_name, document_url, document_type, status, created_at, description, expert_review_notes, license_requirement_document_id'
 
@@ -476,4 +476,80 @@ export async function getApplicationsByStatuses(supabase: Supabase, statuses: st
     .select(APPLICATIONS_COLUMNS)
     .in('status', statuses)
     .order('created_at', { ascending: false })
+}
+
+/** Set application status to 'closed' with audit columns. */
+export async function closeApplicationManualUpdate(
+  supabase: Supabase,
+  applicationId: string,
+  agencyId: string,
+  closedBy: string,
+  closeReason: string
+) {
+  return supabase
+    .from('applications')
+    .update({
+      status: 'closed',
+      closed_by: closedBy,
+      closed_at: new Date().toISOString(),
+      close_reason: closeReason,
+      last_updated_date: new Date().toISOString().split('T')[0],
+    })
+    .eq('id', applicationId)
+    .eq('agency_id', agencyId)
+    .not('status', 'in', '("approved","rejected")')
+}
+
+/** Set application status to 'complete' with audit columns. */
+export async function completeApplicationManualUpdate(
+  supabase: Supabase,
+  applicationId: string,
+  agencyId: string,
+  completedBy: string,
+  completeReason: string
+) {
+  return supabase
+    .from('applications')
+    .update({
+      status: 'complete',
+      completed_by: completedBy,
+      completed_at: new Date().toISOString(),
+      complete_reason: completeReason,
+      last_updated_date: new Date().toISOString().split('T')[0],
+    })
+    .eq('id', applicationId)
+    .eq('agency_id', agencyId)
+    .not('status', 'in', '("approved","rejected")')
+}
+
+/** Re-open a closed or complete application back to in_progress, clearing audit columns. */
+export async function reopenApplicationUpdate(
+  supabase: Supabase,
+  applicationId: string,
+  agencyId: string
+) {
+  return supabase
+    .from('applications')
+    .update({
+      status: 'in_progress',
+      closed_by: null,
+      closed_at: null,
+      close_reason: null,
+      completed_by: null,
+      completed_at: null,
+      complete_reason: null,
+      last_updated_date: new Date().toISOString().split('T')[0],
+    })
+    .eq('id', applicationId)
+    .eq('agency_id', agencyId)
+    .in('status', ['closed', 'complete'])
+}
+
+/** Get application agency_id and status by id (for close/complete/reopen auth checks). */
+export async function getApplicationAgencyAndStatus(supabase: Supabase, applicationId: string) {
+  return supabase
+    .from('applications')
+    .select('id, agency_id, status, application_name')
+    .eq('id', applicationId)
+    .single()
 }

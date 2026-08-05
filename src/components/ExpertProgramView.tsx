@@ -5,7 +5,7 @@ import {
   CheckCircle2, Clock, AlertCircle, Circle,
   FileText, Loader2, ChevronRight, CalendarDays,
   Download, Send, Info, SquarePen, CheckCheck,
-  MessageSquare, FolderOpen, Pencil, Check, X, Plus,
+  MessageSquare, FolderOpen, Pencil, Check, X, Plus, ArrowRight,
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -15,7 +15,8 @@ import {
   getProgramItemNoteCounts,
   updateProgramItem,
 } from '@/app/actions/playbooks'
-import { approveProgramComplete, renameApplication } from '@/app/actions/applications'
+import { approveProgramComplete, renameApplication, closeApplicationManually, completeApplicationManually, reopenApplication } from '@/app/actions/applications'
+import { linkProgramToCertification, createCertificationAndLink } from '@/app/actions/licenses'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
 import AddProgramItemModal from './AddProgramItemModal'
 import InternalNotesPanel from './InternalNotesPanel'
@@ -26,6 +27,13 @@ import Modal from './Modal'
 type Tab = 'items' | 'documents' | 'notes'
 type TabId = 'overview' | 'documents' | 'validation' | 'notes' | 'history'
 type Status = ApplicationPlaybookItem['status']
+
+interface LinkedCertRow {
+  id: string
+  link_type: string
+  linked_at: string
+  licenses: { id: string; license_name: string; license_number: string | null; status: string; expiry_date: string | null; agency_id: string } | null
+}
 
 interface PlaybookTemplate {
   id: string
@@ -56,6 +64,10 @@ interface Props {
   playbookId: string | null
   initialItems: ApplicationPlaybookItem[]
   isAdmin?: boolean
+  closedAt?: string | null
+  closeReason?: string | null
+  completedAt?: string | null
+  completeReason?: string | null
 }
 
 export default function ExpertProgramView({
@@ -68,6 +80,10 @@ export default function ExpertProgramView({
   playbookId,
   initialItems,
   isAdmin = false,
+  closedAt,
+  closeReason,
+  completedAt,
+  completeReason,
 }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const supabase = createClient()
@@ -90,6 +106,83 @@ export default function ExpertProgramView({
 
   const handleCancelName = () => { setNameDraft(displayName); setEditingName(false) }
 
+  // ── Manual status ─────────────────────────────────────────────────────────────
+  const handleManualStatusConfirm = async () => {
+    if (!manualStatusReason.trim() || isManualStatusLoading) return
+    setIsManualStatusLoading(true)
+    try {
+      let error: string | null = null
+      if (manualStatusModal === 'close')         ({ error } = await closeApplicationManually(applicationId, manualStatusReason.trim()))
+      else if (manualStatusModal === 'complete') ({ error } = await completeApplicationManually(applicationId, manualStatusReason.trim()))
+      else if (manualStatusModal === 'reopen')   ({ error } = await reopenApplication(applicationId, manualStatusReason.trim()))
+      if (error) { alert(error); return }
+      const now = new Date().toISOString()
+      const reason = manualStatusReason.trim()
+      if (manualStatusModal === 'close')         { setCurrentStatus('closed');      setDisplayedClosedAt(now);     setDisplayedCloseReason(reason)    }
+      else if (manualStatusModal === 'complete') { setCurrentStatus('complete');    setDisplayedCompletedAt(now);  setDisplayedCompleteReason(reason) }
+      else if (manualStatusModal === 'reopen')   { setCurrentStatus('in_progress'); setDisplayedClosedAt(null);    setDisplayedCloseReason(null);     setDisplayedCompletedAt(null); setDisplayedCompleteReason(null) }
+      setManualStatusModal(null)
+      setManualStatusReason('')
+    } finally {
+      setIsManualStatusLoading(false)
+    }
+  }
+
+  // ── Linked certifications ─────────────────────────────────────────────────────
+  const refreshLinkedCerts = useCallback(async () => {
+    setLinkedCertsLoading(true)
+    const { data } = await supabase
+      .from('certification_applications')
+      .select('id, link_type, linked_at, licenses ( id, license_name, license_number, status, expiry_date, agency_id )')
+      .eq('application_id', applicationId)
+      .order('linked_at', { ascending: false })
+    setLinkedCerts((data as unknown as LinkedCertRow[]) ?? [])
+    setLinkedCertsLoading(false)
+  }, [applicationId, supabase])
+
+  useEffect(() => { refreshLinkedCerts() }, [refreshLinkedCerts])
+
+  const openLinkCertModal = async () => {
+    setSelectedCertId('')
+    setSelectedLinkType('renewal_of')
+    setLinkCertModal(true)
+    if (!agencyId) return
+    setAvailableCertsLoading(true)
+    const excludeIds = linkedCerts.map(r => r.licenses?.id).filter((id): id is string => !!id)
+    let query = supabase.from('licenses').select('id, license_name, license_number, status').eq('agency_id', agencyId).order('license_name')
+    if (excludeIds.length > 0) query = query.not('id', 'in', `(${excludeIds.join(',')})`)
+    const { data } = await query
+    setAvailableCerts((data ?? []) as typeof availableCerts)
+    setAvailableCertsLoading(false)
+  }
+
+  const handleLinkCert = async () => {
+    if (!selectedCertId || !agencyId) return
+    setIsLinkingCert(true)
+    const { error } = await linkProgramToCertification(selectedCertId, applicationId, agencyId, selectedLinkType)
+    setIsLinkingCert(false)
+    if (error) { alert(error); return }
+    setLinkCertModal(false)
+    refreshLinkedCerts()
+  }
+
+  const handleCreateCert = async () => {
+    if (!certForm.license_name.trim() || !certForm.activated_date || !certForm.expiry_date || !agencyId) return
+    setIsCreatingCert(true)
+    const { error } = await createCertificationAndLink(agencyId, applicationId, {
+      license_name: certForm.license_name.trim(),
+      state: certForm.state,
+      license_number: certForm.license_number || undefined,
+      activated_date: certForm.activated_date,
+      expiry_date: certForm.expiry_date,
+    })
+    setIsCreatingCert(false)
+    if (error) { alert(error); return }
+    setCreateCertModal(false)
+    setCertForm({ license_name: displayName, state, activated_date: '', expiry_date: '', license_number: '' })
+    refreshLinkedCerts()
+  }
+
   // ── Tab ───────────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>('items')
   const activeTabRef = useRef<Tab>('items')
@@ -108,6 +201,28 @@ export default function ExpertProgramView({
   // ── Application status (reactive — auto-transitions when all items complete) ──
   const [currentStatus, setCurrentStatus] = useState(status)
   const [isApprovingProgram, setIsApprovingProgram] = useState(false)
+
+  // ── Manual status (close / complete / reopen) ─────────────────────────────────
+  const [manualStatusModal, setManualStatusModal] = useState<'close' | 'complete' | 'reopen' | null>(null)
+  const [manualStatusReason, setManualStatusReason] = useState('')
+  const [isManualStatusLoading, setIsManualStatusLoading] = useState(false)
+  const [displayedClosedAt, setDisplayedClosedAt] = useState(closedAt ?? null)
+  const [displayedCloseReason, setDisplayedCloseReason] = useState(closeReason ?? null)
+  const [displayedCompletedAt, setDisplayedCompletedAt] = useState(completedAt ?? null)
+  const [displayedCompleteReason, setDisplayedCompleteReason] = useState(completeReason ?? null)
+
+  // ── Linked certifications ─────────────────────────────────────────────────────
+  const [linkedCerts, setLinkedCerts] = useState<LinkedCertRow[]>([])
+  const [linkedCertsLoading, setLinkedCertsLoading] = useState(true)
+  const [linkCertModal, setLinkCertModal] = useState(false)
+  const [availableCerts, setAvailableCerts] = useState<{ id: string; license_name: string; license_number: string | null; status: string }[]>([])
+  const [availableCertsLoading, setAvailableCertsLoading] = useState(false)
+  const [selectedCertId, setSelectedCertId] = useState('')
+  const [selectedLinkType, setSelectedLinkType] = useState<'created_from' | 'renewal_of'>('renewal_of')
+  const [isLinkingCert, setIsLinkingCert] = useState(false)
+  const [createCertModal, setCreateCertModal] = useState(false)
+  const [certForm, setCertForm] = useState({ license_name: applicationName, state: state, activated_date: '', expiry_date: '', license_number: '' })
+  const [isCreatingCert, setIsCreatingCert] = useState(false)
 
   useEffect(() => {
     if (items.length === 0) return
@@ -389,10 +504,14 @@ export default function ExpertProgramView({
       case 'needs_revision': return { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Needs Revision' }
       case 'approved':       return { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Approved' }
       case 'closed':         return { bg: 'bg-gray-100',   text: 'text-gray-600',   label: 'Closed' }
+      case 'complete':       return { bg: 'bg-teal-100',   text: 'text-teal-700',   label: 'Complete' }
       default:               return { bg: 'bg-gray-100',   text: 'text-gray-600',   label: s }
     }
   }
   const appBadge = getAppBadge(currentStatus)
+  const isTerminal = currentStatus === 'approved' || currentStatus === 'rejected'
+  const canReopen = currentStatus === 'closed' || currentStatus === 'complete'
+  const canClose = !isTerminal && !canReopen
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: 'items',     label: 'Next Steps', badge: reviewNeeded + inProgress || undefined },
@@ -496,8 +615,114 @@ export default function ExpertProgramView({
                 Approve Program
               </button>
             )}
+            {canClose && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => { setManualStatusModal('complete'); setManualStatusReason('') }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Mark Complete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setManualStatusModal('close'); setManualStatusReason('') }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Close
+                </button>
+              </>
+            )}
+            {canReopen && (
+              <button
+                type="button"
+                onClick={() => { setManualStatusModal('reopen'); setManualStatusReason('') }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                Re-open
+              </button>
+            )}
           </div>
         </div>
+      </div>
+
+      {/* ── Status banners (closed / complete) ── */}
+      {currentStatus === 'closed' && (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-start gap-3">
+          <X className="w-5 h-5 text-gray-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold text-gray-700">Program Closed</p>
+            {displayedClosedAt && <p className="text-sm text-gray-500">{new Date(displayedClosedAt).toLocaleDateString()}</p>}
+            {displayedCloseReason && <p className="text-sm text-gray-600 mt-1">{displayedCloseReason}</p>}
+          </div>
+        </div>
+      )}
+      {currentStatus === 'complete' && (
+        <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle2 className="w-5 h-5 text-teal-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold text-teal-700">Program Marked Complete</p>
+            {displayedCompletedAt && <p className="text-sm text-teal-600">{new Date(displayedCompletedAt).toLocaleDateString()}</p>}
+            {displayedCompleteReason && <p className="text-sm text-teal-700 mt-1">{displayedCompleteReason}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Linked Certifications ── */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700">Linked Certifications</h3>
+          {agencyId && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={openLinkCertModal}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Link to Existing
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCreateCertModal(true); setCertForm({ license_name: displayName, state, activated_date: '', expiry_date: '', license_number: '' }) }}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-600 hover:text-teal-800 px-2 py-1 rounded-lg hover:bg-teal-50 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Create New Certification
+              </button>
+            </div>
+          )}
+        </div>
+        {linkedCertsLoading ? (
+          <div className="flex items-center gap-2 text-xs text-gray-400 py-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</div>
+        ) : linkedCerts.length === 0 ? (
+          <p className="text-xs text-gray-400">No certifications linked to this program yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {linkedCerts.map(row => {
+              const cert = row.licenses
+              if (!cert) return null
+              const certHref = isAdmin ? `/pages/admin/agencies/${cert.agency_id}` : `/pages/expert/agencies/${cert.agency_id}`
+              return (
+                <div key={row.id} className="flex items-center gap-3 text-sm">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${cert.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {cert.status}
+                  </span>
+                  <Link href={certHref} className="text-blue-600 hover:underline font-medium text-xs flex-1 truncate">
+                    {cert.license_name}{cert.license_number ? ` · #${cert.license_number}` : ''}
+                  </Link>
+                  <span className="text-xs text-gray-400 capitalize flex-shrink-0">{row.link_type.replace(/_/g, ' ')}</span>
+                  {cert.expiry_date && (
+                    <span className="text-xs text-gray-400 flex-shrink-0">Exp: {new Date(cert.expiry_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── Tab navigation ── */}
@@ -532,38 +757,7 @@ export default function ExpertProgramView({
       {activeTab === 'items' && (
         <div>
           {/* Progress summary */}
-          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
-            <div className="flex gap-4 flex-wrap">
-              {approved > 0 && (
-                <div className="flex items-center gap-1.5 text-sm">
-                  <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  <span className="font-semibold text-gray-800">{approved}</span>
-                  <span className="text-gray-500">Approved</span>
-                </div>
-              )}
-              {reviewNeeded > 0 && (
-                <div className="flex items-center gap-1.5 text-sm">
-                  <AlertCircle className="w-4 h-4 text-amber-500" />
-                  <span className="font-semibold text-gray-800">{reviewNeeded}</span>
-                  <span className="text-gray-500">Review Needed</span>
-                </div>
-              )}
-              {inProgress > 0 && (
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Clock className="w-4 h-4 text-blue-500" />
-                  <span className="font-semibold text-gray-800">{inProgress}</span>
-                  <span className="text-gray-500">In Progress</span>
-                </div>
-              )}
-              {notStarted > 0 && (
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Circle className="w-4 h-4 text-gray-400" />
-                  <span className="font-semibold text-gray-800">{notStarted}</span>
-                  <span className="text-gray-500">Not Started</span>
-                </div>
-              )}
-            </div>
-          </div>
+
 
           {/* Filter bar */}
           <div className="flex flex-wrap items-center gap-3 mb-3">
@@ -818,6 +1012,118 @@ export default function ExpertProgramView({
           )}
         </div>
       )}
+
+      {/* Manual Status Modal (Close / Complete / Re-open) */}
+      {manualStatusModal && (
+        <Modal
+          isOpen
+          onClose={() => { setManualStatusModal(null); setManualStatusReason('') }}
+          title={manualStatusModal === 'close' ? 'Close Program' : manualStatusModal === 'complete' ? 'Mark Program Complete' : 'Re-open Program'}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              {manualStatusModal === 'close'
+                ? 'Closes the program regardless of task completion. Can be re-opened later if needed.'
+                : manualStatusModal === 'complete'
+                ? 'Marks all work as done. Can be re-opened if needed.'
+                : 'Program will return to In Progress status.'}
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {manualStatusModal === 'complete' ? 'Notes' : 'Reason'} <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={manualStatusReason}
+                onChange={e => setManualStatusReason(e.target.value)}
+                rows={3}
+                placeholder={manualStatusModal === 'close' ? 'Client decided not to pursue at this time…' : manualStatusModal === 'complete' ? 'All work completed and submitted…' : 'Additional steps needed…'}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => { setManualStatusModal(null); setManualStatusReason('') }} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+              <button
+                type="button"
+                onClick={handleManualStatusConfirm}
+                disabled={!manualStatusReason.trim() || isManualStatusLoading}
+                className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${manualStatusModal === 'complete' ? 'bg-teal-600 hover:bg-teal-700' : manualStatusModal === 'reopen' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-800'}`}
+              >
+                {isManualStatusLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {manualStatusModal === 'close' ? 'Close' : manualStatusModal === 'complete' ? 'Mark Complete' : 'Re-open'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Link to Certification Modal */}
+      <Modal isOpen={linkCertModal} onClose={() => setLinkCertModal(false)} title="Link to Certification">
+        <div className="space-y-4">
+          {availableCertsLoading ? (
+            <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+          ) : availableCerts.length === 0 ? (
+            <p className="text-sm text-gray-500 py-4 text-center">No certifications available to link. Create a new one instead.</p>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Certification <span className="text-red-500">*</span></label>
+                <select value={selectedCertId} onChange={e => setSelectedCertId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="">— Select a certification —</option>
+                  {availableCerts.map(c => (
+                    <option key={c.id} value={c.id}>{c.license_name}{c.license_number ? ` · #${c.license_number}` : ''} ({c.status})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Link Type <span className="text-red-500">*</span></label>
+                <select value={selectedLinkType} onChange={e => setSelectedLinkType(e.target.value as 'created_from' | 'renewal_of')} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="renewal_of">Renewal of this certification</option>
+                  <option value="created_from">Created from this program</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-3 pt-1">
+                <button type="button" onClick={() => setLinkCertModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={handleLinkCert} disabled={!selectedCertId || isLinkingCert} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                  {isLinkingCert && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Link Certification
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
+      {/* Create New Certification Modal */}
+      <Modal isOpen={createCertModal} onClose={() => setCreateCertModal(false)} title="Create New Certification" size="md">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Certification Name <span className="text-red-500">*</span></label>
+            <input type="text" value={certForm.license_name} onChange={e => setCertForm(f => ({ ...f, license_name: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Cert / License Number</label>
+            <input type="text" value={certForm.license_number} onChange={e => setCertForm(f => ({ ...f, license_number: e.target.value }))} placeholder="Optional" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Issued Date <span className="text-red-500">*</span></label>
+              <input type="date" value={certForm.activated_date} onChange={e => setCertForm(f => ({ ...f, activated_date: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date <span className="text-red-500">*</span></label>
+              <input type="date" value={certForm.expiry_date} onChange={e => setCertForm(f => ({ ...f, expiry_date: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">State: <strong>{certForm.state || 'N/A'}</strong> · This certification will be automatically linked as &ldquo;created from this program.&rdquo;</p>
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={() => setCreateCertModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button type="button" onClick={handleCreateCert} disabled={!certForm.license_name.trim() || !certForm.activated_date || !certForm.expiry_date || isCreatingCert} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+              {isCreatingCert && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Create &amp; Link
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Templates Modal */}
       <Modal isOpen={isTemplatesOpen} onClose={() => setIsTemplatesOpen(false)} title="Document Templates" size="lg">

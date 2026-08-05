@@ -5,6 +5,11 @@ import { getSession } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 
+function assertCanManageCert(role: string | null | undefined): string | null {
+  const allowed = ['admin', 'expert', 'company_owner', 'care_coordinator']
+  return allowed.includes(role ?? '') ? null : 'Forbidden'
+}
+
 /**
  * Revalidate the dashboard licenses page so the license list refetches after create/update.
  */
@@ -20,6 +25,7 @@ export type CreateLicenseForAgencyInput = {
   activated_date: string
   expiry_date: string
   renewal_due_date?: string
+  certification_category?: string
   document?: {
     url: string
     name: string
@@ -51,6 +57,7 @@ export async function createLicenseForAgency(input: CreateLicenseForAgencyInput)
     activated_date: input.activated_date,
     expiry_date: input.expiry_date,
     renewal_due_date: input.renewal_due_date || null,
+    certification_category: input.certification_category || null,
   })
 
   if (error) return { error: error.message, data: null }
@@ -87,4 +94,234 @@ export async function createLicenseForAgency(input: CreateLicenseForAgencyInput)
   revalidatePath('/pages/admin/agencies/[id]', 'page')
   revalidatePath('/pages/expert/agencies/[id]', 'page')
   return { error: null, data: { id: newLicense?.id } }
+}
+
+function revalidateCertificationPages(agencyId: string) {
+  revalidatePath(`/pages/admin/agencies/${agencyId}`)
+  revalidatePath(`/pages/expert/agencies/${agencyId}`)
+}
+
+/**
+ * Create a new certification and immediately link it to a program with link_type='created_from'.
+ * Admin/expert only. Atomically creates the license row then inserts the junction row.
+ */
+export async function createCertificationAndLink(
+  agencyId: string,
+  applicationId: string,
+  certData: Omit<CreateLicenseForAgencyInput, 'agencyId'>
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
+
+  const { error: createErr, data: newCert } = await createLicenseForAgency({ ...certData, agencyId })
+  if (createErr || !newCert?.id) return { error: createErr ?? 'Failed to create certification' }
+
+  const supabaseAdmin = createAdminClient()
+  const { error: linkErr } = await q.insertCertificationApplication(supabaseAdmin, {
+    certification_id: newCert.id,
+    application_id: applicationId,
+    link_type: 'created_from',
+    linked_by: session.user.id,
+  })
+  if (linkErr) return { error: linkErr.message }
+
+  revalidateCertificationPages(agencyId)
+  return { error: null }
+}
+
+/** Link an existing application to a certification (from the cert view). */
+export async function linkProgramToCertification(
+  certificationId: string,
+  applicationId: string,
+  agencyId: string,
+  linkType: 'created_from' | 'renewal_of'
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const roleErr = assertCanManageCert(session.profile?.role)
+  if (roleErr) return { error: roleErr }
+
+  const supabaseAdmin = createAdminClient()
+  const { error } = await q.insertCertificationApplication(supabaseAdmin, {
+    certification_id: certificationId,
+    application_id: applicationId,
+    link_type: linkType,
+    linked_by: session.user.id,
+  })
+  if (error) return { error: error.message }
+
+  revalidateCertificationPages(agencyId)
+  return { error: null }
+}
+
+/** Remove a program link from a certification. */
+export async function unlinkProgramFromCertification(
+  certificationId: string,
+  applicationId: string,
+  agencyId: string
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const roleErr = assertCanManageCert(session.profile?.role)
+  if (roleErr) return { error: roleErr }
+
+  const supabaseAdmin = createAdminClient()
+  const { error } = await q.deleteCertificationApplication(supabaseAdmin, certificationId, applicationId)
+  if (error) return { error: error.message }
+
+  revalidateCertificationPages(agencyId)
+  return { error: null }
+}
+
+/** Update editable certification fields. Allowed for admin, expert, and agency members. */
+export async function updateCertificationDetails(
+  certificationId: string,
+  agencyId: string,
+  data: Partial<{
+    license_name: string
+    license_number: string | null
+    state: string | null
+    activated_date: string | null
+    expiry_date: string | null
+    renewal_due_date: string | null
+    issuing_body: string | null
+    certification_category: string | null
+    status: string
+  }>
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const roleErr = assertCanManageCert(session.profile?.role)
+  if (roleErr) return { error: roleErr }
+
+  const supabaseAdmin = createAdminClient()
+  const { error } = await q.updateLicenseById(supabaseAdmin, certificationId, {
+    ...data,
+    updated_at: new Date().toISOString(),
+  })
+  if (error) return { error: error.message }
+
+  revalidateCertificationPages(agencyId)
+  revalidatePath('/pages/agency/certifications')
+  return { error: null }
+}
+
+/** Delete a license document record and its storage file. */
+export async function deleteLicenseDocument(
+  documentId: string,
+  agencyId: string
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const roleErr = assertCanManageCert(session.profile?.role)
+  if (roleErr) return { error: roleErr }
+
+  const supabaseAdmin = createAdminClient()
+  const { data: doc, error: fetchErr } = await q.getLicenseDocumentUrlById(supabaseAdmin, documentId)
+  if (fetchErr || !doc) return { error: fetchErr?.message ?? 'Document not found' }
+
+  await supabaseAdmin.storage.from('application-documents').remove([doc.document_url])
+  const { error } = await q.deleteLicenseDocumentById(supabaseAdmin, documentId)
+  if (error) return { error: error.message }
+
+  revalidateCertificationPages(agencyId)
+  revalidatePath('/pages/agency/certifications')
+  return { error: null }
+}
+
+/** Fetch programs available to link to a certification (not yet linked, agency-scoped). */
+export async function getAvailableProgramsForCert(
+  certificationId: string,
+  agencyId: string
+): Promise<{ error: string | null; data: { id: string; application_name: string; status: string; started_date: string | null }[] }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: [] }
+  const roleErr = assertCanManageCert(session.profile?.role)
+  if (roleErr) return { error: roleErr, data: [] }
+
+  const supabaseAdmin = createAdminClient()
+  const { data: linked } = await supabaseAdmin
+    .from('certification_applications')
+    .select('application_id')
+    .eq('certification_id', certificationId)
+
+  const excludeIds = (linked ?? []).map((r: { application_id: string }) => r.application_id)
+  const { data, error } = await q.getAgencyApplicationsForLinking(supabaseAdmin, agencyId, excludeIds)
+  if (error) return { error: error.message, data: [] }
+  return { error: null, data: (data ?? []) as { id: string; application_name: string; status: string; started_date: string | null }[] }
+}
+
+type PriorVersion = {
+  id: string
+  license_name: string
+  license_number: string | null
+  status: string
+  activated_date: string | null
+  expiry_date: string | null
+  previous_version_id: string | null
+}
+
+/** Traverse the previous_version_id chain to return all prior versions of a certification. */
+export async function getCertificationVersionHistory(
+  certificationId: string,
+  agencyId: string
+): Promise<{ error: string | null; data: PriorVersion[] }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: [] }
+  const roleErr = assertCanManageCert(session.profile?.role)
+  if (roleErr) return { error: roleErr, data: [] }
+
+  const supabaseAdmin = createAdminClient()
+
+  const { data: current } = await supabaseAdmin
+    .from('licenses')
+    .select('previous_version_id')
+    .eq('id', certificationId)
+    .single()
+
+  if (!current?.previous_version_id) return { error: null, data: [] }
+
+  const history: PriorVersion[] = []
+  let nextId: string | null = current.previous_version_id
+  let iterations = 0
+
+  while (nextId && iterations < 20) {
+    const { data: version, error } = await supabaseAdmin
+      .from('licenses')
+      .select('id, license_name, license_number, status, activated_date, expiry_date, previous_version_id')
+      .eq('id', nextId)
+      .eq('agency_id', agencyId)
+      .single()
+
+    if (error || !version) break
+    history.push(version as PriorVersion)
+    nextId = version.previous_version_id as string | null
+    iterations++
+  }
+
+  return { error: null, data: history }
+}
+
+/** Update certification dates/status after a renewal cycle. */
+export async function updateCertificationAfterRenewal(
+  certificationId: string,
+  agencyId: string,
+  data: { expiry_date: string; renewal_due_date?: string; license_number?: string; status?: string }
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
+
+  const supabaseAdmin = createAdminClient()
+  const { error } = await q.updateLicenseById(supabaseAdmin, certificationId, {
+    ...data,
+    updated_at: new Date().toISOString(),
+  })
+  if (error) return { error: error.message }
+
+  revalidateCertificationPages(agencyId)
+  return { error: null }
 }

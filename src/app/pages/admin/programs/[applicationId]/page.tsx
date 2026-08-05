@@ -32,6 +32,10 @@ export default async function AdminProgramDetailPage({
     status: string
     agency_id: string | null
     license_type_id: string | null
+    closed_at: string | null
+    close_reason: string | null
+    completed_at: string | null
+    complete_reason: string | null
   }
   const app = application as unknown as AppRow
 
@@ -79,6 +83,10 @@ export default async function AdminProgramDetailPage({
           playbookId={playbookId}
           initialItems={typedItems}
           isAdmin
+          closedAt={app.closed_at}
+          closeReason={app.close_reason}
+          completedAt={app.completed_at}
+          completeReason={app.complete_reason}
         />
       </div>
     </AdminLayout>

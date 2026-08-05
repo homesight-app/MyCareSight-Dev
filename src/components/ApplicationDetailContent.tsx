@@ -246,7 +246,6 @@ export default function ApplicationDetailContent({
 
   const canCloseApplication = currentUserRole === 'expert' && earlyComputedProgress === 100 && application.status !== 'closed'
   const canApproveApplication = currentUserRole === 'admin' && application.status === 'under_review' && earlyComputedProgress === 100
-
   const handleCloseApplication = async () => {
     if (!canCloseApplication || isClosing) return
     if (!confirm('Close this application? It will be marked as closed.')) return
@@ -262,6 +261,7 @@ export default function ApplicationDetailContent({
       setIsClosing(false)
     }
   }
+
 
   const handleApproveApplication = async () => {
     if (!canApproveApplication || isApproving) return

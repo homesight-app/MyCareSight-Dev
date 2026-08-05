@@ -384,18 +384,16 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                     </th>
                   )
                 })}
-                {/* {context.billingVisible && (
-                  <th
-                    scope="col"
-                    onClick={() => handleSort('price')}
-                    className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
-                  >
-                    <span className="flex items-center gap-1">
-                      Price2
-                      {sortKey === 'price' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
-                    </span>
-                  </th>
-                )} */}
+                <th
+                  scope="col"
+                  onClick={() => handleSort('price')}
+                  className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                >
+                  <span className="flex items-center gap-1">
+                    Price
+                    {sortKey === 'price' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
+                  </span>
+                </th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                   State
                 </th>
@@ -498,11 +496,9 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                         </div>
                       )}
                     </td>
-                    {/* {context.billingVisible && (
-                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-                        {formatCurrency(lead.price)}
-                      </td>
-                    )} */}
+                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                      {formatCurrency(lead.price)}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                       {(() => {
                         const states = lead.service_states
@@ -609,10 +605,6 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
                 <div className="flex justify-between">
                   <dt className="text-gray-500">Added</dt>
                   <dd className="text-gray-900 font-medium">{formatDate(lead.created_at)}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Price</dt>
-                  <dd className="text-gray-900 font-medium">{formatCurrency(lead.price)}</dd>
                 </div>
                 {context.billingVisible && (
                   <div className="flex justify-between">

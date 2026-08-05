@@ -115,3 +115,83 @@ export async function getLicenseDocumentsByLicenseId(supabase: Supabase, license
     .eq('license_id', licenseId)
     .order('created_at', { ascending: false })
 }
+
+/** Get all certifications for an agency with linked programs (for the Certifications tab). */
+export async function getAgencyCertificationsWithHistory(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('licenses')
+    .select(`
+      id, agency_id, company_owner_id, license_name, license_number, state, status,
+      activated_date, first_issued_date, expiry_date, renewal_due_date,
+      issuing_body, certification_category, previous_version_id, created_at, updated_at,
+      certification_applications (
+        id, link_type, linked_at,
+        applications ( id, status, application_name, created_at, started_date )
+      ),
+      license_documents ( id, document_name, document_url, document_type, created_at )
+    `)
+    .eq('agency_id', agencyId)
+    .order('created_at', { ascending: false })
+}
+
+/** Fetch a single license_document row to get its storage path before deletion. */
+export async function getLicenseDocumentUrlById(supabase: Supabase, documentId: string) {
+  return supabase
+    .from('license_documents')
+    .select('id, document_url')
+    .eq('id', documentId)
+    .single()
+}
+
+/** Delete a license_document record by id. */
+export async function deleteLicenseDocumentById(supabase: Supabase, documentId: string) {
+  return supabase.from('license_documents').delete().eq('id', documentId)
+}
+
+/** Get agency programs (playbook-based) that can be linked to a certification (not yet linked, agency-scoped). */
+export async function getAgencyApplicationsForLinking(supabase: Supabase, agencyId: string, excludeApplicationIds: string[]) {
+  let query = supabase
+    .from('applications')
+    .select('id, application_name, status, started_date, license_type_id')
+    .eq('agency_id', agencyId)
+    .not('playbook_id', 'is', null)
+    .order('created_at', { ascending: false })
+  if (excludeApplicationIds.length > 0) {
+    query = query.not('id', 'in', `(${excludeApplicationIds.join(',')})`)
+  }
+  return query
+}
+
+/** Get agency certifications that can be linked to a program (not yet linked, agency-scoped). */
+export async function getAgencyCertificationsForLinking(supabase: Supabase, agencyId: string, excludeCertificationIds: string[]) {
+  let query = supabase
+    .from('licenses')
+    .select('id, license_name, license_number, status, expiry_date')
+    .eq('agency_id', agencyId)
+    .order('license_name')
+  if (excludeCertificationIds.length > 0) {
+    query = query.not('id', 'in', `(${excludeCertificationIds.join(',')})`)
+  }
+  return query
+}
+
+/** Insert a certification_applications link row. */
+export async function insertCertificationApplication(
+  supabase: Supabase,
+  data: { certification_id: string; application_id: string; link_type: 'created_from' | 'renewal_of'; linked_by: string }
+) {
+  return supabase.from('certification_applications').insert(data).select().single()
+}
+
+/** Delete a certification_applications link row. */
+export async function deleteCertificationApplication(
+  supabase: Supabase,
+  certificationId: string,
+  applicationId: string
+) {
+  return supabase
+    .from('certification_applications')
+    .delete()
+    .eq('certification_id', certificationId)
+    .eq('application_id', applicationId)
+}

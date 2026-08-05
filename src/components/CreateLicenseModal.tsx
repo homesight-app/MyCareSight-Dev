@@ -38,7 +38,7 @@ interface CreateLicenseModalProps {
     id: string
     license_name: string
     license_number?: string | null
-    state: string
+    state?: string | null
     activated_date?: string | null
     expiry_date?: string | null
     renewal_due_date?: string | null

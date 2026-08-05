@@ -36,6 +36,10 @@ export default async function ExpertProgramDetailPage({
     agency_id: string | null
     license_type_id: string | null
     progress_percentage: number | null
+    closed_at: string | null
+    close_reason: string | null
+    completed_at: string | null
+    complete_reason: string | null
   }
   const app = application as unknown as AppRow
 
@@ -79,6 +83,10 @@ export default async function ExpertProgramDetailPage({
           agencyName={agencyData?.name ?? null}
           playbookId={playbookId}
           initialItems={typedItems}
+          closedAt={app.closed_at}
+          closeReason={app.close_reason}
+          completedAt={app.completed_at}
+          completeReason={app.complete_reason}
         />
       </div>
     </ExpertDashboardLayout>

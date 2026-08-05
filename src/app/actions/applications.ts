@@ -5,7 +5,15 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
-import { getApplicationForClose, closeApplicationUpdate, updateApplicationStatus } from '@/lib/supabase/query'
+import {
+  getApplicationForClose,
+  closeApplicationUpdate,
+  updateApplicationStatus,
+  closeApplicationManualUpdate,
+  completeApplicationManualUpdate,
+  reopenApplicationUpdate,
+  getApplicationAgencyAndStatus,
+} from '@/lib/supabase/query'
 import { applyPlaybookToApplication } from './playbooks'
 
 /**
@@ -284,6 +292,136 @@ export async function createProgramForAgency(
   revalidatePath('/pages/expert/agencies/[id]', 'page')
   revalidatePath('/pages/admin/programs', 'page')
   return { error: null, data: { id: application.id } }
+}
+
+function revalidateApplicationPages(applicationId: string) {
+  revalidatePath('/pages/admin/licenses/applications/[id]', 'page')
+  revalidatePath('/pages/admin/programs', 'page')
+  revalidatePath(`/pages/admin/programs/${applicationId}`)
+  revalidatePath(`/pages/expert/programs/${applicationId}`)
+  revalidatePath(`/pages/agency/programs/${applicationId}`)
+}
+
+async function insertApplicationStatusNote(
+  applicationId: string,
+  agencyId: string,
+  userId: string,
+  content: string
+) {
+  const supabaseAdmin = createAdminClient()
+  const { error } = await supabaseAdmin.from('internal_notes').insert({
+    agency_id: agencyId,
+    subject_type: 'application',
+    subject_id: applicationId,
+    content,
+    created_by: userId,
+  })
+  if (error) console.error('[applications] Failed to insert status note:', error.message)
+}
+
+/** Manually close an application regardless of task completion. Admin/expert only. */
+export async function closeApplicationManually(
+  applicationId: string,
+  reason: string
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
+
+  const trimmedReason = reason.trim()
+  if (!trimmedReason) return { error: 'Reason is required' }
+
+  const supabase = await createClient()
+  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
+  if (fetchErr || !app) return { error: 'Application not found' }
+  if (!app.agency_id) return { error: 'Application has no agency' }
+  if (app.status === 'approved' || app.status === 'rejected') {
+    return { error: 'Cannot close an approved or rejected application' }
+  }
+
+  const { error } = await closeApplicationManualUpdate(supabase, applicationId, app.agency_id, session.user.id, trimmedReason)
+  if (error) return { error: error.message }
+
+  await insertApplicationStatusNote(
+    applicationId,
+    app.agency_id,
+    session.user.id,
+    `Application manually closed. Reason: ${trimmedReason}`
+  )
+
+  revalidateApplicationPages(applicationId)
+  return { error: null }
+}
+
+/** Manually mark an application complete regardless of task completion. Admin/expert only. */
+export async function completeApplicationManually(
+  applicationId: string,
+  reason: string
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
+
+  const trimmedReason = reason.trim()
+  if (!trimmedReason) return { error: 'Notes are required' }
+
+  const supabase = await createClient()
+  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
+  if (fetchErr || !app) return { error: 'Application not found' }
+  if (!app.agency_id) return { error: 'Application has no agency' }
+  if (app.status === 'approved' || app.status === 'rejected') {
+    return { error: 'Cannot mark an approved or rejected application complete' }
+  }
+
+  const { error } = await completeApplicationManualUpdate(supabase, applicationId, app.agency_id, session.user.id, trimmedReason)
+  if (error) return { error: error.message }
+
+  await insertApplicationStatusNote(
+    applicationId,
+    app.agency_id,
+    session.user.id,
+    `Application marked complete. Notes: ${trimmedReason}`
+  )
+
+  revalidateApplicationPages(applicationId)
+  return { error: null }
+}
+
+/** Re-open a closed or complete application back to in_progress. Admin/expert only. */
+export async function reopenApplication(
+  applicationId: string,
+  reason: string
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
+
+  const trimmedReason = reason.trim()
+  if (!trimmedReason) return { error: 'Reason is required' }
+
+  const supabase = await createClient()
+  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
+  if (fetchErr || !app) return { error: 'Application not found' }
+  if (!app.agency_id) return { error: 'Application has no agency' }
+  if (app.status !== 'closed' && app.status !== 'complete') {
+    return { error: 'Application is not closed or complete' }
+  }
+
+  const { error } = await reopenApplicationUpdate(supabase, applicationId, app.agency_id)
+  if (error) return { error: error.message }
+
+  await insertApplicationStatusNote(
+    applicationId,
+    app.agency_id,
+    session.user.id,
+    `Application re-opened. Reason: ${trimmedReason}`
+  )
+
+  revalidateApplicationPages(applicationId)
+  return { error: null }
 }
 
 /** Rename a program (application_name). Admin and expert only. */

@@ -58,22 +58,73 @@ export async function getPatientsByOwnerIds(supabase: Supabase, ownerIds: string
     .limit(1000)
 }
 
-/** Get patients by agency_id, ordered by created_at desc. */
-export async function getPatientsByAgencyId(supabase: Supabase, agencyId: string) {
-  return supabase
+export type GetPatientsByAgencyIdOpts = {
+  page?: number
+  pageSize?: number
+  search?: string
+  status?: string
+}
+
+/** Get patients by agency_id with optional server-side pagination, search, and status filter.
+ *  Uses a separate head-only count query because Supabase returns null for count on join selects. */
+export async function getPatientsByAgencyId(
+  supabase: Supabase,
+  agencyId: string,
+  opts?: GetPatientsByAgencyIdOpts
+) {
+  const page     = opts?.page     ?? 0
+  const pageSize = opts?.pageSize ?? 50
+  const from = page * pageSize
+  const to   = from + pageSize - 1
+
+  const orFilter = opts?.search?.trim()
+    ? `first_name.ilike.%${opts.search.trim()}%,last_name.ilike.%${opts.search.trim()}%,email_address.ilike.%${opts.search.trim()}%,phone_number.ilike.%${opts.search.trim()}%`
+    : null
+
+  let dataQuery = supabase
     .from('patients')
-    .select(`
-    *,
-    patients_representatives (
-      id,
-      name,
-      relationship,
-      phone_number,
-      email_address
-    )
-  `)
+    .select(`*, patients_representatives ( id, name, relationship, phone_number, email_address )`)
     .eq('agency_id', agencyId)
+    .order('status',     { ascending: false })
     .order('created_at', { ascending: false })
+    .range(from, to)
+
+  let countQuery = supabase
+    .from('patients')
+    .select('id', { count: 'exact', head: true })
+    .eq('agency_id', agencyId)
+
+  if (orFilter) {
+    dataQuery  = dataQuery.or(orFilter)
+    countQuery = countQuery.or(orFilter)
+  }
+  if (opts?.status && opts.status !== 'all') {
+    dataQuery  = dataQuery.eq('status', opts.status)
+    countQuery = countQuery.eq('status', opts.status)
+  }
+
+  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
+  return {
+    data:  dataResult.data,
+    count: countResult.count,
+    error: dataResult.error ?? countResult.error,
+  }
+}
+
+/** Get total + active patient counts for an agency (head-only, no rows fetched). */
+export async function getPatientCountsByAgencyId(supabase: Supabase, agencyId: string) {
+  const [totalRes, activeRes] = await Promise.all([
+    supabase
+      .from('patients')
+      .select('id', { count: 'exact', head: true })
+      .eq('agency_id', agencyId),
+    supabase
+      .from('patients')
+      .select('id', { count: 'exact', head: true })
+      .eq('agency_id', agencyId)
+      .eq('status', 'active'),
+  ])
+  return { total: totalRes.count ?? 0, active: activeRes.count ?? 0 }
 }
 
 /** Update patient status by id. */

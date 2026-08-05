@@ -4,48 +4,48 @@ import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import DashboardLayout from '@/components/DashboardLayout'
 import StaffManagementClient from '@/components/StaffManagementClient'
+
 export default async function StaffPage() {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
 
   const supabase = await createClient()
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  const [{ count: unreadNotifications }, { data: up }] = await Promise.all([
+
+  // Roundtrip 2: profile, notifications, and staff roles all in parallel
+  const [{ data: profile }, { count: unreadNotifications }, { data: staffRolesData }] = await Promise.all([
+    q.getUserProfileFull(supabase, session.user.id),
     q.getUnreadNotificationsCount(supabase, session.user.id),
-    q.getAgencyIdFromProfile(supabase, session.user.id),
+    q.getStaffRoles(supabase),
   ])
-  const agencyId = up?.agency_id ?? null
-  const role = session.profile?.role ?? ''
+
+  const agencyId = (profile as { agency_id?: string | null } | null)?.agency_id ?? null
+  const role = profile?.role ?? ''
   const canManageNotes =
     role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
+  const staffRoleNames = (staffRolesData ?? []).map((r: { name?: string }) => r.name).filter(Boolean) as string[]
 
+  // Roundtrip 3: staff members (needs agencyId)
   const { data: staffMembersData } = agencyId
     ? await q.getStaffMembersByAgencyId(supabase, agencyId)
     : { data: [] }
   const staffMembers = staffMembersData ?? []
-
-  const { data: staffRolesData } = await q.getStaffRoles(supabase)
-  const staffRoleNames = (staffRolesData ?? []).map((role: { name?: string }) => role.name).filter(Boolean) as string[]
-
   const staffMemberIds = staffMembers.map((s) => s.id)
   const todayYmd = new Date().toISOString().slice(0, 10)
 
-  const { data: currentEffectivePayRates } =
+  // Roundtrip 4: pay rates and licenses in parallel (both need staffMemberIds)
+  const [{ data: currentEffectivePayRates }, { data: allStaffLicensesData }] = await Promise.all([
     staffMemberIds.length > 0
-      ? await supabase
+      ? supabase
           .from('caregiver_pay_rates')
           .select('caregiver_member_id, pay_rate, service_type, effective_start')
           .in('caregiver_member_id', staffMemberIds)
           .lte('effective_start', todayYmd)
           .or(`effective_end.is.null,effective_end.gt.${todayYmd}`)
-      : {
-          data: [] as {
-            caregiver_member_id: string
-            pay_rate: number
-            service_type: string | null
-            effective_start: string
-          }[],
-        }
+      : Promise.resolve({ data: [] as { caregiver_member_id: string; pay_rate: number; service_type: string | null; effective_start: string }[], error: null }),
+    staffMemberIds.length > 0
+      ? q.getStaffLicensesByStaffMemberIds(supabase, staffMemberIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
 
   const currentPayRateByCaregiverId = new Map<string, number>()
   const byCaregiver = new Map<string, typeof currentEffectivePayRates>()
@@ -64,14 +64,8 @@ export default async function StaffPage() {
     const defaultBand = sorted.find((r) => (r as { service_type?: string | null }).service_type == null)
     const chosen = defaultBand ?? sorted[0]
     const n = Number((chosen as { pay_rate?: number | null }).pay_rate ?? NaN)
-    if (Number.isFinite(n)) {
-      currentPayRateByCaregiverId.set(caregiverId, n)
-    }
+    if (Number.isFinite(n)) currentPayRateByCaregiverId.set(caregiverId, n)
   })
-
-  const { data: allStaffLicensesData } = staffMemberIds.length > 0
-    ? await q.getStaffLicensesByStaffMemberIds(supabase, staffMemberIds)
-    : { data: [] }
 
   const allStaffLicenses =
     allStaffLicensesData?.map((license) => ({
@@ -83,7 +77,8 @@ export default async function StaffPage() {
       status: license.status,
       expiry_date: license.expiry_date,
       days_until_expiry: license.days_until_expiry,
-    })) || []
+    })) ?? []
+
   const licensesByStaff = allStaffLicenses.reduce(
     (acc: Record<string, typeof allStaffLicenses>, license) => {
       const sid = license.caregiver_member_id
@@ -94,38 +89,25 @@ export default async function StaffPage() {
     {}
   )
 
+  const totalStaff = staffMembers.length
+  const activeStaff = staffMembers.filter((s) => s.status === 'active').length
+  const expiringLicenses = allStaffLicenses.filter(
+    (sl) => sl.days_until_expiry != null && sl.days_until_expiry <= 30 && sl.days_until_expiry > 0
+  ).length
 
-  // Calculate statistics
-  const totalStaff = staffMembers?.length || 0
-  const activeStaff = staffMembers?.filter(s => s.status === 'active').length || 0
-  
-  const today = new Date()
-  const expiringLicenses = allStaffLicenses?.filter(sl => {
-    if (sl.days_until_expiry) {
-      return sl.days_until_expiry <= 30 && sl.days_until_expiry > 0
-    }
-    return false
-  }).length || 0
-
-  // Get staff with expiring licenses count
-  const staffWithExpiringLicenses =
-    staffMembers?.map((staff) => {
-      const licenses = licensesByStaff[staff.id] || []
-      const expiringCount = licenses.filter((l) => {
-        if (l.days_until_expiry) {
-          return l.days_until_expiry <= 30 && l.days_until_expiry > 0
-        }
-        return false
-      }).length
-      const pr = currentPayRateByCaregiverId.get(staff.id)
-      const currentPayRate = pr !== undefined ? pr : null
-      return { ...staff, expiringLicensesCount: expiringCount, currentPayRate }
-    }) || []
+  const staffWithExpiringLicenses = staffMembers.map((staff) => {
+    const licenses = licensesByStaff[staff.id] ?? []
+    const expiringCount = licenses.filter(
+      (l) => l.days_until_expiry != null && l.days_until_expiry <= 30 && l.days_until_expiry > 0
+    ).length
+    const pr = currentPayRateByCaregiverId.get(staff.id)
+    return { ...staff, expiringLicensesCount: expiringCount, currentPayRate: pr ?? null }
+  })
 
   return (
-    <DashboardLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications || 0}>
+    <DashboardLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications ?? 0}>
       <StaffManagementClient
-        staffMembers={staffMembers || []}
+        staffMembers={staffMembers}
         licensesByStaff={licensesByStaff}
         totalStaff={totalStaff}
         activeStaff={activeStaff}
@@ -138,5 +120,3 @@ export default async function StaffPage() {
     </DashboardLayout>
   )
 }
-
-

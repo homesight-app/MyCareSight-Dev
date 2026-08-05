@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useMemo, useEffect, useTransition } from 'react'
+import { useState, useEffect, useTransition, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Users, CheckCircle2, FileText, Plus, Search, Eye, Loader2 } from 'lucide-react'
+import { Users, CheckCircle2, FileText, Plus, Search, Eye, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import AddNewClientModal from './AddNewClientModal'
 import { createClient } from '@/lib/supabase/client'
@@ -13,22 +13,37 @@ import { patientFullName } from '@/lib/patient-name'
 
 interface ClientsContentProps {
   clients: ClientsListPatient[]
+  totalCount: number
+  activeCount: number
+  totalAllCount: number
+  page: number
+  pageSize: number
+  search: string
+  statusFilter: string
 }
 
-export default function ClientsContent({ clients: initialClients }: ClientsContentProps) {
+export default function ClientsContent({
+  clients: initialClients,
+  totalCount,
+  activeCount,
+  totalAllCount,
+  page,
+  pageSize,
+  search: initialSearch,
+  statusFilter: initialStatusFilter,
+}: ClientsContentProps) {
   const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'All Status' | 'active' | 'inactive'>('All Status')
+  const [searchQuery, setSearchQuery] = useState(initialSearch)
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter)
   const [clients, setClients] = useState<ClientsListPatient[]>(initialClients)
   const [navigatingClientId, setNavigatingClientId] = useState<string | null>(null)
   const [, startNavigationTransition] = useTransition()
   const [portalMounted, setPortalMounted] = useState(false)
 
-  useEffect(() => {
-    setPortalMounted(true)
-  }, [])
+  useEffect(() => { setPortalMounted(true) }, [])
 
+  // Merge optimistic additions with server data (preserves newly added rows until server confirms)
   useEffect(() => {
     setClients((prev) => {
       const serverIds = new Set(initialClients.map((c) => c.id))
@@ -36,6 +51,40 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
       return [...pendingOnlyOnClient, ...initialClients]
     })
   }, [initialClients])
+
+  // Sync filter state when URL params change (e.g. browser back/forward)
+  useEffect(() => { setSearchQuery(initialSearch) }, [initialSearch])
+  useEffect(() => { setStatusFilter(initialStatusFilter) }, [initialStatusFilter])
+
+  const pushParams = useCallback(
+    (overrides: { page?: number; q?: string; status?: string }) => {
+      const p = new URLSearchParams()
+      const newPage   = overrides.page   ?? 0
+      const newSearch = overrides.q      ?? searchQuery
+      const newStatus = overrides.status ?? statusFilter
+      if (newPage   > 0)      p.set('page',   String(newPage))
+      if (newSearch.trim())   p.set('q',      newSearch.trim())
+      if (newStatus !== 'all') p.set('status', newStatus)
+      const qs = p.toString()
+      router.push(`?${qs}`, { scroll: false })
+    },
+    [router, searchQuery, statusFilter]
+  )
+
+  // Debounced search — fires 400 ms after the user stops typing
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (searchQuery !== initialSearch) {
+        pushParams({ q: searchQuery, page: 0 })
+      }
+    }, 400)
+    return () => clearTimeout(id)
+  }, [searchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleStatusChange = (value: string) => {
+    setStatusFilter(value)
+    pushParams({ status: value, page: 0 })
+  }
 
   const handleOpenClientDetails = (clientId: string) => {
     if (navigatingClientId) return
@@ -49,88 +98,39 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
     })
   }
 
-  // Calculate statistics
-  const totalClients = clients.length
-  const activeClients = clients.filter(c => c.status === 'active').length
-  const carePlansCreated = 0 // This would come from a care_plans table if it exists
-
-  // Filter clients
-  const filteredClients = useMemo(() => {
-    return clients.filter(client => {
-      // Search filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase()
-        const matchesSearch = 
-          patientFullName(client).toLowerCase().includes(query) ||
-          client.email_address.toLowerCase().includes(query) ||
-          client.phone_number.includes(query) ||
-          (client.emergency_contact_name ?? '').toLowerCase().includes(query) ||
-          (client.emergency_phone ?? '').includes(query)
-        if (!matchesSearch) return false
-      }
-
-      // Status filter
-      if (statusFilter !== 'All Status' && client.status !== statusFilter) {
-        return false
-      }
-
-      return true
-    })
-  }, [clients, searchQuery, statusFilter])
-
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2)
-  }
-
   const toggleStatus = async (clientId: string, currentStatus: 'active' | 'inactive') => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active'
-    
-    // Optimistic update
-    setClients(prevClients =>
-      prevClients.map(client =>
-        client.id === clientId ? { ...client, status: newStatus } : client
-      )
-    )
-
+    setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: newStatus } : c)))
     try {
       const supabase = createClient()
       const { error } = await q.updatePatientStatus(supabase, clientId, newStatus)
-
       if (error) {
-        // Revert on error
-        setClients(prevClients =>
-          prevClients.map(client =>
-            client.id === clientId ? { ...client, status: currentStatus } : client
-          )
-        )
+        setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: currentStatus } : c)))
         console.error('Error updating status:', error)
       }
     } catch (error) {
-      // Revert on error
-      setClients(prevClients =>
-        prevClients.map(client =>
-          client.id === clientId ? { ...client, status: currentStatus } : client
-        )
-      )
+      setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: currentStatus } : c)))
       console.error('Error updating status:', error)
     }
   }
 
+  const getInitials = (name: string) =>
+    name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+
+  // Pagination math
+  const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
+  const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
+  const displayTo   = Math.min((page + 1) * pageSize, totalCount)
+
   return (
     <div className="space-y-6">
-      {portalMounted &&
-        navigatingClientId &&
-        createPortal(
-          <div aria-busy="true" aria-live="polite">
-            <LoadingSpinner overlayZClass="z-[200]" />
-          </div>,
-          document.body
-        )}
+      {portalMounted && navigatingClientId && createPortal(
+        <div aria-busy="true" aria-live="polite">
+          <LoadingSpinner overlayZClass="z-[200]" />
+        </div>,
+        document.body
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -149,7 +149,7 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
         </button>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards — always show counts for all clients, not just the current page */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center gap-3">
@@ -157,31 +157,29 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
               <Users className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-900">{totalClients}</div>
+              <div className="text-2xl font-bold text-gray-900">{totalAllCount}</div>
               <div className="text-sm text-gray-600">Total Clients</div>
             </div>
           </div>
         </div>
-
         <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
               <CheckCircle2 className="w-6 h-6 text-green-600" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-900">{activeClients}</div>
+              <div className="text-2xl font-bold text-gray-900">{activeCount}</div>
               <div className="text-sm text-gray-600">Active Clients</div>
             </div>
           </div>
         </div>
-
         <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
               <FileText className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-900">{carePlansCreated}</div>
+              <div className="text-2xl font-bold text-gray-900">0</div>
               <div className="text-sm text-gray-600">Care Plans Created</div>
             </div>
           </div>
@@ -203,10 +201,10 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            onChange={(e) => handleStatusChange(e.target.value)}
             className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
-            <option>All Status</option>
+            <option value="all">All Status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
@@ -231,8 +229,8 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredClients.length > 0 ? (
-                filteredClients.map((client) => (
+              {clients.length > 0 ? (
+                clients.map((client) => (
                   <tr
                     key={client.id}
                     className={`hover:bg-gray-50 cursor-pointer ${navigatingClientId ? 'opacity-70 pointer-events-none' : ''}`}
@@ -249,14 +247,10 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {client.gender || 'N/A'}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{client.gender || 'N/A'}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {client.class ? (
-                        <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">
-                          {client.class}
-                        </span>
+                        <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">{client.class}</span>
                       ) : (
                         <span className="text-sm text-gray-500">N/A</span>
                       )}
@@ -279,7 +273,8 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
                         <div>
                           <div>{client.patients_representatives[0].name}</div>
                           <div className="text-xs text-gray-500">
-                            {client.patients_representatives[0].relationship} {client.patients_representatives[0].phone_number && `(${client.patients_representatives[0].phone_number})`}
+                            {client.patients_representatives[0].relationship}{' '}
+                            {client.patients_representatives[0].phone_number && `(${client.patients_representatives[0].phone_number})`}
                           </div>
                         </div>
                       ) : (
@@ -291,19 +286,21 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
                         <div>
                           <div>{client.patients_representatives[1].name}</div>
                           <div className="text-xs text-gray-500">
-                            {client.patients_representatives[1].relationship} {client.patients_representatives[1].phone_number && `(${client.patients_representatives[1].phone_number})`}
+                            {client.patients_representatives[1].relationship}{' '}
+                            {client.patients_representatives[1].phone_number && `(${client.patients_representatives[1].phone_number})`}
                           </div>
                         </div>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
                           checked={client.status === 'active'}
                           onChange={() => toggleStatus(client.id, client.status)}
+                          onClick={(e) => e.stopPropagation()}
                           className="sr-only peer"
                         />
                         <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
@@ -320,15 +317,9 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
                         className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium disabled:opacity-70 disabled:cursor-not-allowed"
                       >
                         {navigatingClientId === client.id ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Loading...
-                          </>
+                          <><Loader2 className="w-4 h-4 animate-spin" />Loading...</>
                         ) : (
-                          <>
-                            <Eye className="w-4 h-4" />
-                            View Details
-                          </>
+                          <><Eye className="w-4 h-4" />View Details</>
                         )}
                       </button>
                     </td>
@@ -345,6 +336,37 @@ export default function ClientsContent({ clients: initialClients }: ClientsConte
             </tbody>
           </table>
         </div>
+
+        {/* Pagination footer */}
+        {totalCount > 0 && (
+          <div className="px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
+            <p className="text-sm text-gray-600">
+              Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
+              <span className="font-medium">{totalCount}</span> clients
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => pushParams({ page: page - 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" /> Prev
+              </button>
+              <span className="text-sm text-gray-600">
+                Page {page + 1} of {totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => pushParams({ page: page + 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add New Client Modal */}

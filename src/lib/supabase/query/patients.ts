@@ -35,6 +35,7 @@ export async function getPatientsByOwnerId(supabase: Supabase, ownerId: string) 
   `)
     .eq('owner_id', ownerId)
     .order('created_at', { ascending: false })
+    .limit(1000)
 }
 
 /** Get patients by owner_id list (agency-wide), ordered by created_at desc. */
@@ -54,6 +55,7 @@ export async function getPatientsByOwnerIds(supabase: Supabase, ownerIds: string
   `)
     .in('owner_id', ownerIds)
     .order('created_at', { ascending: false })
+    .limit(1000)
 }
 
 /** Get patients by agency_id, ordered by created_at desc. */

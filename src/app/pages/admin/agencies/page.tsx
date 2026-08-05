@@ -12,10 +12,16 @@ export default async function AgenciesPage() {
   const supabase = await createClient()
   const supabaseAdmin = createAdminClient()
 
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
-  const { data: agencies } = await getCachedAgenciesOrdered()
   // agency_admins RLS does not expose rows to platform admins — use service role (same as cached agencies).
-  const { data: agencyAdminsWithUser } = await q.getClientsWithCompanyOwner(supabaseAdmin)
+  const [
+    { count: unreadNotifications },
+    { data: agencies },
+    { data: agencyAdminsWithUser },
+  ] = await Promise.all([
+    q.getUnreadNotificationsCount(supabase, user.id),
+    getCachedAgenciesOrdered(),
+    q.getClientsWithCompanyOwner(supabaseAdmin),
+  ])
 
   const referencedAdminIds: string[] = []
   for (const a of agencies || []) {

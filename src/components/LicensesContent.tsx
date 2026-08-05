@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { 
   FileText, 
@@ -301,77 +301,49 @@ export default function LicensesContent({
     }
   }
 
-  // Calculate statistics
-  const today = new Date()
-  
-  // First calculate expiring licenses (these take priority)
-  const expiringLicenses = licenses?.filter(l => {
-    if (l.expiry_date && l.status === 'active') {
-      const expiryDate = new Date(l.expiry_date)
-      const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-      return daysUntilExpiry <= 60 && daysUntilExpiry > 0
-    }
-    return false
-  }).length || 0
-
-  // Then calculate active licenses (excluding those that are expiring soon)
-  const activeLicenses = licenses?.filter(l => {
-    if (l.status === 'active') {
-      if (l.expiry_date) {
-        const expiryDate = new Date(l.expiry_date)
-        const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-        // Only include if not expiring within 60 days and not expired
-        return daysUntilExpiry > 60 && expiryDate >= today
+  // Categorize licenses — only recomputes when the licenses array changes
+  const {
+    expiringLicenses,
+    activeLicenses,
+    expiredLicenses,
+    expiringLicensesList,
+    activeLicensesList,
+    expiredLicensesList,
+    totalDisplayedLicenses,
+  } = useMemo(() => {
+    const today = new Date()
+    const expiring = (licenses ?? []).filter(l => {
+      if (l.expiry_date && l.status === 'active') {
+        const daysUntilExpiry = Math.ceil((new Date(l.expiry_date).getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+        return daysUntilExpiry <= 60 && daysUntilExpiry > 0
       }
-      return true // No expiry date, so it's active
-    }
-    return false
-  }).length || 0
-
-  const expiredLicenses = licenses?.filter(l => {
-    if (l.expiry_date) {
-      const expiryDate = new Date(l.expiry_date)
-      return expiryDate < today
-    }
-    return l.status === 'expired'
-  }).length || 0
-
-  // Categorize licenses (mutually exclusive categories)
-  // First, get expiring licenses (these take priority)
-  const expiringLicensesList = licenses?.filter(l => {
-    if (l.expiry_date && l.status === 'active') {
-      const expiryDate = new Date(l.expiry_date)
-      const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-      return daysUntilExpiry <= 60 && daysUntilExpiry > 0
-    }
-    return false
-  }) || []
-
-  // Then, get active licenses (excluding those that are expiring soon)
-  const activeLicensesList = licenses?.filter(l => {
-    if (l.status === 'active') {
-      // Exclude licenses that are in the expiring list
-      if (l.expiry_date) {
-        const expiryDate = new Date(l.expiry_date)
-        const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-        // Only include if not expiring within 60 days and not expired
-        return daysUntilExpiry > 60 && expiryDate >= today
+      return false
+    })
+    const active = (licenses ?? []).filter(l => {
+      if (l.status === 'active') {
+        if (l.expiry_date) {
+          const expiryDate = new Date(l.expiry_date)
+          const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          return daysUntilExpiry > 60 && expiryDate >= today
+        }
+        return true
       }
-      return true // No expiry date, so it's active
+      return false
+    })
+    const expired = (licenses ?? []).filter(l => {
+      if (l.expiry_date) return new Date(l.expiry_date) < today
+      return l.status === 'expired'
+    })
+    return {
+      expiringLicenses:     expiring.length,
+      activeLicenses:       active.length,
+      expiredLicenses:      expired.length,
+      expiringLicensesList: expiring,
+      activeLicensesList:   active,
+      expiredLicensesList:  expired,
+      totalDisplayedLicenses: active.length + expiring.length + expired.length,
     }
-    return false
-  }) || []
-
-  const expiredLicensesList = licenses?.filter(l => {
-    if (l.expiry_date) {
-      const expiryDate = new Date(l.expiry_date)
-      return expiryDate < today
-    }
-    return l.status === 'expired'
-  }) || []
-
-  // Calculate total displayed licenses (sum of all categories shown in cards)
-  const totalDisplayedLicenses = activeLicensesList.length + expiringLicensesList.length + expiredLicensesList.length
+  }, [licenses])
 
   // Format date helper
   const formatDate = (date: string | Date | null) => {
@@ -385,56 +357,52 @@ export default function LicensesContent({
     return state.length > 2 ? state.substring(0, 2).toUpperCase() : state.toUpperCase()
   }
 
-  // Application statistics
-  const requestedCount = applications?.filter(a => a.status === 'requested').length || 0
-  const inProgressCount = applications?.filter(a => a.status === 'in_progress').length || 0
-  const underReviewCount = applications?.filter(a => a.status === 'under_review').length || 0
-  const needsRevisionCount = applications?.filter(a => a.status === 'needs_revision').length || 0
+  // Categorize applications — only recomputes when the applications array changes
+  const {
+    requestedCount,
+    inProgressCount,
+    underReviewCount,
+    needsRevisionCount,
+    requestedApps,
+    cancelledApps,
+    inProgressApps,
+    underReviewApps,
+    needsRevisionApps,
+    approvedApps,
+    rejectedApps,
+  } = useMemo(() => ({
+    requestedCount:     (applications ?? []).filter(a => a.status === 'requested').length,
+    inProgressCount:    (applications ?? []).filter(a => a.status === 'in_progress').length,
+    underReviewCount:   (applications ?? []).filter(a => a.status === 'under_review').length,
+    needsRevisionCount: (applications ?? []).filter(a => a.status === 'needs_revision').length,
+    requestedApps:      (applications ?? []).filter(a => a.status === 'requested'),
+    cancelledApps:      (applications ?? []).filter(a => a.status === 'cancelled'),
+    inProgressApps:     (applications ?? []).filter(a => a.status === 'in_progress'),
+    underReviewApps:    (applications ?? []).filter(a => a.status === 'under_review'),
+    needsRevisionApps:  (applications ?? []).filter(a => a.status === 'needs_revision'),
+    approvedApps:       (applications ?? []).filter(a => a.status === 'approved'),
+    rejectedApps:       (applications ?? []).filter(a => a.status === 'rejected'),
+  }), [applications])
 
-  // Categorize applications
-  const requestedApps = applications?.filter(a => a.status === 'requested') || []
-  const cancelledApps = applications?.filter(a => a.status === 'cancelled') || []
-  const inProgressApps = applications?.filter(a => a.status === 'in_progress') || []
-  const underReviewApps = applications?.filter(a => a.status === 'under_review') || []
-  const needsRevisionApps = applications?.filter(a => a.status === 'needs_revision') || []
-  const approvedApps = applications?.filter(a => a.status === 'approved') || []
-  const rejectedApps = applications?.filter(a => a.status === 'rejected') || []
+  const filteredApplications = useMemo(() => {
+    if (applicationFilter === 'active')   return [...inProgressApps, ...underReviewApps, ...needsRevisionApps]
+    if (applicationFilter === 'approved') return approvedApps
+    if (applicationFilter === 'denied')   return rejectedApps
+    return applications ?? []
+  }, [applicationFilter, inProgressApps, underReviewApps, needsRevisionApps, approvedApps, rejectedApps, applications])
 
-  // Filter applications based on selected filter
-  const getFilteredApplications = () => {
-    if (applicationFilter === 'active') {
-      return [...inProgressApps, ...underReviewApps, ...needsRevisionApps]
-    } else if (applicationFilter === 'approved') {
-      return approvedApps
-    } else if (applicationFilter === 'denied') {
-      return rejectedApps
-    } else {
-      return applications || []
-    }
-  }
+  const filteredRequests = useMemo(() => {
+    const withoutCancelled = requestedApps.filter(a => !cancelledIds.has(a.id))
+    if (requestFilter === 'pending')    return withoutCancelled
+    if (requestFilter === 'cancelled')  return cancelledApps
+    return [...withoutCancelled, ...cancelledApps]
+  }, [requestFilter, requestedApps, cancelledApps, cancelledIds])
 
-  // Filter requests based on selected filter (exclude optimistically cancelled ids from pending list so row disappears immediately)
-  const getFilteredRequests = () => {
-    const requestedWithoutCancelled = requestedApps.filter(a => !cancelledIds.has(a.id))
-    if (requestFilter === 'pending') {
-      return requestedWithoutCancelled
-    } else if (requestFilter === 'cancelled') {
-      return cancelledApps
-    } else {
-      return [...requestedWithoutCancelled, ...cancelledApps]
-    }
-  }
-
-  // Filter licenses based on selected filter
-  const getFilteredLicenses = () => {
-    if (licenseFilter === 'active') {
-      return [...activeLicensesList, ...expiringLicensesList]
-    } else if (licenseFilter === 'expired') {
-      return expiredLicensesList
-    } else {
-      return licenses || []
-    }
-  }
+  const filteredLicenses = useMemo(() => {
+    if (licenseFilter === 'active')   return [...activeLicensesList, ...expiringLicensesList]
+    if (licenseFilter === 'expired')  return expiredLicensesList
+    return licenses ?? []
+  }, [licenseFilter, activeLicensesList, expiringLicensesList, expiredLicensesList, licenses])
 
   // Get status badge styling
   const getStatusBadge = (status: string) => {
@@ -643,10 +611,10 @@ export default function LicensesContent({
                 <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
               </div>
             </div>
-            {getFilteredRequests().length > 0 && (
+            {filteredRequests.length > 0 && (
               <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
                 <div className="space-y-4">
-                  {getFilteredRequests().map((application) => (
+                  {filteredRequests.map((application) => (
                     <div key={application.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                       <div className="flex items-center gap-4 flex-1">
                         <div className="w-14 h-14 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">
@@ -725,7 +693,7 @@ export default function LicensesContent({
                 <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
               </div>
             </div>
-            {getFilteredApplications().length > 0 ? (
+            {filteredApplications.length > 0 ? (
               <div className="min-w-0 w-full bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto -mx-0">
                   <table className="w-full min-w-[800px]">
@@ -744,7 +712,7 @@ export default function LicensesContent({
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {/* Filtered Applications */}
-                      {getFilteredApplications().map((application) => (
+                      {filteredApplications.map((application) => (
                           <tr key={application.id} className={`hover:bg-gray-50 transition-colors cursor-pointer ${loadingApplicationId === application.id ? 'bg-blue-50/50' : ''}`}
                         onClick={() => handleViewApplicationDetails(application.id)}>
                           <td className="px-6 py-4 whitespace-nowrap relative">
@@ -908,7 +876,7 @@ export default function LicensesContent({
               </div>
             </div>
             {/* All Licenses Table */}
-            {getFilteredLicenses().length > 0 ? (
+            {filteredLicenses.length > 0 ? (
               <div className="min-w-0 w-full bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto -mx-0">
                   <table className="w-full min-w-[700px]">
@@ -927,15 +895,16 @@ export default function LicensesContent({
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {/* Filtered Licenses */}
-                      {getFilteredLicenses().map((license) => {
+                      {filteredLicenses.map((license) => {
                         // Determine if license is expiring soon
+                        const now = new Date()
                         const isExpiringSoon = license.expiry_date && license.status === 'active' ? (() => {
                           const expiryDate = new Date(license.expiry_date)
-                          const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+                          const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
                           return daysUntilExpiry <= 60 && daysUntilExpiry > 0
                         })() : false
-                        
-                        const isExpired = license.expiry_date ? new Date(license.expiry_date) < today : license.status === 'expired'
+
+                        const isExpired = license.expiry_date ? new Date(license.expiry_date) < now : license.status === 'expired'
                         
                         return (
                           <tr key={license.id} 

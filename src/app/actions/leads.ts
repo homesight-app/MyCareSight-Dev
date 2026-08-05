@@ -407,7 +407,8 @@ export async function uploadLeadDocument(
   })
 
   if (insertErr) {
-    await supabase.storage.from(STORAGE_BUCKET.LEAD).remove([filePath])
+    const { error: cleanupErr } = await supabase.storage.from(STORAGE_BUCKET.LEAD).remove([filePath])
+    if (cleanupErr) console.error('[leads/uploadLeadDocument] Storage cleanup failed. path=%s err=%s', filePath, cleanupErr.message)
     return { error: insertErr.message }
   }
 
@@ -420,7 +421,8 @@ export async function deleteLeadDocumentAction(leadId: string, docId: string, fi
   if (authErr) return { error: authErr }
 
   const supabase = await createClient()
-  await supabase.storage.from(STORAGE_BUCKET.LEAD).remove([filePath])
+  const { error: storageErr } = await supabase.storage.from(STORAGE_BUCKET.LEAD).remove([filePath])
+  if (storageErr) console.error('[leads/deleteLeadDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
   const { error } = await q.deleteLeadDocument(supabase, docId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)

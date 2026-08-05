@@ -99,6 +99,7 @@ export async function getLicensingExpertsActive(supabase: Supabase) {
     .select(LICENSING_EXPERTS_COLUMNS)
     .eq('status', 'active')
     .order('first_name', { ascending: true })
+    .limit(500)
 }
 
 /** Get expert_states by expert_id. */

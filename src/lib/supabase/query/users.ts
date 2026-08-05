@@ -228,6 +228,7 @@ export async function getStaffMembersByAgencyId(
     .select('*')
     .eq('agency_id', agencyId)
     .order('created_at', { ascending: false })
+    .limit(500)
   if (options?.status) query = query.eq('status', options.status)
   return query
 }
@@ -306,6 +307,7 @@ export async function getStaffMembersWithAgencyActive(supabase: Supabase) {
     .select('*')
     .not('agency_id', 'is', null)
     .eq('status', 'active')
+    .limit(2000)
 }
 
 /** Get first admin user id (for client messages adminUserId). */

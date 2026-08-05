@@ -71,7 +71,7 @@ export async function getLeads(
     )
   }
 
-  return query
+  return query.limit(1000)
 }
 
 export async function getLeadById(supabase: SupabaseClient, leadId: string) {

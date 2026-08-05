@@ -15,26 +15,37 @@ export default async function BillingPage({
   const supabase = await createClient()
   const params = await searchParams
 
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const now = new Date()
   const selectedMonth = params.month ? parseInt(params.month) : now.getMonth() + 1
   const selectedYear = params.year ? parseInt(params.year) : now.getFullYear()
 
-  const { data: agencies } = await getCachedAgenciesForBilling()
+  const [
+    { count: unreadNotifications },
+    { data: agencies },
+    { data: staffMembers },
+    { data: allCases },
+    { data: licenseTypes },
+    pricingResult,
+  ] = await Promise.all([
+    q.getUnreadNotificationsCount(supabase, user.id),
+    getCachedAgenciesForBilling(),
+    q.getStaffMembersWithAgencyActive(supabase),
+    q.getCasesOrderedByStartedDate(supabase),
+    getCachedLicenseTypesForBilling(),
+    getPricingForMonth(selectedYear, selectedMonth),
+  ])
 
   if (!agencies) {
     return (
-      <AdminLayout 
-        user={user} 
-        profile={profile} 
+      <AdminLayout
+        user={user}
+        profile={profile}
         unreadNotifications={unreadNotifications || 0}
       >
         <div>Error loading agencies</div>
       </AdminLayout>
     )
   }
-
-  const { data: staffMembers } = await q.getStaffMembersWithAgencyActive(supabase)
 
   type StaffMember = { id: string; agency_id: string | null; [key: string]: any }
   const staffByAgency: Record<string, StaffMember[]> = {}
@@ -46,8 +57,6 @@ export default async function BillingPage({
       }
     })
   }
-
-  const { data: allCases } = await q.getCasesOrderedByStartedDate(supabase)
 
   type Case = {
     id: string
@@ -72,10 +81,6 @@ export default async function BillingPage({
     })
   }
 
-  const { data: licenseTypes } = await getCachedLicenseTypesForBilling()
-
-  // Get pricing that was effective for the selected month
-  const pricingResult = await getPricingForMonth(selectedYear, selectedMonth)
   const pricingData = pricingResult.data
   const ownerLicenseRate = pricingData?.owner_admin_license || 0
   const staffLicenseRate = pricingData?.staff_license || 0

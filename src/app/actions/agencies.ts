@@ -487,7 +487,8 @@ export async function uploadAgencyDocument(
   })
 
   if (insertErr) {
-    await supabase.storage.from(STORAGE_BUCKET.AGENCY).remove([filePath])
+    const { error: cleanupErr } = await supabase.storage.from(STORAGE_BUCKET.AGENCY).remove([filePath])
+    if (cleanupErr) console.error('[agencies/uploadAgencyDocument] Storage cleanup failed. path=%s err=%s', filePath, cleanupErr.message)
     return { error: insertErr.message }
   }
 
@@ -497,7 +498,8 @@ export async function uploadAgencyDocument(
 
 export async function deleteAgencyDocumentAction(agencyId: string, docId: string, filePath: string) {
   const supabase = await createClient()
-  await supabase.storage.from(STORAGE_BUCKET.AGENCY).remove([filePath])
+  const { error: storageErr } = await supabase.storage.from(STORAGE_BUCKET.AGENCY).remove([filePath])
+  if (storageErr) console.error('[agencies/deleteAgencyDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
   const { error } = await q.deleteAgencyDocument(supabase, docId)
   if (error) return { error: error.message }
   revalidateAgencyDetailPages()

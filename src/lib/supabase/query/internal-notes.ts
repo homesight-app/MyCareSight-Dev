@@ -54,6 +54,7 @@ export async function getAssociatedNotesByPatient(supabase: SupabaseClient, pati
     `)
     .eq('tagged_patient_id', patientId)
     .order('created_at', { ascending: false })
+    .limit(500)
 }
 
 export async function getAssociatedNotesByCaregiver(supabase: SupabaseClient, caregiverId: string) {
@@ -72,6 +73,7 @@ export async function getAssociatedNotesByCaregiver(supabase: SupabaseClient, ca
     `)
     .eq('tagged_caregiver_id', caregiverId)
     .order('created_at', { ascending: false })
+    .limit(500)
 }
 
 export async function insertInternalNote(

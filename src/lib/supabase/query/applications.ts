@@ -326,6 +326,7 @@ export async function getApplicationsByCompanyOwnerId(supabase: Supabase, compan
     .select(APPLICATIONS_COLUMNS)
     .eq('company_owner_id', companyOwnerId)
     .order('last_updated_date', { ascending: false })
+    .limit(500)
 }
 
 /** Get one application by company_owner_id and assigned_expert_id (for expert send message). */
@@ -395,6 +396,7 @@ export async function getApplicationsByAssignedExpertId(supabase: Supabase, expe
     .select(APPLICATIONS_COLUMNS)
     .eq('assigned_expert_id', expertUserId)
     .order('created_at', { ascending: false })
+    .limit(500)
 }
 
 /** Get applications by assigned_expert_id with select (e.g. for expert detail). */

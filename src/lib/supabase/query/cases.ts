@@ -19,7 +19,7 @@ export async function getCaseById(supabase: Supabase, caseId: string) {
 
 /** Get cases by client_id. */
 export async function getCasesByClientId(supabase: Supabase, clientId: string) {
-  return supabase.from('cases').select(CASES_COLUMNS).eq('client_id', clientId)
+  return supabase.from('cases').select(CASES_COLUMNS).eq('client_id', clientId).limit(500)
 }
 
 /** Get cases by client ids (optional select). */
@@ -29,5 +29,5 @@ export async function getCasesByClientIds(
   select = '*'
 ) {
   if (clientIds.length === 0) return { data: [], error: null }
-  return supabase.from('cases').select(select).in('client_id', clientIds)
+  return supabase.from('cases').select(select).in('client_id', clientIds).limit(500)
 }

@@ -17,7 +17,6 @@ interface ExpertDashboardLayoutProps {
     full_name?: string | null
     role?: string | null
   } | null
-  unreadNotifications?: number
 }
 
 const MENU_ITEMS: MenuItemDef[] = [
@@ -31,7 +30,6 @@ export default function ExpertDashboardLayout({
   children,
   user,
   profile,
-  unreadNotifications = 0,
 }: ExpertDashboardLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -57,7 +55,6 @@ export default function ExpertDashboardLayout({
       <AppHeader
         user={user ?? {}}
         profile={profile}
-        unreadNotifications={unreadNotifications}
         mobileMenuOpen={mobileOpen}
         onMobileMenuToggle={() => setMobileOpen(v => !v)}
         profileUrl="/pages/expert/profile"

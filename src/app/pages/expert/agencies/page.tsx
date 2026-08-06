@@ -1,23 +1,16 @@
 import { getSession } from '@/lib/auth'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import { getCachedAgenciesOrdered } from '@/lib/server-cache/reference-lists'
-import ExpertDashboardLayout from '@/components/ExpertDashboardLayout'
 import AgenciesContent from '@/components/AgenciesContent'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 
 export default async function ExpertAgenciesPage() {
   const session = await getSession()
-  if (!session) redirect('/pages/auth/login')
-  if (session.profile?.role !== 'expert') redirect('/pages/expert/clients')
 
-  const { user, profile } = session
   const supabase = await createClient()
   const supabaseAdmin = createAdminClient()
-
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const { data: agencies } = await getCachedAgenciesOrdered()
   const { data: agencyAdminsWithUser } = await q.getClientsWithCompanyOwner(supabaseAdmin)
 
@@ -60,27 +53,21 @@ export default async function ExpertAgenciesPage() {
   const agencyAdminsForSelect = allAdmins.filter((a) => !assignedAdminIds.has(String(a.id)))
 
   return (
-    <ExpertDashboardLayout
-      user={user}
-      profile={profile}
-      unreadNotifications={unreadNotifications || 0}
-    >
-      <div className="space-y-4 md:space-y-6">
-        <AgenciesContent
-          agencies={agencies || []}
-          agencyAdmins={agencyAdmins.map((a) => ({
-            id: a.id,
-            contact_name: a.contact_name ?? '',
-            contact_email: a.contact_email ?? '',
-          }))}
-          agencyAdminsForSelect={agencyAdminsForSelect.map((a) => ({
-            id: a.id,
-            contact_name: a.contact_name ?? '',
-            contact_email: a.contact_email ?? '',
-          }))}
-          detailBasePath="/pages/expert/agencies"
-        />
-      </div>
-    </ExpertDashboardLayout>
+    <div className="space-y-4 md:space-y-6">
+      <AgenciesContent
+        agencies={agencies || []}
+        agencyAdmins={agencyAdmins.map((a) => ({
+          id: a.id,
+          contact_name: a.contact_name ?? '',
+          contact_email: a.contact_email ?? '',
+        }))}
+        agencyAdminsForSelect={agencyAdminsForSelect.map((a) => ({
+          id: a.id,
+          contact_name: a.contact_name ?? '',
+          contact_email: a.contact_email ?? '',
+        }))}
+        detailBasePath="/pages/expert/agencies"
+      />
+    </div>
   )
 }

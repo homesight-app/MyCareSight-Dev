@@ -1,18 +1,14 @@
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import AdminPipelineReport, { type PipelineReportData, type StageRow } from '@/components/AdminPipelineReport'
 import { LEAD_STAGES } from '@/lib/constants/lead-configs'
 
 export default async function PipelineReportPage() {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const supabase = await createClient()
 
-  const [{ count: unreadNotifications }, { data: rawLeads }] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
-    q.getLeads(supabase, { leadType: 'agency', includeArchived: true }),
-  ])
+  const { data: rawLeads } = await q.getLeads(supabase, { leadType: 'agency', includeArchived: true })
 
   const leads = rawLeads ?? []
   const totalLeads = leads.length
@@ -42,8 +38,6 @@ export default async function PipelineReportPage() {
   const data: PipelineReportData = { stages, totalLeads, totalPipelineValue, totalSignedValue, winRate }
 
   return (
-    <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications ?? 0}>
       <AdminPipelineReport data={data} />
-    </AdminLayout>
   )
 }

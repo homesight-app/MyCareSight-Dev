@@ -30,7 +30,6 @@ interface AdminLayoutProps {
     full_name?: string | null
     role?: string | null
   } | null
-  unreadNotifications?: number
 }
 
 const MENU_ITEMS = [
@@ -52,7 +51,6 @@ export default function AdminLayout({
   children,
   user,
   profile,
-  unreadNotifications = 0,
 }: AdminLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -78,7 +76,6 @@ export default function AdminLayout({
       <AppHeader
         user={user}
         profile={profile}
-        unreadNotifications={unreadNotifications}
         mobileMenuOpen={mobileOpen}
         onMobileMenuToggle={() => setMobileOpen(v => !v)}
         profileUrl="/pages/admin/profile"

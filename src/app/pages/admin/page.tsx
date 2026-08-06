@@ -1,7 +1,6 @@
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import CasesByStatusChart from '@/components/CasesByStatusChart'
 import CasesByStateChart from '@/components/CasesByStateChart'
 import CasesTableWithFilters from '@/components/CasesTableWithFilters'
@@ -14,10 +13,9 @@ import {
 } from 'lucide-react'
 
 export default async function AdminDashboardPage() {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const supabase = await createClient()
 
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const { data: applicationsData } = await q.getApplicationsByStatuses(supabase, [
     'requested',
     'in_progress',
@@ -79,11 +77,6 @@ export default async function AdminDashboardPage() {
   })
 
   return (
-    <AdminLayout 
-      user={{ id: user.id, email: user.email }} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
       <div className="space-y-4 md:space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-6">
@@ -156,7 +149,6 @@ export default async function AdminDashboardPage() {
         {/* Case Management Table */}
         <CasesTableWithFilters cases={dashboardCases} />
       </div>
-    </AdminLayout>
   )
 }
 

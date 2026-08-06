@@ -1,7 +1,6 @@
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import ExpertListWithFilters from '@/components/ExpertListWithFilters'
 import { 
   Users, 
@@ -12,10 +11,9 @@ import {
 import Link from 'next/link'
 
 export default async function ExpertsPage() {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const supabase = await createClient()
 
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const { data: experts } = await q.getLicensingExpertsOrdered(supabase)
   const expertIds = experts?.map(e => e.id) || []
   const { data: expertStates } =
@@ -48,11 +46,6 @@ export default async function ExpertsPage() {
   })
 
   return (
-    <AdminLayout 
-      user={user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
       <div className="space-y-4 md:space-y-6">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -112,7 +105,6 @@ export default async function ExpertsPage() {
           clientsByExpert={clientsByExpert}
         />
       </div>
-    </AdminLayout>
   )
 }
 

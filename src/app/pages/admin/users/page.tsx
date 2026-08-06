@@ -3,15 +3,13 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import { getCachedAgenciesIdName } from '@/lib/server-cache/reference-lists'
-import AdminLayout from '@/components/AdminLayout'
 import UserManagementTabs from '@/components/UserManagementTabs'
 import { Users } from 'lucide-react'
 
 export default async function UsersPage() {
-  const { user, profile } = await requireAdmin()
+  const { user } = await requireAdmin()
   const supabase = await createClient()
 
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const { data: userProfilesRaw } = await q.getUserProfilesOrderedByCreatedAt(supabase)
   type UserProfileRow = { id: string; role: string | null; [key: string]: unknown }
   const profilesList = (userProfilesRaw ?? []) as UserProfileRow[]
@@ -215,11 +213,6 @@ export default async function UsersPage() {
   })
 
   return (
-    <AdminLayout 
-      user={user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
       <div className="space-y-4 md:space-y-6">
         {/* Tabbed Content */}
         <UserManagementTabs
@@ -247,7 +240,6 @@ export default async function UsersPage() {
           assignedClients={assignedClients}
         />
       </div>
-    </AdminLayout>
   )
 }
 

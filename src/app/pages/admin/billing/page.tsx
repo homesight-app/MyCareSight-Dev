@@ -1,7 +1,6 @@
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import BillingContent from '@/components/BillingContent'
 import { getPricingForMonth } from '@/app/actions/pricing'
 import { getCachedAgenciesForBilling, getCachedLicenseTypesForBilling } from '@/lib/server-cache/reference-lists'
@@ -11,7 +10,7 @@ export default async function BillingPage({
 }: {
   searchParams: Promise<{ month?: string; year?: string }>
 }) {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const supabase = await createClient()
   const params = await searchParams
 
@@ -20,14 +19,12 @@ export default async function BillingPage({
   const selectedYear = params.year ? parseInt(params.year) : now.getFullYear()
 
   const [
-    { count: unreadNotifications },
     { data: agencies },
     { data: staffMembers },
     { data: allCases },
     { data: licenseTypes },
     pricingResult,
   ] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
     getCachedAgenciesForBilling(),
     q.getStaffMembersWithAgencyActive(supabase),
     q.getCasesOrderedByStartedDate(supabase),
@@ -37,13 +34,7 @@ export default async function BillingPage({
 
   if (!agencies) {
     return (
-      <AdminLayout
-        user={user}
-        profile={profile}
-        unreadNotifications={unreadNotifications || 0}
-      >
         <div>Error loading agencies</div>
-      </AdminLayout>
     )
   }
 
@@ -116,11 +107,6 @@ export default async function BillingPage({
   const activeAgencies = agencies.length
 
   return (
-    <AdminLayout 
-      user={user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
       <BillingContent
         baseBillingData={baseBillingData}
         selectedMonth={selectedMonth}
@@ -130,6 +116,5 @@ export default async function BillingPage({
         staffLicenseRate={staffLicenseRate}
         licenseTypes={(licenseTypes ?? []) as unknown as Parameters<typeof BillingContent>[0]['licenseTypes']}
       />
-    </AdminLayout>
   )
 }

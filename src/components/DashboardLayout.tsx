@@ -33,7 +33,6 @@ interface DashboardLayoutProps {
     full_name?: string | null
     role?: string | null
   } | null
-  unreadNotifications?: number
   careVisitsPendingCount?: number
   timeBillingPendingCount?: number
   application?: {
@@ -49,7 +48,6 @@ export default function DashboardLayout({
   children,
   user,
   profile,
-  unreadNotifications = 0,
   careVisitsPendingCount,
   timeBillingPendingCount,
   application = null,
@@ -149,7 +147,6 @@ export default function DashboardLayout({
       <AppHeader
         user={user}
         profile={profile}
-        unreadNotifications={unreadNotifications}
         mobileMenuOpen={mobileOpen}
         onMobileMenuToggle={() => setMobileOpen(v => !v)}
         profileUrl="/pages/agency/profile"

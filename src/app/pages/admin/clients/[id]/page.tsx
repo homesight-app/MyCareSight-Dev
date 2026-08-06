@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import Link from 'next/link'
 import { 
   ArrowLeft,
@@ -24,18 +23,16 @@ export default async function ClientDetailPage({
   params: Promise<{ id: string }>
 }) {
 
-  const { user, profile } = await requireAdmin()
+  const { user } = await requireAdmin()
   const { id } = await params
   const supabase = await createClient()
 
   const [
-    { count: unreadNotifications },
     { data: client },
     { data: clientStates },
     { data: cases },
     { data: conversations }
   ] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
     q.getClientById(supabase, id),
     q.getClientStatesByClientId(supabase, id),
     q.getCasesByClientId(supabase, id),
@@ -115,11 +112,6 @@ export default async function ClientDetailPage({
   }
 
   return (
-    <AdminLayout 
-      user={user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
       <div className="space-y-6">
         {/* Back Link */}
         <Link
@@ -383,6 +375,5 @@ export default async function ClientDetailPage({
           )}
         </div>
       </div>
-    </AdminLayout>
   )
 }

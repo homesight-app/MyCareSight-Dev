@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import Link from 'next/link'
 import { 
   ArrowLeft,
@@ -19,14 +18,11 @@ export default async function ExpertPerformancePage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const { id } = await params
   const supabase = await createClient()
 
-  const [{ count: unreadNotifications }, { data: expert }] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
-    q.getLicensingExpertById(supabase, id)
-  ])
+  const { data: expert } = await q.getLicensingExpertById(supabase, id)
 
   const [{ data: applications }, { data: clients }] = await Promise.all([
     expert?.user_id
@@ -60,11 +56,6 @@ export default async function ExpertPerformancePage({
   }
 
   return (
-    <AdminLayout 
-      user={user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
       <div className="space-y-6">
         <Link
           href={`/pages/admin/users?tab=experts`}
@@ -198,6 +189,5 @@ export default async function ExpertPerformancePage({
           )}
         </div>
       </div>
-    </AdminLayout>
   )
 }

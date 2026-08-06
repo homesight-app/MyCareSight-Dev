@@ -1,20 +1,9 @@
-import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
-import * as q from '@/lib/supabase/query'
-import ExpertDashboardLayout from '@/components/ExpertDashboardLayout'
 import ProfileTabs from '@/components/ProfileTabs'
 
 export default async function ExpertProfilePage() {
   const session = await getSession()
-
-  if (!session) {
-    redirect('/pages/auth/login')
-  }
-
-  const supabase = await createClient()
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
+  const profile = session!.profile
 
   // Get recent activity (placeholder - you can create an activity log table later)
   const recentActivity = [
@@ -26,11 +15,10 @@ export default async function ExpertProfilePage() {
   ]
 
   return (
-    <ExpertDashboardLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications || 0}>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mt-20">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mt-20">
         {/* Main Profile Section */}
         <div className="lg:col-span-2">
-          <ProfileTabs user={session.user} profile={profile} />
+          <ProfileTabs user={session!.user} profile={profile} />
         </div>
 
         {/* Sidebar */}
@@ -132,8 +120,7 @@ export default async function ExpertProfilePage() {
             </div>
           </div>
         </div>
-      </div>
-    </ExpertDashboardLayout>
+    </div>
   )
 }
 

@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import ProfileTabs from '@/components/ProfileTabs'
 
 export default async function AdminProfilePage() {
@@ -14,7 +13,6 @@ export default async function AdminProfilePage() {
 
   const supabase = await createClient()
   const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
 
   // Get recent activity (placeholder - you can create an activity log table later)
   const recentActivity = [
@@ -26,7 +24,6 @@ export default async function AdminProfilePage() {
   ]
 
   return (
-    <AdminLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Main Profile Section */}
         <div className="lg:col-span-2">
@@ -133,7 +130,6 @@ export default async function AdminProfilePage() {
           </div>
         </div>
       </div>
-    </AdminLayout>
   )
 }
 

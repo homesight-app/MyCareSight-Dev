@@ -3,7 +3,6 @@ import { Suspense } from 'react'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import DashboardLayout from '@/components/DashboardLayout'
 import LicensesContent from '@/components/LicensesContent'
 
 export default async function LicensesPage() {
@@ -11,11 +10,7 @@ export default async function LicensesPage() {
   if (!session) redirect('/pages/auth/login')
 
   const supabase = await createClient()
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
-
-  const { data: up } = await q.getAgencyIdFromProfile(supabase, session.user.id)
-  const agencyId = up?.agency_id ?? null
+  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 
   const [licensesResult, applicationsResult, playbooksResult] = await Promise.all([
     agencyId ? q.getLicensesByAgencyIdOrdered(supabase, agencyId) : Promise.resolve({ data: [] }),
@@ -51,17 +46,15 @@ export default async function LicensesPage() {
   })
 
   return (
-    <DashboardLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications || 0}>
-      <Suspense fallback={<div className="p-6">Loading...</div>}>
-        <LicensesContent
-          licenses={licenses}
-          documentCounts={documentCounts}
-          applications={applications}
-          applicationDocumentCounts={applicationDocumentCounts}
-          playbookSet={playbookSet}
-        />
-      </Suspense>
-    </DashboardLayout>
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <LicensesContent
+        licenses={licenses}
+        documentCounts={documentCounts}
+        applications={applications}
+        applicationDocumentCounts={applicationDocumentCounts}
+        playbookSet={playbookSet}
+      />
+    </Suspense>
   )
 }
 

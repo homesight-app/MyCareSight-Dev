@@ -1,9 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
-import * as q from '@/lib/supabase/query'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
-import DashboardLayout from '@/components/DashboardLayout'
 import PayrollBillingReportContent from '@/components/PayrollBillingReportContent'
 import { getPayrollBillingReportRowsAction } from '@/app/actions/payroll-billing-report'
 
@@ -21,26 +18,17 @@ export default async function PayrollBillingReportPage() {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
 
-  const supabase = await createClient()
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  assertAgencyReportsPageAccess(profile)
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
+  assertAgencyReportsPageAccess(session!.profile)
 
   const { from, to } = defaultDateRange()
   const { rows, error } = await getPayrollBillingReportRowsAction(from, to)
 
   return (
-    <DashboardLayout
-      user={session.user}
-      profile={profile}
-      unreadNotifications={unreadNotifications || 0}
-    >
-      <PayrollBillingReportContent
-        initialRows={rows}
-        initialDateFrom={from}
-        initialDateTo={to}
-        loadError={error}
-      />
-    </DashboardLayout>
+    <PayrollBillingReportContent
+      initialRows={rows}
+      initialDateFrom={from}
+      initialDateTo={to}
+      loadError={error}
+    />
   )
 }

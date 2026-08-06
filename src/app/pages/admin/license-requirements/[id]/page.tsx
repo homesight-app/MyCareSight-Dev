@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import LicenseTypeDetails from '@/components/LicenseTypeDetails'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
@@ -12,11 +11,10 @@ export default async function LicenseRequirementDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const supabase = await createClient()
   const { id } = await params
 
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const { data: licenseType, error } = await q.getLicenseTypeByIdFull(supabase, id)
 
   if (error || !licenseType) {
@@ -24,11 +22,6 @@ export default async function LicenseRequirementDetailPage({
   }
 
   return (
-    <AdminLayout 
-      user={user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
       <div className="space-y-4 md:space-y-6">
         {/* Back Button */}
         <Link
@@ -48,7 +41,7 @@ export default async function LicenseRequirementDetailPage({
         </div>
 
         {/* License Type Details */}
-        <LicenseTypeDetails 
+        <LicenseTypeDetails
           licenseType={{
             id: licenseType.id,
             state: licenseType.state,
@@ -62,6 +55,5 @@ export default async function LicenseRequirementDetailPage({
           selectedState={licenseType.state}
         />
       </div>
-    </AdminLayout>
   )
 }

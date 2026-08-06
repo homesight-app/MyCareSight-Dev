@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import DashboardLayout from '@/components/DashboardLayout'
 import ProfileTabs from '@/components/ProfileTabs'
 
 export default async function ProfilePage() {
@@ -14,7 +13,7 @@ export default async function ProfilePage() {
 
   const supabase = await createClient()
 
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
+  const profile = session!.profile
   let initialAgency: Record<string, unknown> | null = null
   if (profile?.role === 'company_owner') {
     const { data: client } = await q.getClientByCompanyOwnerId(supabase, session.user.id)
@@ -23,8 +22,6 @@ export default async function ProfilePage() {
       if (agency) initialAgency = agency
     }
   }
-
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
 
   // Get recent activity (placeholder - you can create an activity log table later)
   const recentActivity = [
@@ -36,7 +33,6 @@ export default async function ProfilePage() {
   ]
 
   return (
-    <DashboardLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Main Profile Section */}
         <div className="lg:col-span-2">
@@ -143,7 +139,6 @@ export default async function ProfilePage() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
   )
 }
 

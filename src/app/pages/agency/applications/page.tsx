@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import DashboardLayout from '@/components/DashboardLayout'
 import ApplicationsContent from '@/components/ApplicationsContent'
 
 export default async function ApplicationsPage() {
@@ -14,11 +13,7 @@ export default async function ApplicationsPage() {
 
   const supabase = await createClient()
 
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
-
-  const { data: up } = await q.getAgencyIdFromProfile(supabase, session.user.id)
-  const agencyId = up?.agency_id ?? null
+  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 
   const { data: applicationsData } = agencyId
     ? await q.getApplicationsByAgencyId(supabase, agencyId)
@@ -35,12 +30,10 @@ export default async function ApplicationsPage() {
   }, {})
 
   return (
-    <DashboardLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications ?? 0}>
-      <ApplicationsContent 
-        applications={applications || []} 
-        documentCounts={documentCounts}
-      />
-    </DashboardLayout>
+    <ApplicationsContent
+      applications={applications || []}
+      documentCounts={documentCounts}
+    />
   )
 }
 

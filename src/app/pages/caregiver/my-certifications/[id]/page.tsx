@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import StaffLayout from '@/components/StaffLayout'
 import Link from 'next/link'
 import { getUnifiedCaregiverCertificationDetail } from '@/app/actions/staff-member-certifications'
 import { 
@@ -30,16 +29,6 @@ export default async function CertificationDetailPage({
 
   const { id } = await params
   const supabase = await createClient()
-
-  const { data: profile, error: profileError } = await q.getUserProfileFull(supabase, session.user.id)
-  if (profileError || !profile) {
-    redirect('/pages/auth/login?error=Unable to load user profile')
-  }
-  if (profile.role !== 'staff_member') {
-    redirect('/pages/auth/login?error=Access denied. Staff member role required.')
-  }
-
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
 
   const unified = await getUnifiedCaregiverCertificationDetail(id)
   let certification = unified.data
@@ -131,12 +120,7 @@ export default async function CertificationDetailPage({
   }
 
   return (
-    <StaffLayout 
-      user={session.user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
-      <div className="space-y-5 mt-20">
+    <div className="space-y-5 mt-20">
         {/* Back Button */}
         <Link
           href={isApplication ? "/pages/caregiver" : "/pages/caregiver/my-certifications"}
@@ -252,6 +236,5 @@ export default async function CertificationDetailPage({
           </div>
         </div>
       </div>
-    </StaffLayout>
   )
 }

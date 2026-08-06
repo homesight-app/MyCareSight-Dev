@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import DashboardLayout from '@/components/DashboardLayout'
 import StaffManagementClient from '@/components/StaffManagementClient'
 
 export default async function StaffPage() {
@@ -11,15 +10,11 @@ export default async function StaffPage() {
 
   const supabase = await createClient()
 
-  // Roundtrip 2: profile, notifications, and staff roles all in parallel
-  const [{ data: profile }, { count: unreadNotifications }, { data: staffRolesData }] = await Promise.all([
-    q.getUserProfileFull(supabase, session.user.id),
-    q.getUnreadNotificationsCount(supabase, session.user.id),
-    q.getStaffRoles(supabase),
-  ])
+  // Roundtrip 2: staff roles
+  const { data: staffRolesData } = await q.getStaffRoles(supabase)
 
-  const agencyId = (profile as { agency_id?: string | null } | null)?.agency_id ?? null
-  const role = profile?.role ?? ''
+  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
+  const role = session!.profile?.role ?? ''
   const canManageNotes =
     role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
   const staffRoleNames = (staffRolesData ?? []).map((r: { name?: string }) => r.name).filter(Boolean) as string[]
@@ -105,18 +100,16 @@ export default async function StaffPage() {
   })
 
   return (
-    <DashboardLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications ?? 0}>
-      <StaffManagementClient
-        staffMembers={staffMembers}
-        licensesByStaff={licensesByStaff}
-        totalStaff={totalStaff}
-        activeStaff={activeStaff}
-        expiringLicenses={expiringLicenses}
-        staffWithExpiringLicenses={staffWithExpiringLicenses}
-        staffRoleNames={staffRoleNames}
-        canManageNotes={canManageNotes}
-        agencyId={agencyId ?? undefined}
-      />
-    </DashboardLayout>
+    <StaffManagementClient
+      staffMembers={staffMembers}
+      licensesByStaff={licensesByStaff}
+      totalStaff={totalStaff}
+      activeStaff={activeStaff}
+      expiringLicenses={expiringLicenses}
+      staffWithExpiringLicenses={staffWithExpiringLicenses}
+      staffRoleNames={staffRoleNames}
+      canManageNotes={canManageNotes}
+      agencyId={agencyId ?? undefined}
+    />
   )
 }

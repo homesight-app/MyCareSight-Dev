@@ -111,6 +111,8 @@ function LoginPageContent() {
         // Redirect based on role
         if (profile?.role === 'admin') {
           router.push('/pages/admin')
+        } else if (profile?.role === 'expert') {
+          router.push('/pages/expert/clients')
         } else if (profile?.role === 'staff_member') {
           router.push('/pages/caregiver')
         } else if (profile?.role === 'care_coordinator') {

@@ -1,9 +1,7 @@
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import ExpertDashboardLayout from '@/components/ExpertDashboardLayout'
 import { CheckCircle2, Clock, AlertCircle, Circle, ChevronRight } from 'lucide-react'
 
 type Status = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
@@ -21,14 +19,9 @@ function computeProgress(items: { status: Status }[]) {
 
 export default async function ExpertProgramsPage() {
   const session = await getSession()
-  if (!session) redirect('/pages/auth/login')
-  if (session.profile?.role !== 'expert') redirect('/pages/expert/clients')
 
   const supabase = await createClient()
-  const [{ count: unreadNotifications }, { data: appsData }] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, session.user.id),
-    q.getApplicationsWithPrograms(supabase, session.user.id),
-  ])
+  const { data: appsData } = await q.getApplicationsWithPrograms(supabase, session!.user.id)
 
   type RawRow = {
     id: string
@@ -45,11 +38,7 @@ export default async function ExpertProgramsPage() {
   const programs = apps.filter(a => a.application_playbook_items && a.application_playbook_items.length > 0)
 
   return (
-    <ExpertDashboardLayout
-      user={session.user}
-      profile={session.profile}
-      unreadNotifications={unreadNotifications || 0}
-    >
+    <>
       <div className="p-6 max-w-6xl mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Programs</h1>
@@ -114,6 +103,6 @@ export default async function ExpertProgramsPage() {
           </div>
         )}
       </div>
-    </ExpertDashboardLayout>
+    </>
   )
 }

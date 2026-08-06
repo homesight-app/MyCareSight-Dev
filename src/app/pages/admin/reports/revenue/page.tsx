@@ -1,7 +1,6 @@
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import AdminRevenueReport, { type RevenueReportData, type SignedDeal, type MonthlyPoint } from '@/components/AdminRevenueReport'
 import { AGENCY_SERVICE_TYPES } from '@/lib/constants/lead-configs'
 
@@ -21,13 +20,10 @@ function last12Months(): string[] {
 }
 
 export default async function RevenueReportPage() {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const supabase = await createClient()
 
-  const [{ count: unreadNotifications }, { data: rawLeads }] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
-    q.getLeads(supabase, { leadType: 'agency', includeArchived: true }),
-  ])
+  const { data: rawLeads } = await q.getLeads(supabase, { leadType: 'agency', includeArchived: true })
 
   const leads = rawLeads ?? []
   const serviceTypeLabel = (key: string | null) =>
@@ -95,8 +91,6 @@ export default async function RevenueReportPage() {
   }
 
   return (
-    <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications ?? 0}>
       <AdminRevenueReport data={data} />
-    </AdminLayout>
   )
 }

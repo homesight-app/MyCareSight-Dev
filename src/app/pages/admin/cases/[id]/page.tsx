@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import CaseTabs from '@/components/CaseTabs'
 import Link from 'next/link'
 import { 
@@ -18,14 +17,11 @@ export default async function CaseDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const { id } = await params
   const supabase = await createClient()
 
-  const [{ count: unreadNotifications }, { data: caseItem }] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
-    q.getCaseById(supabase, id)
-  ])
+  const { data: caseItem } = await q.getCaseById(supabase, id)
 
   if (!caseItem) {
     redirect('/pages/admin')
@@ -264,11 +260,6 @@ export default async function CaseDetailPage({
   ]
 
   return (
-    <AdminLayout 
-      user={{ id: user.id, email: user.email }} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
       <div className="space-y-4 md:space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -358,6 +349,5 @@ export default async function CaseDetailPage({
           recentActivity={recentActivity}
         />
       </div>
-    </AdminLayout>
   )
 }

@@ -3,7 +3,6 @@ import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { getMyStaffCertifications, type MyStaffCertificationUi } from '@/app/actions/staff-member-certifications'
-import StaffLayout from '@/components/StaffLayout'
 import Link from 'next/link'
 import {
   CheckCircle2,
@@ -18,21 +17,9 @@ import {
 export default async function StaffDashboardPage() {
   const session = await getSession()
 
-  if (!session) {
-    redirect('/pages/auth/login')
-  }
-
   const supabase = await createClient()
 
-  const { data: profile, error: profileError } = await q.getUserProfileFull(supabase, session.user.id)
-  if (profileError || !profile) {
-    redirect('/pages/auth/login?error=Unable to load user profile')
-  }
-  if (profile.role !== 'staff_member') {
-    redirect('/pages/auth/login?error=Access denied. Staff member role required.')
-  }
-
-  const { data: staffMember, error: staffMemberError } = await q.getStaffMemberByUserId(supabase, session.user.id)
+  const { data: staffMember, error: staffMemberError } = await q.getStaffMemberByUserId(supabase, session!.user.id)
   if (staffMemberError || !staffMember) {
     redirect('/pages/auth/login?error=Staff member record not found. Please contact your administrator.')
   }
@@ -144,9 +131,6 @@ export default async function StaffDashboardPage() {
     return new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime()
   }).reverse().splice(0, 3)
   
-  const { count: unreadNotificationsCount } = await q.getUnreadNotificationsCount(supabase, session.user.id)
-  const unreadNotifications = unreadNotificationsCount ?? 0
-
   // Calculate statistics from full list (not only preview rows)
   const today = new Date()
   const activeLicenses = allLicensesSorted?.filter(l => {
@@ -211,12 +195,7 @@ export default async function StaffDashboardPage() {
   }
 
   return (
-    <StaffLayout 
-      user={session.user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications}
-    >
-      <div className="space-y-5 mt-20">
+    <div className="space-y-5 mt-20">
         {/* Title and Subtitle — match My Care Visits typography */}
         <div>
           <h1 className="text-3xl font-bold text-gray-900">My License Dashboard</h1>
@@ -431,7 +410,6 @@ export default async function StaffDashboardPage() {
         </div>
 
       </div>
-    </StaffLayout>
   )
 }
 

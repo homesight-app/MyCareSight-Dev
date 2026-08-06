@@ -6,8 +6,6 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
-import DashboardLayout from '@/components/DashboardLayout'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { US_STATES } from '@/lib/constants'
@@ -28,9 +26,6 @@ function NewLicensePageContent() {
   const searchParams = useSearchParams()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
-  const [unreadNotifications, setUnreadNotifications] = useState(0)
 
   const stateParam = searchParams.get('state')
 
@@ -52,26 +47,6 @@ function NewLicensePageContent() {
       setValue('state', stateParam)
     }
   }, [stateParam, setValue])
-
-  useEffect(() => {
-    // Fetch user data for layout
-    const fetchUserData = async () => {
-      try {
-        const supabase = createClient()
-        const { data: { user: authUser } } = await supabase.auth.getUser()
-        if (authUser) {
-          setUser(authUser)
-          const { data: userProfile } = await q.getUserProfileFull(supabase, authUser.id)
-          setProfile(userProfile)
-          const { count } = await q.getUnreadNotificationsCount(supabase, authUser.id)
-          setUnreadNotifications(count ?? 0)
-        }
-      } catch (err) {
-        console.error('Error fetching user data:', err)
-      }
-    }
-    fetchUserData()
-  }, [])
 
   const onSubmit = async (data: LicenseFormData) => {
     setIsLoading(true)
@@ -118,16 +93,7 @@ function NewLicensePageContent() {
     }
   }
 
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    )
-  }
-
   return (
-    <DashboardLayout user={user} profile={profile} unreadNotifications={unreadNotifications}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
@@ -290,7 +256,6 @@ function NewLicensePageContent() {
           </form>
         </div>
       </div>
-    </DashboardLayout>
   )
 }
 

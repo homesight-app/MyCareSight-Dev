@@ -13,7 +13,6 @@ interface AppHeaderProps {
     full_name?: string | null
     role?: string | null
   } | null
-  unreadNotifications: number
   mobileMenuOpen: boolean
   onMobileMenuToggle: () => void
   profileUrl: string
@@ -26,7 +25,6 @@ interface AppHeaderProps {
 export default function AppHeader({
   user,
   profile,
-  unreadNotifications,
   mobileMenuOpen,
   onMobileMenuToggle,
   profileUrl,
@@ -73,7 +71,6 @@ export default function AppHeader({
           {user?.id && (
             <NotificationDropdown
               userId={user.id}
-              initialUnreadCount={unreadNotifications}
             />
           )}
           {user && (

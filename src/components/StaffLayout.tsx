@@ -17,7 +17,6 @@ interface StaffLayoutProps {
     full_name?: string | null
     role?: string | null
   } | null
-  unreadNotifications?: number
 }
 
 const MENU_ITEMS = [
@@ -31,7 +30,6 @@ export default function StaffLayout({
   children,
   user,
   profile,
-  unreadNotifications = 0,
 }: StaffLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -53,7 +51,6 @@ export default function StaffLayout({
       <AppHeader
         user={user ?? {}}
         profile={profile}
-        unreadNotifications={unreadNotifications}
         mobileMenuOpen={mobileOpen}
         onMobileMenuToggle={() => setMobileOpen(v => !v)}
         profileUrl="/pages/caregiver/profile"

@@ -3,7 +3,6 @@ import Link from 'next/link'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import DashboardLayout from '@/components/DashboardLayout'
 import ClientProgramView from '@/components/ClientProgramView'
 
 export default async function AgencyProgramDetailPage({
@@ -19,8 +18,7 @@ export default async function AgencyProgramDetailPage({
   const { applicationId } = await params
   const supabase = await createClient()
 
-  const [{ count: unreadNotifications }, { data: application }, { items }] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, session.user.id),
+  const [{ data: application }, { items }] = await Promise.all([
     q.getApplicationById(supabase, applicationId),
     q.getApplicationPlaybookItems(supabase, applicationId).then(r => ({ items: r.data ?? [] })),
   ])
@@ -39,24 +37,21 @@ export default async function AgencyProgramDetailPage({
   const app = application as unknown as AppRow
 
   return (
-    <DashboardLayout user={session.user} profile={session.profile} unreadNotifications={unreadNotifications || 0}>
-      <div className="space-y-4">
-        <Link href="/pages/agency/programs" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
-          ← Back to Programs
-        </Link>
+    <div className="space-y-4">
+      <Link href="/pages/agency/programs" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
+        ← Back to Programs
+      </Link>
 
-        <ClientProgramView
-          applicationId={applicationId}
-          applicationName={app.application_name}
-          state={app.state}
-          status={app.status}
-          agencyId={app.agency_id}
-          licenseTypeId={app.license_type_id}
-          initialItems={items as import('@/lib/supabase/query/playbooks').ApplicationPlaybookItem[]}
-          initialPct={app.progress_percentage ?? 0}
-        />
-      </div>
-    </DashboardLayout>
-
+      <ClientProgramView
+        applicationId={applicationId}
+        applicationName={app.application_name}
+        state={app.state}
+        status={app.status}
+        agencyId={app.agency_id}
+        licenseTypeId={app.license_type_id}
+        initialItems={items as import('@/lib/supabase/query/playbooks').ApplicationPlaybookItem[]}
+        initialPct={app.progress_percentage ?? 0}
+      />
+    </div>
   )
 }

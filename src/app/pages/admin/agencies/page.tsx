@@ -3,22 +3,19 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import { getCachedAgenciesOrdered } from '@/lib/server-cache/reference-lists'
-import AdminLayout from '@/components/AdminLayout'
 import AgenciesContent from '@/components/AgenciesContent'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 
 export default async function AgenciesPage() {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const supabase = await createClient()
   const supabaseAdmin = createAdminClient()
 
   // agency_admins RLS does not expose rows to platform admins — use service role (same as cached agencies).
   const [
-    { count: unreadNotifications },
     { data: agencies },
     { data: agencyAdminsWithUser },
   ] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
     getCachedAgenciesOrdered(),
     q.getClientsWithCompanyOwner(supabaseAdmin),
   ])
@@ -63,11 +60,6 @@ export default async function AgenciesPage() {
   const agencyAdminsForSelect = allAdmins.filter((a) => !assignedAdminIds.has(String(a.id)))
 
   return (
-    <AdminLayout
-      user={user}
-      profile={profile}
-      unreadNotifications={unreadNotifications || 0}
-    >
       <div className="space-y-4 md:space-y-6">
         <AgenciesContent
           agencies={agencies || []}
@@ -84,6 +76,5 @@ export default async function AgenciesPage() {
           detailBasePath="/pages/admin/agencies"
         />
       </div>
-    </AdminLayout>
   )
 }

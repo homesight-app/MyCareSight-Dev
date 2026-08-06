@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
-import ExpertDashboardLayout from '@/components/ExpertDashboardLayout'
 
 import { 
   MessageSquare, 
@@ -496,11 +495,9 @@ function ExpertMessagesContent() {
 
   if (loading) {
     return (
-      <ExpertDashboardLayout user={user} profile={profile}>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-gray-500">Loading...</div>
-        </div>
-      </ExpertDashboardLayout>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-gray-500">Loading...</div>
+      </div>
     )
   }
 
@@ -509,8 +506,7 @@ function ExpertMessagesContent() {
   const activeConversations = conversations.length
 
   return (
-    <ExpertDashboardLayout user={user} profile={profile}>
-      <div className="space-y-4 sm:space-y-6 mt-20">
+    <div className="space-y-4 sm:space-y-6 mt-20">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Messages</h1>
@@ -784,22 +780,19 @@ function ExpertMessagesContent() {
             </div>
           </div>
         </div>
-      </div>
-    </ExpertDashboardLayout>
+    </div>
   )
 }
 
 export default function ExpertMessagesPage() {
   return (
     <Suspense fallback={
-      <ExpertDashboardLayout user={null} profile={null}>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading...</p>
-          </div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
         </div>
-      </ExpertDashboardLayout>
+      </div>
     }>
       <ExpertMessagesContent />
     </Suspense>

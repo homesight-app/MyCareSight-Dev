@@ -1,28 +1,9 @@
-import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
-import * as q from '@/lib/supabase/query'
-import StaffLayout from '@/components/StaffLayout'
 import ProfileTabs from '@/components/ProfileTabs'
 
 export default async function StaffProfilePage() {
   const session = await getSession()
-
-  if (!session) {
-    redirect('/pages/auth/login')
-  }
-
-  const supabase = await createClient()
-
-  const { data: profile, error: profileError } = await q.getUserProfileFull(supabase, session.user.id)
-  if (profileError || !profile) {
-    redirect('/pages/auth/login?error=Unable to load user profile')
-  }
-  if (profile.role !== 'staff_member') {
-    redirect('/pages/auth/login?error=Access denied. Staff member role required.')
-  }
-
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
+  const profile = session!.profile
 
   // Get recent activity (placeholder - you can create an activity log table later)
   const recentActivity = [
@@ -34,11 +15,10 @@ export default async function StaffProfilePage() {
   ]
 
   return (
-    <StaffLayout user={session.user} profile={profile} unreadNotifications={unreadNotifications || 0}>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mt-20">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mt-20">
         {/* Main Profile Section */}
         <div className="lg:col-span-2">
-          <ProfileTabs user={session.user} profile={profile} />
+          <ProfileTabs user={session!.user} profile={profile} />
         </div>
 
         {/* Sidebar */}
@@ -141,6 +121,5 @@ export default async function StaffProfilePage() {
           </div>
         </div>
       </div>
-    </StaffLayout>
   )
 }

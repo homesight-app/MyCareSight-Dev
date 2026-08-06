@@ -1,19 +1,16 @@
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import AdminProgramsContent from '@/components/AdminProgramsContent'
 
 export default async function AdminProgramsPage() {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const supabase = await createClient()
 
   const [
-    { count: unreadNotifications },
     { data: requestedData },
     { data: allProgramsData },
   ] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
     q.getRequestedProgramApplications(supabase),
     q.getApplicationsWithPrograms(supabase),
   ])
@@ -46,7 +43,6 @@ export default async function AdminProgramsPage() {
   )
 
   return (
-    <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <div className="p-6 max-w-6xl mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Programs</h1>
@@ -59,6 +55,5 @@ export default async function AdminProgramsPage() {
           allPrograms={allPrograms}
         />
       </div>
-    </AdminLayout>
   )
 }

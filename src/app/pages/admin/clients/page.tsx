@@ -1,15 +1,13 @@
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import ClientListWithFilters from '@/components/ClientListWithFilters'
 import { Building2, CheckCircle2, Clock, MessageSquare } from 'lucide-react'
 
 export default async function ClientsPage() {
-  const { user, profile } = await requireAdmin()
+  const { user } = await requireAdmin()
   const supabase = await createClient()
 
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const { data: clients } = await q.getAllClientsOrdered(supabase)
 
   const clientIds = clients?.map((c) => c.id).filter(Boolean) as string[]
@@ -80,7 +78,6 @@ export default async function ClientsPage() {
   })
 
   return (
-    <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <div className="space-y-4 md:space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
           <div className="bg-white rounded-xl p-4 md:p-6 shadow-md border border-gray-100">
@@ -133,6 +130,5 @@ export default async function ClientsPage() {
           unreadMessagesByClient={unreadMessagesByClient}
         />
       </div>
-    </AdminLayout>
   )
 }

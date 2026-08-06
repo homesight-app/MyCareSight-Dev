@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import DashboardLayout from '@/components/DashboardLayout'
 import Link from 'next/link'
 import { 
   Shield, 
@@ -26,12 +25,7 @@ export default async function DashboardPage() {
 
   const supabase = await createClient()
 
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  if (profile?.role === 'admin') redirect('/pages/admin')
-  if (profile?.role === 'expert') redirect('/pages/expert/clients')
-
-  const { data: up } = await q.getAgencyIdFromProfile(supabase, session.user.id)
-  const agencyId = up?.agency_id ?? null
+  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 
   const [licensesResult, applicationsResult, staffResult] = await Promise.all([
     agencyId ? q.getLicensesByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
@@ -61,13 +55,14 @@ export default async function DashboardPage() {
     days_until_expiry: (app.days_until_expiry as number | null) ?? null,
   }))
 
-  const { count: unreadNotificationsCount } = await q.getUnreadNotificationsCount(supabase, session.user.id)
   const { data: notifications } = await supabase
     .from('notifications')
     .select('*')
     .eq('user_id', session.user.id)
     .order('created_at', { ascending: false })
     .limit(10)
+
+  const unreadNotifications = (notifications ?? []).filter((n: { is_read?: boolean }) => !n.is_read).length
 
   type UnifiedLicense = {
     id: string
@@ -165,7 +160,6 @@ export default async function DashboardPage() {
   }).length || 0
 
   const expiringSoon = expiringLicenses + expiringStaffCertifications
-  const unreadNotifications = unreadNotificationsCount ?? 0
 
   // Get recent licenses
   const recentLicenses = unifiedLicensesWithDerivedStatus
@@ -247,11 +241,6 @@ export default async function DashboardPage() {
   }
 
   return (
-    <DashboardLayout 
-      user={session.user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications}
-    >
       <div className="space-y-4 sm:space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -512,6 +501,5 @@ export default async function DashboardPage() {
         </div>
 
       </div>
-    </DashboardLayout>
   )
 }

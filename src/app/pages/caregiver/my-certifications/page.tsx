@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, Suspense, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useRouter, useSearchParams } from 'next/navigation'
-import StaffLayout from '@/components/StaffLayout'
 import AddCertificationModal from '@/components/AddCertificationModal'
 import EditCertificationModal from '@/components/EditCertificationModal'
 import EditCaregiverSkillsModal from '@/components/EditCaregiverSkillsModal'
@@ -13,7 +12,6 @@ import { getMyStaffCertifications } from '@/app/actions/staff-member-certificati
 import { createClient } from '@/lib/supabase/client'
 import { CAREGIVER_SKILL_POINTS } from '@/lib/constants'
 import { normalizeCaregiverSkillsList } from '@/lib/caregiver-skills'
-import * as q from '@/lib/supabase/query'
 import { Plus, Edit, Eye, Award, Loader2, Sparkles } from 'lucide-react'
 
 interface Certification {
@@ -101,9 +99,6 @@ function MyCertificationsContent() {
   const [selectedCertification, setSelectedCertification] = useState<Certification | null>(null)
   const [hasStaffProfile, setHasStaffProfile] = useState(true)
   const [loadingCertificationId, setLoadingCertificationId] = useState<string | null>(null)
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
-  const [unreadNotifications, setUnreadNotifications] = useState(0)
 
   const [activeTab, setActiveTab] = useState<'skills' | 'certifications'>('skills')
   const [caregiverSelf, setCaregiverSelf] = useState<CaregiverSelf | null>(null)
@@ -147,12 +142,6 @@ function MyCertificationsContent() {
         router.push('/pages/auth/login')
         return
       }
-      setUser(currentUser)
-
-      const { data: profileData } = await q.getUserProfileFull(supabase, currentUser.id)
-      setProfile(profileData)
-      const { count } = await q.getUnreadNotificationsCount(supabase, currentUser.id)
-      setUnreadNotifications(count ?? 0)
 
       const [certsResult, memberRes] = await Promise.all([
         getMyStaffCertifications(),
@@ -285,7 +274,7 @@ function MyCertificationsContent() {
     return arr
   }, [certifications, sortBy, sortDir])
 
-  if (isLoading || !user || !profile) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -297,8 +286,8 @@ function MyCertificationsContent() {
   }
 
   return (
-    <StaffLayout user={user} profile={profile} unreadNotifications={unreadNotifications}>
-      <div className="space-y-5 mt-20">
+    <>
+    <div className="space-y-5 mt-20">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">My Skills & Certifications</h1>
           <p className="text-sm text-gray-600 mt-1">
@@ -593,7 +582,7 @@ function MyCertificationsContent() {
           certification={selectedCertification}
         />
       )}
-    </StaffLayout>
+    </>
   )
 }
 

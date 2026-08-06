@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import DashboardLayout from '@/components/DashboardLayout'
 import LeadDetailContent from '@/components/LeadDetailContent'
 import { AGENCY_LEAD_CONTEXT, type LeadContext } from '@/lib/constants/lead-configs'
 import type { ComponentProps } from 'react'
@@ -18,17 +17,8 @@ export default async function AgencyLeadDetailPage({
   if (!session) redirect('/pages/auth/login')
 
   const supabase = await createClient()
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
 
-  if (profile?.role === 'admin') redirect('/pages/admin')
-  if (profile?.role === 'expert') redirect('/pages/expert/clients')
-  if (profile?.role !== 'company_owner') redirect('/pages/agency')
-
-  const [{ data: up }, { count: unreadNotifications }] = await Promise.all([
-    q.getAgencyIdFromProfile(supabase, session.user.id),
-    q.getUnreadNotificationsCount(supabase, session.user.id),
-  ])
-  const agencyId = up?.agency_id ?? null
+  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency')
 
   const { id } = await params
@@ -55,19 +45,13 @@ export default async function AgencyLeadDetailPage({
   const context: LeadContext = { ...AGENCY_LEAD_CONTEXT, agencyId }
 
   return (
-    <DashboardLayout
-      user={session.user}
-      profile={profile}
-      unreadNotifications={unreadNotifications ?? 0}
-    >
-      <LeadDetailContent
-        lead={lead as unknown as LeadDetailProps['lead']}
-        notes={(notes ?? []) as unknown as LeadDetailProps['notes']}
-        tasks={tasks ?? []}
-        documents={(documents ?? []) as unknown as LeadDetailProps['documents']}
-        context={context}
-        currentUserRole={profile?.role}
-      />
-    </DashboardLayout>
+    <LeadDetailContent
+      lead={lead as unknown as LeadDetailProps['lead']}
+      notes={(notes ?? []) as unknown as LeadDetailProps['notes']}
+      tasks={tasks ?? []}
+      documents={(documents ?? []) as unknown as LeadDetailProps['documents']}
+      context={context}
+      currentUserRole={session!.profile?.role}
+    />
   )
 }

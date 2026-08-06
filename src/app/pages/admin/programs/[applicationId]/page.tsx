@@ -4,7 +4,6 @@ import { ArrowLeft } from 'lucide-react'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import ExpertProgramView from '@/components/ExpertProgramView'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
 
@@ -13,12 +12,11 @@ export default async function AdminProgramDetailPage({
 }: {
   params: Promise<{ applicationId: string }>
 }) {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const { applicationId } = await params
   const supabase = await createClient()
 
-  const [{ count: unreadNotifications }, { data: application }, { data: items }] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
+  const [{ data: application }, { data: items }] = await Promise.all([
     q.getApplicationById(supabase, applicationId),
     q.getApplicationPlaybookItems(supabase, applicationId),
   ])
@@ -56,7 +54,6 @@ export default async function AdminProgramDetailPage({
   }
 
   return (
-    <AdminLayout user={{ id: user.id, email: user.email }} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <Link
@@ -89,6 +86,5 @@ export default async function AdminProgramDetailPage({
           completeReason={app.complete_reason}
         />
       </div>
-    </AdminLayout>
   )
 }

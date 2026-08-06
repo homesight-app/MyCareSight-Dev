@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { UserRole } from '@/types/auth'
 
@@ -10,7 +11,7 @@ function isDynamicServerUsageError(error: unknown): boolean {
   )
 }
 
-export async function getSession() {
+export const getSession = cache(async () => {
   try {
     const supabase = await createClient()
     const {
@@ -42,7 +43,7 @@ export async function getSession() {
     console.error('getSession failed:', error)
     return null
   }
-}
+})
 
 export async function signOut() {
   const supabase = await createClient()

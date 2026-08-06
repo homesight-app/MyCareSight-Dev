@@ -4,7 +4,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
-import AdminLayout from '@/components/AdminLayout'
 import AgencyDetailContent from '@/components/AgencyDetailContent'
 
 export default async function AdminAgencyDetailPage({
@@ -12,16 +11,13 @@ export default async function AdminAgencyDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { user, profile } = await requireAdmin()
+  await requireAdmin()
   const { id } = await params
 
   const supabase = await createClient()
   const supabaseAdmin = createAdminClient()
 
-  const [{ count: unreadNotifications }, { data: agency }] = await Promise.all([
-    q.getUnreadNotificationsCount(supabase, user.id),
-    q.getAgencyById(supabaseAdmin, id),
-  ])
+  const { data: agency } = await q.getAgencyById(supabaseAdmin, id)
 
   if (!agency) redirect('/pages/admin/agencies')
 
@@ -55,7 +51,6 @@ export default async function AdminAgencyDetailPage({
     : { data: [] }
 
   return (
-    <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications || 0}>
       <AgencyDetailContent
         agency={agency}
         licenses={(licenses ?? []) as unknown as Parameters<typeof AgencyDetailContent>[0]['licenses']}
@@ -70,6 +65,5 @@ export default async function AdminAgencyDetailPage({
         agencyLeadDocuments={agencyLeadDocuments ?? []}
         programs={programs ?? []}
       />
-    </AdminLayout>
   )
 }

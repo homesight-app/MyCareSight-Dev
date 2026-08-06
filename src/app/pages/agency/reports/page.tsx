@@ -1,9 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
-import * as q from '@/lib/supabase/query'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
-import DashboardLayout from '@/components/DashboardLayout'
 import AgencyReportCardLink, { type AgencyReportCardIconKey } from '@/components/reports/AgencyReportCardLink'
 
 type ReportDef = {
@@ -23,10 +20,7 @@ export default async function ReportsPage() {
     redirect('/pages/auth/login')
   }
 
-  const supabase = await createClient()
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
-  assertAgencyReportsPageAccess(profile)
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, session.user.id)
+  assertAgencyReportsPageAccess(session!.profile)
 
   const reports: ReportDef[] = [
     {
@@ -69,33 +63,27 @@ export default async function ReportsPage() {
   ]
 
   return (
-    <DashboardLayout
-      user={session.user}
-      profile={profile}
-      unreadNotifications={unreadNotifications || 0}
-    >
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Reports</h1>
-          <p className="text-gray-600 text-base md:text-lg">
-            Generate and download reports based on your organization&apos;s data
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-          {reports.map((report) => (
-            <AgencyReportCardLink
-              key={report.id}
-              href={report.href}
-              title={report.title}
-              description={report.description}
-              icon={report.icon}
-              iconColor={report.iconColor}
-              iconTextColor={report.iconTextColor}
-            />
-          ))}
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Reports</h1>
+        <p className="text-gray-600 text-base md:text-lg">
+          Generate and download reports based on your organization&apos;s data
+        </p>
       </div>
-    </DashboardLayout>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        {reports.map((report) => (
+          <AgencyReportCardLink
+            key={report.id}
+            href={report.href}
+            title={report.title}
+            description={report.description}
+            icon={report.icon}
+            iconColor={report.iconColor}
+            iconTextColor={report.iconTextColor}
+          />
+        ))}
+      </div>
+    </div>
   )
 }

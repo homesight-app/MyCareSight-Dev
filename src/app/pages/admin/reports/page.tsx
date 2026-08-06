@@ -1,7 +1,4 @@
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
-import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import Link from 'next/link'
 import { TrendingUp, DollarSign, Users } from 'lucide-react'
 
@@ -33,12 +30,9 @@ const REPORTS = [
 ]
 
 export default async function AdminReportsPage() {
-  const { user, profile } = await requireAdmin()
-  const supabase = await createClient()
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
+  await requireAdmin()
 
   return (
-    <AdminLayout user={user} profile={profile} unreadNotifications={unreadNotifications ?? 0}>
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {REPORTS.map(report => {
@@ -61,6 +55,5 @@ export default async function AdminReportsPage() {
           })}
         </div>
       </div>
-    </AdminLayout>
   )
 }

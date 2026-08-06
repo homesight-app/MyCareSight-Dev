@@ -1,14 +1,12 @@
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import AdminLayout from '@/components/AdminLayout'
 import AdminMessagesContent from '@/components/AdminMessagesContent'
 
 export default async function MessagesPage() {
-  const { user, profile } = await requireAdmin()
+  const { user } = await requireAdmin()
   const supabase = await createClient()
 
-  const { count: unreadNotifications } = await q.getUnreadNotificationsCount(supabase, user.id)
   const { data: conversations } = await q.getConversationsByAdminId(supabase, user.id)
 
   type ConvRow = { id: string; client_id: string; expert_id: string | null; admin_id?: string; last_message_at?: string }
@@ -62,16 +60,10 @@ export default async function MessagesPage() {
     }))
 
   return (
-    <AdminLayout 
-      user={user} 
-      profile={profile} 
-      unreadNotifications={unreadNotifications || 0}
-    >
-      <AdminMessagesContent 
+      <AdminMessagesContent
         initialConversations={conversationsWithData as unknown as Parameters<typeof AdminMessagesContent>[0]['initialConversations']}
         userId={user.id}
       />
-    </AdminLayout>
   )
 }
 

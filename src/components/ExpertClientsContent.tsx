@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Clock,
@@ -11,6 +11,8 @@ import {
   AlertCircle,
   Loader2,
   Building2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 
 interface Application {
@@ -32,6 +34,10 @@ interface Application {
 
 interface ExpertClientsContentProps {
   applications: Application[]
+  totalCount: number
+  page: number
+  pageSize: number
+  initialSearch?: string
   totalApplications: number
   activeApplications: number
   pendingReviews: number
@@ -39,18 +45,45 @@ interface ExpertClientsContentProps {
 }
 
 export default function ExpertClientsContent({
-  applications: applicationsProp,
+  applications,
+  totalCount,
+  page,
+  pageSize,
+  initialSearch = '',
   totalApplications,
   activeApplications,
   pendingReviews,
   agencyNames = {},
 }: ExpertClientsContentProps) {
   const router = useRouter()
-  const [searchQuery, setSearchQuery] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [loadingApplicationId, setLoadingApplicationId] = useState<string | null>(null)
 
-  // Ensure applications is not null/undefined
-  const applications = applicationsProp || []
+  const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
+  const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
+  const displayTo   = Math.min((page + 1) * pageSize, totalCount)
+
+  const pushParams = useCallback(
+    (overrides: { page?: number; q?: string }) => {
+      const p = new URLSearchParams()
+      const newPage   = overrides.page ?? 0
+      const newSearch = overrides.q !== undefined ? overrides.q : search
+      if (newPage > 0)          p.set('page', String(newPage))
+      if (newSearch.trim())     p.set('q', newSearch.trim())
+      router.push(`?${p.toString()}`, { scroll: false })
+    },
+    [router, search]
+  )
+
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (search !== initialSearch) {
+        pushParams({ q: search, page: 0 })
+      }
+    }, 400)
+    return () => clearTimeout(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
 
   const formatDate = (date: string | Date | null) => {
     if (!date) return 'N/A'
@@ -60,41 +93,21 @@ export default function ExpertClientsContent({
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'requested':
-        return 'bg-blue-100 text-blue-700'
-      case 'in_progress':
-        return 'bg-blue-100 text-blue-700'
-      case 'under_review':
-        return 'bg-yellow-100 text-yellow-700'
-      case 'needs_revision':
-        return 'bg-orange-100 text-orange-700'
-      case 'approved':
-        return 'bg-green-100 text-green-700'
-      case 'rejected':
-        return 'bg-red-100 text-red-700'
-      case 'closed':
-        return 'bg-gray-100 text-gray-700'
-      default:
-        return 'bg-gray-100 text-gray-700'
+      case 'requested':     return 'bg-blue-100 text-blue-700'
+      case 'in_progress':   return 'bg-blue-100 text-blue-700'
+      case 'under_review':  return 'bg-yellow-100 text-yellow-700'
+      case 'needs_revision':return 'bg-orange-100 text-orange-700'
+      case 'approved':      return 'bg-green-100 text-green-700'
+      case 'rejected':      return 'bg-red-100 text-red-700'
+      case 'closed':        return 'bg-gray-100 text-gray-700'
+      default:              return 'bg-gray-100 text-gray-700'
     }
   }
 
   const getStatusDisplay = (status: string) => {
     if (status === 'closed') return 'Closed'
-    return status.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ')
+    return status.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
   }
-
-  // Filter applications based on search query
-  const filteredApplications = applications.filter(app => {
-    if (!searchQuery) return true
-    const query = searchQuery.toLowerCase()
-    const name = (app.application_name || '').toLowerCase()
-    const state = (app.state || '').toLowerCase()
-    const agency = (app.agency_id ? (agencyNames[app.agency_id] || '') : '').toLowerCase()
-    return name.includes(query) || state.includes(query) || agency.includes(query)
-  })
 
   return (
     <div className="space-y-4 sm:space-y-6 mt-20">
@@ -112,8 +125,8 @@ export default function ExpertClientsContent({
         <input
           type="text"
           placeholder="Search applications by name or state..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           suppressHydrationWarning
         />
@@ -121,7 +134,6 @@ export default function ExpertClientsContent({
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-        {/* Total Applications */}
         <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md border border-gray-100">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -132,7 +144,6 @@ export default function ExpertClientsContent({
           <div className="text-xs sm:text-sm text-gray-600">Total Applications</div>
         </div>
 
-        {/* Active Applications */}
         <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md border border-gray-100">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-lg flex items-center justify-center">
@@ -143,7 +154,6 @@ export default function ExpertClientsContent({
           <div className="text-xs sm:text-sm text-gray-600">Active Applications</div>
         </div>
 
-        {/* Pending Reviews */}
         <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md border border-gray-100">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -158,7 +168,7 @@ export default function ExpertClientsContent({
       {/* Applications Table */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
-          {filteredApplications.length > 0 ? (
+          {applications.length > 0 ? (
             <table className="w-full min-w-[800px]">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
@@ -173,9 +183,9 @@ export default function ExpertClientsContent({
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredApplications.map((application) => (
-                  <tr 
-                    key={application.id} 
+                {applications.map((application) => (
+                  <tr
+                    key={application.id}
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
                     onClick={() => router.push(`/pages/expert/applications/${application.id}`)}
                   >
@@ -244,7 +254,8 @@ export default function ExpertClientsContent({
                     </td>
                     <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm">
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation()
                           setLoadingApplicationId(application.id)
                           router.push(`/pages/expert/applications/${application.id}`)
                         }}
@@ -270,13 +281,42 @@ export default function ExpertClientsContent({
               <FileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
               <h3 className="text-lg font-semibold text-gray-900 mb-2">No applications assigned</h3>
               <p className="text-gray-600">
-                {searchQuery 
-                  ? 'No applications match your search criteria.' 
-                  : 'You don\'t have any assigned applications yet. Once applications are assigned to you, they will appear here.'}
+                {search
+                  ? 'No applications match your search criteria.'
+                  : "You don't have any assigned applications yet. Once applications are assigned to you, they will appear here."}
               </p>
             </div>
           )}
         </div>
+
+        {/* Pagination footer */}
+        {totalCount > 0 && (
+          <div className="px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
+            <p className="text-sm text-gray-600">
+              Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
+              <span className="font-medium">{totalCount}</span> applications
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => pushParams({ page: page - 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" /> Prev
+              </button>
+              <span className="text-sm text-gray-600">Page {page + 1} of {totalPages}</span>
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => pushParams({ page: page + 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

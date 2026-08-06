@@ -399,6 +399,49 @@ export async function getApplicationsByAssignedExpertId(supabase: Supabase, expe
     .limit(500)
 }
 
+export interface GetApplicationsByExpertPaginatedOpts {
+  page?: number
+  pageSize?: number
+  search?: string
+}
+
+/** Paginated applications for an expert. Searches application_name and state. */
+export async function getApplicationsByAssignedExpertIdPaginated(
+  supabase: Supabase,
+  expertUserId: string,
+  opts?: GetApplicationsByExpertPaginatedOpts
+) {
+  const page     = opts?.page     ?? 0
+  const pageSize = opts?.pageSize ?? 50
+  const from     = page * pageSize
+  const to       = from + pageSize - 1
+
+  let dataQuery = supabase
+    .from('applications')
+    .select(APPLICATIONS_COLUMNS)
+    .eq('assigned_expert_id', expertUserId)
+    .order('created_at', { ascending: false })
+    .range(from, to)
+
+  let countQuery = supabase
+    .from('applications')
+    .select('id', { count: 'exact', head: true })
+    .eq('assigned_expert_id', expertUserId)
+
+  if (opts?.search?.trim()) {
+    const term = `%${opts.search.trim()}%`
+    dataQuery  = dataQuery.or(`application_name.ilike.${term},state.ilike.${term}`)
+    countQuery = countQuery.or(`application_name.ilike.${term},state.ilike.${term}`)
+  }
+
+  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
+  return {
+    data:  dataResult.data  ?? [],
+    count: countResult.count ?? 0,
+    error: dataResult.error ?? countResult.error,
+  }
+}
+
 /** Get applications by assigned_expert_id with select (e.g. for expert detail). */
 export async function getApplicationsByAssignedExpertIdSelect(
   supabase: Supabase,

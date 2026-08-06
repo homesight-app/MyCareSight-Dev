@@ -697,6 +697,9 @@ export default function UserManagementTabs({
             {/* Client List with Filters */}
             <ClientListWithFilters
               clients={clients || []}
+              totalCount={clients?.length ?? 0}
+              page={0}
+              pageSize={clients?.length ?? 50}
               expertsByUserId={expertsByUserId}
               allExperts={allExperts || []}
               statesByClient={statesByClient}

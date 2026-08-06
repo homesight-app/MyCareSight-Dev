@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Plus, Search, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import AddAgencyModal, { type AgencyAdminOption } from './AddAgencyModal'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import { setAgencyStatus } from '@/app/actions/agencies'
@@ -34,25 +34,87 @@ interface AgenciesContentProps {
   agencyAdmins: AgencyAdminOption[]
   agencyAdminsForSelect: AgencyAdminOption[]
   detailBasePath?: string
+  totalCount: number
+  page: number
+  pageSize: number
+  initialSearch?: string
+  initialStatus?: string
+  initialSortKey?: string
+  initialSortDir?: 'asc' | 'desc'
 }
 
-type SortKey = 'name' | 'admin' | 'created' | 'status'
+type SortKey = 'name' | 'created' | 'status'
 
 export default function AgenciesContent({
   agencies,
   agencyAdmins,
   agencyAdminsForSelect,
   detailBasePath,
+  totalCount,
+  page,
+  pageSize,
+  initialSearch = '',
+  initialStatus = 'active',
+  initialSortKey = 'name',
+  initialSortDir = 'asc',
 }: AgenciesContentProps) {
   const router = useRouter()
   const [modalOpen, setModalOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive' | 'all'>('active')
+  const [search, setSearch] = useState(initialSearch)
+  const [statusFilter, setStatusFilter] = useState(initialStatus)
   const [togglingId, setTogglingId] = useState<string | null>(null)
-  const [sortKey, setSortKey] = useState<SortKey>('name')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [sortKey, setSortKey] = useState<SortKey>(initialSortKey as SortKey)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSortDir)
 
-  const closeModal = () => setModalOpen(false)
+  const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
+  const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
+  const displayTo   = Math.min((page + 1) * pageSize, totalCount)
+
+  const pushParams = useCallback(
+    (overrides: { page?: number; q?: string; status?: string; sortKey?: string; sortDir?: string }) => {
+      const p = new URLSearchParams()
+      const newPage    = overrides.page    ?? 0
+      const newSearch  = overrides.q       !== undefined ? overrides.q    : search
+      const newStatus  = overrides.status  !== undefined ? overrides.status  : statusFilter
+      const newSortKey = overrides.sortKey !== undefined ? overrides.sortKey : sortKey
+      const newSortDir = overrides.sortDir !== undefined ? overrides.sortDir : sortDir
+      if (newPage    > 0)              p.set('page',    String(newPage))
+      if (newSearch.trim())            p.set('q',       newSearch.trim())
+      if (newStatus !== 'active')      p.set('status',  newStatus)
+      if (newSortKey !== 'name')       p.set('sortKey', newSortKey)
+      if (newSortDir !== 'asc')        p.set('sortDir', newSortDir)
+      router.push(`?${p.toString()}`, { scroll: false })
+    },
+    [router, search, statusFilter, sortKey, sortDir]
+  )
+
+  // Debounced search — fires 400ms after user stops typing
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (search !== initialSearch) {
+        pushParams({ q: search, page: 0 })
+      }
+    }, 400)
+    return () => clearTimeout(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
+
+  const handleStatusChange = (value: string) => {
+    setStatusFilter(value)
+    pushParams({ status: value, page: 0 })
+  }
+
+  function handleSort(key: SortKey) {
+    const newDir = sortKey === key && sortDir === 'asc' ? 'desc' : 'asc'
+    setSortKey(key)
+    setSortDir(newDir)
+    pushParams({ sortKey: key, sortDir: newDir, page: 0 })
+  }
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 opacity-40" />
+    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+  }
 
   const getAdminsDisplay = (agencyAdminIds: string[]) => {
     if (!agencyAdminIds?.length) return '—'
@@ -81,54 +143,6 @@ export default function AgenciesContent({
     }
   }
 
-  function handleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('asc') }
-  }
-
-  function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 opacity-40" />
-    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-  }
-
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    const list = agencies.filter((a) => {
-      const matchesStatus =
-        statusFilter === 'all' ||
-        (statusFilter === 'active' ? (a.status ?? 'active') === 'active' : (a.status ?? 'active') === 'inactive')
-      const matchesSearch =
-        !term ||
-        a.name.toLowerCase().includes(term) ||
-        getAdminsDisplay(normalizeAgencyAdminIds(a.agency_admin_ids)).toLowerCase().includes(term)
-      return matchesStatus && matchesSearch
-    })
-
-    return list.sort((a, b) => {
-      let cmp = 0
-      if (sortKey === 'name') cmp = a.name.localeCompare(b.name)
-      if (sortKey === 'admin') {
-        const aA = getAdminsDisplay(normalizeAgencyAdminIds(a.agency_admin_ids))
-        const bA = getAdminsDisplay(normalizeAgencyAdminIds(b.agency_admin_ids))
-        cmp = aA.localeCompare(bA)
-      }
-      if (sortKey === 'created') cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      if (sortKey === 'status') {
-        const aS = (a.status ?? 'active') === 'active' ? 0 : 1
-        const bS = (b.status ?? 'active') === 'active' ? 0 : 1
-        cmp = aS - bS
-      }
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agencies, search, statusFilter, sortKey, sortDir])
-
-  const counts = useMemo(() => ({
-    active: agencies.filter(a => (a.status ?? 'active') === 'active').length,
-    inactive: agencies.filter(a => (a.status ?? 'active') === 'inactive').length,
-    all: agencies.length,
-  }), [agencies])
-
   const handleToggleStatus = async (e: React.ChangeEvent<HTMLInputElement>, agency: Agency) => {
     e.stopPropagation()
     const next = (agency.status ?? 'active') === 'active' ? 'inactive' : 'active'
@@ -146,14 +160,16 @@ export default function AgenciesContent({
         {/* Header */}
         <div className="px-4 py-4 sm:px-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h2 className="text-lg font-semibold text-gray-900"></h2>
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Add New Agency
-          </button>
+          {agencyAdminsForSelect.length >= 0 && (
+            <button
+              type="button"
+              onClick={() => setModalOpen(true)}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              Add New Agency
+            </button>
+          )}
         </div>
 
         {/* Search + Filter toolbar */}
@@ -168,7 +184,7 @@ export default function AgenciesContent({
               <button
                 key={key}
                 type="button"
-                onClick={() => setStatusFilter(key)}
+                onClick={() => handleStatusChange(key)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                   statusFilter === key
                     ? 'bg-white text-gray-900 shadow-sm'
@@ -176,9 +192,6 @@ export default function AgenciesContent({
                 }`}
               >
                 {label}
-                <span className={`ml-1.5 text-xs ${statusFilter === key ? 'text-blue-600' : 'text-gray-400'}`}>
-                  {counts[key]}
-                </span>
               </button>
             ))}
           </div>
@@ -190,7 +203,7 @@ export default function AgenciesContent({
               type="search"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search by name or admin…"
+              placeholder="Search by name…"
               className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
           </div>
@@ -204,8 +217,8 @@ export default function AgenciesContent({
                 <th scope="col" className={thCls} onClick={() => handleSort('name')}>
                   <span className="inline-flex items-center gap-1">Agency Name <SortIcon col="name" /></span>
                 </th>
-                <th scope="col" className={thCls} onClick={() => handleSort('admin')}>
-                  <span className="inline-flex items-center gap-1">Agency Admin <SortIcon col="admin" /></span>
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Agency Admin
                 </th>
                 <th scope="col" className={thCls} onClick={() => handleSort('created')}>
                   <span className="inline-flex items-center gap-1">Created <SortIcon col="created" /></span>
@@ -216,7 +229,7 @@ export default function AgenciesContent({
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filtered.length === 0 ? (
+              {agencies.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-gray-500 text-sm">
                     {search || statusFilter !== 'all'
@@ -225,7 +238,7 @@ export default function AgenciesContent({
                   </td>
                 </tr>
               ) : (
-                filtered.map((agency) => {
+                agencies.map((agency) => {
                   const isActive = (agency.status ?? 'active') === 'active'
                   const isToggling = togglingId === agency.id
 
@@ -265,12 +278,41 @@ export default function AgenciesContent({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination footer */}
+        {totalCount > 0 && (
+          <div className="px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
+            <p className="text-sm text-gray-600">
+              Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
+              <span className="font-medium">{totalCount}</span> agencies
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => pushParams({ page: page - 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" /> Prev
+              </button>
+              <span className="text-sm text-gray-600">Page {page + 1} of {totalPages}</span>
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => pushParams({ page: page + 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <AddAgencyModal
         isOpen={modalOpen}
-        onClose={closeModal}
-        onSuccess={closeModal}
+        onClose={() => setModalOpen(false)}
+        onSuccess={() => setModalOpen(false)}
         agencyAdmins={agencyAdmins}
         agencyAdminsForSelect={agencyAdminsForSelect}
         editAgency={null}

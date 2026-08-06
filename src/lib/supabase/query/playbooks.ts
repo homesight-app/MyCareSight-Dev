@@ -383,6 +383,51 @@ export async function getApplicationsWithProgramsByAgencyId(supabase: Supabase, 
     .order('created_at', { ascending: false })
 }
 
+export interface GetApplicationsWithProgramsPaginatedOpts {
+  page?: number
+  pageSize?: number
+  search?: string
+}
+
+/** Paginated list of applications that have at least one playbook item (RLS-filtered). */
+export async function getApplicationsWithProgramsPaginated(
+  supabase: Supabase,
+  opts?: GetApplicationsWithProgramsPaginatedOpts
+) {
+  const page     = opts?.page     ?? 0
+  const pageSize = opts?.pageSize ?? 50
+  const from     = page * pageSize
+  const to       = from + pageSize - 1
+
+  let dataQuery = supabase
+    .from('applications')
+    .select(`
+      id, application_name, state, status, agency_id, assigned_expert_id,
+      agencies(id, name),
+      application_playbook_items!inner(status, requirement_type)
+    `)
+    .order('created_at', { ascending: false })
+    .range(from, to)
+
+  let countQuery = supabase
+    .from('applications')
+    .select('id', { count: 'exact', head: true })
+    .not('playbook_id', 'is', null)
+
+  if (opts?.search?.trim()) {
+    const term = `%${opts.search.trim()}%`
+    dataQuery  = dataQuery.ilike('application_name', term)
+    countQuery = countQuery.ilike('application_name', term)
+  }
+
+  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
+  return {
+    data:  dataResult.data  ?? [],
+    count: countResult.count ?? 0,
+    error: dataResult.error ?? countResult.error,
+  }
+}
+
 // ─── Rule check management ────────────────────────────────────────────────────
 
 export async function insertApplicationRuleCheck(

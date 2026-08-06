@@ -16,6 +16,7 @@ async function requireAdminSupabase() {
 
 export type FilteredAgencyAdminsPayload = {
   clients: Record<string, unknown>[]
+  totalCount: number
   statesByClient: Record<string, string[]>
   casesByClient: Record<string, unknown[]>
   unreadMessagesByClient: Record<string, number>
@@ -27,13 +28,18 @@ export async function fetchFilteredAgencyAdminsAction(filters: {
   selectedState: string
   selectedStatus: string
   selectedExpert: string
+  page?: number
+  pageSize?: number
 }): Promise<{ error: string | null; data: FilteredAgencyAdminsPayload | null }> {
   const ctx = await requireAdminSupabase()
   if (ctx.error) return { error: ctx.error, data: null }
   const { supabase, user } = ctx
   if (!user) return { error: 'Not authenticated', data: null }
 
-  const { data: clients, error } = await q.getAgencyAdminsFiltered(supabase, {
+  const page     = filters.page     ?? 0
+  const pageSize = filters.pageSize ?? 50
+
+  const { data: allClients, error } = await q.getAgencyAdminsFiltered(supabase, {
     search: filters.search.trim() || undefined,
     status: filters.selectedStatus,
     expertUserId: filters.selectedExpert,
@@ -41,14 +47,19 @@ export async function fetchFilteredAgencyAdminsAction(filters: {
   })
 
   if (error) return { error: error.message, data: null }
-  const rows = (clients ?? []) as Record<string, unknown>[]
-  const clientIds = rows.map((c) => String(c.id)).filter(Boolean)
+
+  const allRows    = (allClients ?? []) as Record<string, unknown>[]
+  const totalCount = allRows.length
+  const from       = page * pageSize
+  const rows       = allRows.slice(from, from + pageSize)
+  const clientIds  = rows.map((c) => String(c.id)).filter(Boolean)
 
   if (clientIds.length === 0) {
     return {
       error: null,
       data: {
         clients: [],
+        totalCount,
         statesByClient: {},
         casesByClient: {},
         unreadMessagesByClient: {},
@@ -105,6 +116,7 @@ export async function fetchFilteredAgencyAdminsAction(filters: {
     error: null,
     data: {
       clients: rows,
+      totalCount,
       statesByClient,
       casesByClient,
       unreadMessagesByClient,

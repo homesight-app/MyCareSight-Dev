@@ -100,6 +100,58 @@ export async function getAgenciesOrdered(supabase: Supabase) {
   return supabase.from('agencies').select('*').order('created_at', { ascending: false })
 }
 
+export interface GetAgenciesPaginatedOpts {
+  page?: number
+  pageSize?: number
+  search?: string
+  status?: string
+  sortKey?: string
+  sortDir?: 'asc' | 'desc'
+}
+
+export async function getAgenciesFilteredPaginated(
+  supabase: Supabase,
+  opts?: GetAgenciesPaginatedOpts
+) {
+  const page     = opts?.page     ?? 0
+  const pageSize = opts?.pageSize ?? 50
+  const from     = page * pageSize
+  const to       = from + pageSize - 1
+
+  const sortCol = opts?.sortKey === 'created' ? 'created_at'
+                : opts?.sortKey === 'status'  ? 'status'
+                : 'name'
+  const ascending = (opts?.sortDir ?? 'asc') === 'asc'
+
+  let dataQuery = supabase
+    .from('agencies')
+    .select('*')
+    .order(sortCol, { ascending })
+    .range(from, to)
+
+  let countQuery = supabase
+    .from('agencies')
+    .select('id', { count: 'exact', head: true })
+
+  if (opts?.search?.trim()) {
+    const term = `%${opts.search.trim()}%`
+    dataQuery  = dataQuery.ilike('name', term)
+    countQuery = countQuery.ilike('name', term)
+  }
+
+  if (opts?.status && opts.status !== 'all') {
+    dataQuery  = dataQuery.eq('status', opts.status)
+    countQuery = countQuery.eq('status', opts.status)
+  }
+
+  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
+  return {
+    data:  dataResult.data  ?? [],
+    count: countResult.count ?? 0,
+    error: dataResult.error ?? countResult.error,
+  }
+}
+
 export async function getAgenciesForBilling(supabase: Supabase) {
   return supabase
     .from('agencies')
@@ -138,6 +190,20 @@ export async function getAgencyAdminsByIds(supabase: Supabase, ids: string[]) {
 
 export async function getAllClientsOrdered(supabase: Supabase) {
   return supabase.from('agency_admins').select('*').order('created_at', { ascending: false })
+}
+
+export async function getAllClientsOrderedPaginated(supabase: Supabase, page: number, pageSize: number) {
+  const from = page * pageSize
+  const to   = from + pageSize - 1
+  const [dataResult, countResult] = await Promise.all([
+    supabase.from('agency_admins').select('*').order('created_at', { ascending: false }).range(from, to),
+    supabase.from('agency_admins').select('id', { count: 'exact', head: true }),
+  ])
+  return {
+    data:  dataResult.data  ?? [],
+    count: countResult.count ?? 0,
+    error: dataResult.error ?? countResult.error,
+  }
 }
 
 /** Escape `%` / `_` for Postgres ILIKE patterns. */

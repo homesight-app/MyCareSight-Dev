@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import ClientCardMenu from './ClientCardMenu'
 import { fetchFilteredAgencyAdminsAction } from '@/app/actions/admin-list-filters'
 import {
@@ -11,6 +12,8 @@ import {
   MapPin,
   Calendar,
   Building2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 
 interface Client {
@@ -32,6 +35,9 @@ interface Expert {
 
 interface ClientListWithFiltersProps {
   clients: Client[]
+  totalCount: number
+  page: number
+  pageSize: number
   expertsByUserId: Record<string, Expert>
   allExperts: Expert[]
   statesByClient: Record<string, string[]>
@@ -50,12 +56,16 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 
 export default function ClientListWithFilters({
   clients,
+  totalCount,
+  page,
+  pageSize,
   expertsByUserId,
   allExperts,
   statesByClient,
   casesByClient,
   unreadMessagesByClient,
 }: ClientListWithFiltersProps) {
+  const router = useRouter()
   const [searchInput, setSearchInput] = useState('')
   const debouncedSearch = useDebouncedValue(searchInput, 300)
   const [selectedState, setSelectedState] = useState('All States')
@@ -71,10 +81,27 @@ export default function ClientListWithFilters({
     [debouncedSearch, selectedState, selectedStatus, selectedExpert]
   )
 
+  // Pagination for the unfiltered (server-rendered) view
+  const [filterPage, setFilterPage] = useState(0)
+
+  const pushPage = useCallback(
+    (newPage: number) => {
+      const p = new URLSearchParams()
+      if (newPage > 0) p.set('page', String(newPage))
+      router.push(`?${p.toString()}`, { scroll: false })
+    },
+    [router]
+  )
+
   const [serverPayload, setServerPayload] = useState<Awaited<
     ReturnType<typeof fetchFilteredAgencyAdminsAction>
   >['data']>(null)
   const [filterLoading, setFilterLoading] = useState(false)
+
+  // Reset filter page when filter criteria change
+  useEffect(() => {
+    setFilterPage(0)
+  }, [debouncedSearch, selectedState, selectedStatus, selectedExpert])
 
   useEffect(() => {
     if (!hasServerFilter) {
@@ -89,6 +116,8 @@ export default function ClientListWithFilters({
       selectedState,
       selectedStatus,
       selectedExpert,
+      page: filterPage,
+      pageSize,
     }).then((res) => {
       if (cancelled) return
       if (res.error) {
@@ -101,12 +130,19 @@ export default function ClientListWithFilters({
     return () => {
       cancelled = true
     }
-  }, [hasServerFilter, debouncedSearch, selectedState, selectedStatus, selectedExpert])
+  }, [hasServerFilter, debouncedSearch, selectedState, selectedStatus, selectedExpert, filterPage, pageSize])
 
   const displayClients = hasServerFilter ? ((serverPayload?.clients ?? []) as unknown as Client[]) : clients
   const displayStatesByClient = hasServerFilter ? serverPayload?.statesByClient ?? {} : statesByClient
   const displayCasesByClient = hasServerFilter ? serverPayload?.casesByClient ?? {} : casesByClient
   const displayUnreadByClient = hasServerFilter ? serverPayload?.unreadMessagesByClient ?? {} : unreadMessagesByClient
+
+  // Pagination — for unfiltered view use URL-driven; for filtered use client-side filterPage
+  const activeTotalCount = hasServerFilter ? (serverPayload?.totalCount ?? 0) : totalCount
+  const activePage       = hasServerFilter ? filterPage : page
+  const totalPages       = Math.max(1, Math.ceil(activeTotalCount / pageSize))
+  const displayFrom      = activeTotalCount === 0 ? 0 : activePage * pageSize + 1
+  const displayTo        = Math.min((activePage + 1) * pageSize, activeTotalCount)
 
   const expertLookup = useMemo(() => {
     if (!hasServerFilter || !serverPayload?.expertsByUserId) return expertsByUserId
@@ -300,6 +336,34 @@ export default function ClientListWithFilters({
           )
         }
       </div>
+
+      {activeTotalCount > 0 && !filterLoading && (
+        <div className="px-6 py-3 bg-white rounded-xl border border-gray-100 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p className="text-sm text-gray-600">
+            Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
+            <span className="font-medium">{activeTotalCount}</span> clients
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={activePage === 0}
+              onClick={() => hasServerFilter ? setFilterPage(p => p - 1) : pushPage(page - 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" /> Prev
+            </button>
+            <span className="text-sm text-gray-600">Page {activePage + 1} of {totalPages}</span>
+            <button
+              type="button"
+              disabled={activePage >= totalPages - 1}
+              onClick={() => hasServerFilter ? setFilterPage(p => p + 1) : pushPage(page + 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }

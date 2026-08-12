@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import {
   Home,
-  FileBadge,
   UserCircle,
   Users,
   CalendarDays,
@@ -15,11 +14,12 @@ import {
   FileStack,
   ClipboardList,
   Award,
+  Lock,
 } from 'lucide-react'
-import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
 import AppSidebar, { type MenuItemDef } from './ui/AppSidebar'
 import LinkNavigationOverlay from './LinkNavigationOverlay'
+import UpgradePromptModal from './UpgradePromptModal'
 import { createClient } from '@/lib/supabase/client'
 import { getCareVisitsPendingBadgeCountAction } from '@/app/actions/care-visits-badge'
 
@@ -35,13 +35,8 @@ interface DashboardLayoutProps {
   } | null
   careVisitsPendingCount?: number
   timeBillingPendingCount?: number
-  application?: {
-    id: string
-    state: string
-    progress_percentage: number | null
-  } | null
-  activeLicenseTab?: 'overview' | 'checklist' | 'documents'
-  onLicenseTabChange?: (tab: 'overview' | 'checklist' | 'documents') => void
+  /** null = unrestricted (no plan assigned). Array = the allowed feature keys for this agency. */
+  allowedFeatures?: string[] | null
 }
 
 export default function DashboardLayout({
@@ -50,16 +45,14 @@ export default function DashboardLayout({
   profile,
   careVisitsPendingCount,
   timeBillingPendingCount,
-  application = null,
+  allowedFeatures,
 }: DashboardLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [resolvedCareVisits, setResolvedCareVisits] = useState(careVisitsPendingCount ?? 0)
   const [resolvedTimeBilling, setResolvedTimeBilling] = useState(timeBillingPendingCount ?? 0)
-  const isApplicationDetailPage =
-    pathname?.startsWith('/pages/agency/applications/') && pathname !== '/pages/agency/applications'
-
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
   useEffect(() => {
     if (typeof careVisitsPendingCount === 'number') {
       setResolvedCareVisits(careVisitsPendingCount)
@@ -94,51 +87,88 @@ export default function DashboardLayout({
     return () => { mounted = false }
   }, [timeBillingPendingCount, profile?.role, pathname])
 
-  const menuItems: MenuItemDef[] = profile?.role === 'care_coordinator'
-    ? [
-        { href: '/pages/agency/clients',      label: 'Clients',        icon: UserCircle, title: 'Clients' },
-        { href: '/pages/agency/caregiver',    label: 'Caregivers',     icon: Users,      title: 'Caregivers' },
-        { href: '/pages/agency/care-visits',  label: 'Care Visits',    icon: CalendarDays, badge: resolvedCareVisits || undefined, title: 'Care Visits' },
-        { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign, badge: resolvedTimeBilling || undefined, title: 'Time & Billing' },
-        { href: '/pages/agency/reports',      label: 'Reports',        icon: BarChart3,  title: 'Reports' },
-      ]
-    : [
-        { href: '/pages/agency',                  label: 'Home',           icon: Home,          title: 'Home' },
-        { href: '/pages/agency/licenses',         label: 'Licenses',       icon: FileBadge,     title: 'Licenses' },
-        { href: '/pages/agency/certifications',   label: 'Certifications', icon: Award,         title: 'Certifications' },
-        { href: '/pages/agency/programs',         label: 'Programs',       icon: ClipboardList, title: 'Programs' },
-        { href: '/pages/agency/clients',      label: 'Clients',        icon: UserCircle,    title: 'Clients' },
-        { href: '/pages/agency/caregiver',    label: 'Caregivers',     icon: Users,       title: 'Caregivers' },
-        { href: '/pages/agency/care-visits',  label: 'Care Visits',    icon: CalendarDays, badge: resolvedCareVisits || undefined, title: 'Care Visits' },
-        { href: '/pages/agency/time-billing', label: 'Time & Billing', icon: DollarSign,  badge: resolvedTimeBilling || undefined, title: 'Time & Billing' },
-        { href: '/pages/agency/leads',        label: 'Leads',          icon: Target,      title: 'Leads' },
-        { href: '/pages/agency/templates',    label: 'Templates',      icon: FileStack,   title: 'Templates' },
-        { href: '/pages/agency/reports',      label: 'Reports',        icon: BarChart3,   title: 'Reports' },
-        { href: '/pages/agency/configuration', label: 'Configuration', icon: Settings,    title: 'Configuration' },
-      ]
+  function isAllowed(featureKey: string): boolean {
+    if (allowedFeatures == null) return true
+    return allowedFeatures.includes(featureKey)
+  }
 
-  const licenseWidget = isApplicationDetailPage && application ? (
-    <div className="px-3">
-      <div className="text-green-400 text-xs font-medium mb-1">Current License</div>
-      <div className="text-xl font-bold text-white mb-2">
-        {application.state.length > 2
-          ? application.state.substring(0, 2).toUpperCase()
-          : application.state.toUpperCase()}
-      </div>
-      <div className="text-xs font-medium text-slate-400 mb-1">Progress</div>
-      <div className="w-full bg-slate-700 rounded-full h-1.5 mb-1">
-        <div
-          className="bg-green-400 h-1.5 rounded-full transition-all"
-          style={{ width: `${application.progress_percentage || 0}%` }}
-        />
-      </div>
-      <div className="text-xs text-slate-500">{application.progress_percentage || 0}% Complete</div>
-    </div>
-  ) : null
+  const allOwnerItems: (MenuItemDef & { featureKey: string })[] = [
+    { href: '/pages/agency',                  label: 'Home',           icon: Home,          title: 'Home',           featureKey: 'home' },
+    { href: '/pages/agency/certifications',   label: 'Certifications', icon: Award,         title: 'Certifications', featureKey: 'certifications' },
+    { href: '/pages/agency/programs',         label: 'Programs',       icon: ClipboardList, title: 'Programs',       featureKey: 'programs' },
+    { href: '/pages/agency/clients',          label: 'Clients',        icon: UserCircle,    title: 'Clients',        featureKey: 'clients' },
+    { href: '/pages/agency/caregiver',        label: 'Caregivers',     icon: Users,         title: 'Caregivers',     featureKey: 'caregivers' },
+    { href: '/pages/agency/care-visits',      label: 'Care Visits',    icon: CalendarDays,  title: 'Care Visits',    featureKey: 'care_visits', badge: resolvedCareVisits || undefined },
+    { href: '/pages/agency/time-billing',     label: 'Time & Billing', icon: DollarSign,    title: 'Time & Billing', featureKey: 'time_billing', badge: resolvedTimeBilling || undefined },
+    { href: '/pages/agency/leads',            label: 'Leads',          icon: Target,        title: 'Leads',          featureKey: 'leads' },
+    { href: '/pages/agency/templates',        label: 'Templates',      icon: FileStack,     title: 'Templates',      featureKey: 'templates' },
+    { href: '/pages/agency/reports',          label: 'Reports',        icon: BarChart3,     title: 'Reports',        featureKey: 'reports' },
+    { href: '/pages/agency/configuration',    label: 'Configuration',  icon: Settings,      title: 'Configuration',  featureKey: 'configuration' },
+  ]
+
+  const coordinatorItems: (MenuItemDef & { featureKey: string })[] = [
+    { href: '/pages/agency/clients',          label: 'Clients',        icon: UserCircle,    title: 'Clients',        featureKey: 'clients' },
+    { href: '/pages/agency/caregiver',        label: 'Caregivers',     icon: Users,         title: 'Caregivers',     featureKey: 'caregivers' },
+    { href: '/pages/agency/care-visits',      label: 'Care Visits',    icon: CalendarDays,  title: 'Care Visits',    featureKey: 'care_visits', badge: resolvedCareVisits || undefined },
+    { href: '/pages/agency/time-billing',     label: 'Time & Billing', icon: DollarSign,    title: 'Time & Billing', featureKey: 'time_billing', badge: resolvedTimeBilling || undefined },
+    { href: '/pages/agency/reports',          label: 'Reports',        icon: BarChart3,     title: 'Reports',        featureKey: 'reports' },
+  ]
+
+  const sourceItems = profile?.role === 'care_coordinator' ? coordinatorItems : allOwnerItems
+
+  // Split into accessible and locked menu items
+  const menuItems: MenuItemDef[] = []
+  const lockedItems: (MenuItemDef & { featureKey: string })[] = []
+  for (const item of sourceItems) {
+    if (isAllowed(item.featureKey)) {
+      menuItems.push(item)
+    } else {
+      lockedItems.push(item)
+    }
+  }
 
   const activePage = [...menuItems]
     .sort((a, b) => b.href.length - a.href.length)
     .find(item => pathname.startsWith(item.href))
+
+  const lockedSidebarContent = lockedItems.length > 0 ? (
+    <div className="space-y-0.5">
+      {lockedItems.map(item => {
+        const Icon = item.icon
+        return (
+          <button
+            key={item.featureKey}
+            type="button"
+            onClick={() => setUpgradeOpen(true)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg w-full text-sm text-slate-300 cursor-not-allowed border-l-2 border-transparent pl-[10px] hover:bg-white/5 transition-colors"
+            title={`${item.label} — not included in your plan`}
+          >
+            <div className="relative flex-shrink-0">
+              <Icon className="w-5 h-5" strokeWidth={2} />
+            </div>
+            {!collapsed && (
+              <div className="flex items-center justify-between min-w-0 w-full">
+                <span className="truncate">{item.label}</span>
+                <Lock className="w-3.5 h-3.5 shrink-0 ml-2" strokeWidth={2} />
+              </div>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  ) : null
+
+  const collapsed_ = collapsed
+
+  const sidebarExtra = (
+    <>
+      {lockedSidebarContent && !collapsed_ && (
+        <div className="mt-1 border-t border-slate-700/30 pt-1">
+          {lockedSidebarContent}
+        </div>
+      )}
+    </>
+  )
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -163,7 +193,7 @@ export default function DashboardLayout({
           onCollapse={setCollapsed}
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
-          extraContent={licenseWidget}
+          extraContent={sidebarExtra}
         />
 
         <main
@@ -174,6 +204,8 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+
+      <UpgradePromptModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </div>
   )
 }

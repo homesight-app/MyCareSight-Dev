@@ -1,17 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { 
-  Users, 
-  CheckCircle2, 
-  Clock, 
+import {
+  Users,
+  CheckCircle2,
+  Clock,
   Search,
   Plus,
   Mail,
   Phone,
   Medal,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -70,6 +72,12 @@ interface StaffManagementClientProps {
   staffRoleNames: string[]
   canManageNotes?: boolean
   agencyId?: string
+  totalCount: number
+  page: number
+  pageSize: number
+  initialSearch?: string
+  initialRole?: string
+  initialStatus?: string
 }
 
 export default function StaffManagementClient({
@@ -82,6 +90,12 @@ export default function StaffManagementClient({
   staffRoleNames,
   canManageNotes,
   agencyId,
+  totalCount,
+  page,
+  pageSize,
+  initialSearch = '',
+  initialRole = 'all',
+  initialStatus = 'all',
 }: StaffManagementClientProps) {
   const router = useRouter()
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -92,9 +106,9 @@ export default function StaffManagementClient({
   const [isEditInformationOpen, setIsEditInformationOpen] = useState(false)
   const [isManageLicensesOpen, setIsManageLicensesOpen] = useState(false)
   const [isManageDocumentsOpen, setIsManageDocumentsOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedRole, setSelectedRole] = useState('all')
-  const [selectedStatus, setSelectedStatus] = useState('all')
+  const [searchQuery, setSearchQuery] = useState(initialSearch)
+  const [selectedRole, setSelectedRole] = useState(initialRole)
+  const [selectedStatus, setSelectedStatus] = useState(initialStatus)
   /** Local copy so status toggles update UI immediately; resets when server props change. */
   const [localStaffList, setLocalStaffList] = useState<(StaffMember & { expiringLicensesCount?: number })[]>(
     staffWithExpiringLicenses
@@ -106,6 +120,36 @@ export default function StaffManagementClient({
     setLocalStaffList(staffWithExpiringLicenses)
   }, [staffWithExpiringLicenses])
 
+  const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
+  const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
+  const displayTo   = Math.min((page + 1) * pageSize, totalCount)
+
+  const pushParams = useCallback(
+    (overrides: { page?: number; q?: string; role?: string; status?: string }) => {
+      const p = new URLSearchParams()
+      const newPage   = overrides.page ?? 0
+      const newSearch = overrides.q      !== undefined ? overrides.q      : searchQuery
+      const newRole   = overrides.role   !== undefined ? overrides.role   : selectedRole
+      const newStatus = overrides.status !== undefined ? overrides.status : selectedStatus
+      if (newPage > 0)          p.set('page',   String(newPage))
+      if (newSearch.trim())     p.set('q',      newSearch.trim())
+      if (newRole !== 'all')    p.set('role',   newRole)
+      if (newStatus !== 'all')  p.set('status', newStatus)
+      router.push(`?${p.toString()}`, { scroll: false })
+    },
+    [router, searchQuery, selectedRole, selectedStatus]
+  )
+
+  // Debounced search
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (searchQuery !== initialSearch) {
+        pushParams({ q: searchQuery, page: 0 })
+      }
+    }, 400)
+    return () => clearTimeout(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery])
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0]}${lastName[0]}`.toUpperCase()
@@ -158,34 +202,8 @@ export default function StaffManagementClient({
   }
 
   // Filter staff members based on search query and filters
-  const filteredStaffMembers = localStaffList.filter((staff) => {
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      const matchesSearch = 
-        staff.first_name.toLowerCase().includes(query) ||
-        staff.last_name.toLowerCase().includes(query) ||
-        staff.email.toLowerCase().includes(query) ||
-        staff.role.toLowerCase().includes(query) ||
-        (staff.job_title && staff.job_title.toLowerCase().includes(query)) ||
-        (staff.employee_id && staff.employee_id.toLowerCase().includes(query)) ||
-        (staff.address && staff.address.toLowerCase().includes(query))
-      
-      if (!matchesSearch) return false
-    }
-
-    // Role filter
-    if (selectedRole !== 'all' && staff.role !== selectedRole) {
-      return false
-    }
-
-    // Status filter
-    if (selectedStatus !== 'all' && staff.status !== selectedStatus) {
-      return false
-    }
-
-    return true
-  })
+  // Server-side filtered; localStaffList is the current page from the server.
+  const filteredStaffMembers = localStaffList
 
   const handleViewProfile = (staff: StaffMember) => {
     setSelectedStaff(staff)
@@ -283,21 +301,19 @@ export default function StaffManagementClient({
             />
           </div>
           <div className="flex gap-2">
-            <select 
+            <select
               value={selectedRole}
-              onChange={(e) => setSelectedRole(e.target.value)}
+              onChange={(e) => { setSelectedRole(e.target.value); pushParams({ role: e.target.value, page: 0 }) }}
               className="px-4 py-3 border border-gray-300 cursor-pointer rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
             >
               <option value="all">All Roles</option>
-              {
-                staffRoleNames.map((roleName) => (
-                  <option key={roleName} value={roleName}>{roleName}</option>
-                ))
-              }
+              {staffRoleNames.map((roleName) => (
+                <option key={roleName} value={roleName}>{roleName}</option>
+              ))}
             </select>
-            <select 
+            <select
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => { setSelectedStatus(e.target.value); pushParams({ status: e.target.value, page: 0 }) }}
               className="px-4 py-3 border border-gray-300 rounded-xl cursor-pointer focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
             >
               <option value="all">All Status</option>
@@ -550,6 +566,7 @@ export default function StaffManagementClient({
                 setSearchQuery('')
                 setSelectedRole('all')
                 setSelectedStatus('all')
+                pushParams({ q: '', role: 'all', status: 'all', page: 0 })
               }}
               className="inline-flex items-center gap-2 px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition-all"
             >
@@ -557,6 +574,35 @@ export default function StaffManagementClient({
             </button>
           </div>
         ) : null}
+
+        {/* Pagination footer */}
+        {totalCount > 0 && (
+          <div className="mt-4 px-6 py-3 bg-white rounded-xl border border-gray-100 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <p className="text-sm text-gray-600">
+              Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
+              <span className="font-medium">{totalCount}</span> caregivers
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => pushParams({ page: page - 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" /> Prev
+              </button>
+              <span className="text-sm text-gray-600">Page {page + 1} of {totalPages}</span>
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => pushParams({ page: page + 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}

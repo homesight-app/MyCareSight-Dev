@@ -93,6 +93,7 @@ export async function getApplicationDocumentsByApplicationId(supabase: Supabase,
     .select(APPLICATION_DOCUMENTS_COLUMNS)
     .eq('application_id', applicationId)
     .order('created_at', { ascending: false })
+    .limit(100)
 }
 
 /** Insert application_document and return. */
@@ -545,7 +546,7 @@ export async function closeApplicationManualUpdate(
     .not('status', 'in', '("approved","rejected")')
 }
 
-/** Set application status to 'complete' with audit columns. */
+/** Move application to 'under_review' (same as finishing all steps), with audit columns. */
 export async function completeApplicationManualUpdate(
   supabase: Supabase,
   applicationId: string,
@@ -556,7 +557,7 @@ export async function completeApplicationManualUpdate(
   return supabase
     .from('applications')
     .update({
-      status: 'complete',
+      status: 'under_review',
       completed_by: completedBy,
       completed_at: new Date().toISOString(),
       complete_reason: completeReason,

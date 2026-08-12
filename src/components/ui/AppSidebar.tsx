@@ -36,8 +36,8 @@ export default function AppSidebar({
   mobileOpen,
   onMobileClose,
   extraContent,
-  logoSrc = '/MyCareSight_Logo2.png',
-  logoIconSrc = '/mycaresight-icon.png',
+  logoSrc = '/MyCareSight-Logo Bleu.png',
+  logoIconSrc = '/MyCareSight-Icon Bleu.png',
 }: AppSidebarProps) {
   const pathname = usePathname()
 

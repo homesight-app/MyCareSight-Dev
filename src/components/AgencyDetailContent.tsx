@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -30,10 +30,14 @@ import {
   MessageSquare,
   StickyNote,
   Eye,
+  Layers,
+  Lock,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
+import { assignPlanToAgency } from '@/app/actions/feature-plans'
+import { AGENCY_FEATURES } from '@/lib/constants/feature-keys'
 import { fetchLeadDocumentsAction, fetchLeadNotesAction } from '@/app/actions/leads'
 import { LEAD_STAGES } from '@/lib/constants/lead-configs'
 import CreateLicenseModal from './CreateLicenseModal'
@@ -76,6 +80,8 @@ interface Agency {
   state_specific_data?: Record<string, unknown> | null
   // Fields added in migration 113
   phone_number?: string | null
+  primary_contact_first_name?: string | null
+  primary_contact_last_name?: string | null
   email?: string | null
   region_service_area?: string | null
   is_on_call?: boolean | null
@@ -218,10 +224,15 @@ interface FetchedNote {
   author: { full_name: string | null } | { full_name: string | null }[] | null
 }
 
+export interface FeaturePlanSummary {
+  id: string
+  name: string
+  plan_features: { feature_key: string }[]
+}
+
 interface AgencyDetailContentProps {
-  agency: Agency
+  agency: Agency & { plan_id?: string | null }
   licenses: License[]
-  applications: Application[]
   programs?: Program[]
   agencyAdmins: AgencyAdmin[]
   availableAdmins: AgencyAdmin[]
@@ -231,6 +242,7 @@ interface AgencyDetailContentProps {
   keyStaff?: AgencyKeyStaff[]
   agencyLeads?: AgencyLead[]
   agencyLeadDocuments?: AgencyLeadDocument[]
+  featurePlans?: FeaturePlanSummary[]
 }
 
 type OrgFormState = {
@@ -256,6 +268,8 @@ type OrgFormState = {
   npi: string
   stateSpecificData: Record<string, unknown>
   phoneNumber: string
+  primaryContactFirstName: string
+  primaryContactLastName: string
   agencyEmail: string
   regionServiceArea: string
   isOnCall: boolean
@@ -279,7 +293,7 @@ const STATUS_COLORS: Record<string, string> = {
   expired: 'bg-red-100 text-red-700',
 }
 
-type AgencySection = 'business' | 'addresses' | 'tax' | 'contacts' | 'additional'
+type AgencySection = 'business' | 'addresses' | 'tax' | 'contacts' | 'additional' | 'plan_access'
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
@@ -352,7 +366,6 @@ function Field({ label, value, isEditing, onChange, className }: FieldProps) {
 export default function AgencyDetailContent({
   agency,
   licenses,
-  applications,
   agencyAdmins,
   availableAdmins,
   backPath,
@@ -362,6 +375,7 @@ export default function AgencyDetailContent({
   agencyLeads = [],
   agencyLeadDocuments = [],
   programs = [],
+  featurePlans = [],
 }: AgencyDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -442,6 +456,9 @@ export default function AgencyDetailContent({
   const [editingSection, setEditingSection] = useState<AgencySection | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(agency.plan_id ?? '')
+  const [planSaveError, setPlanSaveError] = useState<string | null>(null)
+  const [planSaving, startPlanSave] = useTransition()
   const [addLicenseOpen, setAddLicenseOpen] = useState(false)
   const [selectedCertId, setSelectedCertId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expiring' | 'expired'>('all')
@@ -451,11 +468,6 @@ export default function AgencyDetailContent({
   const [licSearch, setLicSearch] = useState('')
   const [licSortKey, setLicSortKey] = useState<'name' | 'state' | 'number' | 'activated' | 'expires' | 'status'>('name')
   const [licSortDir, setLicSortDir] = useState<'asc' | 'desc'>('asc')
-  // Application table filter + sort
-  const [appSearch, setAppSearch] = useState('')
-  const [appStatusFilter, setAppStatusFilter] = useState('all')
-  const [appSortKey, setAppSortKey] = useState<'name' | 'state' | 'status' | 'progress' | 'started' | 'updated'>('started')
-  const [appSortDir, setAppSortDir] = useState<'asc' | 'desc'>('desc')
   // Program table filter + sort
   const [programSearch, setProgramSearch] = useState('')
   const [programStatusFilter, setProgramStatusFilter] = useState('all')
@@ -502,6 +514,8 @@ export default function AgencyDetailContent({
     npi: agency.npi ?? '',
     stateSpecificData: agency.state_specific_data ?? {},
     phoneNumber: agency.phone_number ?? '',
+    primaryContactFirstName: agency.primary_contact_first_name ?? '',
+    primaryContactLastName: agency.primary_contact_last_name ?? '',
     agencyEmail: agency.email ?? '',
     regionServiceArea: agency.region_service_area ?? '',
     isOnCall: agency.is_on_call ?? false,
@@ -607,26 +621,6 @@ export default function AgencyDetailContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [licenses, statusFilter, licSearch, licSortKey, licSortDir])
 
-  // Applications: filter + sort
-  const displayedApplications = useMemo(() => {
-    const term = appSearch.trim().toLowerCase()
-    const list = applications.filter(a => {
-      if (appStatusFilter !== 'all' && a.status !== appStatusFilter) return false
-      if (term && !a.application_name.toLowerCase().includes(term) && !a.state.toLowerCase().includes(term)) return false
-      return true
-    })
-    return list.sort((a, b) => {
-      let cmp = 0
-      if (appSortKey === 'name') cmp = a.application_name.localeCompare(b.application_name)
-      if (appSortKey === 'state') cmp = a.state.localeCompare(b.state)
-      if (appSortKey === 'status') cmp = a.status.localeCompare(b.status)
-      if (appSortKey === 'progress') cmp = (a.progress_percentage ?? 0) - (b.progress_percentage ?? 0)
-      if (appSortKey === 'started') cmp = (a.started_date ?? '').localeCompare(b.started_date ?? '')
-      if (appSortKey === 'updated') cmp = (a.last_updated_date ?? '').localeCompare(b.last_updated_date ?? '')
-      return appSortDir === 'asc' ? cmp : -cmp
-    })
-  }, [applications, appSearch, appStatusFilter, appSortKey, appSortDir])
-
   // Programs: filter + sort
   const displayedPrograms = useMemo(() => {
     const term = programSearch.trim().toLowerCase()
@@ -655,8 +649,7 @@ export default function AgencyDetailContent({
     })
   }, [programs, programSearch, programStatusFilter, programSortKey, programSortDir])
 
-  // Unique statuses present in apps/programs for filter dropdowns
-  const appStatuses = useMemo(() => Array.from(new Set(applications.map(a => a.status))).sort(), [applications])
+  // Unique statuses present in programs for filter dropdown
   const programStatuses = useMemo(() => Array.from(new Set(programs.map(p => p.status))).sort(), [programs])
 
 
@@ -947,141 +940,6 @@ export default function AgencyDetailContent({
             )}
           </div>
 
-          {/* License Applications section */}
-          <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2 shrink-0">
-                <FileText className="w-5 h-5 text-blue-600" />
-                <h2 className="text-base font-semibold text-gray-900">License Applications</h2>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-                  <input
-                    type="search"
-                    value={appSearch}
-                    onChange={e => setAppSearch(e.target.value)}
-                    placeholder="Search…"
-                    className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none w-44"
-                  />
-                </div>
-                <div className="relative">
-                  <select
-                    value={appStatusFilter}
-                    onChange={e => setAppStatusFilter(e.target.value)}
-                    className="appearance-none pl-3 pr-7 py-1.5 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                  >
-                    <option value="all">All Statuses</option>
-                    {appStatuses.map(s => (
-                      <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-                </div>
-                <ApplyForNewLicenseButton
-                  agencyId={agency.id}
-                  agencyName={agency.name}
-                  label="New Application"
-                />
-              </div>
-            </div>
-
-            {applications.length === 0 ? (
-              <div className="px-6 py-10 text-center text-sm text-gray-500">
-                No license applications found for this agency.
-              </div>
-            ) : displayedApplications.length === 0 ? (
-              <div className="px-6 py-10 text-center text-sm text-gray-500">No applications match the selected filters.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      {([
-                        ['name',    'Application Name'],
-                        ['state',   'State'],
-                        ['status',  'Status'],
-                        ['progress','Progress'],
-                        ['started', 'Started'],
-                        ['updated', 'Last Updated'],
-                      ] as const).map(([key, label]) => (
-                        <th
-                          key={key}
-                          onClick={() => makeHandleSort(key, appSortKey, setAppSortKey, appSortDir, setAppSortDir)()}
-                          className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700"
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            {label} <SortIcon active={appSortKey === key} dir={appSortDir} />
-                          </span>
-                        </th>
-                      ))}
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {displayedApplications.map((app) => {
-                      const pct = app.progress_percentage ?? 0
-                      const agencyDetailHref = `${backPath}/${agency.id}`
-                      const appDetailPath = `${backPath.startsWith('/pages/admin') ? '/pages/admin/licenses' : '/pages/expert'}/applications/${app.id}?back=${encodeURIComponent(agencyDetailHref)}`
-                      return (
-                        <tr key={app.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <FileText className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                              <span className="text-sm font-medium text-gray-900">{app.application_name}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5 text-sm text-gray-700">
-                              <MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                              {app.state}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${APP_STATUS_COLORS[app.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                              {app.status.replace(/_/g, ' ')}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2 min-w-[120px]">
-                              <div className="flex-1 bg-gray-200 rounded-full h-1.5">
-                                <div
-                                  className="bg-blue-600 h-1.5 rounded-full transition-all"
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                              <span className="text-xs text-gray-500 w-8 text-right">{pct}%</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                              <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
-                              {formatDate(app.started_date)}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                              <Clock className="w-3.5 h-3.5 flex-shrink-0" />
-                              {formatDate(app.last_updated_date)}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right whitespace-nowrap">
-                            <Link
-                              href={appDetailPath}
-                              className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
-                            >
-                              View Details
-                            </Link>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
           {/* Programs section */}
           <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
@@ -1220,11 +1078,12 @@ export default function AgencyDetailContent({
             {/* Left sidebar */}
             <div className="w-48 flex-shrink-0 border-r border-gray-200 py-4 pr-2 space-y-1">
               {(([
-                { id: 'business',   label: 'Business Info' },
-                { id: 'addresses',  label: 'Addresses' },
-                { id: 'tax',        label: 'Tax Info' },
-                { id: 'contacts',   label: 'Contacts' },
-                { id: 'additional', label: 'Additional' },
+                { id: 'business',    label: 'Business Info' },
+                { id: 'addresses',   label: 'Addresses' },
+                { id: 'tax',         label: 'Tax Info' },
+                { id: 'contacts',    label: 'Contacts' },
+                { id: 'additional',  label: 'Additional' },
+                { id: 'plan_access', label: 'Plan & Access' },
               ]) as { id: AgencySection; label: string }[]).map(s => (
                 <button
                   key={s.id}
@@ -1464,6 +1323,8 @@ export default function AgencyDetailContent({
                     )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="First Name" value={orgForm.primaryContactFirstName} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, primaryContactFirstName: val }))} />
+                    <Field label="Last Name" value={orgForm.primaryContactLastName} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, primaryContactLastName: val }))} />
                     <Field label="Phone Number" value={orgForm.phoneNumber} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, phoneNumber: val }))} />
                     <Field label="Email" value={orgForm.agencyEmail} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, agencyEmail: val }))} />
                     <Field label="Fax Number" value={orgForm.faxNumber} isEditing={editingSection === 'contacts'} onChange={val => setOrgForm(f => ({ ...f, faxNumber: val }))} />
@@ -1510,6 +1371,91 @@ export default function AgencyDetailContent({
                     <AgencyOnboardingLinkPanel agencyId={agency.id} agencyName={agency.name} activeToken={activeToken} />
                   )}
                   <AgencyAdminsSection agencyId={agency.id} agencyAdmins={agencyAdmins} availableAdmins={availableAdmins} />
+                </div>
+              )}
+
+              {/* ── Plan & Access ── */}
+              {activeSection === 'plan_access' && (
+                <div>
+                  <div className="flex items-center gap-2 mb-6">
+                    <Layers className="w-5 h-5 text-slate-600" />
+                    <h3 className="text-base font-semibold text-gray-900">Plan & Access</h3>
+                  </div>
+
+                  {featurePlans.length === 0 ? (
+                    <p className="text-sm text-slate-500">No feature plans have been created yet. Go to Admin → Feature Plans to create one.</p>
+                  ) : (
+                    <div className="space-y-6 max-w-md">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Current Plan</label>
+                        <div className="flex items-center gap-3">
+                          <select
+                            value={selectedPlanId}
+                            onChange={e => { setSelectedPlanId(e.target.value); setPlanSaveError(null) }}
+                            disabled={!canEdit}
+                            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-600 disabled:bg-gray-50 disabled:text-gray-500"
+                          >
+                            <option value="">No plan (all features)</option>
+                            {featurePlans.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              disabled={planSaving}
+                              onClick={() => {
+                                setPlanSaveError(null)
+                                startPlanSave(async () => {
+                                  const result = await assignPlanToAgency(agency.id, selectedPlanId || null)
+                                  if (result.error) setPlanSaveError(result.error)
+                                })
+                              }}
+                              className="px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                            >
+                              {planSaving ? 'Saving…' : 'Save'}
+                            </button>
+                          )}
+                        </div>
+                        {planSaveError && <p className="text-sm text-red-600 mt-2">{planSaveError}</p>}
+                      </div>
+
+                      {/* Feature list for the selected plan */}
+                      {(() => {
+                        const plan = featurePlans.find(p => p.id === selectedPlanId)
+                        if (!plan) {
+                          return (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                              <p className="text-sm font-medium text-green-800 mb-1">Unrestricted access</p>
+                              <p className="text-xs text-green-600">This agency has access to all features.</p>
+                            </div>
+                          )
+                        }
+                        const enabledKeys = new Set(plan.plan_features.map(f => f.feature_key))
+                        const sectionFeatures = AGENCY_FEATURES.filter(f => f.parentKey === null)
+                        return (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Features in this plan</label>
+                            <div className="space-y-1.5">
+                              {sectionFeatures.map(f => {
+                                const enabled = enabledKeys.has(f.key)
+                                return (
+                                  <div key={f.key} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm ${enabled ? 'bg-green-50 text-green-800' : 'bg-gray-50 text-gray-400'}`}>
+                                    {enabled ? (
+                                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                                    ) : (
+                                      <Lock className="w-4 h-4 text-gray-300 shrink-0" />
+                                    )}
+                                    <span>{f.label}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1805,6 +1751,7 @@ export default function AgencyDetailContent({
         onSuccess={() => setAddLicenseOpen(false)}
         agencyId={agency.id}
         agencyName={agency.name}
+        availablePrograms={programs.map(p => ({ id: p.id, application_name: p.application_name, status: p.status }))}
       />
     </div>
   )

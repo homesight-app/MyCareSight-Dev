@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
-import { Users, Building2, FileText, ClipboardList } from 'lucide-react'
+import { Building2, ClipboardList } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
 import AppSidebar, { type MenuItemDef } from './ui/AppSidebar'
@@ -20,10 +20,8 @@ interface ExpertDashboardLayoutProps {
 }
 
 const MENU_ITEMS: MenuItemDef[] = [
-  { href: '/pages/expert/clients',      label: 'Licenses',     icon: Users,          title: 'Licenses' },
   { href: '/pages/expert/programs',     label: 'Programs',     icon: ClipboardList,  title: 'Programs' },
   { href: '/pages/expert/agencies',     label: 'Agency',       icon: Building2,      title: 'Agencies' },
-  { href: '/pages/expert/applications', label: 'Applications', icon: FileText,       title: 'Applications' },
 ]
 
 export default function ExpertDashboardLayout({

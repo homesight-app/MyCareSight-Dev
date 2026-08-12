@@ -31,7 +31,7 @@ export async function getMessagesByConversationIds(supabase: Supabase, conversat
     .select('id, conversation_id, sender_id, content, created_at, is_read')
     .in('conversation_id', conversationIds)
     .order('created_at', { ascending: false })
-    .limit(5000)
+    .limit(500)
 }
 
 /** Unread messages for a user across conversations (newest first), server-capped. Prefer over {@link getMessagesByConversationIds}. */

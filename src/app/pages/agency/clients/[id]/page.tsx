@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ClientDetailContent from '@/components/ClientDetailContent'
 import { getCachedAgencyClientDetailBundle } from '@/lib/server-cache/agency-client-detail-bundle'
+import { getAgencyAllowedFeatures } from '@/lib/feature-access'
 
 export default async function ClientDetailPage({
   params
@@ -31,6 +32,9 @@ export default async function ClientDetailPage({
   const canManageNotes =
     role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
 
+  const allowedFeatures = await getAgencyAllowedFeatures(agencyId)
+  const canSchedule = allowedFeatures === null || allowedFeatures.includes('clients_scheduling')
+
   return (
     <ClientDetailContent
       client={bundle.client}
@@ -48,6 +52,7 @@ export default async function ClientDetailPage({
       initialAddresses={addresses ?? []}
       canManageNotes={canManageNotes}
       agencyId={agencyId ?? undefined}
+      canSchedule={canSchedule}
     />
   )
 }

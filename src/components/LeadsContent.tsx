@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, MoreVertical, Archive, ArchiveRestore, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, Info, X } from 'lucide-react'
+import { Plus, Search, MoreVertical, Archive, ArchiveRestore, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Info, X } from 'lucide-react'
 import AddLeadModal from './AddLeadModal'
 import LeadsKanbanBoard from './LeadsKanbanBoard'
 import LeadSignedModal from './LeadSignedModal'
@@ -35,20 +35,46 @@ interface Lead {
 
 interface LeadsContentProps {
   leads: Lead[]
+  totalCount?: number
+  page?: number
+  pageSize?: number
+  initialSearch?: string
+  initialStageFilter?: string
+  initialServiceType?: string
+  initialSource?: string
+  initialSortKey?: string
+  initialSortDir?: 'asc' | 'desc'
+  stageCounts?: Record<string, number>
+  allSources?: string[]
   context: LeadContext
   taskStatus?: Record<string, 'overdue' | 'today'>
 }
 
-export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsContentProps) {
+export default function LeadsContent({
+  leads,
+  totalCount = leads.length,
+  page = 0,
+  pageSize = leads.length || 50,
+  initialSearch = '',
+  initialStageFilter = 'active',
+  initialServiceType = 'all',
+  initialSource = 'all',
+  initialSortKey = 'created_at',
+  initialSortDir = 'desc',
+  stageCounts: stageCountsProp,
+  allSources: allSourcesProp,
+  context,
+  taskStatus = {},
+}: LeadsContentProps) {
   const router = useRouter()
   type SortKey = 'name' | 'company' | 'service_type' | 'stage' | 'price' | 'signed_date' | 'source' | 'created_at'
 
-  const [search, setSearch] = useState('')
-  const [stageFilter, setStageFilter] = useState<string>('active')
-  const [serviceTypeFilter, setServiceTypeFilter] = useState<string>('all')
-  const [sourceFilter, setSourceFilter] = useState<string>('all')
-  const [sortKey, setSortKey] = useState<SortKey>('created_at')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [search, setSearch] = useState(initialSearch)
+  const [stageFilter, setStageFilter] = useState<string>(initialStageFilter)
+  const [serviceTypeFilter, setServiceTypeFilter] = useState<string>(initialServiceType)
+  const [sourceFilter, setSourceFilter] = useState<string>(initialSource)
+  const [sortKey, setSortKey] = useState<SortKey>(initialSortKey as SortKey)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSortDir)
   const [modalOpen, setModalOpen] = useState(false)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [unarchivingId, setUnarchivingId] = useState<string | null>(null)
@@ -81,88 +107,65 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
     return context.serviceTypes.find(s => s.key === key)?.label ?? key
   }
 
+  // Pagination
+  const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
+  const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
+  const displayTo   = Math.min((page + 1) * pageSize, totalCount)
+
+  const pushParams = useCallback(
+    (overrides: {
+      page?: number; q?: string; stage?: string; serviceType?: string
+      source?: string; sortKey?: string; sortDir?: string
+    }) => {
+      const p = new URLSearchParams()
+      const newPage        = overrides.page        ?? 0
+      const newSearch      = overrides.q           !== undefined ? overrides.q           : search
+      const newStage       = overrides.stage       !== undefined ? overrides.stage       : stageFilter
+      const newServiceType = overrides.serviceType !== undefined ? overrides.serviceType : serviceTypeFilter
+      const newSource      = overrides.source      !== undefined ? overrides.source      : sourceFilter
+      const newSortKey     = overrides.sortKey     !== undefined ? overrides.sortKey     : sortKey
+      const newSortDir     = overrides.sortDir     !== undefined ? overrides.sortDir     : sortDir
+      if (newPage > 0)                    p.set('page',        String(newPage))
+      if (newSearch.trim())               p.set('q',           newSearch.trim())
+      if (newStage !== 'active')          p.set('stage',       newStage)
+      if (newServiceType !== 'all')       p.set('serviceType', newServiceType)
+      if (newSource !== 'all')            p.set('source',      newSource)
+      if (newSortKey !== 'created_at')    p.set('sortKey',     newSortKey)
+      if (newSortDir !== 'desc')          p.set('sortDir',     newSortDir)
+      router.push(`?${p.toString()}`, { scroll: false })
+    },
+    [router, search, stageFilter, serviceTypeFilter, sourceFilter, sortKey, sortDir]
+  )
+
+  // Debounced search
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (search !== initialSearch) pushParams({ q: search, page: 0 })
+    }, 400)
+    return () => clearTimeout(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
+
   const handleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortKey(key)
-      setSortDir('asc')
-    }
+    const newDir = sortKey === key && sortDir === 'asc' ? 'desc' : 'asc'
+    setSortKey(key)
+    setSortDir(newDir)
+    pushParams({ sortKey: key, sortDir: newDir, page: 0 })
   }
 
+  // Use server-provided sources/counts when available; fall back to deriving from current page leads
   const allSources = useMemo(() => {
+    if (allSourcesProp) return allSourcesProp
     const set = new Set(leads.map(l => l.source).filter(Boolean) as string[])
     return [...set].sort()
-  }, [leads])
+  }, [allSourcesProp, leads])
 
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    const base = leads.filter(lead => {
-      if (stageFilter === 'archived') {
-        if (lead.status !== 'archived') return false
-      } else {
-        if (lead.status === 'archived') return false
-        if (stageFilter === 'active' && ['on_hold', 'lost', 'signed'].includes(lead.stage)) return false
-        if (stageFilter !== 'all' && stageFilter !== 'active' && lead.stage !== stageFilter) return false
-      }
-      if (serviceTypeFilter !== 'all' && lead.service_type !== serviceTypeFilter) return false
-      if (sourceFilter !== 'all' && (lead.source ?? '') !== sourceFilter) return false
-      if (!term) return true
-      const name = `${lead.contact_first_name ?? ''} ${lead.contact_last_name ?? ''}`.toLowerCase()
-      const company = (lead.company_name ?? '').toLowerCase()
-      const email = (lead.contact_email ?? '').toLowerCase()
-      const phone = (lead.contact_phone ?? '').replace(/\D/g, '')
-      const termDigits = term.replace(/\D/g, '')
-      return name.includes(term) || company.includes(term) || email.includes(term) ||
-        (termDigits.length >= 3 && phone.includes(termDigits))
-    })
-
-    return [...base].sort((a, b) => {
-      let av: string | number = ''
-      let bv: string | number = ''
-      switch (sortKey) {
-        case 'name':
-          av = `${a.contact_first_name ?? ''} ${a.contact_last_name ?? ''}`.trim().toLowerCase()
-          bv = `${b.contact_first_name ?? ''} ${b.contact_last_name ?? ''}`.trim().toLowerCase()
-          break
-        case 'company':
-          av = (a.company_name ?? '').toLowerCase()
-          bv = (b.company_name ?? '').toLowerCase()
-          break
-        case 'service_type':
-          av = serviceTypeLabel(a.service_type).toLowerCase()
-          bv = serviceTypeLabel(b.service_type).toLowerCase()
-          break
-        case 'stage':
-          av = a.stage
-          bv = b.stage
-          break
-        case 'price':
-          av = a.price ?? -1
-          bv = b.price ?? -1
-          break
-        case 'signed_date':
-          av = a.signed_date ?? ''
-          bv = b.signed_date ?? ''
-          break
-        case 'source':
-          av = (a.source ?? '').toLowerCase()
-          bv = (b.source ?? '').toLowerCase()
-          break
-        case 'created_at':
-          av = a.created_at
-          bv = b.created_at
-          break
-      }
-      if (av === bv) return 0
-      if (av === '' || av === -1) return 1
-      if (bv === '' || bv === -1) return -1
-      const cmp = av < bv ? -1 : 1
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [leads, search, stageFilter, serviceTypeFilter, sourceFilter, sortKey, sortDir])
+  // Server-driven leads are already filtered — render directly
+  const filtered = leads
 
   const stageCounts = useMemo(() => {
+    if (stageCountsProp) return stageCountsProp
+    // Fallback: compute from current page (less accurate but backward-compatible)
     const nonArchived = leads.filter(l => l.status !== 'archived')
     const counts: Record<string, number> = { all: nonArchived.length }
     counts.active = nonArchived.filter(l => !['on_hold', 'lost', 'signed'].includes(l.stage)).length
@@ -171,7 +174,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
       counts[s.key] = nonArchived.filter(l => l.stage === s.key).length
     }
     return counts
-  }, [leads])
+  }, [stageCountsProp, leads])
 
   const handleArchive = async (e: React.MouseEvent, leadId: string) => {
     e.stopPropagation()
@@ -256,7 +259,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
           <div className="flex items-center gap-1 min-w-max pb-0">
             <button
               type="button"
-              onClick={() => setStageFilter('active')}
+              onClick={() => { setStageFilter('active'); pushParams({ stage: 'active', page: 0 }) }}
               className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                 stageFilter === 'active'
                   ? 'border-blue-600 text-blue-700'
@@ -270,7 +273,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
             </button>
             <button
               type="button"
-              onClick={() => setStageFilter('all')}
+              onClick={() => { setStageFilter('all'); pushParams({ stage: 'all', page: 0 }) }}
               className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                 stageFilter === 'all'
                   ? 'border-blue-600 text-blue-700'
@@ -286,7 +289,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
               <button
                 key={stage.key}
                 type="button"
-                onClick={() => setStageFilter(stage.key)}
+                onClick={() => { setStageFilter(stage.key); pushParams({ stage: stage.key, page: 0 }) }}
                 className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                   stageFilter === stage.key
                     ? 'border-blue-600 text-blue-700'
@@ -301,7 +304,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
             ))}
             <button
               type="button"
-              onClick={() => setStageFilter('archived')}
+              onClick={() => { setStageFilter('archived'); pushParams({ stage: 'archived', page: 0 }) }}
               className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                 stageFilter === 'archived'
                   ? 'border-gray-500 text-gray-700'
@@ -330,7 +333,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
           </div>
           <select
             value={serviceTypeFilter}
-            onChange={e => setServiceTypeFilter(e.target.value)}
+            onChange={e => { setServiceTypeFilter(e.target.value); pushParams({ serviceType: e.target.value, page: 0 }) }}
             className="py-1.5 pl-2 pr-7 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-gray-600"
           >
             <option value="all">All Service Types</option>
@@ -341,7 +344,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
           {allSources.length > 0 && (
             <select
               value={sourceFilter}
-              onChange={e => setSourceFilter(e.target.value)}
+              onChange={e => { setSourceFilter(e.target.value); pushParams({ source: e.target.value, page: 0 }) }}
               className="py-1.5 pl-2 pr-7 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-gray-600"
             >
               <option value="all">All Sources</option>
@@ -353,7 +356,7 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
           {(serviceTypeFilter !== 'all' || sourceFilter !== 'all') && (
             <button
               type="button"
-              onClick={() => { setServiceTypeFilter('all'); setSourceFilter('all') }}
+              onClick={() => { setServiceTypeFilter('all'); setSourceFilter('all'); pushParams({ serviceType: 'all', source: 'all', page: 0 }) }}
               className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
             >
               Clear filters
@@ -362,6 +365,33 @@ export default function LeadsContent({ leads, context, taskStatus = {} }: LeadsC
         </div>
 
         {/* Table — list mode only */}
+        {/* Pagination footer — list mode only */}
+        {viewMode === 'list' && totalCount > 0 && (
+          <div className="px-6 py-3 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
+            <p className="text-sm text-gray-600">
+              Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
+              <span className="font-medium">{totalCount}</span> leads
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={page === 0}
+                onClick={() => pushParams({ page: page - 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" /> Prev
+              </button>
+              <span className="text-sm text-gray-600">Page {page + 1} of {totalPages}</span>
+              <button
+                disabled={page >= totalPages - 1}
+                onClick={() => pushParams({ page: page + 1 })}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {viewMode === 'list' && <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">

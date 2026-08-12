@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ClientsContent from '@/components/ClientsContent'
+import FeatureGate from '@/components/FeatureGate'
 
 const PAGE_SIZE = 50
 
@@ -35,15 +36,17 @@ export default async function ClientsPage({
   const totalCount = clientsResult.count ?? 0
 
   return (
-    <ClientsContent
-      clients={clients}
-      totalCount={totalCount}
-      activeCount={counts.active}
-      totalAllCount={counts.total}
-      page={page}
-      pageSize={PAGE_SIZE}
-      search={search}
-      statusFilter={statusFilter}
-    />
+    <FeatureGate feature="clients" agencyId={agencyId}>
+      <ClientsContent
+        clients={clients}
+        totalCount={totalCount}
+        activeCount={counts.active}
+        totalAllCount={counts.total}
+        page={page}
+        pageSize={PAGE_SIZE}
+        search={search}
+        statusFilter={statusFilter}
+      />
+    </FeatureGate>
   )
 }

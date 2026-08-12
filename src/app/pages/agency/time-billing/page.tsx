@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import TimeBillingContent from '@/components/TimeBillingContent'
+import FeatureGate from '@/components/FeatureGate'
 import { fetchTimeBillingRows } from '@/lib/time-billing-dashboard'
 
 export default async function TimeBillingPage({
@@ -13,6 +14,8 @@ export default async function TimeBillingPage({
   if (!session) redirect('/pages/auth/login')
 
   const supabase = await createClient()
+
+  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 
   const params = await searchParams
   const now = new Date()
@@ -27,11 +30,13 @@ export default async function TimeBillingPage({
   const dashboard = await fetchTimeBillingRows(supabase, { startDate, endDate })
 
   return (
-    <TimeBillingContent
-      rows={dashboard.rows}
-      loadError={dashboard.error}
-      selectedMonth={selectedMonth}
-      selectedYear={selectedYear}
-    />
+    <FeatureGate feature="time_billing" agencyId={agencyId}>
+      <TimeBillingContent
+        rows={dashboard.rows}
+        loadError={dashboard.error}
+        selectedMonth={selectedMonth}
+        selectedYear={selectedYear}
+      />
+    </FeatureGate>
   )
 }

@@ -4,8 +4,6 @@ import { useState, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import {
   Home,
-  FileBadge,
-  FileText,
   DollarSign,
   UserCog,
   Settings,
@@ -15,6 +13,7 @@ import {
   FileStack,
   ClipboardList,
   BookOpen,
+  Layers,
 } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
@@ -34,16 +33,15 @@ interface AdminLayoutProps {
 
 const MENU_ITEMS = [
   { href: '/pages/admin',                      label: 'Dashboard',           icon: Home,      title: 'Dashboard',           subtitle: 'Monitor and manage all licensing cases' },
-  { href: '/pages/admin/licenses',             label: 'Licenses',            icon: FileBadge,       title: 'License Applications', subtitle: 'Review and manage all license application requests' },
   { href: '/pages/admin/programs',             label: 'Programs',            icon: ClipboardList,   title: 'Programs',             subtitle: 'Track active license programs, requirements, and progress' },
   { href: '/pages/admin/playbooks',            label: 'Playbooks',           icon: BookOpen, title: 'Playbooks',            subtitle: 'Create and manage reusable playbook templates' },
-  { href: '/pages/admin/license-requirements', label: 'License Requirements', icon: FileText, title: 'License Requirements' },
   { href: '/pages/admin/billing',              label: 'Billing & Invoicing', icon: DollarSign, title: 'Billing & Invoicing',  subtitle: 'View all agencies and their license applications for invoicing' },
   { href: '/pages/admin/agencies',             label: 'Agency',              icon: Building2, title: 'Agencies' },
   { href: '/pages/admin/leads',                label: 'Leads',               icon: Target,    title: 'Leads' },
   { href: '/pages/admin/templates',            label: 'Templates',           icon: FileStack, title: 'Templates' },
   { href: '/pages/admin/reports',              label: 'Reports',             icon: BarChart3, title: 'Reports',              subtitle: 'Pipeline and revenue analytics for your leads' },
   { href: '/pages/admin/users',                label: 'User Management',     icon: UserCog,   title: 'User Management',     subtitle: 'Manage users, clients, and licensing experts' },
+  { href: '/pages/admin/plans',               label: 'Feature Plans',       icon: Layers,    title: 'Feature Plans',        subtitle: 'Manage plan tiers and agency feature access' },
   { href: '/pages/admin/configuration',        label: 'Configuration',       icon: Settings,  title: 'Configuration' },
 ]
 

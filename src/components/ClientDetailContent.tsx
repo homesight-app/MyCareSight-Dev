@@ -34,8 +34,10 @@ import {
   TrendingUp,
   X,
   Timer,
-  SquareArrowOutUpRight
+  SquareArrowOutUpRight,
+  Lock,
 } from 'lucide-react'
+import UpgradePromptModal from './UpgradePromptModal'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
@@ -246,6 +248,7 @@ interface ClientDetailContentProps {
   initialAddresses?: PatientAddress[]
   canManageNotes?: boolean
   agencyId?: string
+  canSchedule?: boolean
 }
 
 export default function ClientDetailContent({ client, allClients, representatives = [], caregiverRequirements: initialCaregiverRequirements = null,
@@ -255,7 +258,8 @@ export default function ClientDetailContent({ client, allClients, representative
   serviceContracts: initialServiceContracts = [],
   initialAddresses = [],
   canManageNotes = false,
-  agencyId }: ClientDetailContentProps) {
+  agencyId,
+  canSchedule = true }: ClientDetailContentProps) {
   const initialSkilledSchedules = skilledSchedulesProp ?? EMPTY_SKILLED_SCHEDULES
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -263,6 +267,7 @@ export default function ClientDetailContent({ client, allClients, representative
   const [isClientSwitching, setIsClientSwitching] = useState(false)
   const [localClient, setLocalClient] = useState<SmallClient>(client)
   const [activeTab, setActiveTab] = useState(tab ?? 'overview')
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [clientStatus, setClientStatus] = useState(client.status)
   const [loginAccess, setLoginAccess] = useState(client.login_access ?? true)
   const [isEditingPersonal, setIsEditingPersonal] = useState(false)
@@ -4063,19 +4068,28 @@ export default function ClientDetailContent({ client, allClients, representative
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
         <div className="border-b border-gray-200">
           <nav className="flex -mb-px">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+            {tabs.map((tab) => {
+              const isLocked = tab.id === 'schedule' && !canSchedule
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    if (isLocked) { setUpgradeOpen(true); return }
+                    setActiveTab(tab.id)
+                  }}
+                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                    isLocked
+                      ? 'border-transparent text-gray-400 cursor-not-allowed'
+                      : activeTab === tab.id
+                        ? 'border-blue-600 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                  {isLocked && <Lock className="w-3 h-3" />}
+                </button>
+              )
+            })}
           </nav>
         </div>
 
@@ -8275,6 +8289,8 @@ export default function ClientDetailContent({ client, allClients, representative
           </div>
         </div>
       )}
+
+      <UpgradePromptModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </div>
   )
 }

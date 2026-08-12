@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -5,6 +6,7 @@ import LicenseTypesTable from '@/components/LicenseTypesTable'
 
 export default async function LicenseRequirementsPage() {
   await requireAdmin()
+  redirect('/pages/admin')
   const supabase = await createClient()
 
   const { data: licenseTypes } = await q.getLicenseTypesOrderedByStateAndName(

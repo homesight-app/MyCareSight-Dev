@@ -233,6 +233,52 @@ export async function getStaffMembersByAgencyId(
   return query
 }
 
+export interface GetStaffMembersPaginatedOpts {
+  page?: number
+  pageSize?: number
+  search?: string
+  status?: string
+  role?: string
+}
+
+/** Paginated, filtered staff members for an agency. */
+export async function getStaffMembersByAgencyIdPaginated(
+  supabase: Supabase,
+  agencyId: string,
+  opts?: GetStaffMembersPaginatedOpts
+) {
+  const page     = opts?.page     ?? 0
+  const pageSize = opts?.pageSize ?? 50
+  const from     = page * pageSize
+  const to       = from + pageSize - 1
+
+  let dataQuery  = supabase.from('caregiver_members').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }).range(from, to)
+  let countQuery = supabase.from('caregiver_members').select('id', { count: 'exact', head: true }).eq('agency_id', agencyId)
+
+  if (opts?.search?.trim()) {
+    const term = `%${opts.search.trim()}%`
+    dataQuery  = dataQuery.or(`first_name.ilike.${term},last_name.ilike.${term},email.ilike.${term},employee_id.ilike.${term}`)
+    countQuery = countQuery.or(`first_name.ilike.${term},last_name.ilike.${term},email.ilike.${term},employee_id.ilike.${term}`)
+  }
+
+  if (opts?.status && opts.status !== 'all') {
+    dataQuery  = dataQuery.eq('status', opts.status)
+    countQuery = countQuery.eq('status', opts.status)
+  }
+
+  if (opts?.role && opts.role !== 'all') {
+    dataQuery  = dataQuery.eq('role', opts.role)
+    countQuery = countQuery.eq('role', opts.role)
+  }
+
+  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
+  return {
+    data:  dataResult.data  ?? [],
+    count: countResult.count ?? 0,
+    error: dataResult.error ?? countResult.error,
+  }
+}
+
 /** Get one staff member by id scoped to agency_id. */
 export async function getStaffMemberByIdAndAgencyId(
   supabase: Supabase,

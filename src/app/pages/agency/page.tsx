@@ -3,18 +3,14 @@ import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import Link from 'next/link'
-import { 
-  Shield, 
-  Users, 
-  Clock, 
-  Bell, 
-  CheckCircle2, 
-  ArrowRight,
+import {
+  Users,
+  Clock,
+  Bell,
   Calendar,
   FileText,
   AlertCircle
 } from 'lucide-react'
-import ApplyForNewLicenseButton from '@/components/ApplyForNewLicenseButton'
 
 export default async function DashboardPage() {
   const session = await getSession()
@@ -27,16 +23,9 @@ export default async function DashboardPage() {
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 
-  const [licensesResult, applicationsResult, staffResult] = await Promise.all([
-    agencyId ? q.getLicensesByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
-    agencyId ? q.getApplicationsByAgencyId(supabase, agencyId) : Promise.resolve({ data: [] }),
-    agencyId ? q.getStaffMembersByAgencyId(supabase, agencyId, { status: 'active' }) : Promise.resolve({ data: [] }),
-  ])
-  const licenses = licensesResult.data ?? []
-  const applicationsData = applicationsResult.data ?? []
-  const applicationsForDashboard = applicationsData.filter(app =>
-    ['requested', 'in_progress', 'under_review', 'needs_revision', 'approved'].includes(app.status ?? '')
-  )
+  const staffResult = agencyId
+    ? await q.getStaffMembersByAgencyId(supabase, agencyId, { status: 'active' })
+    : { data: [] }
   const staff = staffResult.data ?? []
   const staffIds = (staff || []).map((s: { id: string }) => s.id)
   const { data: staffLicensesData } = staffIds.length > 0
@@ -64,71 +53,6 @@ export default async function DashboardPage() {
 
   const unreadNotifications = (notifications ?? []).filter((n: { is_read?: boolean }) => !n.is_read).length
 
-  type UnifiedLicense = {
-    id: string
-    license_name: string
-    state: string
-    status: string
-    expiry_date: string | null
-    source: 'license' | 'application'
-  }
-
-  const unifiedLicenses: UnifiedLicense[] = [
-    ...licenses.map(license => ({
-      id: license.id,
-      license_name: license.license_name || `${license.state} License`,
-      state: license.state || '',
-      status: license.status || 'active',
-      expiry_date: license.expiry_date ?? null,
-      source: 'license' as const,
-    })),
-    ...applicationsForDashboard.map(app => ({
-      id: app.id,
-      license_name: app.application_name || `${app.state} License`,
-      state: app.state || '',
-      // Treat active application lifecycle as pending licenses for dashboard reflection.
-      status:
-        app.status === 'approved'
-          ? 'active'
-          : app.status === 'rejected' || app.status === 'closed' || app.status === 'cancelled'
-            ? 'expired'
-            : 'pending',
-      expiry_date: app.expiry_date ?? null,
-      source: 'application' as const,
-    })),
-  ]
-
-  const deriveLicenseStatus = (license: UnifiedLicense): 'active' | 'expiring' | 'expired' => {
-    const now = new Date()
-    if (license.expiry_date) {
-      const expiryDate = new Date(license.expiry_date)
-      const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-      if (daysUntilExpiry <= 0) return 'expired'
-      if (daysUntilExpiry <= 60) return 'expiring'
-      return 'active'
-    }
-    if (license.status === 'expired' || license.status === 'rejected' || license.status === 'closed') {
-      return 'expired'
-    }
-    if (license.status === 'pending') {
-      return 'active'
-    }
-    return 'active'
-  }
-
-  const unifiedLicensesWithDerivedStatus = unifiedLicenses.map(license => {
-    const derivedStatus = deriveLicenseStatus(license)
-    return {
-      ...license,
-      derivedStatus,
-      expiryDate: license.expiry_date ? new Date(license.expiry_date) : null,
-    }
-  })
-
-  // Calculate statistics
-  const activeLicenses = unifiedLicensesWithDerivedStatus.filter(l => l.derivedStatus === 'active').length
-  const expiringLicenses = unifiedLicensesWithDerivedStatus.filter(l => l.derivedStatus === 'expiring').length
-
   const expiringStaffCertifications = staffLicenses?.filter(sl => {
     if (sl.days_until_expiry) {
       return sl.days_until_expiry <= 30 && sl.days_until_expiry > 0
@@ -136,8 +60,6 @@ export default async function DashboardPage() {
     return false
   }).length || 0
 
-  // Calculate certification status counts for nursing staff
-  const today = new Date()
   const certifiedCount = staffLicenses?.filter(sl => {
     if (sl.status === 'active' && sl.days_until_expiry !== null && sl.days_until_expiry !== undefined) {
       return sl.days_until_expiry > 30
@@ -159,55 +81,12 @@ export default async function DashboardPage() {
     return sl.status === 'expired'
   }).length || 0
 
-  const expiringSoon = expiringLicenses + expiringStaffCertifications
-
-  // Get recent licenses
-  const recentLicenses = unifiedLicensesWithDerivedStatus
-    .slice()
-    .sort((a, b) => {
-      if (!a.expiry_date) return 1
-      if (!b.expiry_date) return -1
-      return new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime()
-    })
-    .slice(0, 2)
-    .map(license => ({
-      ...license,
-      status: license.derivedStatus,
-    })) || []
-
-  // Get all licenses with status for Action Items
-  const allLicensesWithStatus = unifiedLicensesWithDerivedStatus.map(license => ({
-    ...license,
-    status: license.derivedStatus,
-  }))
-
-  // Get expiring/expired licenses and pending applications for Action Items
-  const expiringLicensesForAction = allLicensesWithStatus
-    .filter(license => license.status === 'expiring' || license.status === 'expired')
-    .slice(0, 3)
-  const pendingApplicationsForAction = unifiedLicensesWithDerivedStatus
-    .filter(license => license.source === 'application' && license.status === 'pending')
-    .slice(0, 3)
-
-  // Format date helper
   const formatDate = (date: string | Date | null) => {
     if (!date) return 'N/A'
     const d = typeof date === 'string' ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00') : new Date(date)) : date
     return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
   }
 
-  const getStateAbbreviation = (state: string) => {
-    if (!state) return 'NA'
-    const trimmed = state.trim()
-    if (trimmed.length <= 2) return trimmed.toUpperCase()
-    const words = trimmed.split(/\s+/).filter(Boolean)
-    if (words.length >= 2) {
-      return `${words[0][0]}${words[1][0]}`.toUpperCase()
-    }
-    return trimmed.slice(0, 2).toUpperCase()
-  }
-
-  // Get notification icon
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'license_expiring':
@@ -224,7 +103,6 @@ export default async function DashboardPage() {
     }
   }
 
-  // Get notification color
   const getNotificationColor = (type: string) => {
     switch (type) {
       case 'license_expiring':
@@ -243,18 +121,7 @@ export default async function DashboardPage() {
   return (
       <div className="space-y-4 sm:space-y-6">
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Active Licenses */}
-          <div className="bg-white rounded-lg p-3 shadow-md border border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                <Shield className="w-4 h-4 text-green-600" />
-              </div>
-            </div>
-            <div className="text-lg font-bold text-gray-900 mb-0.5">{activeLicenses}</div>
-            <div className="text-xs text-gray-600">Active Licenses</div>
-          </div>
-
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Nursing Staff */}
           <div className="bg-white rounded-lg p-3 shadow-md border border-gray-100">
             <div className="flex items-center justify-between mb-2">
@@ -274,11 +141,9 @@ export default async function DashboardPage() {
                 <Clock className="w-4 h-4 text-orange-600" />
               </div>
             </div>
-            <div className="text-lg font-bold text-gray-900 mb-0.5">{expiringSoon}</div>
+            <div className="text-lg font-bold text-gray-900 mb-0.5">{expiringStaffCertifications}</div>
             <div className="text-xs text-gray-600">Expiring Soon</div>
-            <div className="text-xs text-gray-500 mt-0.5">
-              {expiringLicenses} licenses, {expiringStaffCertifications} certifications
-            </div>
+            <div className="text-xs text-gray-500 mt-0.5">Staff certifications</div>
           </div>
 
           {/* Notifications */}
@@ -294,7 +159,7 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Main Content Grid - Nursing Staff & Action Items */}
+        {/* Main Content Grid - Nursing Staff & Recent Notifications */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           {/* Nursing Staff Section */}
           <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 sm:p-6">
@@ -322,7 +187,6 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            {/* Warning Message */}
             {expiringSoonCount > 0 && (
               <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
@@ -332,134 +196,12 @@ export default async function DashboardPage() {
               </div>
             )}
 
-            {/* Manage Staff Certifications Button */}
             <Link
               href="/pages/agency/caregiver"
               className="block w-full text-center py-2.5 px-4 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg text-gray-700 font-medium transition-colors"
             >
               Manage Staff Certifications
             </Link>
-          </div>
-
-          {/* Action Items Section */}
-          <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 sm:p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg sm:text-xl font-bold text-gray-900">Action Items</h2>
-            </div>
-
-            {/* License Information Cards */}
-            <div className="space-y-3 mb-4">
-              {expiringLicensesForAction.length > 0 || pendingApplicationsForAction.length > 0 ? (
-                [...expiringLicensesForAction, ...pendingApplicationsForAction].slice(0, 3).map((license) => (
-                  <div key={license.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="font-semibold text-gray-900">
-                        {license.state} {license.source === 'application' ? 'Application' : 'License'}
-                      </div>
-                      {license.status === 'expiring' && (
-                        <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">
-                          expiring
-                        </span>
-                      )}
-                      {license.status === 'pending' && (
-                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                          pending
-                        </span>
-                      )}
-                    </div>
-                    {license.expiryDate && (
-                      <div className="text-sm text-red-600 font-medium">
-                        Expires {formatDate(license.expiryDate)}
-                      </div>
-                    )}
-                    {!license.expiryDate && license.status === 'pending' && (
-                      <div className="text-sm text-blue-600 font-medium">
-                        In progress
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-6 text-gray-500">
-                  <FileText className="w-10 h-10 mx-auto mb-2 text-gray-300" />
-                  <p className="text-sm">No action items</p>
-                </div>
-              )}
-            </div>
-
-            {/* Apply for New License Button */}
-            <ApplyForNewLicenseButton />
-          </div>
-        </div>
-
-        {/* Additional Sections - Your Licenses & Recent Notifications */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-          {/* Your Licenses */}
-          <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 sm:p-6">
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <h2 className="text-lg sm:text-xl font-bold text-gray-900">Your Licenses</h2>
-              <Link 
-                href="/pages/agency/licenses"
-                className="text-blue-600 hover:text-blue-700 font-medium text-sm flex items-center gap-1"
-              >
-                View All
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-
-            <div className="space-y-4">
-              {recentLicenses.length > 0 ? (
-                recentLicenses.map((license) => (
-                  <div key={license.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                    <div className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold text-white ${
-                      getStateAbbreviation(license.state) === 'CA' ? 'bg-green-500' : 
-                      getStateAbbreviation(license.state) === 'TX' ? 'bg-orange-500' : 
-                      'bg-blue-500'
-                    }`}>
-                      {getStateAbbreviation(license.state)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold text-gray-900">{license.license_name}</div>
-                      <div className="text-sm text-gray-600 flex items-center gap-2 mt-1">
-                        <Calendar className="w-4 h-4" />
-                        Expires {formatDate(license.expiryDate)}
-                      </div>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                      license.status === 'active' 
-                        ? 'bg-black text-white' 
-                        : license.status === 'expiring'
-                        ? 'bg-gray-200 text-gray-700'
-                        : 'bg-red-100 text-red-700'
-                    }`}>
-                      {license.status === 'active' ? 'active' : license.status}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <FileText className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                  <p>No licenses yet</p>
-                  <Link 
-                    href="/pages/agency/licenses"
-                    className="text-blue-600 hover:text-blue-700 text-sm mt-2 inline-block"
-                  >
-                    Add your first license
-                  </Link>
-                </div>
-              )}
-            </div>
-
-            {recentLicenses.length > 0 && (
-              <div className="mt-4">
-                <Link
-                  href="/pages/agency/licenses"
-                  className="block w-full text-center py-2 px-4 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium transition-colors"
-                >
-                  Manage All Licenses
-                </Link>
-              </div>
-            )}
           </div>
 
           {/* Recent Notifications */}

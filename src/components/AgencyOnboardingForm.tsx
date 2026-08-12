@@ -374,12 +374,12 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
               onChange={v => setField('date_of_formation', v)}
               type="date"
             />
-            <FormField
+            {/* <FormField
               label="Date of Incorporation"
               value={form.date_of_incorporation}
               onChange={v => setField('date_of_incorporation', v)}
               type="date"
-            />
+            /> */}
             <FormField
               label="Hours of Operation"
               value={form.hours_of_operation}

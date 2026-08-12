@@ -1,33 +1,12 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
-import * as q from '@/lib/supabase/query'
-import LicenseDetailContent from '@/components/LicenseDetailContent'
 
 export default async function LicenseDetailPage({
-  params
+  params: _params
 }: {
   params: Promise<{ id: string }>
 }) {
   const session = await getSession()
-
-  if (!session) {
-    redirect('/pages/auth/login')
-  }
-
-  const { id } = await params
-  const supabase = await createClient()
-  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
-  if (!agencyId) redirect('/pages/agency/licenses')
-  const { data: license } = await q.getLicenseByIdAndAgencyId(supabase, id, agencyId)
-  if (!license) redirect('/pages/agency/licenses')
-  const { data: documentsData } = await q.getLicenseDocumentsByLicenseId(supabase, id)
-  const documents = documentsData ?? []
-
-  return (
-    <LicenseDetailContent
-      license={license}
-      documents={documents}
-    />
-  )
+  if (!session) redirect('/pages/auth/login')
+  redirect('/pages/agency')
 }

@@ -27,6 +27,8 @@ interface Agency {
   mailing_city?: string | null
   mailing_state?: string | null
   mailing_zip_code?: string | null
+  primary_contact_first_name?: string | null
+  primary_contact_last_name?: string | null
 }
 
 interface AgenciesContentProps {
@@ -218,7 +220,7 @@ export default function AgenciesContent({
                   <span className="inline-flex items-center gap-1">Agency Name <SortIcon col="name" /></span>
                 </th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Agency Admin
+                  Primary Contact
                 </th>
                 <th scope="col" className={thCls} onClick={() => handleSort('created')}>
                   <span className="inline-flex items-center gap-1">Created <SortIcon col="created" /></span>
@@ -252,7 +254,7 @@ export default function AgenciesContent({
                         {agency.name}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">
-                        {getAdminsDisplay(normalizeAgencyAdminIds(agency.agency_admin_ids))}
+                        {[agency.primary_contact_first_name, agency.primary_contact_last_name].filter(Boolean).join(' ') || '—'}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
                         {formatDate(agency.created_at)}

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import VisitManagementContent from '@/components/VisitManagementContent'
+import FeatureGate from '@/components/FeatureGate'
 import { fetchVisitAssignmentDashboardData } from '@/lib/visit-assignment-dashboard'
 import { fetchAllVisitsDashboardData } from '@/lib/visit-all-visits-dashboard'
 
@@ -25,6 +26,7 @@ export default async function CareVisitsPage() {
     dashboard.visits.reduce((sum, v) => sum + v.requests.length, 0) + dashboard.unassignmentItems.length
 
   return (
+    <FeatureGate feature="care_visits" agencyId={agencyId || null}>
     <Suspense fallback={<div className="p-6 text-sm text-gray-500">Loading care visits…</div>}>
       <VisitManagementContent
         visits={dashboard.visits}
@@ -42,5 +44,6 @@ export default async function CareVisitsPage() {
         canManageNotes={canManageNotes}
       />
     </Suspense>
+    </FeatureGate>
   )
 }

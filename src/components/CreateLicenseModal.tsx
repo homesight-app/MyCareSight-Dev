@@ -1,39 +1,51 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
-import { revalidateLicensesPage, createLicenseForAgency } from '@/app/actions/licenses'
-import { Loader2, Upload, X, FileText } from 'lucide-react'
+import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertification } from '@/app/actions/licenses'
+import { Loader2, Upload, X, FileText, Plus } from 'lucide-react'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
 
 const licenseSchema = z.object({
   license_name: z.string().min(1, 'License name is required').min(3, 'License name must be at least 3 characters'),
   license_number: z.string().optional(),
-  state: z.string().min(1, 'State is required'),
+  state: z.string().optional(),
   expiry_date: z.string().min(1, 'Expiry date is required'),
   activated_date: z.string().min(1, 'Activated date is required'),
   renewal_due_date: z.string().optional(),
+  certification_category: z.string().optional(),
+  issuing_body: z.string().optional(),
 })
 
 export type CreateLicenseFormData = z.infer<typeof licenseSchema>
+
+interface PendingDoc {
+  id: string
+  file: File | null
+  name: string
+  type: string
+  typeError: string | null
+}
+
+interface AvailableProgram {
+  id: string
+  application_name: string
+  status: string
+}
 
 interface CreateLicenseModalProps {
   isOpen: boolean
   onClose: () => void
   onSuccess: () => void
-  /** When provided, the modal operates in agency mode: license is created via
-   *  server action (admin client) and attached to the agency instead of the
-   *  current user. Used by admin/expert on the agency detail page. */
   agencyId?: string
   agencyName?: string
-  /** When provided, the modal operates in edit mode: pre-populates the form
-   *  and calls updateLicenseById on submit instead of inserting a new row. */
+  availablePrograms?: AvailableProgram[]
   licenseToEdit?: {
     id: string
     license_name: string
@@ -45,23 +57,39 @@ interface CreateLicenseModalProps {
   }
 }
 
+const CERT_CATEGORIES = [
+  { value: 'state_license', label: 'State License' },
+  { value: 'medicare', label: 'Medicare' },
+  { value: 'medicaid', label: 'Medicaid' },
+  { value: 'accreditation', label: 'Accreditation' },
+  { value: 'bond', label: 'Bond' },
+  { value: 'insurance', label: 'Insurance' },
+  { value: 'other', label: 'Other' },
+]
+
+const DOC_TYPES = ['license', 'certificate', 'insurance', 'contract', 'policy', 'other']
+
+function newPendingDoc(): PendingDoc {
+  return { id: Math.random().toString(36).slice(2), file: null, name: '', type: '', typeError: null }
+}
+
 export default function CreateLicenseModal({
   isOpen,
   onClose,
   onSuccess,
   agencyId,
   agencyName,
+  availablePrograms = [],
   licenseToEdit,
 }: CreateLicenseModalProps) {
   const isEditMode = !!licenseToEdit
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [documentName, setDocumentName] = useState('')
-  const [documentType, setDocumentType] = useState('')
-  const [documentTypeError, setDocumentTypeError] = useState<string | null>(null)
+  const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([])
+  const [linkedProgramId, setLinkedProgramId] = useState('')
+  const [linkType, setLinkType] = useState<'created_from' | 'renewal_of'>('created_from')
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const {
     register,
@@ -77,193 +105,195 @@ export default function CreateLicenseModal({
       expiry_date: licenseToEdit?.expiry_date?.split('T')[0] ?? '',
       activated_date: licenseToEdit?.activated_date?.split('T')[0] ?? '',
       renewal_due_date: licenseToEdit?.renewal_due_date?.split('T')[0] ?? '',
+      certification_category: '',
+      issuing_body: '',
     },
   })
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setSelectedFile(file)
-      if (!documentName) setDocumentName(file.name)
-    }
-  }
+  const updateDoc = useCallback((id: string, patch: Partial<PendingDoc>) => {
+    setPendingDocs(prev => prev.map(d => d.id === id ? { ...d, ...patch } : d))
+  }, [])
 
-  const handleRemoveFile = () => {
-    setSelectedFile(null)
-    setDocumentName('')
-    setDocumentType('')
-    setDocumentTypeError(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
+  const handleFileSelect = useCallback((docId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null
+    if (file) {
+      setPendingDocs(prev => prev.map(d =>
+        d.id === docId ? { ...d, file, name: d.name || file.name } : d
+      ))
+    }
+  }, [])
+
+  const removeDoc = useCallback((docId: string) => {
+    setPendingDocs(prev => prev.filter(d => d.id !== docId))
+    if (fileInputRefs.current[docId]) {
+      fileInputRefs.current[docId]!.value = ''
+      delete fileInputRefs.current[docId]
+    }
+  }, [])
+
+  const handleClose = () => {
+    reset()
+    setPendingDocs([])
+    setLinkedProgramId('')
+    setLinkType('created_from')
+    setSubmitError(null)
+    onClose()
   }
 
   const onSubmit = async (data: CreateLicenseFormData) => {
-    setDocumentTypeError(null)
-    if (selectedFile && documentName.trim() && !documentType.trim()) {
-      setDocumentTypeError('Document type is required when uploading a document')
-      return
-    }
+    // Validate all pending docs
+    let hasDocError = false
+    const validated = pendingDocs.map(d => {
+      if (d.file && !d.type.trim()) {
+        hasDocError = true
+        return { ...d, typeError: 'Document type is required' }
+      }
+      return { ...d, typeError: null }
+    })
+    if (hasDocError) { setPendingDocs(validated); return }
+
     setIsSubmitting(true)
     setSubmitError(null)
 
     try {
       const supabase = createClient()
+      const docsWithFiles = pendingDocs.filter(d => d.file !== null)
 
-      // ── Edit mode: update existing license ─────────────────────────────
+      // ── Edit mode ──────────────────────────────────────────────────────────
       if (isEditMode && licenseToEdit) {
         const { error: updateError } = await q.updateLicenseById(supabase, licenseToEdit.id, {
           license_name: data.license_name,
           license_number: data.license_number || null,
-          state: data.state,
+          state: data.state || null,
           activated_date: data.activated_date || null,
           expiry_date: data.expiry_date,
           renewal_due_date: data.renewal_due_date || null,
         })
         if (updateError) throw updateError
 
-        // Optionally upload a new document version
-        if (selectedFile && documentName.trim()) {
-          const fileExt = selectedFile.name.split('.').pop()
-          const fileName = `license-${licenseToEdit.id}/${Date.now()}.${fileExt}`
-          const { error: uploadError } = await supabase.storage
+        for (const doc of docsWithFiles) {
+          const fileExt = doc.file!.name.split('.').pop()
+          const fileName = `license-${licenseToEdit.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+          const { error: uploadErr } = await supabase.storage
             .from('application-documents')
-            .upload(fileName, selectedFile, { upsert: false, contentType: selectedFile.type || `application/${fileExt}` })
-          if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
+            .upload(fileName, doc.file!, { upsert: false, contentType: doc.file!.type || `application/${fileExt}` })
+          if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
 
-          const { error: docError } = await q.insertLicenseDocument(supabase, {
+          const { error: docErr } = await q.insertLicenseDocument(supabase, {
             license_id: licenseToEdit.id,
-            document_name: documentName.trim(),
+            document_name: doc.name.trim() || doc.file!.name,
             document_url: fileName,
-            document_type: documentType || null,
+            document_type: doc.type || null,
           })
-          if (docError) {
+          if (docErr) {
             await supabase.storage.from('application-documents').remove([fileName])
-            throw new Error(`Document record failed: ${docError.message}`)
+            throw new Error(`Document record failed: ${docErr.message}`)
           }
         }
 
         reset()
-        handleRemoveFile()
+        setPendingDocs([])
         router.refresh()
-        onClose()
+        handleClose()
         onSuccess()
         return
       }
 
-      // ── Agency mode (admin/expert) ──────────────────────────────────────
+      // ── Agency mode ────────────────────────────────────────────────────────
       if (agencyId) {
-        let docPayload: { url: string; name: string; type: string | null; expiry_date?: string } | undefined
+        const uploadedDocs: { url: string; name: string; type: string | null }[] = []
 
-        if (selectedFile && documentName.trim()) {
-          const fileExt = selectedFile.name.split('.').pop()
-          const fileName = `agency-${agencyId}/${Date.now()}.${fileExt}`
-          const { error: uploadError } = await supabase.storage
+        for (const doc of docsWithFiles) {
+          const fileExt = doc.file!.name.split('.').pop()
+          const fileName = `agency-${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+          const { error: uploadErr } = await supabase.storage
             .from('application-documents')
-            .upload(fileName, selectedFile, {
-              upsert: false,
-              contentType: selectedFile.type || `application/${fileExt}`,
-              cacheControl: '3600',
-            })
-          if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
-
-          docPayload = {
-            url: fileName,
-            name: documentName.trim(),
-            type: documentType || null,
-          }
-          if (data.expiry_date) docPayload.expiry_date = data.expiry_date
+            .upload(fileName, doc.file!, { upsert: false, contentType: doc.file!.type || `application/${fileExt}`, cacheControl: '3600' })
+          if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
+          uploadedDocs.push({ url: fileName, name: doc.name.trim() || doc.file!.name, type: doc.type || null })
         }
 
         const result = await createLicenseForAgency({
           agencyId,
           license_name: data.license_name,
           license_number: data.license_number || undefined,
-          state: data.state,
+          state: data.state || undefined,
           activated_date: data.activated_date,
           expiry_date: data.expiry_date,
           renewal_due_date: data.renewal_due_date || undefined,
-          document: docPayload,
+          certification_category: data.certification_category || undefined,
+          issuing_body: data.issuing_body || undefined,
+          documents: uploadedDocs.length > 0 ? uploadedDocs : undefined,
         })
 
         if (result.error) {
-          // Clean up uploaded file if server action failed
-          if (docPayload?.url) {
-            await supabase.storage.from('application-documents').remove([docPayload.url])
+          for (const d of uploadedDocs) {
+            await supabase.storage.from('application-documents').remove([d.url])
           }
           throw new Error(result.error)
         }
 
+        if (result.data?.id && linkedProgramId) {
+          const { error: linkErr } = await linkProgramToCertification(result.data.id, linkedProgramId, agencyId, linkType)
+          if (linkErr) console.error('[CreateLicenseModal] Failed to link program:', linkErr)
+        }
+
         reset()
-        handleRemoveFile()
+        setPendingDocs([])
+        setLinkedProgramId('')
         router.refresh()
-        onClose()
+        handleClose()
         onSuccess()
         return
       }
 
-      // ── Owner mode (agency-owner creates for themselves) ─────────────────
+      // ── Owner mode ─────────────────────────────────────────────────────────
       const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (!authUser) {
-        setSubmitError('You must be logged in to create a license')
-        return
-      }
+      if (!authUser) { setSubmitError('You must be logged in to create a license'); return }
 
       const { data: newLicense, error } = await q.insertLicenseReturning(supabase, {
         company_owner_id: authUser.id,
         license_name: data.license_name,
         license_number: data.license_number || null,
-        state: data.state,
+        state: data.state || null,
         status: 'active',
         expiry_date: data.expiry_date,
         activated_date: data.activated_date || null,
         renewal_due_date: data.renewal_due_date || null,
       })
-
       if (error) throw error
       if (!newLicense?.id) throw new Error('License was created but no ID returned')
 
-      if (selectedFile && documentName.trim()) {
-        const fileExt = selectedFile.name.split('.').pop()
-        const fileName = `${newLicense.id}/${Date.now()}.${fileExt}`
-        const { error: uploadError } = await supabase.storage
+      for (const doc of docsWithFiles) {
+        const fileExt = doc.file!.name.split('.').pop()
+        const fileName = `${newLicense.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+        const { error: uploadErr } = await supabase.storage
           .from('application-documents')
-          .upload(fileName, selectedFile, {
-            upsert: false,
-            contentType: selectedFile.type || `application/${fileExt}`,
-            cacheControl: '3600',
-          })
-        if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
+          .upload(fileName, doc.file!, { upsert: false, contentType: doc.file!.type || `application/${fileExt}`, cacheControl: '3600' })
+        if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
 
-        const docData: { license_id: string; document_name: string; document_url: string; document_type: string | null; expiry_date?: string } = {
+        const { error: docErr } = await q.insertLicenseDocument(supabase, {
           license_id: newLicense.id,
-          document_name: documentName.trim(),
+          document_name: doc.name.trim() || doc.file!.name,
           document_url: fileName,
-          document_type: documentType || null,
-        }
-        if (data.expiry_date) docData.expiry_date = data.expiry_date
-
-        const { error: docError } = await q.insertLicenseDocument(supabase, docData)
-        if (docError) {
+          document_type: doc.type || null,
+        })
+        if (docErr) {
           await supabase.storage.from('application-documents').remove([fileName])
-          throw new Error(`Document record failed: ${docError.message}`)
+          throw new Error(`Document record failed: ${docErr.message}`)
         }
       }
 
       await revalidateLicensesPage()
       reset()
-      handleRemoveFile()
-      onClose()
+      setPendingDocs([])
+      handleClose()
       onSuccess()
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : 'Failed to create license. Please try again.')
     } finally {
       setIsSubmitting(false)
     }
-  }
-
-  const handleClose = () => {
-    reset()
-    handleRemoveFile()
-    onClose()
   }
 
   const title = isEditMode
@@ -280,6 +310,8 @@ export default function CreateLicenseModal({
             {submitError}
           </div>
         )}
+
+        {/* License Name */}
         <div>
           <label htmlFor="license_name" className="block text-sm font-semibold text-gray-700 mb-1">
             License Name <span className="text-red-500">*</span>
@@ -291,152 +323,70 @@ export default function CreateLicenseModal({
             placeholder="e.g., Home Care Agency License"
             className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           />
-          {errors.license_name && (
-            <p className="mt-1 text-sm text-red-600">{errors.license_name.message}</p>
-          )}
+          {errors.license_name && <p className="mt-1 text-sm text-red-600">{errors.license_name.message}</p>}
         </div>
 
-        <div>
-          <label htmlFor="state" className="block text-sm font-semibold text-gray-700 mb-1">
-            State <span className="text-red-500">*</span>
-          </label>
-          <select
-            id="state"
-            {...register('state')}
-            className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
-          >
-            <option value="">Select a state</option>
-            {US_STATES.map((state) => (
-              <option key={state} value={state}>{state}</option>
-            ))}
-          </select>
-          {errors.state && (
-            <p className="mt-1 text-sm text-red-600">{errors.state.message}</p>
-          )}
-        </div>
-
-        <div>
-          <label htmlFor="license_number" className="block text-sm font-semibold text-gray-700 mb-1">
-            License Number
-          </label>
-          <input
-            id="license_number"
-            type="text"
-            {...register('license_number')}
-            placeholder="e.g., HC-12345"
-            className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          />
-          {errors.license_number && (
-            <p className="mt-1 text-sm text-red-600">{errors.license_number.message}</p>
-          )}
-        </div>
-
-        {/* Optional document upload */}
-        <div className="border-t border-gray-200 pt-4">
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Upload document (optional)
-          </label>
-          {!selectedFile ? (
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-colors"
-            >
-              <Upload className="w-10 h-10 mx-auto mb-2 text-gray-400" />
-              <p className="text-gray-600 font-medium text-sm">Click to upload or drag and drop</p>
-              <p className="text-xs text-gray-500 mt-0.5">PDF, DOC, DOCX, JPG, PNG (max 10MB)</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={handleFileSelect}
-                className="hidden"
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                disabled={isSubmitting}
-              />
-            </div>
-          ) : (
-            <div className="border border-gray-300 rounded-xl p-4 bg-gray-50 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <FileText className="w-8 h-8 text-blue-600 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-gray-900 truncate text-sm">{selectedFile.name}</p>
-                  <p className="text-xs text-gray-500">{(selectedFile.size / 1024).toFixed(1)} KB</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleRemoveFile}
-                disabled={isSubmitting}
-                className="p-2 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50 shrink-0"
-                aria-label="Remove file"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-          )}
-          {selectedFile && (
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="create_license_doc_name" className="block text-xs font-medium text-gray-600 mb-1">
-                  Document name
-                </label>
-                <input
-                  id="create_license_doc_name"
-                  type="text"
-                  value={documentName}
-                  onChange={(e) => setDocumentName(e.target.value)}
-                  placeholder="e.g., License certificate"
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  disabled={isSubmitting}
-                />
-              </div>
-              <div>
-                <label htmlFor="create_license_doc_type" className="block text-xs font-medium text-gray-600 mb-1">
-                  Document type <span className="text-red-500">*</span>
-                </label>
-                <select
-                  id="create_license_doc_type"
-                  value={documentType}
-                  onChange={(e) => {
-                    setDocumentType(e.target.value)
-                    setDocumentTypeError(null)
-                  }}
-                  className={`block w-full px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white ${
-                    documentTypeError ? 'border-red-500 border' : 'border border-gray-300'
-                  }`}
-                  disabled={isSubmitting}
-                >
-                  <option value="">Select type</option>
-                  <option value="license">License</option>
-                  <option value="certificate">Certificate</option>
-                  <option value="insurance">Insurance</option>
-                  <option value="contract">Contract</option>
-                  <option value="policy">Policy</option>
-                  <option value="other">Other</option>
-                </select>
-                {documentTypeError && (
-                  <p className="mt-1 text-sm text-red-600">{documentTypeError}</p>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div>
-          <label htmlFor="expiry_date" className="block text-sm font-semibold text-gray-700 mb-1">
-            Expiry Date <span className="text-red-500">*</span>
-          </label>
-          <input
-            id="expiry_date"
-            type="date"
-            {...register('expiry_date')}
-            className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          />
-          {errors.expiry_date && (
-            <p className="mt-1 text-sm text-red-600">{errors.expiry_date.message}</p>
-          )}
-        </div>
-
+        {/* Category + State */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="certification_category" className="block text-sm font-semibold text-gray-700 mb-1">
+              Category
+            </label>
+            <select
+              id="certification_category"
+              {...register('certification_category')}
+              className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+            >
+              <option value="">Select category</option>
+              {CERT_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="state" className="block text-sm font-semibold text-gray-700 mb-1">
+              State
+            </label>
+            <select
+              id="state"
+              {...register('state')}
+              className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+            >
+              <option value="">Select a state</option>
+              {US_STATES.map((state) => <option key={state} value={state}>{state}</option>)}
+            </select>
+            {errors.state && <p className="mt-1 text-sm text-red-600">{errors.state.message}</p>}
+          </div>
+        </div>
+
+        {/* License Number + Issuing Body */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="license_number" className="block text-sm font-semibold text-gray-700 mb-1">
+              License Number
+            </label>
+            <input
+              id="license_number"
+              type="text"
+              {...register('license_number')}
+              placeholder="e.g., HC-12345"
+              className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            />
+          </div>
+          <div>
+            <label htmlFor="issuing_body" className="block text-sm font-semibold text-gray-700 mb-1">
+              Issuing Body
+            </label>
+            <input
+              id="issuing_body"
+              type="text"
+              {...register('issuing_body')}
+              placeholder="e.g., State Health Dept."
+              className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Dates */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label htmlFor="activated_date" className="block text-sm font-semibold text-gray-700 mb-1">
               Activated Date <span className="text-red-500">*</span>
@@ -447,9 +397,19 @@ export default function CreateLicenseModal({
               {...register('activated_date')}
               className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
-            {errors.activated_date && (
-              <p className="mt-1 text-sm text-red-600">{errors.activated_date.message}</p>
-            )}
+            {errors.activated_date && <p className="mt-1 text-sm text-red-600">{errors.activated_date.message}</p>}
+          </div>
+          <div>
+            <label htmlFor="expiry_date" className="block text-sm font-semibold text-gray-700 mb-1">
+              Expiry Date <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="expiry_date"
+              type="date"
+              {...register('expiry_date')}
+              className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            />
+            {errors.expiry_date && <p className="mt-1 text-sm text-red-600">{errors.expiry_date.message}</p>}
           </div>
           <div>
             <label htmlFor="renewal_due_date" className="block text-sm font-semibold text-gray-700 mb-1">
@@ -464,6 +424,150 @@ export default function CreateLicenseModal({
           </div>
         </div>
 
+        {/* Documents */}
+        <div className="border-t border-gray-200 pt-4">
+          <div className="flex items-center justify-between mb-3">
+            <label className="block text-sm font-semibold text-gray-700">
+              Documents <span className="text-xs font-normal text-gray-500">(optional)</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setPendingDocs(prev => [...prev, newPendingDoc()])}
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add document
+            </button>
+          </div>
+
+          {pendingDocs.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-xl">
+              No documents added — click &ldquo;Add document&rdquo; to attach files
+            </p>
+          )}
+
+          <div className="space-y-3">
+            {pendingDocs.map(doc => (
+              <div key={doc.id} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
+                {!doc.file ? (
+                  <div
+                    onClick={() => fileInputRefs.current[doc.id]?.click()}
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-colors"
+                  >
+                    <Upload className="w-6 h-6 mx-auto mb-1 text-gray-400" />
+                    <p className="text-xs text-gray-500">Click to choose file</p>
+                    <p className="text-xs text-gray-400 mt-0.5">PDF, DOC, DOCX, JPG, PNG (max 10MB)</p>
+                    <input
+                      ref={el => { fileInputRefs.current[doc.id] = el }}
+                      type="file"
+                      onChange={e => handleFileSelect(doc.id, e)}
+                      className="hidden"
+                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-gray-900 truncate">{doc.file.name}</p>
+                      <p className="text-xs text-gray-400">{(doc.file.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeDoc(doc.id)}
+                      disabled={isSubmitting}
+                      className="p-1 hover:bg-gray-200 rounded transition-colors disabled:opacity-50"
+                    >
+                      <X className="w-4 h-4 text-gray-500" />
+                    </button>
+                  </div>
+                )}
+
+                {doc.file && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div>
+                      <input
+                        type="text"
+                        value={doc.name}
+                        onChange={e => updateDoc(doc.id, { name: e.target.value })}
+                        placeholder="Document name"
+                        disabled={isSubmitting}
+                        className="block w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                      />
+                    </div>
+                    <div>
+                      <select
+                        value={doc.type}
+                        onChange={e => updateDoc(doc.id, { type: e.target.value, typeError: null })}
+                        disabled={isSubmitting}
+                        className={`block w-full px-2.5 py-1.5 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white ${doc.typeError ? 'border-red-500 border' : 'border border-gray-300'}`}
+                      >
+                        <option value="">Type *</option>
+                        {DOC_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                      </select>
+                      {doc.typeError && <p className="mt-0.5 text-xs text-red-600">{doc.typeError}</p>}
+                    </div>
+                  </div>
+                )}
+
+                {!doc.file && (
+                  <button
+                    type="button"
+                    onClick={() => removeDoc(doc.id)}
+                    disabled={isSubmitting}
+                    className="mt-2 text-xs text-gray-400 hover:text-red-600 transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Link to Program — agency mode only */}
+        {agencyId && availablePrograms.length > 0 && (
+          <div className="border-t border-gray-200 pt-4">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Link to Program <span className="text-xs font-normal text-gray-500">(optional)</span>
+            </label>
+            <select
+              value={linkedProgramId}
+              onChange={e => setLinkedProgramId(e.target.value)}
+              disabled={isSubmitting}
+              className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-sm"
+            >
+              <option value="">— No program linked —</option>
+              {availablePrograms.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.application_name} ({p.status})
+                </option>
+              ))}
+            </select>
+            {linkedProgramId && (
+              <div className="mt-2 flex items-center gap-4">
+                <span className="text-xs text-gray-500 font-medium">Relationship:</span>
+                {(['created_from', 'renewal_of'] as const).map(type => (
+                  <label key={type} className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="link_type"
+                      value={type}
+                      checked={linkType === type}
+                      onChange={() => setLinkType(type)}
+                      className="accent-blue-600"
+                    />
+                    <span className="text-xs text-gray-700 capitalize">{type.replace('_', ' ')}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
           <button
             type="button"
@@ -480,7 +584,7 @@ export default function CreateLicenseModal({
             {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {agencyId ? 'Adding…' : 'Creating...'}
+                {agencyId ? 'Adding…' : 'Creating…'}
               </>
             ) : (
               isEditMode ? 'Save Changes' : agencyId ? 'Add License' : 'Create License'

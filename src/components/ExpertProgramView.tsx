@@ -119,7 +119,7 @@ export default function ExpertProgramView({
       const now = new Date().toISOString()
       const reason = manualStatusReason.trim()
       if (manualStatusModal === 'close')         { setCurrentStatus('closed');      setDisplayedClosedAt(now);     setDisplayedCloseReason(reason)    }
-      else if (manualStatusModal === 'complete') { setCurrentStatus('complete');    setDisplayedCompletedAt(now);  setDisplayedCompleteReason(reason) }
+      else if (manualStatusModal === 'complete') { setCurrentStatus('under_review'); setDisplayedCompletedAt(now);  setDisplayedCompleteReason(reason) }
       else if (manualStatusModal === 'reopen')   { setCurrentStatus('in_progress'); setDisplayedClosedAt(null);    setDisplayedCloseReason(null);     setDisplayedCompletedAt(null); setDisplayedCompleteReason(null) }
       setManualStatusModal(null)
       setManualStatusReason('')
@@ -511,7 +511,7 @@ export default function ExpertProgramView({
   const appBadge = getAppBadge(currentStatus)
   const isTerminal = currentStatus === 'approved' || currentStatus === 'rejected'
   const canReopen = currentStatus === 'closed' || currentStatus === 'complete'
-  const canClose = !isTerminal && !canReopen
+  const canClose = !isTerminal && !canReopen && currentStatus !== 'under_review'
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: 'items',     label: 'Next Steps', badge: reviewNeeded + inProgress || undefined },

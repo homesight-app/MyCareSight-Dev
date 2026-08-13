@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
@@ -58,6 +59,14 @@ export default function ContactPage() {
     e.preventDefault()
     if (!form.firstName.trim() || !form.lastName.trim() || !form.email.trim()) {
       setError('First name, last name, and email are required.')
+      return
+    }
+    if (!isValidEmail(form.email)) {
+      setError(EMAIL_ERROR)
+      return
+    }
+    if (form.phone && !isValidUSPhone(form.phone)) {
+      setError(PHONE_ERROR)
       return
     }
     if (!form.smsConsent) {

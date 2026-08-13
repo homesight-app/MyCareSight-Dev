@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
+import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { createStaffUserAccount } from '@/app/actions/users'
@@ -15,7 +17,7 @@ const staffMemberSchema = z.object({
   first_name: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
   last_name: z.string().min(1, 'Last name is required').min(2, 'Last name must be at least 2 characters'),
   email: z.string().email('Please enter a valid email address'),
-  phone: z.string().optional(),
+  phone: z.string().optional().refine(val => !val || US_PHONE_REGEX.test(val.trim()), PHONE_ERROR),
   role: z.string().min(1, 'Role is required'),
   job_title: z.string().optional(),
   status: z.enum(['active', 'inactive', 'pending']),
@@ -46,6 +48,7 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
     reset,
   } = useForm<StaffMemberFormData>({
     resolver: zodResolver(staffMemberSchema),
+    mode: 'onBlur',
     defaultValues: {
       status: 'active',
     },
@@ -245,17 +248,13 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
           <label htmlFor="phone" className="block text-sm font-semibold text-gray-700 mb-2">
             Phone
           </label>
-          <input
+          <PhoneInput
             id="phone"
-            type="tel"
             {...register('phone')}
-            placeholder="(555) 123-4567"
             className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+            error={errors.phone?.message}
             disabled={isLoading}
           />
-          {errors.phone && (
-            <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>
-          )}
         </div>
 
         {/* Role and Job Title */}

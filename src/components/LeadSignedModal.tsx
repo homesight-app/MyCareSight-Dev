@@ -7,7 +7,7 @@ interface Props {
   lead: { id: string; retainer_amount: number | null; price: number | null }
   open: boolean
   onClose: () => void
-  onSuccess: () => void
+  onSuccess: (stage: 'signed' | 'retainer') => void
 }
 
 export default function LeadSignedModal({ lead, open, onClose, onSuccess }: Props) {
@@ -46,8 +46,9 @@ export default function LeadSignedModal({ lead, open, onClose, onSuccess }: Prop
         retainerAmount: needsRetainer && retainerAmount ? parseFloat(retainerAmount) : undefined,
         retainerPaidDate: retainerCollected && retainerPaidDate ? retainerPaidDate : undefined,
       })
-      await updateLeadStage(lead.id, retainerCollected ? 'signed' : 'retainer')
-      onSuccess()
+      const resultStage = retainerCollected ? 'signed' : 'retainer'
+      await updateLeadStage(lead.id, resultStage)
+      onSuccess(resultStage)
     })
   }
 

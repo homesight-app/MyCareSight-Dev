@@ -6,6 +6,7 @@ import { ArrowLeft, CheckSquare, Square, Trash2, ExternalLink, Pencil, Plus, Che
 import AddLeadModal from './AddLeadModal'
 import LeadSignedModal from './LeadSignedModal'
 import LeadCollectRetainerModal from './LeadCollectRetainerModal'
+import ConvertToAgencyPromptModal from './ConvertToAgencyPromptModal'
 import { type LeadContext, LEAD_STAGES, NOTE_TYPES } from '@/lib/constants/lead-configs'
 import {
   updateLead,
@@ -170,6 +171,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   // Signed / retainer modal state
   const [signedPromptOpen, setSignedPromptOpen]         = useState(false)
   const [collectRetainerOpen, setCollectRetainerOpen]   = useState(false)
+  const [showConvertPrompt, setShowConvertPrompt]        = useState(false)
 
   const owners = platformStaff
 
@@ -897,13 +899,32 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
         lead={lead}
         open={signedPromptOpen}
         onClose={() => setSignedPromptOpen(false)}
-        onSuccess={() => { setSignedPromptOpen(false); router.refresh() }}
+        onSuccess={(stage) => {
+          setSignedPromptOpen(false)
+          if (stage === 'signed' && lead.lead_type === 'agency' && !lead.converted_agency_id) {
+            setShowConvertPrompt(true)
+          } else {
+            router.refresh()
+          }
+        }}
       />
       <LeadCollectRetainerModal
         leadId={lead.id}
         open={collectRetainerOpen}
         onClose={() => setCollectRetainerOpen(false)}
-        onSuccess={() => { setCollectRetainerOpen(false); router.refresh() }}
+        onSuccess={() => {
+          setCollectRetainerOpen(false)
+          if (lead.lead_type === 'agency' && !lead.converted_agency_id) {
+            setShowConvertPrompt(true)
+          } else {
+            router.refresh()
+          }
+        }}
+      />
+      <ConvertToAgencyPromptModal
+        open={showConvertPrompt}
+        lead={lead}
+        onClose={() => { setShowConvertPrompt(false); router.refresh() }}
       />
     </>
   )

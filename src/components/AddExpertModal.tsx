@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
+import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
 import { createExpert, CreateExpertData } from '@/app/actions/experts'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
@@ -13,7 +15,7 @@ const expertSchema = z.object({
   firstName: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
   lastName: z.string().min(1, 'Last name is required').min(2, 'Last name must be at least 2 characters'),
   email: z.string().email('Please enter a valid email address'),
-  phone: z.string().optional(),
+  phone: z.string().optional().refine(val => !val || US_PHONE_REGEX.test(val.trim()), PHONE_ERROR),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   confirmPassword: z.string().min(8, 'Please confirm your password'),
   expertise: z.string().optional(),
@@ -48,6 +50,7 @@ export default function AddExpertModal({
     reset,
   } = useForm<ExpertFormData>({
     resolver: zodResolver(expertSchema),
+    mode: 'onBlur',
     defaultValues: {
       status: 'active',
       role: 'Licensing Specialist',
@@ -187,17 +190,13 @@ export default function AddExpertModal({
           <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
             Phone
           </label>
-          <input
+          <PhoneInput
             {...register('phone')}
-            type="tel"
             id="phone"
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="(555) 123-4567"
+            error={errors.phone?.message}
             disabled={isLoading}
           />
-          {errors.phone && (
-            <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>
-          )}
         </div>
 
         {/* Password Fields */}

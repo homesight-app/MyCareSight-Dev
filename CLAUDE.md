@@ -150,6 +150,54 @@ Runs on every request except `_next/static`, `_next/image`, and `favicon`. Calls
 
 Use **React Hook Form** + **Zod** for all forms. Schemas live co-located with the component or in the component file itself. Server validation is always the source of truth; client-side Zod is UX only.
 
+### Phone and email fields — always use the shared components and schemas
+
+**Never** use a plain `<input type="tel">` or `<input type="email">` directly for user-facing phone or email capture. Always use the shared components in `src/components/ui/`:
+
+| Component | File | Use for |
+|-----------|------|---------|
+| `PhoneInput` | `src/components/ui/PhoneInput.tsx` | Every phone/fax number field |
+| `EmailInput` | `src/components/ui/EmailInput.tsx` | Every email address field |
+
+`PhoneInput` auto-formats to `(XXX) XXX-XXXX` as the user types, renders `type="tel"` and a standard placeholder, and displays an inline `error` prop below the field. `EmailInput` does the same for email with `type="email"`.
+
+**RHF forms** — use `mode: 'onBlur'` on `useForm` so validation fires on blur, then spread `register` directly into the component:
+
+```tsx
+import PhoneInput from '@/components/ui/PhoneInput'
+import EmailInput from '@/components/ui/EmailInput'
+
+const { register, formState: { errors } } = useForm({ mode: 'onBlur', resolver: zodResolver(schema) })
+
+<PhoneInput {...register('phone')} error={errors.phone?.message} className="..." />
+<EmailInput {...register('email')} error={errors.email?.message} className="..." />
+```
+
+**Plain state forms** — pass `value` and `onChange` (event handler); `e.target.value` is already formatted:
+
+```tsx
+<PhoneInput
+  value={form.phone}
+  onChange={e => setForm(prev => ({ ...prev, phone: e.target.value }))}
+  error={fieldErrors.phone}
+  className="..."
+/>
+```
+
+**Zod schemas** — use the pre-built field schemas from `src/lib/validation.ts` instead of re-writing the regex refine:
+
+```ts
+import { phoneZodField, emailZodField, optionalEmailZodField } from '@/lib/validation'
+
+const schema = z.object({
+  phone: phoneZodField,           // optional, validates format if non-empty
+  email: emailZodField,           // required valid email
+  alt_email: optionalEmailZodField, // optional, validates format if non-empty
+})
+```
+
+**Server-side / submit-time validation** for plain state forms — use `isValidUSPhone` and `isValidEmail` from `src/lib/validation.ts` as a final guard before calling server actions.
+
 ---
 
 ## HIPAA / Security rules

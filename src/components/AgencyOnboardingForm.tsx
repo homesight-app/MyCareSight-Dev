@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { Building2, CheckCircle2, Loader2, Plus, Trash2 } from 'lucide-react'
 import { submitOnboardingForm, type OnboardingFormData } from '@/app/actions/agency-onboarding'
 import { STATE_AGENCY_CONFIGS, type StateField } from '@/lib/constants/state-agency-configs'
+import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
 
 const ENTITY_TYPES = ['LLC','S Corporation','C Corporation','Partnership','Sole Proprietorship','Non-profit']
 
@@ -259,6 +261,42 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (form.phone_number && !isValidUSPhone(form.phone_number)) {
+      setSubmitError(`Agency phone: ${PHONE_ERROR}`)
+      return
+    }
+    if (form.fax_number && !isValidUSPhone(form.fax_number)) {
+      setSubmitError(`Fax number: ${PHONE_ERROR}`)
+      return
+    }
+    if (form.email && !isValidEmail(form.email)) {
+      setSubmitError(`Agency email: ${EMAIL_ERROR}`)
+      return
+    }
+    for (const { key, label } of OFFICER_ROLES) {
+      const staff = keyStaffForm[key]
+      if (staff.telephone && !isValidUSPhone(staff.telephone)) {
+        setSubmitError(`${label} phone: ${PHONE_ERROR}`)
+        return
+      }
+      if (staff.email && !isValidEmail(staff.email)) {
+        setSubmitError(`${label} email: ${EMAIL_ERROR}`)
+        return
+      }
+    }
+    for (let i = 0; i < memberOwners.length; i++) {
+      const owner = memberOwners[i]
+      if (owner.telephone && !isValidUSPhone(owner.telephone)) {
+        setSubmitError(`Member/Owner ${i + 1} phone: ${PHONE_ERROR}`)
+        return
+      }
+      if (owner.email && !isValidEmail(owner.email)) {
+        setSubmitError(`Member/Owner ${i + 1} email: ${EMAIL_ERROR}`)
+        return
+      }
+    }
+
     setIsSubmitting(true)
     setSubmitError(null)
 
@@ -394,12 +432,14 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
         <section className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-4">Contact Information</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField
-              label="Agency Phone Number"
-              value={form.phone_number}
-              onChange={v => setField('phone_number', v)}
-              placeholder="(555) 000-0000"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Agency Phone Number</label>
+              <PhoneInput
+                value={form.phone_number}
+                onChange={e => setField('phone_number', e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
             <FormField
               label="Agency Email"
               value={form.email}
@@ -407,12 +447,14 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
               type="email"
               placeholder="info@agency.com"
             />
-            <FormField
-              label="Fax Number"
-              value={form.fax_number}
-              onChange={v => setField('fax_number', v)}
-              placeholder="(555) 000-0000"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Fax Number</label>
+              <PhoneInput
+                value={form.fax_number}
+                onChange={e => setField('fax_number', e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
             <FormField
               label="Website"
               value={form.website}
@@ -615,12 +657,14 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
                     onChange={v => setStaffField(key, 'full_legal_name', v)}
                     placeholder="Jane Smith"
                   />
-                  <FormField
-                    label="Phone"
-                    value={keyStaffForm[key].telephone}
-                    onChange={v => setStaffField(key, 'telephone', v)}
-                    placeholder="(555) 000-0000"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <PhoneInput
+                      value={keyStaffForm[key].telephone}
+                      onChange={e => setStaffField(key, 'telephone', e.target.value)}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    />
+                  </div>
                   <FormField
                     label="Email"
                     value={keyStaffForm[key].email}
@@ -681,12 +725,14 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
                     onChange={v => setOwnerField(idx, 'full_legal_name', v)}
                     placeholder="John Doe"
                   />
-                  <FormField
-                    label="Phone"
-                    value={owner.telephone}
-                    onChange={v => setOwnerField(idx, 'telephone', v)}
-                    placeholder="(555) 000-0000"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <PhoneInput
+                      value={owner.telephone}
+                      onChange={e => setOwnerField(idx, 'telephone', e.target.value)}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    />
+                  </div>
                   <FormField
                     label="Email"
                     value={owner.email}

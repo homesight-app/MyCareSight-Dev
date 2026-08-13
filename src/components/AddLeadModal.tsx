@@ -13,6 +13,9 @@ const US_STATES = [
 import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
 import { createLead, updateLead } from '@/app/actions/leads'
 import { createClient } from '@/lib/supabase/client'
+import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
+import EmailInput from '@/components/ui/EmailInput'
 
 interface Lead {
   id: string
@@ -96,6 +99,7 @@ export default function AddLeadModal({
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{ contactPhone?: string; contactEmail?: string }>({})
   const [contactMode, setContactMode] = useState<'new' | 'existing'>('new')
   const [agencies, setAgencies] = useState<{ id: string; name: string }[]>([])
   const [loadingAgencies, setLoadingAgencies] = useState(false)
@@ -137,6 +141,7 @@ export default function AddLeadModal({
     }
     setKeyStaff([])
     setError(null)
+    setFieldErrors({})
   }, [isOpen, editLead])
 
   useEffect(() => {
@@ -253,6 +258,12 @@ export default function AddLeadModal({
       setError('First name and last name are required.')
       return
     }
+    const phoneErr = form.contactPhone && !isValidUSPhone(form.contactPhone) ? PHONE_ERROR : undefined
+    const emailErr = form.contactEmail && !isValidEmail(form.contactEmail) ? EMAIL_ERROR : undefined
+    if (phoneErr || emailErr) {
+      setFieldErrors({ contactPhone: phoneErr, contactEmail: emailErr })
+      return
+    }
     setSaving(true)
     setError(null)
 
@@ -325,6 +336,12 @@ export default function AddLeadModal({
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
 
         {/* Contact */}
         <div>
@@ -401,11 +418,41 @@ export default function AddLeadModal({
             </div>
             <div>
               <label className={labelCls}>Email</label>
-              <input type="email" className={inputCls} value={form.contactEmail} onChange={set('contactEmail')} />
+              <EmailInput
+                className={`${inputCls}${fieldErrors.contactEmail ? ' border-red-400 focus:ring-red-400' : ''}`}
+                value={form.contactEmail}
+                onChange={e => {
+                  setForm(prev => ({ ...prev, contactEmail: e.target.value }))
+                  if (fieldErrors.contactEmail) setFieldErrors(prev => ({ ...prev, contactEmail: undefined }))
+                }}
+                onBlur={() => {
+                  if (form.contactEmail && !isValidEmail(form.contactEmail)) {
+                    setFieldErrors(prev => ({ ...prev, contactEmail: EMAIL_ERROR }))
+                  } else {
+                    setFieldErrors(prev => ({ ...prev, contactEmail: undefined }))
+                  }
+                }}
+                error={fieldErrors.contactEmail}
+              />
             </div>
             <div>
               <label className={labelCls}>Phone</label>
-              <input type="tel" className={inputCls} value={form.contactPhone} onChange={set('contactPhone')} />
+              <PhoneInput
+                className={`${inputCls}${fieldErrors.contactPhone ? ' border-red-400 focus:ring-red-400' : ''}`}
+                value={form.contactPhone}
+                onChange={e => {
+                  setForm(prev => ({ ...prev, contactPhone: e.target.value }))
+                  if (fieldErrors.contactPhone) setFieldErrors(prev => ({ ...prev, contactPhone: undefined }))
+                }}
+                onBlur={() => {
+                  if (form.contactPhone && !isValidUSPhone(form.contactPhone)) {
+                    setFieldErrors(prev => ({ ...prev, contactPhone: PHONE_ERROR }))
+                  } else {
+                    setFieldErrors(prev => ({ ...prev, contactPhone: undefined }))
+                  }
+                }}
+                error={fieldErrors.contactPhone}
+              />
             </div>
             {context.leadType === 'agency' && (
               <div className="col-span-2">
@@ -526,12 +573,6 @@ export default function AddLeadModal({
             placeholder="Any initial notes…"
           />
         </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-            {error}
-          </div>
-        )}
 
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
           <button

@@ -36,6 +36,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
+import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
 import { assignPlanToAgency } from '@/app/actions/feature-plans'
 import { AGENCY_FEATURES } from '@/lib/constants/feature-keys'
 import { fetchLeadDocumentsAction, fetchLeadNotesAction } from '@/app/actions/leads'
@@ -535,6 +536,18 @@ export default function AgencyDetailContent({
   const [orgForm, setOrgForm] = useState<OrgFormState>(buildInitialForm)
 
   const handleSave = async () => {
+    if (orgForm.phoneNumber && !isValidUSPhone(orgForm.phoneNumber)) {
+      setSaveError(PHONE_ERROR)
+      return
+    }
+    if (orgForm.faxNumber && !isValidUSPhone(orgForm.faxNumber)) {
+      setSaveError(`Fax: ${PHONE_ERROR}`)
+      return
+    }
+    if (orgForm.agencyEmail && !isValidEmail(orgForm.agencyEmail)) {
+      setSaveError(EMAIL_ERROR)
+      return
+    }
     setIsSaving(true)
     setSaveError(null)
     try {

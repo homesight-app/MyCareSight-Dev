@@ -7,6 +7,7 @@ import AddLeadModal from './AddLeadModal'
 import LeadsKanbanBoard from './LeadsKanbanBoard'
 import LeadSignedModal from './LeadSignedModal'
 import LeadCollectRetainerModal from './LeadCollectRetainerModal'
+import ConvertToAgencyPromptModal from './ConvertToAgencyPromptModal'
 import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
 import { archiveLead, unarchiveLead, updateLeadStage } from '@/app/actions/leads'
 
@@ -30,6 +31,7 @@ interface Lead {
   created_at: string
   lead_owner_id: string | null
   proposal_sent_date: string | null
+  converted_agency_id?: string | null
   lead_owner?: { id: string; full_name: string | null } | { id: string; full_name: string | null }[] | null
 }
 
@@ -82,6 +84,7 @@ export default function LeadsContent({
   const [infoLeadId, setInfoLeadId] = useState<string | null>(null)
   const [signedModalLead, setSignedModalLead] = useState<Lead | null>(null)
   const [collectRetainerLeadId, setCollectRetainerLeadId] = useState<string | null>(null)
+  const [convertPromptLead, setConvertPromptLead] = useState<Lead | null>(null)
   const [stageUpdatingId, setStageUpdatingId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => {
     if (typeof window === 'undefined') return 'list'
@@ -660,7 +663,15 @@ export default function LeadsContent({
           lead={signedModalLead}
           open={true}
           onClose={() => setSignedModalLead(null)}
-          onSuccess={() => { setSignedModalLead(null); router.refresh() }}
+          onSuccess={(stage) => {
+            const lead = signedModalLead
+            setSignedModalLead(null)
+            if (stage === 'signed' && lead?.lead_type === 'agency' && !lead?.converted_agency_id) {
+              setConvertPromptLead(lead)
+            } else {
+              router.refresh()
+            }
+          }}
         />
       )}
 
@@ -669,9 +680,23 @@ export default function LeadsContent({
           leadId={collectRetainerLeadId}
           open={true}
           onClose={() => setCollectRetainerLeadId(null)}
-          onSuccess={() => { setCollectRetainerLeadId(null); router.refresh() }}
+          onSuccess={() => {
+            const lead = leads.find((l: Lead) => l.id === collectRetainerLeadId) ?? null
+            setCollectRetainerLeadId(null)
+            if (lead?.lead_type === 'agency' && !lead?.converted_agency_id) {
+              setConvertPromptLead(lead)
+            } else {
+              router.refresh()
+            }
+          }}
         />
       )}
+
+      <ConvertToAgencyPromptModal
+        open={!!convertPromptLead}
+        lead={convertPromptLead ?? { id: '' }}
+        onClose={() => { setConvertPromptLead(null); router.refresh() }}
+      />
 
     </>
   )

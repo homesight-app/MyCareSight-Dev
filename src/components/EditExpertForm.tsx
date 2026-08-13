@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
+import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { Loader2 } from 'lucide-react'
@@ -12,7 +14,7 @@ import { Loader2 } from 'lucide-react'
 const expertSchema = z.object({
   firstName: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
   lastName: z.string().min(1, 'Last name is required').min(2, 'Last name must be at least 2 characters'),
-  phone: z.string().optional(),
+  phone: z.string().optional().refine(val => !val || US_PHONE_REGEX.test(val.trim()), PHONE_ERROR),
   expertise: z.string().optional(),
   role: z.string().optional(),
   status: z.enum(['active', 'inactive']),
@@ -46,6 +48,7 @@ export default function EditExpertForm({ expert }: EditExpertFormProps) {
     reset,
   } = useForm<ExpertFormData>({
     resolver: zodResolver(expertSchema),
+    mode: 'onBlur',
     defaultValues: {
       firstName: expert.first_name || '',
       lastName: expert.last_name || '',
@@ -141,17 +144,13 @@ export default function EditExpertForm({ expert }: EditExpertFormProps) {
           <label htmlFor="phone" className="block text-sm font-semibold text-gray-700 mb-2">
             Phone Number
           </label>
-          <input
+          <PhoneInput
             id="phone"
-            type="tel"
             {...register('phone')}
-            placeholder="(555) 123-4567"
             className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+            error={errors.phone?.message}
             disabled={isLoading}
           />
-          {errors.phone && (
-            <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>
-          )}
         </div>
 
         <div>

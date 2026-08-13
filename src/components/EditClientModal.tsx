@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
+import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import Modal from './Modal'
@@ -14,7 +16,7 @@ const clientSchema = z.object({
   company_name: z.string().min(1, 'Company name is required'),
   contact_name: z.string().min(1, 'Contact name is required'),
   contact_email: z.string().email('Please enter a valid email address'),
-  contact_phone: z.string().optional(),
+  contact_phone: z.string().optional().refine(val => !val || US_PHONE_REGEX.test(val.trim()), PHONE_ERROR),
   status: z.enum(['active', 'inactive', 'pending']),
   start_date: z.string().optional(),
 })
@@ -56,6 +58,7 @@ export default function EditClientModal({
     reset,
   } = useForm<ClientFormData>({
     resolver: zodResolver(clientSchema),
+    mode: 'onBlur',
   })
 
   // Reset form when modal opens/closes or client changes
@@ -181,16 +184,13 @@ export default function EditClientModal({
             <label htmlFor="contact_phone" className="block text-sm font-semibold text-gray-700 mb-2">
               Contact Phone
             </label>
-            <input
+            <PhoneInput
               id="contact_phone"
               {...register('contact_phone')}
-              placeholder="(555) 123-4567"
               className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+              error={errors.contact_phone?.message}
               disabled={isLoading}
             />
-            {errors.contact_phone && (
-              <p className="mt-1 text-sm text-red-600">{errors.contact_phone.message}</p>
-            )}
           </div>
 
           <div>

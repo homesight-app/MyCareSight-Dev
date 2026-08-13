@@ -7,6 +7,8 @@ import * as q from '@/lib/supabase/query'
 import { useRouter } from 'next/navigation'
 import { createAgencyAdminAccount } from '@/app/actions/users'
 import { US_STATES } from '@/lib/constants'
+import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
 
 type AddNewClientModalMode = 'agency_admin' | 'care_recipient'
 
@@ -72,6 +74,29 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (mode === 'agency_admin') {
+      if (agencyFormData.contact_phone && !isValidUSPhone(agencyFormData.contact_phone)) {
+        setError(PHONE_ERROR)
+        return
+      }
+    }
+
+    if (mode === 'care_recipient') {
+      if (formData.phone_number && !isValidUSPhone(formData.phone_number)) {
+        setError(`Phone number: ${PHONE_ERROR}`)
+        return
+      }
+      if (formData.emergency_phone && !isValidUSPhone(formData.emergency_phone)) {
+        setError(`Emergency phone: ${PHONE_ERROR}`)
+        return
+      }
+      if (formData.email_address && !isValidEmail(formData.email_address)) {
+        setError(EMAIL_ERROR)
+        return
+      }
+    }
+
     setIsLoading(true)
     setError(null)
 
@@ -270,13 +295,11 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 <label htmlFor="contact_phone" className="block text-sm font-semibold text-gray-700 mb-2">
                   Contact Phone
                 </label>
-                <input
-                  type="tel"
+                <PhoneInput
                   id="contact_phone"
                   name="contact_phone"
                   value={agencyFormData.contact_phone}
                   onChange={handleAgencyChange}
-                  placeholder="(555) 123-4567"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
@@ -468,13 +491,11 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
               <label htmlFor="phone_number" className="block text-sm font-semibold text-gray-700 mb-2">
                 Phone Number <span className="text-red-500">*</span>
               </label>
-              <input
-                type="tel"
+              <PhoneInput
                 id="phone_number"
                 name="phone_number"
                 value={formData.phone_number}
                 onChange={handleChange}
-                placeholder="(555) 123-4567"
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -519,13 +540,11 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
               <label htmlFor="emergency_phone" className="block text-sm font-semibold text-gray-700 mb-2">
                 Emergency Phone <span className="text-red-500">*</span>
               </label>
-              <input
-                type="tel"
+              <PhoneInput
                 id="emergency_phone"
                 name="emergency_phone"
                 value={formData.emergency_phone}
                 onChange={handleChange}
-                placeholder="(555) 987-6543"
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />

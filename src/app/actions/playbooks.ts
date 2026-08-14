@@ -1482,6 +1482,8 @@ type PlaybookMetadata = {
   renewal_period_display?: string | null
   icon_type?: string | null
   requirements?: string[] | null
+  category_id?: string | null
+  subcategory_id?: string | null
 }
 
 export async function createPlaybook(

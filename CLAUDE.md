@@ -17,6 +17,26 @@ The goal is a feature that is scalable, modern, and easy for end users — not j
 
 ---
 
+## Reuse existing components and flows — search before building
+
+Before implementing any modal, multi-step flow, button, or UI pattern, **search the codebase first** to check whether an equivalent already exists. If one does, reuse or extend it rather than building a parallel implementation.
+
+```bash
+# Example searches before building a "request program" flow:
+grep -r "Request Program\|requestProgram\|program.*request" src/components/
+grep -r "Modal\|modal" src/components/ | grep -i "license\|program\|apply"
+```
+
+Key reusable flows in this codebase:
+- **Apply for / Request a Program** → `ApplyForNewLicenseButton` (`src/components/ApplyForNewLicenseButton.tsx`) — accepts `programsOnly` prop to show only playbooks, and `agencyId` to skip the request step (admin/expert direct-create). Orchestrates `NewLicenseApplicationModal` → `SelectLicenseTypeModal` → `ReviewPlaybookRequestModal`.
+- **Create License Modal** → `CreateLicenseModal` (`src/components/CreateLicenseModal.tsx`)
+
+**Never duplicate a flow because a page needs a slightly different entry point.** Instead, reuse the existing component with its existing props, or add a new prop to the existing component to handle the variation.
+
+This rule is critical for maintainability: one change to a shared flow (copy, validation, API call) propagates everywhere instead of needing N fixes across N copies.
+
+---
+
 ## Commands
 
 ```bash

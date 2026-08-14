@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Modal from './Modal'
-import { Heart, Users, BookOpen, ArrowRight, DollarSign, Clock, RefreshCw, Loader2 } from 'lucide-react'
+import { Heart, Users, BookOpen, ArrowRight, DollarSign, Clock, RefreshCw, Loader2, Search } from 'lucide-react'
 import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createClient } from '@/lib/supabase/client'
@@ -19,6 +19,8 @@ interface SelectLicenseTypeModalProps {
   programsOnly?: boolean
 }
 
+type ModalCategory = { id: string; name: string; subcategories: { id: string; name: string }[] }
+
 const getStateAbbr = (state: string) => {
   return state.length > 2 ? state.substring(0, 2).toUpperCase() : state.toUpperCase()
 }
@@ -34,8 +36,26 @@ export default function SelectLicenseTypeModal({
 }: SelectLicenseTypeModalProps) {
   const [licenseTypes, setLicenseTypes] = useState<LicenseType[]>([])
   const [standalonePlaybooks, setStandalonePlaybooks] = useState<StandalonePlaybook[]>([])
+  const [categories, setCategories] = useState<ModalCategory[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [selectedCategoryId, setSelectedCategoryId] = useState('')
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState('')
+
+  const subcategoriesForSelected = useMemo(
+    () => categories.find(c => c.id === selectedCategoryId)?.subcategories ?? [],
+    [categories, selectedCategoryId]
+  )
+
+  const filteredPlaybooks = useMemo(() => {
+    return standalonePlaybooks.filter(p => {
+      if (search.trim() && !p.name.toLowerCase().includes(search.trim().toLowerCase())) return false
+      if (selectedCategoryId && p.category_id !== selectedCategoryId) return false
+      if (selectedSubcategoryId && p.subcategory_id !== selectedSubcategoryId) return false
+      return true
+    })
+  }, [standalonePlaybooks, search, selectedCategoryId, selectedSubcategoryId])
 
   const fetchLicenseTypes = useCallback(async () => {
     setIsLoading(true)
@@ -44,9 +64,10 @@ export default function SelectLicenseTypeModal({
     try {
       const supabase = createClient()
 
-      const [licenseResult, playbookResult] = await Promise.all([
+      const [licenseResult, playbookResult, categoryResult] = await Promise.all([
         q.getLicenseTypes(supabase, { state, isActive: true }),
         q.getStandalonePlaybooksByState(supabase, state),
+        q.getPlaybookCategoriesWithSubcategories(supabase),
       ])
 
       if (licenseResult.error) throw licenseResult.error
@@ -66,6 +87,9 @@ export default function SelectLicenseTypeModal({
 
       setLicenseTypes(transformedData)
       setStandalonePlaybooks((playbookResult.data ?? []) as StandalonePlaybook[])
+      setCategories(
+        ((categoryResult.data ?? []) as unknown as ModalCategory[]).filter(c => c.subcategories !== undefined)
+      )
     } catch (err: any) {
       setError(err.message || 'Failed to load license types. Please try again.')
     } finally {
@@ -75,9 +99,14 @@ export default function SelectLicenseTypeModal({
 
   useEffect(() => {
     if (isOpen && state) {
+      setSearch('')
+      setSelectedCategoryId('')
+      setSelectedSubcategoryId('')
       fetchLicenseTypes()
     }
   }, [isOpen, state, fetchLicenseTypes])
+
+  const hasActiveFilters = search.trim() || selectedCategoryId || selectedSubcategoryId
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={programsOnly ? `Select Program - ${getStateAbbr(state)}` : `Select License Type - ${getStateAbbr(state)}`} size="lg">
@@ -94,9 +123,63 @@ export default function SelectLicenseTypeModal({
           </div>
         )}
 
-        {!isLoading && !error && (programsOnly ? standalonePlaybooks.length === 0 : licenseTypes.length === 0 && standalonePlaybooks.length === 0) && (
+        {/* Search + filters — shown only in programsOnly mode */}
+        {!isLoading && programsOnly && standalonePlaybooks.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <input
+                type="search"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search programs…"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
+              />
+            </div>
+            {categories.length > 0 && (
+              <select
+                value={selectedCategoryId}
+                onChange={e => { setSelectedCategoryId(e.target.value); setSelectedSubcategoryId('') }}
+                className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-teal-500 outline-none bg-white"
+              >
+                <option value="">All Categories</option>
+                {categories.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
+            {subcategoriesForSelected.length > 0 && (
+              <select
+                value={selectedSubcategoryId}
+                onChange={e => setSelectedSubcategoryId(e.target.value)}
+                className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-teal-500 outline-none bg-white"
+              >
+                <option value="">All Subcategories</option>
+                {subcategoriesForSelected.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        {!isLoading && !error && (programsOnly ? filteredPlaybooks.length === 0 : licenseTypes.length === 0 && standalonePlaybooks.length === 0) && (
           <div className="text-center py-12">
-            <p className="text-gray-600">{programsOnly ? `No programs available for ${state}.` : `No license types available for ${state}.`}</p>
+            <p className="text-gray-600">
+              {programsOnly
+                ? hasActiveFilters
+                  ? 'No programs match your filters.'
+                  : `No programs available for ${state}.`
+                : `No license types available for ${state}.`}
+            </p>
+            {programsOnly && hasActiveFilters && (
+              <button
+                onClick={() => { setSearch(''); setSelectedCategoryId(''); setSelectedSubcategoryId('') }}
+                className="mt-2 text-sm text-teal-600 hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
         )}
 
@@ -151,7 +234,7 @@ export default function SelectLicenseTypeModal({
         ))}
 
         {/* Standalone playbooks (programs) */}
-        {!isLoading && standalonePlaybooks.length > 0 && onSelectPlaybook && standalonePlaybooks.map((playbook) => (
+        {!isLoading && filteredPlaybooks.length > 0 && onSelectPlaybook && filteredPlaybooks.map((playbook) => (
           <button
             key={playbook.id}
             onClick={() => onSelectPlaybook(playbook)}
@@ -166,7 +249,23 @@ export default function SelectLicenseTypeModal({
               </div>
               <div className="flex-1">
                 <h3 className="font-bold text-gray-900 text-lg mb-1">{playbook.name}</h3>
-                <p className="text-gray-600 text-sm mb-3">{playbook.description}</p>
+                {(playbook.category || playbook.subcategory) && (
+                  <div className="flex items-center gap-1.5 mb-2">
+                    {playbook.category && (
+                      <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-full font-medium">
+                        {playbook.category.name}
+                      </span>
+                    )}
+                    {playbook.subcategory && (
+                      <span className="text-xs bg-gray-100 text-gray-600 border border-gray-200 px-2 py-0.5 rounded-full">
+                        {playbook.subcategory.name}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {playbook.description && (
+                  <p className="text-gray-600 text-sm mb-3">{playbook.description}</p>
+                )}
                 <div className="flex flex-wrap gap-4 text-sm">
                   {playbook.cost_display && (
                     <div className="flex items-center gap-2">
@@ -211,4 +310,3 @@ export default function SelectLicenseTypeModal({
     </Modal>
   )
 }
-

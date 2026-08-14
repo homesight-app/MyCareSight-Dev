@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Settings, DollarSign, Search, Edit, Check, X, Pencil } from 'lucide-react'
 import { updatePricing, updateLicenseType } from '@/app/actions/configuration'
 import SystemListsManagement from '@/components/SystemListsManagement'
+import PlaybookCategoriesSection from '@/components/PlaybookCategoriesSection'
 
 interface Pricing {
   owner_admin_license: number
@@ -46,6 +47,15 @@ interface TaskCategoryItem {
   name: string
 }
 
+interface PlaybookCategory {
+  id: string
+  name: string
+  description: string | null
+  is_active: boolean
+  sort_order: number
+  subcategories: { id: string; category_id: string; name: string; description: string | null; is_active: boolean; sort_order: number }[]
+}
+
 interface ConfigurationContentProps {
   initialPricing: Pricing
   licenseTypes: LicenseType[]
@@ -55,6 +65,7 @@ interface ConfigurationContentProps {
   nonSkilledTasks: TaskCatalogItem[]
   skilledTaskCategories: TaskCategoryItem[]
   nonSkilledTaskCategories: TaskCategoryItem[]
+  playbookCategories: PlaybookCategory[]
 }
 
 interface EditingLicenseType {
@@ -74,6 +85,7 @@ export default function ConfigurationContent({
   nonSkilledTasks,
   skilledTaskCategories,
   nonSkilledTaskCategories,
+  playbookCategories,
 }: ConfigurationContentProps) {
   const router = useRouter()
   const [pricing, setPricing] = useState(initialPricing)
@@ -480,6 +492,17 @@ export default function ConfigurationContent({
         initialSkilledTaskCategories={skilledTaskCategories}
         initialNonSkilledTaskCategories={nonSkilledTaskCategories}
       />
+
+      {/* Playbook Categories Section */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Playbook Categories</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Categories and subcategories used to classify playbooks, programs, and certifications.
+          </p>
+        </div>
+        <PlaybookCategoriesSection initialCategories={playbookCategories} />
+      </div>
     </div>
   )
 }

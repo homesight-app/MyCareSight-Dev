@@ -27,6 +27,8 @@ export type PlaybookRow = {
   renewal_period_display: string | null
   icon_type: string | null
   requirements: string[] | null
+  category_id: string | null
+  subcategory_id: string | null
 }
 
 interface Props {
@@ -34,6 +36,7 @@ interface Props {
   licenseRequirementId: string | null
   initialItems: PlaybookItem[]
   initialTemplates: PlaybookTemplate[]
+  categories: { id: string; name: string; subcategories: { id: string; name: string }[] }[]
 }
 
 type TabType = 'general' | 'items' | 'templates'
@@ -90,7 +93,7 @@ function tabCls(active: boolean) {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function PlaybookDetailContent({ playbook, licenseRequirementId, initialItems, initialTemplates }: Props) {
+export default function PlaybookDetailContent({ playbook, licenseRequirementId, initialItems, initialTemplates, categories }: Props) {
   const supabase = createClient()
 
   const [activeTab, setActiveTab] = useState<TabType>('general')
@@ -99,6 +102,8 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
   const [requirements, setRequirements] = useState<string[]>(playbook.requirements ?? [])
   const [newRequirement, setNewRequirement] = useState('')
   const [itemCount, setItemCount] = useState(initialItems.length)
+  const [categoryId, setCategoryId] = useState(playbook.category_id ?? '')
+  const [subcategoryId, setSubcategoryId] = useState(playbook.subcategory_id ?? '')
 
   // Templates state
   const [templates, setTemplates] = useState<PlaybookTemplate[]>(initialTemplates)
@@ -150,11 +155,24 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
     }, 1000)
   }
 
+  const selectedCategorySubcategories = categories.find(c => c.id === categoryId)?.subcategories ?? []
+
   const saveNow = async (patch: Record<string, unknown>) => {
     setSaveStatus('saving')
     await updatePlaybook(playbook.id, patch)
     setSaveStatus('saved')
     setTimeout(() => setSaveStatus('idle'), 2000)
+  }
+
+  const handleCategoryChange = (newCatId: string) => {
+    setCategoryId(newCatId)
+    setSubcategoryId('')
+    saveNow({ category_id: newCatId || null, subcategory_id: null })
+  }
+
+  const handleSubcategoryChange = (newSubId: string) => {
+    setSubcategoryId(newSubId)
+    saveNow({ subcategory_id: newSubId || null })
   }
 
   const handleToggleActive = async () => {
@@ -270,125 +288,136 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
 
         {/* ── General Info ─────────────────────────────────────────────── */}
         {activeTab === 'general' && (
-          <div className="space-y-6">
+          <div className="space-y-5">
+            {/* Header row */}
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Playbook Details</h3>
+              <h3 className="text-sm font-semibold text-gray-700">Playbook Details</h3>
               <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-500">{isActive ? 'Active' : 'Inactive'}</span>
+                <span className="text-xs text-gray-500">{isActive ? 'Active' : 'Inactive'}</span>
                 <button
                   onClick={handleToggleActive}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isActive ? 'bg-blue-600' : 'bg-gray-300'}`}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isActive ? 'bg-blue-600' : 'bg-gray-300'}`}
                 >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isActive ? 'translate-x-6' : 'translate-x-1'}`} />
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isActive ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                 </button>
                 {saveStatus === 'saving' && <span className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Saving…</span>}
                 {saveStatus === 'saved' && <span className="text-xs text-green-600">Saved</span>}
               </div>
             </div>
 
-            <div className="space-y-4">
-              {/* Average Processing Time */}
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <label className="block text-sm font-semibold text-gray-900 mb-2">Average Processing Time</label>
+            {/* Category / Subcategory */}
+            {categories.length > 0 && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+                  <select
+                    value={categoryId}
+                    onChange={e => handleCategoryChange(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">— None —</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Subcategory</label>
+                  <select
+                    value={subcategoryId}
+                    onChange={e => handleSubcategoryChange(e.target.value)}
+                    disabled={!categoryId || selectedCategorySubcategories.length === 0}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    <option value="">— None —</option>
+                    {selectedCategorySubcategories.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Fee & timing fields — 2-column grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Processing Time</label>
                 <input
                   type="text"
                   value={overviewFields.processingTime}
                   onFocus={e => { setOverviewFields(f => ({ ...f, processingTime: extractProcessingTime(e.target.value) })); e.target.select() }}
                   onBlur={e => { const fmt = formatProcessingTime(e.target.value); setOverviewFields(f => ({ ...f, processingTime: fmt })); if (fmt) scheduleFieldSave('processingTime', fmt) }}
                   onChange={e => setOverviewFields(f => ({ ...f, processingTime: e.target.value }))}
-                  className="bg-white w-full text-2xl font-bold text-gray-900 border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -mx-2 -my-1 mb-2 hover:bg-white/50 transition-colors"
-                  placeholder="60 days"
+                  placeholder="e.g. 60 days"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="text-sm text-gray-600">How long it typically takes to process this license type</p>
               </div>
-
-              {/* Application Fee */}
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <label className="block text-sm font-semibold text-gray-900 mb-2">Application Fee</label>
-                <input
-                  type="text"
-                  value={overviewFields.applicationFee}
-                  onFocus={e => { setOverviewFields(f => ({ ...f, applicationFee: extractCurrency(e.target.value) })); e.target.select() }}
-                  onBlur={e => { const fmt = formatCurrency(e.target.value); setOverviewFields(f => ({ ...f, applicationFee: fmt })); if (fmt) scheduleFieldSave('applicationFee', fmt) }}
-                  onChange={e => setOverviewFields(f => ({ ...f, applicationFee: e.target.value }))}
-                  className="bg-white w-full text-2xl font-bold text-gray-900 border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -mx-2 -my-1 mb-2 hover:bg-white/50 transition-colors"
-                  placeholder="$500"
-                />
-                <p className="text-sm text-gray-600">Cost to apply for this license</p>
-              </div>
-
-              {/* Service Fee */}
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <label className="block text-sm font-semibold text-gray-900 mb-2">Service Fee</label>
-                <input
-                  type="text"
-                  value={overviewFields.serviceFee}
-                  onFocus={e => { setOverviewFields(f => ({ ...f, serviceFee: extractCurrency(e.target.value) })); e.target.select() }}
-                  onBlur={e => { const fmt = formatCurrency(e.target.value); setOverviewFields(f => ({ ...f, serviceFee: fmt })); if (fmt) scheduleFieldSave('serviceFee', fmt) }}
-                  onChange={e => setOverviewFields(f => ({ ...f, serviceFee: e.target.value }))}
-                  className="bg-white w-full text-2xl font-bold text-gray-900 border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -mx-2 -my-1 mb-2 hover:bg-white/50 transition-colors"
-                  placeholder="$3,500"
-                />
-                <p className="text-sm text-gray-600">Cost of helping the owner submit their license</p>
-              </div>
-
-              {/* Renewal Period */}
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <label className="block text-sm font-semibold text-gray-900 mb-2">Renewal Period</label>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Renewal Period</label>
                 <input
                   type="text"
                   value={overviewFields.renewalPeriod}
                   onFocus={e => { setOverviewFields(f => ({ ...f, renewalPeriod: extractNumber(e.target.value) })); e.target.select() }}
                   onBlur={e => { const fmt = formatRenewalPeriod(e.target.value); setOverviewFields(f => ({ ...f, renewalPeriod: fmt })); if (fmt) scheduleFieldSave('renewalPeriod', fmt) }}
                   onChange={e => setOverviewFields(f => ({ ...f, renewalPeriod: e.target.value }))}
-                  className="bg-white w-full text-2xl font-bold text-gray-900 border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -mx-2 -my-1 mb-2 hover:bg-white/50 transition-colors"
-                  placeholder="1 year"
+                  placeholder="e.g. 1 year"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="text-sm text-gray-600">How often this license needs to be renewed</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Application Fee</label>
+                <input
+                  type="text"
+                  value={overviewFields.applicationFee}
+                  onFocus={e => { setOverviewFields(f => ({ ...f, applicationFee: extractCurrency(e.target.value) })); e.target.select() }}
+                  onBlur={e => { const fmt = formatCurrency(e.target.value); setOverviewFields(f => ({ ...f, applicationFee: fmt })); if (fmt) scheduleFieldSave('applicationFee', fmt) }}
+                  onChange={e => setOverviewFields(f => ({ ...f, applicationFee: e.target.value }))}
+                  placeholder="e.g. $500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Service Fee</label>
+                <input
+                  type="text"
+                  value={overviewFields.serviceFee}
+                  onFocus={e => { setOverviewFields(f => ({ ...f, serviceFee: extractCurrency(e.target.value) })); e.target.select() }}
+                  onBlur={e => { const fmt = formatCurrency(e.target.value); setOverviewFields(f => ({ ...f, serviceFee: fmt })); if (fmt) scheduleFieldSave('serviceFee', fmt) }}
+                  onChange={e => setOverviewFields(f => ({ ...f, serviceFee: e.target.value }))}
+                  placeholder="e.g. $3,500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-400 mt-1">Cost of helping the owner submit</p>
               </div>
             </div>
 
             {/* Description */}
-            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-              <label className="block text-sm font-semibold text-gray-900 mb-2">Description</label>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
               <textarea
                 value={overviewFields.description}
                 onChange={e => scheduleFieldSave('description', e.target.value)}
                 rows={3}
                 placeholder="Brief description of this playbook…"
-                className="w-full bg-white text-gray-900 border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 text-sm resize-none hover:bg-white/50 transition-colors"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
               />
             </div>
 
-            {/* Icon */}
-            {/* <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-              <label className="block text-sm font-semibold text-gray-900 mb-2">Icon</label>
-              <select
-                value={overviewFields.iconType}
-                onChange={e => { const val = e.target.value; setOverviewFields(f => ({ ...f, iconType: val })); scheduleFieldSave('iconType', val) }}
-                className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">— None —</option>
-                <option value="heart">Heart (Home Care)</option>
-                <option value="users">Users (Agency)</option>
-              </select>
-            </div> */}
-
             {/* Key Requirements */}
-            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-              <label className="block text-sm font-semibold text-gray-900 mb-2">
-                Key Requirements <span className="text-gray-400 font-normal text-xs">(shown to agencies in request modal)</span>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">
+                Key Requirements <span className="text-gray-400 font-normal">(shown to agencies in request modal)</span>
               </label>
               <div className="space-y-2 mb-3">
                 {requirements.map((req, idx) => (
                   <div key={idx} className="flex items-center gap-2">
-                    <span className="flex-1 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg px-3 py-1.5">{req}</span>
+                    <span className="flex-1 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">{req}</span>
                     <button onClick={() => removeRequirement(idx)} className="text-gray-400 hover:text-red-500 transition-colors">
                       <Minus className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
-                {requirements.length === 0 && <p className="text-sm text-gray-400 italic">No requirements added yet.</p>}
+                {requirements.length === 0 && <p className="text-xs text-gray-400 italic">No requirements added yet.</p>}
               </div>
               <div className="flex gap-2">
                 <input
@@ -397,7 +426,7 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
                   onChange={e => setNewRequirement(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && addRequirement()}
                   placeholder="Add a key requirement…"
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button onClick={addRequirement} className="flex items-center gap-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
                   <Plus className="w-4 h-4" /> Add

@@ -4,10 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Modal from './Modal'
 import { BookOpen, MapPin, DollarSign, Clock, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
-import { createProgramForAgency } from '@/app/actions/applications'
+import { createProgramForAgency, submitProgramRequest } from '@/app/actions/applications'
 
 interface ReviewPlaybookRequestModalProps {
   isOpen: boolean
@@ -53,47 +51,19 @@ export default function ReviewPlaybookRequestModal({
       }
 
       // Agency owner flow: submit as requested, awaits admin approval
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setError('You must be logged in to submit a program request')
-        return
-      }
-
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('agency_id')
-        .eq('id', user.id)
-        .single()
-
-      if (!profile?.agency_id) {
-        setError('Could not determine your agency. Please contact support.')
-        return
-      }
-
-      const todayStr = new Date().toISOString().split('T')[0]
-
-      const { error: insertError } = await q.insertApplication(supabase, {
-        agency_id: profile.agency_id,
-        company_owner_id: null,
+      const { error: actionError } = await submitProgramRequest({
         application_name: playbook.name,
         state,
-        license_type_id: null,
         playbook_id: playbook.id,
-        status: 'requested',
-        progress_percentage: 0,
-        started_date: todayStr,
-        last_updated_date: todayStr,
-        submitted_date: todayStr,
       })
 
-      if (insertError) {
-        setError(insertError.message || 'Failed to submit program request. Please try again.')
+      if (actionError) {
+        setError(actionError)
         return
       }
 
       onClose()
-      router.push('/pages/agency/licenses')
+      router.push('/pages/agency/programs')
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to submit program request. Please try again.'
       setError(message)

@@ -428,6 +428,16 @@ export async function getApplicationsWithProgramsPaginated(
   }
 }
 
+/** Pending (status='requested') program requests for the current agency user (RLS-filtered). */
+export async function getRequestedProgramsForAgency(supabase: Supabase) {
+  return supabase
+    .from('applications')
+    .select('id, application_name, state, status, created_at, playbook_id, playbooks(name)')
+    .eq('status', 'requested')
+    .not('playbook_id', 'is', null)
+    .order('created_at', { ascending: false })
+}
+
 // ─── Rule check management ────────────────────────────────────────────────────
 
 export async function insertApplicationRuleCheck(
@@ -542,8 +552,11 @@ export async function getAllPlaybooks(supabase: Supabase) {
     .select(`
       id, name, playbook_type, description, is_active,
       state, cost_display, processing_time_display, renewal_period_display, icon_type,
+      category_id, subcategory_id,
       created_at,
       license_requirement:license_requirement_id(id, state, license_type),
+      category:playbook_categories(id, name),
+      subcategory:playbook_subcategories(id, name),
       playbook_items(count)
     `)
     .order('created_at', { ascending: false })
@@ -559,7 +572,10 @@ export async function getPlaybookById(supabase: Supabase, playbookId: string) {
       processing_time_min, processing_time_max, processing_time_display,
       renewal_period_years, renewal_period_display,
       icon_type, requirements, created_by, created_at, updated_at,
-      license_requirement:license_requirement_id(id, state, license_type)
+      category_id, subcategory_id,
+      license_requirement:license_requirement_id(id, state, license_type),
+      category:playbook_categories(id, name),
+      subcategory:playbook_subcategories(id, name)
     `)
     .eq('id', playbookId)
     .single()
@@ -594,6 +610,8 @@ export async function insertPlaybookRecord(
     requirements?: string[] | null
     is_active?: boolean
     created_by?: string | null
+    category_id?: string | null
+    subcategory_id?: string | null
   }
 ) {
   return supabase
@@ -625,6 +643,8 @@ export async function updatePlaybookRecord(
     icon_type?: string | null
     requirements?: string[] | null
     is_active?: boolean
+    category_id?: string | null
+    subcategory_id?: string | null
   }
 ) {
   return supabase
@@ -689,12 +709,24 @@ export interface StandalonePlaybook {
   icon_type: string | null
   requirements: string[] | null
   is_active: boolean
+  category_id: string | null
+  subcategory_id: string | null
+  category: { id: string; name: string } | null
+  subcategory: { id: string; name: string } | null
 }
 
 export async function getStandalonePlaybooksByState(supabase: Supabase, state: string) {
   const result = await supabase
     .from('playbooks')
-    .select('id, name, playbook_type, description, state, cost_display, service_fee_display, processing_time_display, renewal_period_display, icon_type, requirements, is_active, license_requirement:license_requirement_id(state)')
+    .select(`
+      id, name, playbook_type, description, state,
+      cost_display, service_fee_display, processing_time_display, renewal_period_display,
+      icon_type, requirements, is_active,
+      category_id, subcategory_id,
+      license_requirement:license_requirement_id(state),
+      category:playbook_categories(id, name),
+      subcategory:playbook_subcategories(id, name)
+    `)
     .eq('is_active', true)
     .order('name')
 

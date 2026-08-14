@@ -27,6 +27,9 @@ export const CACHE_TAG_CAREGIVER_SKILL_CATALOG = 'caregiver-skill-catalog'
 /** Active rows from `license_types` */
 export const CACHE_TAG_LICENSE_TYPES_ACTIVE = 'license-types-active'
 
+/** Playbook categories and subcategories (admin configuration) */
+export const CACHE_TAG_PLAYBOOK_CATEGORIES = 'playbook-categories'
+
 export function caregiverVisitExecutionTag(visitId: string) {
   return `${CACHE_TAG_CAREGIVER_VISIT_EXECUTION}:${visitId}`
 }

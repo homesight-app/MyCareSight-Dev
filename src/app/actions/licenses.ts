@@ -25,7 +25,8 @@ export type CreateLicenseForAgencyInput = {
   activated_date: string
   expiry_date: string
   renewal_due_date?: string
-  certification_category?: string
+  category_id?: string | null
+  subcategory_id?: string | null
   issuing_body?: string
   documents?: {
     url: string
@@ -57,7 +58,8 @@ export async function createLicenseForAgency(input: CreateLicenseForAgencyInput)
     activated_date: input.activated_date,
     expiry_date: input.expiry_date,
     renewal_due_date: input.renewal_due_date || null,
-    certification_category: input.certification_category || null,
+    category_id: input.category_id || null,
+    subcategory_id: input.subcategory_id || null,
     issuing_body: input.issuing_body || null,
   })
 
@@ -116,7 +118,25 @@ export async function createCertificationAndLink(
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
 
-  const { error: createErr, data: newCert } = await createLicenseForAgency({ ...certData, agencyId })
+  // Auto-copy category from the source application if not explicitly provided
+  let enrichedCertData = { ...certData }
+  if (!enrichedCertData.category_id) {
+    const supabaseAdmin = createAdminClient()
+    const { data: app } = await supabaseAdmin
+      .from('applications')
+      .select('category_id, subcategory_id')
+      .eq('id', applicationId)
+      .single()
+    if (app?.category_id) {
+      enrichedCertData = {
+        ...enrichedCertData,
+        category_id: app.category_id,
+        subcategory_id: app.subcategory_id ?? null,
+      }
+    }
+  }
+
+  const { error: createErr, data: newCert } = await createLicenseForAgency({ ...enrichedCertData, agencyId })
   if (createErr || !newCert?.id) return { error: createErr ?? 'Failed to create certification' }
 
   const supabaseAdmin = createAdminClient()

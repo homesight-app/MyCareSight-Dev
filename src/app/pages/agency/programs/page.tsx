@@ -21,7 +21,10 @@ export default async function AgencyProgramsPage({
   const search = params.q ?? ''
 
   const supabase = await createClient()
-  const result = await q.getApplicationsWithProgramsPaginated(supabase, { page, pageSize: PAGE_SIZE, search })
+  const [result, { data: pendingRequests }] = await Promise.all([
+    q.getApplicationsWithProgramsPaginated(supabase, { page, pageSize: PAGE_SIZE, search }),
+    q.getRequestedProgramsForAgency(supabase),
+  ])
 
   type RawRow = {
     id: string
@@ -33,15 +36,22 @@ export default async function AgencyProgramsPage({
     application_playbook_items: { status: 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'; requirement_type: string }[]
   }
 
-  const programs = (result.data ?? []) as unknown as RawRow[]
+  type PendingRow = {
+    id: string
+    application_name: string
+    state: string
+    status: string
+    created_at: string
+  }
 
   return (
     <AgencyProgramsContent
-      programs={programs}
+      programs={(result.data ?? []) as unknown as RawRow[]}
       totalCount={result.count}
       page={page}
       pageSize={PAGE_SIZE}
       initialSearch={search}
+      pendingRequests={(pendingRequests ?? []) as unknown as PendingRow[]}
     />
   )
 }

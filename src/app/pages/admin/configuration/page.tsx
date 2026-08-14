@@ -12,6 +12,7 @@ import {
   getSkilledTasks,
   getStaffRoles,
 } from '@/app/actions/system-lists'
+import { getPlaybookCategoriesWithSubs } from '@/app/actions/playbook-categories'
 
 export default async function ConfigurationPage() {
   await requireAdmin()
@@ -21,12 +22,9 @@ export default async function ConfigurationPage() {
   const pricingData = pricingResult.data
   const { data: licenseTypes } = await getCachedLicenseTypesForConfiguration()
 
-  // Get system lists data
-  
   const certTypesResult = await getCertificationTypes()
   const certificationTypes = certTypesResult.data || []
-  
-  
+
   const rolesResult = await getStaffRoles()
   const staffRoles = rolesResult.data || []
   const skilledTasksResult = await getSkilledTasks()
@@ -38,6 +36,8 @@ export default async function ConfigurationPage() {
   const nonSkilledTaskCategoriesResult = await getNonSkilledTaskCategories()
   const nonSkilledTaskCategories = nonSkilledTaskCategoriesResult.data || []
 
+  const { data: playbookCategories } = await getPlaybookCategoriesWithSubs()
+
   return (
       <ConfigurationContent
         initialPricing={pricingData || { owner_admin_license: 50, staff_license: 25 }}
@@ -48,6 +48,7 @@ export default async function ConfigurationPage() {
         nonSkilledTasks={nonSkilledTasks}
         skilledTaskCategories={skilledTaskCategories}
         nonSkilledTaskCategories={nonSkilledTaskCategories}
+        playbookCategories={(playbookCategories ?? []) as unknown as Parameters<typeof ConfigurationContent>[0]['playbookCategories']}
       />
   )
 }

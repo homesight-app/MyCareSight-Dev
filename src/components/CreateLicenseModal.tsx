@@ -19,7 +19,6 @@ const licenseSchema = z.object({
   expiry_date: z.string().min(1, 'Expiry date is required'),
   activated_date: z.string().min(1, 'Activated date is required'),
   renewal_due_date: z.string().optional(),
-  certification_category: z.string().optional(),
   issuing_body: z.string().optional(),
 })
 
@@ -57,15 +56,6 @@ interface CreateLicenseModalProps {
   }
 }
 
-const CERT_CATEGORIES = [
-  { value: 'state_license', label: 'State License' },
-  { value: 'medicare', label: 'Medicare' },
-  { value: 'medicaid', label: 'Medicaid' },
-  { value: 'accreditation', label: 'Accreditation' },
-  { value: 'bond', label: 'Bond' },
-  { value: 'insurance', label: 'Insurance' },
-  { value: 'other', label: 'Other' },
-]
 
 const DOC_TYPES = ['license', 'certificate', 'insurance', 'contract', 'policy', 'other']
 
@@ -105,7 +95,6 @@ export default function CreateLicenseModal({
       expiry_date: licenseToEdit?.expiry_date?.split('T')[0] ?? '',
       activated_date: licenseToEdit?.activated_date?.split('T')[0] ?? '',
       renewal_due_date: licenseToEdit?.renewal_due_date?.split('T')[0] ?? '',
-      certification_category: '',
       issuing_body: '',
     },
   })
@@ -221,7 +210,6 @@ export default function CreateLicenseModal({
           activated_date: data.activated_date,
           expiry_date: data.expiry_date,
           renewal_due_date: data.renewal_due_date || undefined,
-          certification_category: data.certification_category || undefined,
           issuing_body: data.issuing_body || undefined,
           documents: uploadedDocs.length > 0 ? uploadedDocs : undefined,
         })
@@ -326,21 +314,8 @@ export default function CreateLicenseModal({
           {errors.license_name && <p className="mt-1 text-sm text-red-600">{errors.license_name.message}</p>}
         </div>
 
-        {/* Category + State */}
+        {/* State */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="certification_category" className="block text-sm font-semibold text-gray-700 mb-1">
-              Category
-            </label>
-            <select
-              id="certification_category"
-              {...register('certification_category')}
-              className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
-            >
-              <option value="">Select category</option>
-              {CERT_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          </div>
           <div>
             <label htmlFor="state" className="block text-sm font-semibold text-gray-700 mb-1">
               State

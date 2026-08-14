@@ -17,8 +17,12 @@ type PlaybookRow = {
   processing_time_display: string | null
   renewal_period_display: string | null
   icon_type: string | null
+  category_id: string | null
+  subcategory_id: string | null
   created_at: string
   license_requirement: { id: string; state: string; license_type: string } | null
+  category: { id: string; name: string } | null
+  subcategory: { id: string; name: string } | null
   playbook_items: { count: number }[]
 }
 
@@ -38,10 +42,10 @@ const TYPE_COLORS: Record<string, string> = {
 
 interface Props {
   playbooks: PlaybookRow[]
-  licenseRequirements: { id: string; state: string; license_type: string }[]
+  categories: { id: string; name: string; subcategories: { id: string; name: string }[] }[]
 }
 
-export default function PlaybookLibraryContent({ playbooks, licenseRequirements }: Props) {
+export default function PlaybookLibraryContent({ playbooks, categories }: Props) {
   const router = useRouter()
   const [localPlaybooks, setLocalPlaybooks] = useState(playbooks)
   const [showModal, setShowModal] = useState(false)
@@ -49,6 +53,7 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
   const [formError, setFormError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedState, setSelectedState] = useState('All States')
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('')
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [loadingId, setLoadingId] = useState<string | null>(null)
 
@@ -67,6 +72,7 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
     return localPlaybooks.filter(pb => {
       const displayState = pb.state ?? pb.license_requirement?.state ?? ''
       if (selectedState !== 'All States' && displayState !== selectedState) return false
+      if (selectedCategoryFilter && pb.category_id !== selectedCategoryFilter) return false
       if (searchQuery) {
         const q = searchQuery.toLowerCase()
         const matches =
@@ -77,7 +83,7 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
       }
       return true
     })
-  }, [localPlaybooks, searchQuery, selectedState])
+  }, [localPlaybooks, searchQuery, selectedState, selectedCategoryFilter])
 
   const handleToggleActive = async (e: React.MouseEvent, pb: PlaybookRow) => {
     e.stopPropagation()
@@ -100,7 +106,8 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
   const [serviceFeeDisplay, setServiceFeeDisplay] = useState('')
   const [renewalPeriodDisplay, setRenewalPeriodDisplay] = useState('')
   const [iconType, setIconType] = useState('')
-  const [selectedLrId, setSelectedLrId] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+  const [subcategoryId, setSubcategoryId] = useState('')
 
   const resetForm = () => {
     setName('')
@@ -112,18 +119,15 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
     setServiceFeeDisplay('')
     setRenewalPeriodDisplay('')
     setIconType('')
-    setSelectedLrId('')
+    setCategoryId('')
+    setSubcategoryId('')
     setFormError(null)
   }
 
-  const handleLrChange = (lrId: string) => {
-    setSelectedLrId(lrId)
-    const lr = licenseRequirements.find(r => r.id === lrId)
-    if (lr) {
-      if (!name) setName(lr.license_type)
-      setState(lr.state)
-    }
-  }
+  const selectedCategorySubcategories = useMemo(
+    () => categories.find(c => c.id === categoryId)?.subcategories ?? [],
+    [categories, categoryId]
+  )
 
   const handleSubmit = async () => {
     if (!name.trim()) { setFormError('Name is required'); return }
@@ -132,7 +136,6 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
     const { error, data } = await createPlaybook({
       name: name.trim(),
       playbook_type: type,
-      license_requirement_id: selectedLrId || null,
       state: state || null,
       description: description.trim() || null,
       processing_time_display: processingTime.trim() || null,
@@ -140,6 +143,8 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
       service_fee_display: serviceFeeDisplay.trim() || null,
       renewal_period_display: renewalPeriodDisplay.trim() || null,
       icon_type: iconType || null,
+      category_id: categoryId || null,
+      subcategory_id: subcategoryId || null,
     })
     setSubmitting(false)
     if (error) { setFormError(error); return }
@@ -166,6 +171,18 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
           <button className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-center">
             <Filter className="w-4 h-4 text-gray-600" />
           </button>
+          {categories.length > 0 && (
+            <select
+              value={selectedCategoryFilter}
+              onChange={e => setSelectedCategoryFilter(e.target.value)}
+              className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white cursor-pointer"
+            >
+              <option value="">All Categories</option>
+              {categories.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
           <select
             value={selectedState}
             onChange={e => setSelectedState(e.target.value)}
@@ -209,6 +226,7 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Name</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Type</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Category</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">State</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Cost</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Processing</th>
@@ -235,6 +253,14 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TYPE_COLORS[pb.playbook_type] ?? 'bg-gray-100 text-gray-600'}`}>
                         {TYPE_LABELS[pb.playbook_type] ?? pb.playbook_type}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {pb.category ? (
+                        <span className="text-xs">
+                          {pb.category.name}
+                          {pb.subcategory && <span className="text-gray-400"> / {pb.subcategory.name}</span>}
+                        </span>
+                      ) : '—'}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{displayState}</td>
                     <td className="px-4 py-3 text-gray-600">{pb.cost_display ?? '—'}</td>
@@ -307,7 +333,38 @@ export default function PlaybookLibraryContent({ playbooks, licenseRequirements 
                 </select>
               </div>
 
-
+              {/* Category */}
+              {categories.length > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                    <select
+                      value={categoryId}
+                      onChange={e => { setCategoryId(e.target.value); setSubcategoryId('') }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">— None —</option>
+                      {categories.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Subcategory</label>
+                    <select
+                      value={subcategoryId}
+                      onChange={e => setSubcategoryId(e.target.value)}
+                      disabled={!categoryId || selectedCategorySubcategories.length === 0}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                    >
+                      <option value="">— None —</option>
+                      {selectedCategorySubcategories.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
 
               {/* Name */}
               <div>

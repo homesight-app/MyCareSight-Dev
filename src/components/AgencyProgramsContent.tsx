@@ -3,7 +3,9 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle2, Clock, AlertCircle, Circle, Search, ChevronRight, ChevronLeft } from 'lucide-react'
+import { CheckCircle2, Clock, AlertCircle, Circle, Search, ChevronRight, ChevronLeft, BookOpen, Loader2, X, ChevronDown } from 'lucide-react'
+import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
+import { cancelProgramRequest } from '@/app/actions/applications'
 
 type Status = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
 
@@ -20,12 +22,21 @@ interface Program {
   application_playbook_items: PlaybookItem[]
 }
 
+interface PendingRequest {
+  id: string
+  application_name: string
+  state: string
+  status: string
+  created_at: string
+}
+
 interface AgencyProgramsContentProps {
   programs: Program[]
   totalCount: number
   page: number
   pageSize: number
   initialSearch?: string
+  pendingRequests: PendingRequest[]
 }
 
 function computeProgress(items: PlaybookItem[]) {
@@ -45,9 +56,12 @@ export default function AgencyProgramsContent({
   page,
   pageSize,
   initialSearch = '',
+  pendingRequests,
 }: AgencyProgramsContentProps) {
   const router = useRouter()
   const [search, setSearch] = useState(initialSearch)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [pendingExpanded, setPendingExpanded] = useState(false)
 
   const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
   const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
@@ -67,22 +81,82 @@ export default function AgencyProgramsContent({
 
   useEffect(() => {
     const id = setTimeout(() => {
-      if (search !== initialSearch) {
-        pushParams({ q: search, page: 0 })
-      }
+      if (search !== initialSearch) pushParams({ q: search, page: 0 })
     }, 400)
     return () => clearTimeout(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
 
+  const handleCancel = async (requestId: string) => {
+    setCancellingId(requestId)
+    const { error } = await cancelProgramRequest(requestId)
+    if (error) {
+      alert(error)
+    } else {
+      router.refresh()
+    }
+    setCancellingId(null)
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Programs</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Track your license application requirements and submit completed items for review.
-        </p>
+      {/* Header */}
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Programs</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Track your license application requirements and submit completed items for review.
+          </p>
+        </div>
+        <div className="flex-shrink-0 w-48">
+          <ApplyForNewLicenseButton programsOnly label="Request Program" />
+        </div>
       </div>
+
+      {/* Pending Requests */}
+      {pendingRequests.length > 0 && (
+        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setPendingExpanded(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-amber-100/50 transition-colors"
+          >
+            <h2 className="text-sm font-semibold text-amber-800">
+              Pending Requests ({pendingRequests.length})
+            </h2>
+            <ChevronDown className={`w-4 h-4 text-amber-600 transition-transform duration-200 ${pendingExpanded ? 'rotate-180' : ''}`} />
+          </button>
+          {pendingExpanded && (
+            <div className="px-4 pb-4 space-y-2">
+              {pendingRequests.map(req => (
+                <div key={req.id} className="flex items-center justify-between bg-white border border-amber-100 rounded-lg px-4 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{req.application_name}</p>
+                    {req.state && <p className="text-xs text-gray-500">{req.state}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                      Awaiting review
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCancel(req.id)}
+                      disabled={cancellingId !== null}
+                      title="Cancel request"
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {cancellingId === req.id
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                        : <X className="w-3 h-3" />}
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative mb-4">
@@ -98,12 +172,13 @@ export default function AgencyProgramsContent({
 
       {programs.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <BookOpen className="w-10 h-10 mx-auto mb-3 text-gray-300" />
           <p className="text-sm font-medium text-gray-700 mb-1">
             {search ? 'No programs match your search.' : 'No active programs yet'}
           </p>
           {!search && (
             <p className="text-sm text-gray-500">
-              Your license application requirements will appear here once they have been set up.
+              Request a program above to get started.
             </p>
           )}
         </div>
@@ -152,7 +227,6 @@ export default function AgencyProgramsContent({
             </tbody>
           </table>
 
-          {/* Pagination footer */}
           {totalCount > 0 && (
             <div className="px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
               <p className="text-sm text-gray-600">

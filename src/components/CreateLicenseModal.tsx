@@ -7,7 +7,7 @@ import * as z from 'zod'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
-import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertification } from '@/app/actions/licenses'
+import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertification, createCertificationAndLink } from '@/app/actions/licenses'
 import { Loader2, Upload, X, FileText, Plus } from 'lucide-react'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
@@ -45,6 +45,8 @@ interface CreateLicenseModalProps {
   agencyId?: string
   agencyName?: string
   availablePrograms?: AvailableProgram[]
+  lockedProgramId?: string
+  defaultLicenseName?: string
   licenseToEdit?: {
     id: string
     license_name: string
@@ -70,6 +72,8 @@ export default function CreateLicenseModal({
   agencyId,
   agencyName,
   availablePrograms = [],
+  lockedProgramId,
+  defaultLicenseName,
   licenseToEdit,
 }: CreateLicenseModalProps) {
   const isEditMode = !!licenseToEdit
@@ -89,7 +93,7 @@ export default function CreateLicenseModal({
   } = useForm<CreateLicenseFormData>({
     resolver: zodResolver(licenseSchema),
     defaultValues: {
-      license_name: licenseToEdit?.license_name ?? '',
+      license_name: licenseToEdit?.license_name ?? defaultLicenseName ?? '',
       license_number: licenseToEdit?.license_number ?? '',
       state: licenseToEdit?.state ?? '',
       expiry_date: licenseToEdit?.expiry_date?.split('T')[0] ?? '',
@@ -202,8 +206,7 @@ export default function CreateLicenseModal({
           uploadedDocs.push({ url: fileName, name: doc.name.trim() || doc.file!.name, type: doc.type || null })
         }
 
-        const result = await createLicenseForAgency({
-          agencyId,
+        const certPayload = {
           license_name: data.license_name,
           license_number: data.license_number || undefined,
           state: data.state || undefined,
@@ -212,18 +215,29 @@ export default function CreateLicenseModal({
           renewal_due_date: data.renewal_due_date || undefined,
           issuing_body: data.issuing_body || undefined,
           documents: uploadedDocs.length > 0 ? uploadedDocs : undefined,
-        })
-
-        if (result.error) {
-          for (const d of uploadedDocs) {
-            await supabase.storage.from('application-documents').remove([d.url])
-          }
-          throw new Error(result.error)
         }
 
-        if (result.data?.id && linkedProgramId) {
-          const { error: linkErr } = await linkProgramToCertification(result.data.id, linkedProgramId, agencyId, linkType)
-          if (linkErr) console.error('[CreateLicenseModal] Failed to link program:', linkErr)
+        if (lockedProgramId) {
+          // Program context: create + link atomically (also inherits category/subcategory)
+          const { error: certErr } = await createCertificationAndLink(agencyId, lockedProgramId, certPayload)
+          if (certErr) {
+            for (const d of uploadedDocs) {
+              await supabase.storage.from('application-documents').remove([d.url])
+            }
+            throw new Error(certErr)
+          }
+        } else {
+          const result = await createLicenseForAgency({ agencyId, ...certPayload })
+          if (result.error) {
+            for (const d of uploadedDocs) {
+              await supabase.storage.from('application-documents').remove([d.url])
+            }
+            throw new Error(result.error)
+          }
+          if (result.data?.id && linkedProgramId) {
+            const { error: linkErr } = await linkProgramToCertification(result.data.id, linkedProgramId, agencyId, linkType)
+            if (linkErr) console.error('[CreateLicenseModal] Failed to link program:', linkErr)
+          }
         }
 
         reset()
@@ -286,6 +300,8 @@ export default function CreateLicenseModal({
 
   const title = isEditMode
     ? `Edit License — ${licenseToEdit!.license_name}`
+    : lockedProgramId
+    ? 'Create New Certification'
     : agencyId && agencyName
     ? `Add License — ${agencyName}`
     : 'Create License'
@@ -502,8 +518,17 @@ export default function CreateLicenseModal({
           </div>
         </div>
 
-        {/* Link to Program — agency mode only */}
-        {agencyId && availablePrograms.length > 0 && (
+        {/* Link to Program — locked context (from program detail) */}
+        {agencyId && lockedProgramId && (
+          <div className="border-t border-gray-200 pt-4">
+            <p className="text-xs text-gray-500">
+              This certification will be automatically linked as <strong>&ldquo;created from this program.&rdquo;</strong>
+            </p>
+          </div>
+        )}
+
+        {/* Link to Program — agency mode only (not when locked to a program) */}
+        {agencyId && !lockedProgramId && availablePrograms.length > 0 && (
           <div className="border-t border-gray-200 pt-4">
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Link to Program <span className="text-xs font-normal text-gray-500">(optional)</span>

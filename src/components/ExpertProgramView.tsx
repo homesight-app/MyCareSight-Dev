@@ -16,10 +16,11 @@ import {
   updateProgramItem,
 } from '@/app/actions/playbooks'
 import { approveProgramComplete, renameApplication, closeApplicationManually, completeApplicationManually, reopenApplication } from '@/app/actions/applications'
-import { linkProgramToCertification, createCertificationAndLink } from '@/app/actions/licenses'
+import { linkProgramToCertification } from '@/app/actions/licenses'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
 import AddProgramItemModal from './AddProgramItemModal'
 import InternalNotesPanel from './InternalNotesPanel'
+import CreateLicenseModal from './CreateLicenseModal'
 import Modal from './Modal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -170,22 +171,6 @@ export default function ExpertProgramView({
     refreshLinkedCerts()
   }
 
-  const handleCreateCert = async () => {
-    if (!certForm.license_name.trim() || !certForm.activated_date || !certForm.expiry_date || !agencyId) return
-    setIsCreatingCert(true)
-    const { error } = await createCertificationAndLink(agencyId, applicationId, {
-      license_name: certForm.license_name.trim(),
-      state: certForm.state,
-      license_number: certForm.license_number || undefined,
-      activated_date: certForm.activated_date,
-      expiry_date: certForm.expiry_date,
-    })
-    setIsCreatingCert(false)
-    if (error) { alert(error); return }
-    setCreateCertModal(false)
-    setCertForm({ license_name: displayName, state, activated_date: '', expiry_date: '', license_number: '' })
-    refreshLinkedCerts()
-  }
 
   // ── Tab ───────────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>('items')
@@ -225,8 +210,6 @@ export default function ExpertProgramView({
   const [selectedLinkType, setSelectedLinkType] = useState<'created_from' | 'renewal_of'>('renewal_of')
   const [isLinkingCert, setIsLinkingCert] = useState(false)
   const [createCertModal, setCreateCertModal] = useState(false)
-  const [certForm, setCertForm] = useState({ license_name: applicationName, state: state, activated_date: '', expiry_date: '', license_number: '' })
-  const [isCreatingCert, setIsCreatingCert] = useState(false)
 
   useEffect(() => {
     if (items.length === 0) return
@@ -705,7 +688,7 @@ export default function ExpertProgramView({
               </button>
               <button
                 type="button"
-                onClick={() => { setCreateCertModal(true); setCertForm({ license_name: displayName, state, activated_date: '', expiry_date: '', license_number: '' }) }}
+                onClick={() => setCreateCertModal(true)}
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-600 hover:text-teal-800 px-2 py-1 rounded-lg hover:bg-teal-50 transition-colors"
               >
                 <Plus className="w-3 h-3" />
@@ -1111,37 +1094,17 @@ export default function ExpertProgramView({
         </div>
       </Modal>
 
-      {/* Create New Certification Modal */}
-      <Modal isOpen={createCertModal} onClose={() => setCreateCertModal(false)} title="Create New Certification" size="md">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Certification Name <span className="text-red-500">*</span></label>
-            <input type="text" value={certForm.license_name} onChange={e => setCertForm(f => ({ ...f, license_name: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Cert / License Number</label>
-            <input type="text" value={certForm.license_number} onChange={e => setCertForm(f => ({ ...f, license_number: e.target.value }))} placeholder="Optional" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Issued Date <span className="text-red-500">*</span></label>
-              <input type="date" value={certForm.activated_date} onChange={e => setCertForm(f => ({ ...f, activated_date: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date <span className="text-red-500">*</span></label>
-              <input type="date" value={certForm.expiry_date} onChange={e => setCertForm(f => ({ ...f, expiry_date: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
-          </div>
-          <p className="text-xs text-gray-500">State: <strong>{certForm.state || 'N/A'}</strong> · This certification will be automatically linked as &ldquo;created from this program.&rdquo;</p>
-          <div className="flex justify-end gap-3 pt-1">
-            <button type="button" onClick={() => setCreateCertModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-            <button type="button" onClick={handleCreateCert} disabled={!certForm.license_name.trim() || !certForm.activated_date || !certForm.expiry_date || isCreatingCert} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
-              {isCreatingCert && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              Create &amp; Link
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {/* Create New Certification — shared modal */}
+      {agencyId && (
+        <CreateLicenseModal
+          isOpen={createCertModal}
+          onClose={() => setCreateCertModal(false)}
+          onSuccess={() => { setCreateCertModal(false); refreshLinkedCerts() }}
+          agencyId={agencyId}
+          lockedProgramId={applicationId}
+          defaultLicenseName={displayName}
+        />
+      )}
 
       {/* Templates Modal */}
       <Modal isOpen={isTemplatesOpen} onClose={() => setIsTemplatesOpen(false)} title="Document Templates" size="lg">

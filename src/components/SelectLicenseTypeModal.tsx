@@ -67,7 +67,7 @@ export default function SelectLicenseTypeModal({
       const [licenseResult, playbookResult, categoryResult] = await Promise.all([
         q.getLicenseTypes(supabase, { state, isActive: true }),
         q.getStandalonePlaybooksByState(supabase, state),
-        q.getPlaybookCategoriesWithSubcategories(supabase),
+        q.getConfigurationValuesWithSubcategories(supabase, 'PLAYBOOK_CATEGORY'),
       ])
 
       if (licenseResult.error) throw licenseResult.error

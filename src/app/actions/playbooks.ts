@@ -766,6 +766,19 @@ export async function applyPlaybookToApplication(applicationId: string): Promise
     resolvedPlaybookId = playbook.id
   }
 
+  // Copy category/subcategory from the resolved playbook to the application
+  const { data: resolvedPlaybook } = await supabase
+    .from('playbooks')
+    .select('category_id, subcategory_id')
+    .eq('id', resolvedPlaybookId!)
+    .maybeSingle()
+  if (resolvedPlaybook?.category_id) {
+    await supabase.from('applications').update({
+      category_id: resolvedPlaybook.category_id,
+      subcategory_id: resolvedPlaybook.subcategory_id ?? null,
+    }).eq('id', applicationId)
+  }
+
   const { data: playbookItems } = await q.getPlaybookItems(supabase, resolvedPlaybookId!)
   if (!playbookItems || playbookItems.length === 0) return { error: 'The playbook has no items', count: 0 }
 

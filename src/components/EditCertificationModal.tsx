@@ -6,13 +6,14 @@ import { Upload, X, Loader2, Calendar, FileText } from 'lucide-react'
 import type { UpdateCertificationData } from '@/app/actions/certifications'
 import { updateUnifiedCaregiverCertification } from '@/app/actions/staff-member-certifications'
 import { createClient } from '@/lib/supabase/client'
+import { uploadFile } from '@/lib/storage/client'
 import { US_STATES } from '@/lib/constants'
 
 interface EditCertificationModalProps {
   isOpen: boolean
   onClose: () => void
   onSuccess?: () => void
-  certificationTypes: Array<{ id: number; certification_type: string }>
+  certificationTypes: Array<{ id: string; name: string }>
   certification: {
     id: string
     type: string
@@ -159,15 +160,18 @@ export default function EditCertificationModal({
         const fileName = `certifications/${user.id}/${Date.now()}.${fileExt}`
         const filePath = fileName
 
-        const { error: uploadError } = await supabase.storage
-          .from('application-documents')
-          .upload(filePath, selectedFile)
+        const { path: uploadedPath, error: uploadError } = await uploadFile(
+          supabase,
+          'application-documents',
+          filePath,
+          selectedFile
+        )
 
         if (uploadError) {
           throw uploadError
         }
 
-        documentUrl = filePath
+        documentUrl = uploadedPath
         setIsUploading(false)
       }
 
@@ -227,8 +231,8 @@ export default function EditCertificationModal({
           >
             <option value="">Select a certification type</option>
             {certificationTypes.map((type) => (
-              <option key={type.id} value={type.certification_type}>
-                {type.certification_type}
+              <option key={type.id} value={type.name}>
+                {type.name}
               </option>
             ))}
           </select>

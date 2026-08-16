@@ -61,6 +61,8 @@ interface Props {
   status: string
   agencyId: string | null
   agencyName: string | null
+  categoryName?: string | null
+  subcategoryName?: string | null
   playbookId: string | null
   initialItems: ApplicationPlaybookItem[]
   isAdmin?: boolean
@@ -77,6 +79,8 @@ export default function ExpertProgramView({
   status,
   agencyId,
   agencyName,
+  categoryName,
+  subcategoryName,
   playbookId,
   initialItems,
   isAdmin = false,
@@ -570,7 +574,21 @@ export default function ExpertProgramView({
                 {appBadge.label}
               </span>
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">{`PRG-${applicationId.substring(0, 8).toUpperCase()}`}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs text-gray-400">{`PRG-${applicationId.substring(0, 8).toUpperCase()}`}</p>
+              {categoryName && (
+                <>
+                  <span className="text-gray-300 text-xs">·</span>
+                  <span className="text-xs text-gray-500">{categoryName}</span>
+                </>
+              )}
+              {subcategoryName && (
+                <>
+                  <span className="text-gray-300 text-xs">›</span>
+                  <span className="text-xs text-gray-500">{subcategoryName}</span>
+                </>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3 flex-shrink-0">
             <div className="flex items-center gap-2">

@@ -555,8 +555,8 @@ export async function getAllPlaybooks(supabase: Supabase) {
       category_id, subcategory_id,
       created_at,
       license_requirement:license_requirement_id(id, state, license_type),
-      category:playbook_categories(id, name),
-      subcategory:playbook_subcategories(id, name),
+      category:configuration_values!category_id(id, name),
+      subcategory:configuration_values!subcategory_id(id, name),
       playbook_items(count)
     `)
     .order('created_at', { ascending: false })
@@ -574,8 +574,8 @@ export async function getPlaybookById(supabase: Supabase, playbookId: string) {
       icon_type, requirements, created_by, created_at, updated_at,
       category_id, subcategory_id,
       license_requirement:license_requirement_id(id, state, license_type),
-      category:playbook_categories(id, name),
-      subcategory:playbook_subcategories(id, name)
+      category:configuration_values!category_id(id, name),
+      subcategory:configuration_values!subcategory_id(id, name)
     `)
     .eq('id', playbookId)
     .single()
@@ -724,8 +724,8 @@ export async function getStandalonePlaybooksByState(supabase: Supabase, state: s
       icon_type, requirements, is_active,
       category_id, subcategory_id,
       license_requirement:license_requirement_id(state),
-      category:playbook_categories(id, name),
-      subcategory:playbook_subcategories(id, name)
+      category:configuration_values!category_id(id, name),
+      subcategory:configuration_values!subcategory_id(id, name)
     `)
     .eq('is_active', true)
     .order('name')

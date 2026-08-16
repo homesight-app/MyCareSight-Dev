@@ -7,9 +7,7 @@ import {
   Circle, ChevronRight, Calendar, MapPin, Loader2,
   Check, X,
 } from 'lucide-react'
-import { acceptApplicationRequest } from '@/app/actions/applications'
-import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import { acceptApplicationRequest, rejectProgramRequest } from '@/app/actions/applications'
 
 type ItemStatus = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
 
@@ -103,12 +101,8 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
   const handleReject = async (programId: string) => {
     setLoadingId(programId + '-reject')
     try {
-      const supabase = createClient()
-      const { error } = await q.updateApplicationById(supabase, programId, {
-        status: 'rejected',
-        last_updated_date: new Date().toISOString().split('T')[0],
-      })
-      if (error) throw error
+      const { error } = await rejectProgramRequest(programId)
+      if (error) { alert(error); return }
       router.refresh()
     } catch {
       alert('Failed to reject. Please try again.')

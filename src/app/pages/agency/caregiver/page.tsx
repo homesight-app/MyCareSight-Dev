@@ -17,12 +17,11 @@ export default async function StaffPage({
 
   const supabase = await createClient()
 
-  const { data: staffRolesData } = await q.getStaffRoles(supabase)
+  const { data: staffRolesData } = await q.getConfigurationValuesWithSubcategories(supabase, 'STAFF_ROLE')
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   const role = session!.profile?.role ?? ''
-  const canManageNotes =
-    role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
+  const canManageNotes = role === 'company_owner' || role === 'care_coordinator'
   const staffRoleNames = (staffRolesData ?? []).map((r: { name?: string }) => r.name).filter(Boolean) as string[]
 
   const params       = await searchParams

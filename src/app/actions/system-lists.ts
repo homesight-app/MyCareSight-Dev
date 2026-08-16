@@ -3,177 +3,22 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import {
-  CACHE_TAG_CAREGIVER_ROLES,
   CACHE_TAG_CAREGIVER_SKILL_CATALOG,
-  CACHE_TAG_CERTIFICATION_TYPES,
   CACHE_TAG_TASK_CATALOG_NON_SKILLED,
   CACHE_TAG_TASK_CATALOG_SKILLED,
   CACHE_TAG_TASK_CATEGORIES_NON_SKILLED,
   CACHE_TAG_TASK_CATEGORIES_SKILLED,
 } from '@/lib/cache-tags'
 import {
-  getCachedCertificationTypes,
   getCachedNonSkilledTaskCategories,
   getCachedNonSkilledTasks,
   getCachedSkilledTaskCategories,
   getCachedSkilledTasks,
-  getCachedStaffRoles,
 } from '@/lib/server-cache/reference-lists'
 
 type ServiceType = 'skilled' | 'non_skilled'
 type TaskCategoryItem = { id: string; name: string }
 type TaskCatalogItem = { id: string; name: string; categoryId: string; categoryName: string }
-
-// Certification Types Actions
-export async function getCertificationTypes() {
-  try {
-    return await getCachedCertificationTypes()
-  } catch (err: any) {
-    return { error: err.message || 'Failed to fetch certification types', data: null }
-  }
-}
-
-export async function createCertificationType(certificationType: string) {
-  const supabase = await createClient()
-
-  try {
-    const { data, error } = await supabase
-      .from('certification_types')
-      .insert({ certification_type: certificationType })
-      .select()
-      .single()
-
-    if (error) {
-      return { error: error.message, data: null }
-    }
-
-    revalidatePath('/pages/admin/configuration')
-    revalidateTag(CACHE_TAG_CERTIFICATION_TYPES)
-    return { error: null, data }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to create certification type', data: null }
-  }
-}
-
-export async function updateCertificationType(id: number, certificationType: string) {
-  const supabase = await createClient()
-
-  try {
-    const { data, error } = await supabase
-      .from('certification_types')
-      .update({ certification_type: certificationType })
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) {
-      return { error: error.message, data: null }
-    }
-
-    revalidatePath('/pages/admin/configuration')
-    revalidateTag(CACHE_TAG_CERTIFICATION_TYPES)
-    return { error: null, data }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to update certification type', data: null }
-  }
-}
-
-export async function deleteCertificationType(id: number) {
-  const supabase = await createClient()
-
-  try {
-    const { error } = await supabase
-      .from('certification_types')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      return { error: error.message }
-    }
-
-    revalidatePath('/pages/admin/configuration')
-    revalidateTag(CACHE_TAG_CERTIFICATION_TYPES)
-    return { error: null }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to delete certification type' }
-  }
-}
-
-
-// Staff Roles Actions (UI only for now - table exists but actions not implemented)
-export async function getStaffRoles() {
-  try {
-    return await getCachedStaffRoles()
-  } catch {
-    return { error: null, data: [] }
-  }
-}
-
-export async function createStaffRole(name: string) {
-  const supabase = await createClient()
-
-  try {
-    const { data, error } = await supabase
-      .from('caregiver_roles')
-      .insert({ name })
-      .select()
-      .single()
-
-    if (error) {
-      return { error: error.message, data: null }
-    }
-
-    revalidatePath('/pages/admin/configuration')
-    revalidateTag(CACHE_TAG_CAREGIVER_ROLES)
-    return { error: null, data }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to create staff role', data: null }
-  }
-}
-
-export async function updateStaffRole(id: number, name: string) {
-  const supabase = await createClient()
-
-  try {
-    const { data, error } = await supabase
-      .from('caregiver_roles')
-      .update({ name })
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) {
-      return { error: error.message, data: null }
-    }
-    
-    revalidatePath('/pages/admin/configuration')
-    revalidateTag(CACHE_TAG_CAREGIVER_ROLES)
-    return { error: null, data }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to update staff role', data: null }
-  }
-}
-
-export async function deleteStaffRole(id: number) {
-  const supabase = await createClient() 
-
-  try {
-    const { error } = await supabase
-      .from('caregiver_roles')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      return { error: error.message }
-    }
-
-    revalidatePath('/pages/admin/configuration')
-    revalidateTag(CACHE_TAG_CAREGIVER_ROLES)
-    return { error: null }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to delete staff role' }
-  }
-}
 
 async function ensureDefaultTaskCategory(supabase: Awaited<ReturnType<typeof createClient>>, serviceType: ServiceType) {
   const { data: existing, error: readErr } = await supabase

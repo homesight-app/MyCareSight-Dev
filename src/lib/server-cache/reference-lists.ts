@@ -5,9 +5,7 @@ import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
   CACHE_TAG_AGENCIES_ID_NAME,
   CACHE_TAG_AGENCIES_ORDERED,
-  CACHE_TAG_CAREGIVER_ROLES,
   CACHE_TAG_CAREGIVER_SKILL_CATALOG,
-  CACHE_TAG_CERTIFICATION_TYPES,
   CACHE_TAG_LICENSE_TYPES_ACTIVE,
   CACHE_TAG_TASK_CATALOG_NON_SKILLED,
   CACHE_TAG_TASK_CATALOG_SKILLED,
@@ -44,38 +42,6 @@ const getAgenciesForBillingCached = unstable_cache(
   },
   ['ref-agencies-billing'],
   { revalidate: 120, tags: [CACHE_TAG_AGENCIES_FOR_BILLING] }
-)
-
-const getCertificationTypesCached = unstable_cache(
-  async () => {
-    const supabase = createAdminClient()
-    const { data: types, error } = await supabase
-      .from('certification_types')
-      .select('*')
-      .order('certification_type', { ascending: true })
-    if (error) return { error: error.message, data: null }
-    return { error: null, data: types }
-  },
-  ['ref-certification-types'],
-  { revalidate: 300, tags: [CACHE_TAG_CERTIFICATION_TYPES] }
-)
-
-const getStaffRolesCached = unstable_cache(
-  async () => {
-    const supabase = createAdminClient()
-    try {
-      const { data: roles, error } = await supabase.from('caregiver_roles').select('*').order('name', { ascending: true })
-      if (error) {
-        if (error.code === '42P01') return { error: null, data: [] }
-        return { error: error.message, data: null }
-      }
-      return { error: null, data: roles || [] }
-    } catch {
-      return { error: null, data: [] }
-    }
-  },
-  ['ref-caregiver-roles'],
-  { revalidate: 300, tags: [CACHE_TAG_CAREGIVER_ROLES] }
 )
 
 async function fetchTasksByServiceType(serviceType: ServiceType): Promise<{
@@ -203,14 +169,6 @@ export function getCachedAgenciesOrdered() {
 
 export function getCachedAgenciesForBilling() {
   return getAgenciesForBillingCached()
-}
-
-export function getCachedCertificationTypes() {
-  return getCertificationTypesCached()
-}
-
-export function getCachedStaffRoles() {
-  return getStaffRolesCached()
 }
 
 export function getCachedSkilledTasks() {

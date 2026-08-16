@@ -63,7 +63,7 @@ npm run lint && npm run typecheck && npm run build
 - `list_tables` — list all tables in a schema
 - `execute_sql` — query `information_schema.columns` for exact column names, types, and nullability
 
-**If the MCP connection fails or the tools are unavailable, stop and tell the user immediately.** Do not fall back to migration files as a substitute for live schema. Any column reference written without live DB verification risks silent data loss (wrong column name = RLS-silent no-op update) or NOT NULL insert failures.
+**If the MCP connection fails or the tools are unavailable at any point — whether at the start of a task or mid-way through — stop immediately and tell the user.** Do not silently fall back to migration files or any other offline source. Wait for the user to decide whether to proceed using migration files as a substitute. Any column reference written without live DB verification risks silent data loss (wrong column name = RLS-silent no-op update) or NOT NULL insert failures.
 
 This rule applies to:
 - Writing or reviewing `select()` column lists
@@ -217,6 +217,45 @@ const schema = z.object({
 ```
 
 **Server-side / submit-time validation** for plain state forms — use `isValidUSPhone` and `isValidEmail` from `src/lib/validation.ts` as a final guard before calling server actions.
+
+### Configurable dropdown values (`configuration_values`)
+
+Admin-manageable dropdown and cascading-dropdown data lives in two tables:
+
+| Table | Role |
+|-------|------|
+| `configuration_types` | One row per list type (e.g. `PLAYBOOK_CATEGORY`, `CANCELLATION_REASON`) |
+| `configuration_values` | All values; `parent_id` enables cascading (parent=NULL for top-level) |
+
+**When to use this vs. hard-coded constants:**
+- Use `configuration_values` for display/reference data that no application logic branches on (category labels, reasons, contact types)
+- Use TypeScript constants / DB enums for status values, icon types, or any value that triggers code behavior (e.g. `status === 'requested'`, `icon_type: 'heart'`)
+
+**Adding a new configurable dropdown (no new tables needed):**
+1. INSERT a row into `configuration_types` with a unique `code` (e.g. `CANCELLATION_REASON`)
+2. Seed initial values in `configuration_values` with `type_id` from that row
+3. Add a `<ConfigurableListSection typeCode="CANCELLATION_REASON" ... />` in `ConfigurationContent.tsx`
+4. Fetch in the page server component: `getConfigurationValues('CANCELLATION_REASON')` from `@/app/actions/configuration-values`
+
+**Consumer pattern:**
+Pages fetch values via `getConfigurationValues(typeCode)` (server action, cached with `CACHE_TAG_CONFIGURATION_VALUES`). Components receive data as `{ id, name, subcategories: { id, name }[] }[]`. The same shape works for simple lists (empty subcategories) and cascading dropdowns.
+
+**Hierarchy:**
+- `supports_hierarchy = true` on the type → values may have a non-null `parent_id`
+- Top-level (parent_id = NULL) = Category; child values = Subcategories
+- `ConfigurableListSection` component handles both automatically
+
+**When application logic references a specific value:**
+Set `code = 'STABLE_KEY'` on that value and look up by code, not by display name. This lets admins rename display names freely without breaking logic.
+
+**Phase 2 migration candidates** (not yet migrated — each needs a new migration + column change):
+
+| Field | Current state | Note |
+|-------|--------------|-------|
+| Lead Source | `leads.source TEXT`, hard-coded array in `AddLeadModal.tsx` | Route checks `source === 'Website'` — must switch to code lookup |
+| Certification Types | Separate table managed in `SystemListsManagement` | Simple flat list |
+| Staff Roles | Separate table managed in `SystemListsManagement` | Simple flat list |
+| Skilled Task Categories | Separate table | Possibly hierarchical |
 
 ---
 

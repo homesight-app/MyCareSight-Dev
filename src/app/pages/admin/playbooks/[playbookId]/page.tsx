@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import PlaybookDetailContent, { type PlaybookRow } from '@/components/PlaybookDetailContent'
 import PlaybookNameHeading from '@/components/PlaybookNameHeading'
-import { getPlaybookCategoriesWithSubs } from '@/app/actions/playbook-categories'
+import { getConfigurationValues } from '@/app/actions/configuration-values'
 
 const TYPE_LABELS: Record<string, string> = {
   license_requirement: 'License Requirement',
@@ -28,7 +28,7 @@ export default async function AdminPlaybookDetailPage({
     q.getPlaybookById(supabase, playbookId),
     q.getPlaybookItems(supabase, playbookId),
     q.getPlaybookTemplates(supabase, playbookId),
-    getPlaybookCategoriesWithSubs(),
+    getConfigurationValues('PLAYBOOK_CATEGORY'),
   ])
 
   if (!playbook) redirect('/pages/admin/playbooks')

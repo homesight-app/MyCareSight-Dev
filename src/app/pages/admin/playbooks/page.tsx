@@ -2,7 +2,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import PlaybookLibraryContent from '@/components/PlaybookLibraryContent'
-import { getPlaybookCategoriesWithSubs } from '@/app/actions/playbook-categories'
+import { getConfigurationValues } from '@/app/actions/configuration-values'
 
 export default async function AdminPlaybooksPage() {
   await requireAdmin()
@@ -11,7 +11,7 @@ export default async function AdminPlaybooksPage() {
   const [{ data: playbooks }, { data: categories }] =
     await Promise.all([
       q.getAllPlaybooks(supabase),
-      getPlaybookCategoriesWithSubs(),
+      getConfigurationValues('PLAYBOOK_CATEGORY'),
     ])
 
   return (

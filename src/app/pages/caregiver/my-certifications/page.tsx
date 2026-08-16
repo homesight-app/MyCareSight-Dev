@@ -109,7 +109,7 @@ function MyCertificationsContent() {
     queryFn: async () => {
       const r = await getCertificationTypes()
       if (r.error) throw new Error(r.error)
-      return (r.data ?? []) as Array<{ id: number; certification_type: string }>
+      return (r.data ?? []) as Array<{ id: string; name: string }>
     },
     staleTime: 5 * 60 * 1000,
   })

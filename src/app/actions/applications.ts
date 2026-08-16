@@ -249,6 +249,62 @@ export async function acceptApplicationRequest(applicationId: string): Promise<{
   revalidatePath('/pages/admin/licenses', 'page')
   revalidatePath('/pages/admin/licenses/applications/[id]', 'page')
   revalidatePath('/pages/admin/programs', 'page')
+  revalidatePath('/pages/admin/programs/[applicationId]', 'page')
+  revalidatePath('/pages/agency/programs', 'page')
+  return { error: null }
+}
+
+/**
+ * Admin action to reject a pending program request.
+ * Moves status to 'rejected' and notifies the agency.
+ */
+export async function rejectProgramRequest(applicationId: string): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
+
+  const supabase = await createClient()
+  const today = new Date().toISOString().split('T')[0]
+
+  const { data: app, error: fetchErr } = await q.getApplicationById(supabase, applicationId)
+  if (fetchErr || !app) return { error: 'Application not found' }
+
+  const { error: updateErr } = await q.updateApplicationById(supabase, applicationId, {
+    status: 'rejected',
+    last_updated_date: today,
+  })
+  if (updateErr) return { error: updateErr.message }
+
+  const appRow = app as unknown as { application_name: string; company_owner_id: string | null; agency_id: string | null }
+
+  const adminClient = createAdminClient()
+  const notifPayload = {
+    title: 'Program Request Declined',
+    message: `Your "${appRow.application_name}" program request was not approved at this time. Please contact us if you have questions.`,
+    type: 'application_update',
+    icon_type: 'exclamation',
+    action_url: '/pages/agency/programs',
+  }
+
+  if (appRow.agency_id) {
+    const { data: admins } = await adminClient
+      .from('agency_admins')
+      .select('user_id')
+      .eq('agency_id', appRow.agency_id)
+    if (admins && admins.length > 0) {
+      await adminClient.from('notifications').insert(
+        admins.map(a => ({ ...notifPayload, user_id: a.user_id }))
+      )
+    }
+  } else if (appRow.company_owner_id) {
+    await adminClient.from('notifications').insert({
+      ...notifPayload,
+      user_id: appRow.company_owner_id,
+    })
+  }
+
+  revalidatePath('/pages/admin/programs', 'page')
+  revalidatePath('/pages/admin/programs/[applicationId]', 'page')
   revalidatePath('/pages/agency/programs', 'page')
   return { error: null }
 }

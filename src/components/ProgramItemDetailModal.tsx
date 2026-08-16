@@ -452,6 +452,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
       setShowSendBack(false)
       setSendBackNote('')
       onItemUpdated({ ...item, status: 'review_needed', notes: sendBackNote.trim() })
+      onClose()
     }
   }
 

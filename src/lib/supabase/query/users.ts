@@ -366,11 +366,6 @@ export async function getFirstAdminUserId(supabase: Supabase) {
     .maybeSingle()
 }
 
-/** Get all caregiver_roles (for caregiver dashboard). */
-export async function getStaffRoles(supabase: Supabase) {
-  return supabase.from('caregiver_roles').select('*')
-}
-
 /**
  * Update caregiver_members.documents JSONB.
  * Must use .select().single() so PostgREST returns an error when RLS blocks the update (0 rows);

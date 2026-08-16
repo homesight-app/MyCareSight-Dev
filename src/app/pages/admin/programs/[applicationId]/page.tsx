@@ -34,12 +34,20 @@ export default async function AdminProgramDetailPage({
     close_reason: string | null
     completed_at: string | null
     complete_reason: string | null
+    category_id: string | null
+    subcategory_id: string | null
   }
   const app = application as unknown as AppRow
 
-  const { data: agencyData } = app.agency_id
-    ? await q.getAgencyNameById(supabase, app.agency_id)
-    : { data: null }
+  const [{ data: agencyData }, categoryResult, subcategoryResult] = await Promise.all([
+    app.agency_id ? q.getAgencyNameById(supabase, app.agency_id) : Promise.resolve({ data: null }),
+    app.category_id
+      ? supabase.from('configuration_values').select('name').eq('id', app.category_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    app.subcategory_id
+      ? supabase.from('configuration_values').select('name').eq('id', app.subcategory_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
 
   const typedItems = (items ?? []) as ApplicationPlaybookItem[]
   const firstWithPlaybookItem = typedItems.find(i => i.playbook_item_id)
@@ -77,6 +85,8 @@ export default async function AdminProgramDetailPage({
           status={app.status}
           agencyId={app.agency_id}
           agencyName={agencyData?.name ?? null}
+          categoryName={(categoryResult.data as { name?: string } | null)?.name ?? null}
+          subcategoryName={(subcategoryResult.data as { name?: string } | null)?.name ?? null}
           playbookId={playbookId}
           initialItems={typedItems}
           isAdmin

@@ -131,23 +131,14 @@ interface License {
   expiry_date?: string | null
   renewal_due_date?: string | null
   issuing_body?: string | null
-  certification_category?: string | null
+  category?: { id: string; name: string } | null
+  subcategory?: { id: string; name: string } | null
   previous_version_id?: string | null
   created_at: string
   license_documents?: LicenseDocument[] | null
   certification_applications?: LinkedApplication[] | null
 }
 
-const CERT_CATEGORIES: { value: string; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'state_license', label: 'State License' },
-  { value: 'medicare', label: 'Medicare' },
-  { value: 'medicaid', label: 'Medicaid' },
-  { value: 'accreditation', label: 'Accreditation' },
-  { value: 'bond', label: 'Bond' },
-  { value: 'insurance', label: 'Insurance' },
-  { value: 'other', label: 'Other' },
-]
 
 interface Application {
   id: string
@@ -611,13 +602,26 @@ export default function AgencyDetailContent({
   const expiringSoon = licenses.filter((l) => l.status === 'active' && isExpiringSoon(l.expiry_date))
   const expiredLicenses = licenses.filter((l) => l.status === 'expired')
 
+  // Build category tabs dynamically from the actual licenses on this agency
+  const certCategories = useMemo(() => {
+    const seen = new Set<string>()
+    const cats: { value: string; label: string }[] = [{ value: 'all', label: 'All' }]
+    for (const l of licenses) {
+      if (l.category?.name && !seen.has(l.category.name)) {
+        seen.add(l.category.name)
+        cats.push({ value: l.category.name, label: l.category.name })
+      }
+    }
+    return cats
+  }, [licenses])
+
   const displayedLicenses = useMemo(() => {
     const term = licSearch.trim().toLowerCase()
     const list = licenses.filter((l) => {
       if (statusFilter === 'active' && !(l.status === 'active' && !isExpiringSoon(l.expiry_date))) return false
       if (statusFilter === 'expiring' && !(l.status === 'active' && isExpiringSoon(l.expiry_date))) return false
       if (statusFilter === 'expired' && l.status !== 'expired') return false
-      if (certCatFilter !== 'all' && (l.certification_category ?? 'state_license') !== certCatFilter) return false
+      if (certCatFilter !== 'all' && (l.category?.name ?? '') !== certCatFilter) return false
       if (term && !l.license_name.toLowerCase().includes(term) && !(l.state ?? '').toLowerCase().includes(term) && !(l.license_number ?? '').toLowerCase().includes(term)) return false
       return true
     })
@@ -632,7 +636,7 @@ export default function AgencyDetailContent({
       return licSortDir === 'asc' ? cmp : -cmp
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [licenses, statusFilter, licSearch, licSortKey, licSortDir])
+  }, [licenses, statusFilter, certCatFilter, licSearch, licSortKey, licSortDir])
 
   // Programs: filter + sort
   const displayedPrograms = useMemo(() => {
@@ -857,7 +861,7 @@ export default function AgencyDetailContent({
 
             {/* Category filter pills */}
             <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap gap-1.5">
-              {CERT_CATEGORIES.map(cat => (
+              {certCategories.map(cat => (
                 <button
                   key={cat.value}
                   type="button"

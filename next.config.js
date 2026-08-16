@@ -3,6 +3,15 @@ const nextConfig = {
 
   serverExternalPackages: ['pdf-parse', 'mammoth'],
 
+  // Disable client-side router cache so navigating to a page always fetches
+  // fresh server data. Without this, Next.js 15 caches rendered pages on the
+  // client for 30 s, causing stale data after server-side mutations.
+  experimental: {
+    staleTimes: {
+      dynamic: 0,
+    },
+  },
+
   reactStrictMode: true,
   async headers() {
     return [

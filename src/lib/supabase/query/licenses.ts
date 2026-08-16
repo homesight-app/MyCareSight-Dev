@@ -123,7 +123,9 @@ export async function getAgencyCertificationsWithHistory(supabase: Supabase, age
     .select(`
       id, agency_id, company_owner_id, license_name, license_number, state, status,
       activated_date, first_issued_date, expiry_date, renewal_due_date,
-      issuing_body, certification_category, previous_version_id, created_at, updated_at,
+      issuing_body, previous_version_id, created_at, updated_at,
+      category:configuration_values!licenses_category_id_fkey ( id, name ),
+      subcategory:configuration_values!licenses_subcategory_id_fkey ( id, name ),
       certification_applications (
         id, link_type, linked_at,
         applications ( id, status, application_name, created_at, started_date )

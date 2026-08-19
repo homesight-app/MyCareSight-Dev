@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import CasesByStatusChart from '@/components/CasesByStatusChart'
 import CasesByStateChart from '@/components/CasesByStateChart'
-import CasesTableWithFilters from '@/components/CasesTableWithFilters'
 import {
   Users,
   Clock,
@@ -27,14 +26,6 @@ export default async function AdminDashboardPage() {
   ])
 
   const applications = applicationsData || []
-  const ownerIds = Array.from(new Set(applications.map((a) => a.company_owner_id).filter(Boolean) as string[]))
-  type OwnerProfileRow = { id: string; full_name: string | null; email: string | null }
-  const { data: ownerProfilesData } =
-    ownerIds.length > 0
-      ? await q.getUserProfilesByIds(supabase, ownerIds, 'id, full_name, email')
-      : { data: [] }
-  const ownerProfiles = (ownerProfilesData ?? []) as unknown as OwnerProfileRow[]
-  const ownerById = new Map(ownerProfiles.map((p) => [p.id, p]))
 
   // Calculate statistics
   const totalCases = applications.length
@@ -57,23 +48,6 @@ export default async function AdminDashboardPage() {
   const stateCounts: Record<string, number> = {}
   applications.forEach(caseItem => {
     stateCounts[caseItem.state] = (stateCounts[caseItem.state] || 0) + 1
-  })
-
-  const dashboardCases = applications.map((app) => {
-    const owner = ownerById.get(app.company_owner_id)
-    const ownerName = owner?.full_name?.trim() || owner?.email || 'Unknown Owner'
-    return {
-      id: app.id,
-      case_id: app.id.slice(0, 8).toUpperCase(),
-      business_name: app.application_name || 'Untitled Application',
-      owner_name: ownerName,
-      state: app.state,
-      status: app.status,
-      progress_percentage: app.progress_percentage || 0,
-      documents_count: 0,
-      steps_count: 0,
-      last_activity: app.last_updated_date || app.updated_at || app.created_at || null,
-    }
   })
 
   return (
@@ -146,8 +120,6 @@ export default async function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Case Management Table */}
-        <CasesTableWithFilters cases={dashboardCases} />
       </div>
   )
 }

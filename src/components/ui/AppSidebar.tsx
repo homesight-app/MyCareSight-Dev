@@ -111,7 +111,7 @@ export default function AppSidebar({
                   className={`
                     flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm
                     ${isActive
-                      ? 'bg-white/10 text-white font-semibold border-l-2 border-green-400 pl-[10px]'
+                      ? 'bg-white/10 text-white font-semibold border-l-2 border-[#3c65b0] pl-[10px]'
                       : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border-l-2 border-transparent pl-[10px]'
                     }
                   `}
@@ -159,7 +159,7 @@ export default function AppSidebar({
                       className={`
                         flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm
                         ${isActive
-                          ? 'bg-white/10 text-white font-semibold border-l-2 border-green-400 pl-[10px]'
+                          ? 'bg-white/10 text-white font-semibold border-l-2 border-[#3c65b0] pl-[10px]'
                           : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border-l-2 border-transparent pl-[10px]'
                         }
                       `}

@@ -565,6 +565,8 @@ export default function AgencyDetailContent({
         dateOfFormation: orgForm.dateOfFormation || undefined,
         npi: orgForm.npi || undefined,
         stateSpecificData: orgForm.stateSpecificData,
+        primaryContactFirstName: orgForm.primaryContactFirstName || undefined,
+        primaryContactLastName: orgForm.primaryContactLastName || undefined,
         phoneNumber: orgForm.phoneNumber || undefined,
         agencyEmail: orgForm.agencyEmail || undefined,
         regionServiceArea: orgForm.regionServiceArea || undefined,

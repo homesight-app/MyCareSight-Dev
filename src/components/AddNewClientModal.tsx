@@ -9,6 +9,7 @@ import { createAgencyAdminAccount } from '@/app/actions/users'
 import { US_STATES } from '@/lib/constants'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
+import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 type AddNewClientModalMode = 'agency_admin' | 'care_recipient'
 
@@ -35,7 +36,6 @@ const AGENCY_FORM_INITIAL = {
 export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = 'care_recipient' }: AddNewClientModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const [agencyFormData, setAgencyFormData] = useState(AGENCY_FORM_INITIAL)
 
@@ -63,13 +63,11 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
-    setError(null)
   }
 
   const handleAgencyChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setAgencyFormData(prev => ({ ...prev, [name]: value }))
-    setError(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -77,28 +75,27 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
 
     if (mode === 'agency_admin') {
       if (agencyFormData.contact_phone && !isValidUSPhone(agencyFormData.contact_phone)) {
-        setError(PHONE_ERROR)
+        showValidationToast({ error: PHONE_ERROR })
         return
       }
     }
 
     if (mode === 'care_recipient') {
       if (formData.phone_number && !isValidUSPhone(formData.phone_number)) {
-        setError(`Phone number: ${PHONE_ERROR}`)
+        showValidationToast({ error: `Phone number: ${PHONE_ERROR}` })
         return
       }
       if (formData.emergency_phone && !isValidUSPhone(formData.emergency_phone)) {
-        setError(`Emergency phone: ${PHONE_ERROR}`)
+        showValidationToast({ error: `Emergency phone: ${PHONE_ERROR}` })
         return
       }
       if (formData.email_address && !isValidEmail(formData.email_address)) {
-        setError(EMAIL_ERROR)
+        showValidationToast({ error: EMAIL_ERROR })
         return
       }
     }
 
     setIsLoading(true)
-    setError(null)
 
     try {
       if (mode === 'agency_admin') {
@@ -114,11 +111,12 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
         )
 
         if (result.error) {
-          setError(result.error)
+          showValidationToast({ error: result.error })
           setIsLoading(false)
           return
         }
 
+        showSuccessToast('Agency admin added successfully')
         setAgencyFormData(AGENCY_FORM_INITIAL)
         onSuccess?.()
         await router.refresh()
@@ -130,14 +128,14 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
-        setError('You must be logged in to add a client')
+        showValidationToast({ error: 'You must be logged in to add a client' })
         setIsLoading(false)
         return
       }
 
       const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
       if (!up?.agency_id) {
-        setError('Your account is not linked to an agency. Please contact the administrator.')
+        showValidationToast({ error: 'Your account is not linked to an agency. Please contact the administrator.' })
         setIsLoading(false)
         return
       }
@@ -164,7 +162,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
       })
 
       if (insertError || !insertedPatient) {
-        setError(insertError?.message ?? 'Failed to create client profile.')
+        showValidationToast({ error: insertError?.message ?? 'Failed to create client profile.' })
         setIsLoading(false)
         return
       }
@@ -202,11 +200,12 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
         class: ''
       })
 
+      showSuccessToast('Client added successfully')
       onSuccess?.(insertedPatient as Record<string, unknown>)
       await router.refresh()
       onClose()
-    } catch (err) {
-      setError('An unexpected error occurred. Please try again.')
+    } catch {
+      showValidationToast({ error: 'An unexpected error occurred. Please try again.' })
     } finally {
       setIsLoading(false)
     }
@@ -237,13 +236,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6">
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
+        <form onSubmit={handleSubmit} noValidate className="p-6">
           {mode === 'agency_admin' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>

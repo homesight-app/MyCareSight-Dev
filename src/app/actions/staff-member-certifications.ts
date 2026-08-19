@@ -5,6 +5,8 @@ import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import type { CreateCertificationData, UpdateCertificationData } from '@/app/actions/certifications'
 import { getCertification as getCredentialByIdForUser } from '@/app/actions/certifications'
+import { certificationSchema } from '@/lib/schemas/certification'
+import { zodErrorToFieldErrors } from '@/lib/validation'
 
 export type MyStaffCertificationUi = {
   id: string
@@ -112,6 +114,11 @@ export async function getMyStaffCertifications(): Promise<{
 }
 
 export async function createMyStaffCertification(data: CreateCertificationData) {
+  const parsed = certificationSchema.safeParse(data)
+  if (!parsed.success) {
+    return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
+  }
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -119,12 +126,13 @@ export async function createMyStaffCertification(data: CreateCertificationData) 
   } = await supabase.auth.getUser()
 
   if (authError || !user) {
-    return { error: 'You must be logged in to create a certification', data: null }
+    return { success: false as const, error: 'You must be logged in to create a certification', data: null }
   }
 
   const { data: staff, error: staffError } = await q.getStaffMemberByUserId(supabase, user.id)
   if (staffError || !staff?.id || !staff.agency_id) {
     return {
+      success: false as const,
       error:
         'Your login is not linked to an agency staff profile. Ask your agency to connect your account so certifications stay in sync with the agency dashboard.',
       data: null,
@@ -156,18 +164,24 @@ export async function createMyStaffCertification(data: CreateCertificationData) 
     .single()
 
   if (insertError) {
-    return { error: insertError.message, data: null }
+    return { success: false as const, error: insertError.message, data: null }
   }
 
   revalidatePath('/pages/caregiver/my-certifications')
   revalidatePath('/pages/caregiver')
   return {
+    success: true as const,
     error: null,
     data: inserted ? mapCredentialRowToUi(inserted as Parameters<typeof mapCredentialRowToUi>[0]) : null,
   }
 }
 
 export async function updateMyStaffCertification(certificationId: string, data: UpdateCertificationData) {
+  const parsed = certificationSchema.safeParse(data)
+  if (!parsed.success) {
+    return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
+  }
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -175,12 +189,13 @@ export async function updateMyStaffCertification(certificationId: string, data: 
   } = await supabase.auth.getUser()
 
   if (authError || !user) {
-    return { error: 'You must be logged in to update a certification', data: null }
+    return { success: false as const, error: 'You must be logged in to update a certification', data: null }
   }
 
   const { data: staff, error: staffError } = await q.getStaffMemberByUserId(supabase, user.id)
   if (staffError || !staff?.id) {
     return {
+      success: false as const,
       error: 'Your login is not linked to an agency staff profile. Ask your agency to connect your account.',
       data: null,
     }
@@ -192,7 +207,7 @@ export async function updateMyStaffCertification(certificationId: string, data: 
   const { data: existing, error: fetchError } = await fetchQuery.maybeSingle()
 
   if (fetchError || !existing) {
-    return { error: 'Certification not found or you do not have access.', data: null }
+    return { success: false as const, error: 'Certification not found or you do not have access.', data: null }
   }
 
   const expiryDate = data.expiration_date.trim()
@@ -217,13 +232,14 @@ export async function updateMyStaffCertification(certificationId: string, data: 
     .single()
 
   if (updateError) {
-    return { error: updateError.message, data: null }
+    return { success: false as const, error: updateError.message, data: null }
   }
 
   revalidatePath('/pages/caregiver/my-certifications')
   revalidatePath(`/pages/caregiver/my-certifications/${certificationId}`)
   revalidatePath('/pages/caregiver')
   return {
+    success: true as const,
     error: null,
     data: updated ? mapCredentialRowToUi(updated as Parameters<typeof mapCredentialRowToUi>[0]) : null,
   }
@@ -271,7 +287,11 @@ export async function updateUnifiedCaregiverCertification(
   const err = (staffTry.error || '').toLowerCase()
   if (err.includes('not found') || err.includes('access')) {
     const { updateCertification } = await import('@/app/actions/certifications')
-    return updateCertification(certificationId, data)
+    const legacyResult = await updateCertification(certificationId, data)
+    if (legacyResult.error) {
+      return { success: false as const, error: legacyResult.error, data: null }
+    }
+    return { success: true as const, error: null, data: legacyResult.data }
   }
   return staffTry
 }

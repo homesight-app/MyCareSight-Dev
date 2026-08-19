@@ -11,6 +11,7 @@ import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertificat
 import { Loader2, Upload, X, FileText, Plus } from 'lucide-react'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
+import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 const licenseSchema = z.object({
   license_name: z.string().min(1, 'License name is required').min(3, 'License name must be at least 3 characters'),
@@ -79,7 +80,6 @@ export default function CreateLicenseModal({
   const isEditMode = !!licenseToEdit
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
   const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([])
   const [linkedProgramId, setLinkedProgramId] = useState('')
   const [linkType, setLinkType] = useState<'created_from' | 'renewal_of'>('created_from')
@@ -129,7 +129,6 @@ export default function CreateLicenseModal({
     setPendingDocs([])
     setLinkedProgramId('')
     setLinkType('created_from')
-    setSubmitError(null)
     onClose()
   }
 
@@ -146,7 +145,6 @@ export default function CreateLicenseModal({
     if (hasDocError) { setPendingDocs(validated); return }
 
     setIsSubmitting(true)
-    setSubmitError(null)
 
     try {
       const supabase = createClient()
@@ -184,6 +182,7 @@ export default function CreateLicenseModal({
           }
         }
 
+        showSuccessToast('License updated successfully')
         reset()
         setPendingDocs([])
         router.refresh()
@@ -240,6 +239,7 @@ export default function CreateLicenseModal({
           }
         }
 
+        showSuccessToast(isEditMode ? 'License updated successfully' : 'License added successfully')
         reset()
         setPendingDocs([])
         setLinkedProgramId('')
@@ -251,7 +251,7 @@ export default function CreateLicenseModal({
 
       // ── Owner mode ─────────────────────────────────────────────────────────
       const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (!authUser) { setSubmitError('You must be logged in to create a license'); return }
+      if (!authUser) { showValidationToast({ error: 'You must be logged in to create a license' }); setIsSubmitting(false); return }
 
       const { data: newLicense, error } = await q.insertLicenseReturning(supabase, {
         company_owner_id: authUser.id,
@@ -286,13 +286,14 @@ export default function CreateLicenseModal({
         }
       }
 
+      showSuccessToast('License created successfully')
       await revalidateLicensesPage()
       reset()
       setPendingDocs([])
       handleClose()
       onSuccess()
     } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : 'Failed to create license. Please try again.')
+      showValidationToast({ error: err instanceof Error ? err.message : 'Failed to create license. Please try again.' })
     } finally {
       setIsSubmitting(false)
     }
@@ -308,13 +309,7 @@ export default function CreateLicenseModal({
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title={title} size="lg">
-      <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-        {submitError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-            {submitError}
-          </div>
-        )}
-
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="p-6 space-y-4">
         {/* License Name */}
         <div>
           <label htmlFor="license_name" className="block text-sm font-semibold text-gray-700 mb-1">

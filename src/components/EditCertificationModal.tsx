@@ -1,13 +1,16 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import Modal from './Modal'
 import { Upload, X, Loader2, Calendar, FileText } from 'lucide-react'
-import type { UpdateCertificationData } from '@/app/actions/certifications'
+import { certificationSchema, type CertificationFormData } from '@/lib/schemas/certification'
 import { updateUnifiedCaregiverCertification } from '@/app/actions/staff-member-certifications'
 import { createClient } from '@/lib/supabase/client'
 import { uploadFile } from '@/lib/storage/client'
 import { US_STATES } from '@/lib/constants'
+import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 interface EditCertificationModalProps {
   isOpen: boolean
@@ -39,22 +42,45 @@ export default function EditCertificationModal({
   const [existingDocumentUrl, setExistingDocumentUrl] = useState<string | null>(certification.document_url)
   const [isUploading, setIsUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [formData, setFormData] = useState<UpdateCertificationData>({
-    type: certification.type,
-    license_number: certification.license_number,
-    state: certification.state || '',
-    issue_date: certification.issue_date || '',
-    expiration_date: certification.expiration_date,
-    issuing_authority: certification.issuing_authority,
-    status: certification.status,
-    document_url: certification.document_url,
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setError,
+    reset,
+    watch,
+    setValue,
+  } = useForm<CertificationFormData>({
+    resolver: zodResolver(certificationSchema),
+    mode: 'onBlur',
+    defaultValues: {
+      type: certification.type,
+      license_number: certification.license_number,
+      state: certification.state || '',
+      issue_date: certification.issue_date || '',
+      expiration_date: certification.expiration_date,
+      issuing_authority: certification.issuing_authority,
+      status: certification.status,
+    },
   })
+
+  // Auto-update status when expiration date changes
+  const expirationDate = watch('expiration_date')
+  useEffect(() => {
+    if (expirationDate) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const expiry = new Date(expirationDate)
+      expiry.setHours(0, 0, 0, 0)
+      setValue('status', expiry < today ? 'Expired' : 'Active')
+    }
+  }, [expirationDate, setValue])
 
   // Reset form when modal opens with new certification data
   useEffect(() => {
     if (isOpen && certification) {
-      setFormData({
+      reset({
         type: certification.type,
         license_number: certification.license_number,
         state: certification.state || '',
@@ -62,42 +88,33 @@ export default function EditCertificationModal({
         expiration_date: certification.expiration_date,
         issuing_authority: certification.issuing_authority,
         status: certification.status,
-        document_url: certification.document_url,
       })
       setExistingDocumentUrl(certification.document_url)
       setSelectedFile(null)
-      setError(null)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }, [isOpen, certification])
+  }, [isOpen, certification, reset])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      // Check file size (10MB max)
       if (file.size > 10 * 1024 * 1024) {
-        setError('File size must be less than 10MB')
+        showValidationToast({ error: 'File size must be less than 10MB' })
         return
       }
-      // Check file type
       const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg']
       if (!validTypes.includes(file.type)) {
-        setError('File must be PDF, PNG, or JPG')
+        showValidationToast({ error: 'File must be PDF, PNG, or JPG' })
         return
       }
       setSelectedFile(file)
-      setError(null)
     }
   }
 
   const handleRemoveFile = () => {
     setSelectedFile(null)
     setExistingDocumentUrl(null)
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -110,89 +127,73 @@ export default function EditCertificationModal({
     e.stopPropagation()
     const file = e.dataTransfer.files?.[0]
     if (file) {
-      // Check file size (10MB max)
       if (file.size > 10 * 1024 * 1024) {
-        setError('File size must be less than 10MB')
+        showValidationToast({ error: 'File size must be less than 10MB' })
         return
       }
-      // Check file type
       const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg']
       if (!validTypes.includes(file.type)) {
-        setError('File must be PDF, PNG, or JPG')
+        showValidationToast({ error: 'File must be PDF, PNG, or JPG' })
         return
       }
       setSelectedFile(file)
-      setError(null)
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-
-    // Validate required fields
-    if (!formData.type || !formData.license_number || !formData.expiration_date || !formData.issuing_authority) {
-      setError('Please fill in all required fields')
-      return
-    }
-
+  const onSubmit = async (data: CertificationFormData) => {
     setIsSubmitting(true)
 
     try {
       let documentUrl: string | null = existingDocumentUrl
 
-      // Upload new file if selected
       if (selectedFile) {
         setIsUploading(true)
         const supabase = createClient()
 
-        // Get current user
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) {
-          setError('You must be logged in to upload documents')
+          showValidationToast({ error: 'You must be logged in to upload documents' })
           setIsSubmitting(false)
           setIsUploading(false)
           return
         }
 
-        // Upload file to Supabase Storage
         const fileExt = selectedFile.name.split('.').pop()
         const fileName = `certifications/${user.id}/${Date.now()}.${fileExt}`
-        const filePath = fileName
 
         const { path: uploadedPath, error: uploadError } = await uploadFile(
           supabase,
           'application-documents',
-          filePath,
+          fileName,
           selectedFile
         )
 
-        if (uploadError) {
-          throw uploadError
-        }
+        if (uploadError) throw uploadError
 
         documentUrl = uploadedPath
         setIsUploading(false)
       }
 
       const result = await updateUnifiedCaregiverCertification(certification.id, {
-        ...formData,
+        ...data,
         document_url: documentUrl,
       })
 
-      if (result.error) {
-        setError(result.error)
-        setIsSubmitting(false)
+      if (!result.success) {
+        if (result.fieldErrors) {
+          Object.entries(result.fieldErrors).forEach(([field, msgs]) => {
+            setError(field as keyof CertificationFormData, { message: msgs[0] })
+          })
+        }
+        if (result.error) showValidationToast(result)
         return
       }
 
-      // Success
-      if (onSuccess) {
-        onSuccess()
-      }
+      showSuccessToast('Certification updated successfully')
+      onSuccess?.()
       onClose()
     } catch (err: any) {
-      setError(err.message || 'Failed to update certification. Please try again.')
+      showValidationToast({ error: err.message || 'Failed to update certification. Please try again.' })
     } finally {
       setIsSubmitting(false)
       setIsUploading(false)
@@ -209,13 +210,7 @@ export default function EditCertificationModal({
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Edit Certification" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-            {error}
-          </div>
-        )}
-
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
         {/* Certification Type */}
         <div>
           <label htmlFor="type" className="block text-sm font-semibold text-gray-700 mb-2">
@@ -223,11 +218,9 @@ export default function EditCertificationModal({
           </label>
           <select
             id="type"
-            value={formData.type}
-            onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+            {...register('type')}
             className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
             disabled={isSubmitting || isUploading}
-            required
           >
             <option value="">Select a certification type</option>
             {certificationTypes.map((type) => (
@@ -236,6 +229,7 @@ export default function EditCertificationModal({
               </option>
             ))}
           </select>
+          {errors.type && <p className="mt-1 text-sm text-red-600">{errors.type.message}</p>}
         </div>
 
         {/* License/Certification Number */}
@@ -246,13 +240,12 @@ export default function EditCertificationModal({
           <input
             id="license_number"
             type="text"
-            value={formData.license_number}
-            onChange={(e) => setFormData({ ...formData, license_number: e.target.value })}
+            {...register('license_number')}
             placeholder="e.g., RN-2024-12345"
             className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
             disabled={isSubmitting || isUploading}
-            required
           />
+          {errors.license_number && <p className="mt-1 text-sm text-red-600">{errors.license_number.message}</p>}
         </div>
 
         {/* State */}
@@ -262,8 +255,7 @@ export default function EditCertificationModal({
           </label>
           <select
             id="state"
-            value={formData.state || ''}
-            onChange={(e) => setFormData({ ...formData, state: e.target.value || null })}
+            {...register('state')}
             className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
             disabled={isSubmitting || isUploading}
           >
@@ -285,8 +277,7 @@ export default function EditCertificationModal({
             <input
               id="issue_date"
               type="date"
-              value={formData.issue_date || ''}
-              onChange={(e) => setFormData({ ...formData, issue_date: e.target.value || null })}
+              {...register('issue_date')}
               className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all pr-10"
               disabled={isSubmitting || isUploading}
             />
@@ -303,25 +294,13 @@ export default function EditCertificationModal({
             <input
               id="expiration_date"
               type="date"
-              value={formData.expiration_date}
-              onChange={(e) => {
-                const expirationDate = e.target.value
-                // Auto-update status based on expiration date
-                const today = new Date()
-                today.setHours(0, 0, 0, 0)
-                const expiry = new Date(expirationDate)
-                expiry.setHours(0, 0, 0, 0)
-                
-                // If expiration date is before today, status is Expired, otherwise Active
-                const newStatus = expiry < today ? 'Expired' : 'Active'
-                setFormData({ ...formData, expiration_date: expirationDate, status: newStatus })
-              }}
+              {...register('expiration_date')}
               className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all pr-10"
               disabled={isSubmitting || isUploading}
-              required
             />
             <Calendar className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
           </div>
+          {errors.expiration_date && <p className="mt-1 text-sm text-red-600">{errors.expiration_date.message}</p>}
         </div>
 
         {/* Issuing Authority */}
@@ -332,13 +311,12 @@ export default function EditCertificationModal({
           <input
             id="issuing_authority"
             type="text"
-            value={formData.issuing_authority}
-            onChange={(e) => setFormData({ ...formData, issuing_authority: e.target.value })}
+            {...register('issuing_authority')}
             placeholder="e.g., Texas Board of Nursing"
             className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
             disabled={isSubmitting || isUploading}
-            required
           />
+          {errors.issuing_authority && <p className="mt-1 text-sm text-red-600">{errors.issuing_authority.message}</p>}
         </div>
 
         {/* Status */}
@@ -348,8 +326,7 @@ export default function EditCertificationModal({
           </label>
           <select
             id="status"
-            value={formData.status}
-            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            {...register('status')}
             className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
             disabled={isSubmitting || isUploading}
           >

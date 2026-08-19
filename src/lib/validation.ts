@@ -1,4 +1,15 @@
 import * as z from 'zod'
+import type { ZodError } from 'zod'
+
+export function zodErrorToFieldErrors(err: ZodError): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const issue of err.issues) {
+    const key = issue.path.join('.')
+    if (!out[key]) out[key] = []
+    out[key].push(issue.message)
+  }
+  return out
+}
 
 /**
  * Accepts common US phone formats:

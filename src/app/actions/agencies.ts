@@ -1,6 +1,5 @@
 'use server'
 
-import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath, revalidateTag } from 'next/cache'
@@ -13,6 +12,8 @@ import {
   CACHE_TAG_AGENCIES_ID_NAME,
   CACHE_TAG_AGENCIES_ORDERED,
 } from '@/lib/cache-tags'
+import { zodErrorToFieldErrors } from '@/lib/validation'
+import { agencyFormSchema, type AgencyFormData } from '@/lib/schemas/agency'
 
 function revalidateAgencyListCaches() {
   revalidateTag(CACHE_TAG_AGENCIES_ID_NAME)
@@ -20,50 +21,7 @@ function revalidateAgencyListCaches() {
   revalidateTag(CACHE_TAG_AGENCIES_FOR_BILLING)
 }
 
-const agencyFormSchema = z.object({
-  companyName: z.string().min(1, 'Company name is required'),
-  agencyAdminIds: z.array(z.string()).default([]),
-  businessType: z.string().default(''),
-  taxId: z.string().default(''),
-  primaryLicenseNumber: z.string().default(''),
-  website: z.string().optional(),
-  physicalStreetAddress: z.string().default(''),
-  physicalCity: z.string().default(''),
-  physicalState: z.string().default(''),
-  physicalZipCode: z.string().default(''),
-  sameAsPhysical: z.boolean().default(true),
-  mailingStreetAddress: z.string().optional(),
-  mailingCity: z.string().optional(),
-  mailingState: z.string().optional(),
-  mailingZipCode: z.string().optional(),
-  // Onboarding / profile extension fields (migrations 112 + 113)
-  dbaName: z.string().optional(),
-  hoursOfOperation: z.string().optional(),
-  faxNumber: z.string().optional(),
-  dateOfFormation: z.string().optional(),
-  npi: z.string().optional(),
-  stateSpecificData: z.record(z.string(), z.unknown()).optional(),
-  phoneNumber: z.string().optional(),
-  agencyEmail: z.string().optional(),
-  regionServiceArea: z.string().optional(),
-  primaryContactFirstName: z.string().optional(),
-  primaryContactLastName: z.string().optional(),
-  isOnCall: z.boolean().optional(),
-  previouslyLicensed: z.boolean().optional(),
-  prevLicenseClosedDate: z.string().optional(),
-  // Legal entity fields (migration 122)
-  legalEntityName: z.string().optional(),
-  entityType: z.string().optional(),
-  stateOfIncorporation: z.string().optional(),
-  dateOfIncorporation: z.string().optional(),
-  licensedOfficeStreet: z.string().optional(),
-  licensedOfficeCity: z.string().optional(),
-  licensedOfficeState: z.string().optional(),
-  licensedOfficeZip: z.string().optional(),
-  licensedSameAsPhysical: z.boolean().optional(),
-})
-
-export type AgencyFormData = z.infer<typeof agencyFormSchema>
+export type { AgencyFormData }
 
 function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
   return {
@@ -110,7 +68,7 @@ function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
 
 export async function createAgency(data: AgencyFormData) {
   const parsed = agencyFormSchema.safeParse(data)
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input', data: null }
+  if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   const validData = parsed.data
   const supabase = await createClient()
   try {
@@ -137,9 +95,9 @@ export async function createAgency(data: AgencyFormData) {
     revalidatePath('/pages/admin/agencies')
     revalidatePath('/pages/expert/agencies')
     revalidateAgencyListCaches()
-    return { error: null, data: { success: true } }
+    return { success: true as const, error: null, data: { success: true } }
   } catch (err: any) {
-    return { error: err?.message || 'Failed to create agency', data: null }
+    return { success: false as const, error: err?.message || 'Failed to create agency', data: null }
   }
 }
 
@@ -149,7 +107,7 @@ export async function updateAgency(
   previousAgencyAdminIds: string[]
 ) {
   const parsed = agencyFormSchema.safeParse(data)
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input', data: null }
+  if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   const validData = parsed.data
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', data: null }
@@ -213,18 +171,18 @@ export async function updateAgency(
     revalidatePath('/pages/admin/agencies')
     revalidatePath('/pages/expert/agencies')
     revalidateAgencyListCaches()
-    return { error: null, data: { success: true } }
+    return { success: true as const, error: null, data: { success: true } }
   } catch (err: any) {
-    return { error: err?.message || 'Failed to update agency', data: null }
+    return { success: false as const, error: err?.message || 'Failed to update agency', data: null }
   }
 }
 
 const companyDetailsSchema = agencyFormSchema.omit({ agencyAdminIds: true })
-export type CompanyDetailsFormData = z.infer<typeof companyDetailsSchema>
+export type CompanyDetailsFormData = Omit<AgencyFormData, 'agencyAdminIds'>
 
 export async function saveCompanyDetails(data: CompanyDetailsFormData) {
   const parsed = companyDetailsSchema.safeParse(data)
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input', data: null }
+  if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   const validData = parsed.data
   const supabase = await createClient()
   try {
@@ -297,9 +255,9 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
 
     revalidatePath('/pages/agency/profile')
     revalidateAgencyListCaches()
-    return { error: null, data: { success: true } }
+    return { success: true as const, error: null, data: { success: true } }
   } catch (err: any) {
-    return { error: err?.message || 'Failed to save company details', data: null }
+    return { success: false as const, error: err?.message || 'Failed to save company details', data: null }
   }
 }
 

@@ -10,6 +10,7 @@ import PhoneInput from '@/components/ui/PhoneInput'
 import { createExpert, CreateExpertData } from '@/app/actions/experts'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
+import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 const expertSchema = z.object({
   firstName: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
@@ -41,7 +42,6 @@ export default function AddExpertModal({
 }: AddExpertModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const {
     register,
@@ -71,13 +71,11 @@ export default function AddExpertModal({
         role: 'Licensing Specialist',
         status: 'active',
       })
-      setError(null)
     }
   }, [isOpen, reset])
 
   const onSubmit = async (data: ExpertFormData) => {
     setIsLoading(true)
-    setError(null)
 
     try {
       const expertData: CreateExpertData = {
@@ -94,20 +92,18 @@ export default function AddExpertModal({
       const result = await createExpert(expertData)
 
       if (result.error) {
-        setError(result.error)
+        showValidationToast({ error: result.error })
         setIsLoading(false)
         return
       }
 
+      showSuccessToast('Expert created successfully')
       reset()
       onClose()
       router.refresh()
-
-      if (onSuccess) {
-        onSuccess()
-      }
+      onSuccess?.()
     } catch (err: any) {
-      setError(err.message || 'Failed to create expert. Please try again.')
+      showValidationToast({ error: err.message || 'Failed to create expert. Please try again.' })
     } finally {
       setIsLoading(false)
     }
@@ -116,20 +112,13 @@ export default function AddExpertModal({
   const handleClose = () => {
     if (!isLoading) {
       reset()
-      setError(null)
       onClose()
     }
   }
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Add New Expert" size="lg">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-            {error}
-          </div>
-        )}
-
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
         {/* Name Fields */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>

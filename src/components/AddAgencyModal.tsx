@@ -3,8 +3,12 @@
 import { useState, useEffect } from 'react'
 import { X, Plus, ChevronDown, ChevronUp, Loader2, Link2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { createAgency, updateAgency, createShellAgency, type AgencyFormData } from '@/app/actions/agencies'
+import { agencyFormSchema } from '@/lib/schemas/agency'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
+import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 export interface AgencyAdminOption {
   id: string
@@ -62,31 +66,44 @@ export default function AddAgencyModal({
   isOpen,
   onClose,
   onSuccess,
-  agencyAdmins,
   agencyAdminsForSelect,
   editAgency,
 }: AddAgencyModalProps) {
   const router = useRouter()
-  const [isLoading, setIsLoading] = useState(false)
   const [isCreatingShell, setIsCreatingShell] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [form, setForm] = useState(emptyForm)
   const [agencyAdminsOpen, setAgencyAdminsOpen] = useState(false)
+  const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([])
 
   const isEdit = !!editAgency
-
-  // Parent passes: add = unassigned only; edit = unassigned + this agency's admins
   const selectOptions = agencyAdminsForSelect
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    reset,
+    watch,
+    setValue,
+    trigger,
+    getValues,
+    setError,
+  } = useForm<AgencyFormData>({
+    resolver: zodResolver(agencyFormSchema),
+    mode: 'onBlur',
+    defaultValues: emptyForm,
+  })
+
+  const sameAsPhysical = watch('sameAsPhysical')
 
   useEffect(() => {
     if (isOpen) {
-      setError(null)
       if (editAgency) {
-        setForm({
+        const adminIds = normalizeAgencyAdminIds(
+          editAgency.agency_admin_ids as string[] | string | null | undefined
+        )
+        reset({
           companyName: editAgency.name ?? '',
-          agencyAdminIds: normalizeAgencyAdminIds(
-            editAgency.agency_admin_ids as string[] | string | null | undefined
-          ),
+          agencyAdminIds: adminIds,
           businessType: editAgency.business_type ?? '',
           taxId: editAgency.tax_id ?? '',
           primaryLicenseNumber: editAgency.primary_license_number ?? '',
@@ -101,98 +118,92 @@ export default function AddAgencyModal({
           mailingState: editAgency.mailing_state ?? '',
           mailingZipCode: editAgency.mailing_zip_code ?? '',
         })
+        setSelectedAdminIds(adminIds)
       } else {
-        setForm(emptyForm)
+        reset(emptyForm)
+        setSelectedAdminIds([])
       }
     }
-  }, [isOpen, editAgency])
-
-  const setField = (field: keyof typeof form, value: string | boolean | string[]) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
-    setError(null)
-  }
+  }, [isOpen, editAgency, reset])
 
   const toggleAgencyAdmin = (clientId: string) => {
-    setForm((prev) => {
-      const ids = prev.agencyAdminIds || []
-      const next = ids.includes(clientId) ? ids.filter((id) => id !== clientId) : [...ids, clientId]
-      return { ...prev, agencyAdminIds: next }
+    setSelectedAdminIds((prev) => {
+      const next = prev.includes(clientId)
+        ? prev.filter((id) => id !== clientId)
+        : [...prev, clientId]
+      setValue('agencyAdminIds', next)
+      return next
     })
-    setError(null)
   }
 
   if (!isOpen) return null
 
   const handleCreateShell = async () => {
-    if (!form.companyName.trim()) {
-      setError('Company name is required.')
-      return
-    }
+    const valid = await trigger('companyName')
+    if (!valid) return
     setIsCreatingShell(true)
-    setError(null)
     try {
-      const result = await createShellAgency(form.companyName.trim())
+      const result = await createShellAgency(getValues('companyName').trim())
       if (result.error) {
-        setError(result.error)
+        showValidationToast({ error: result.error })
         setIsCreatingShell(false)
         return
       }
       onClose()
       router.push(`/pages/admin/agencies/${result.data!.agencyId}?tab=organization`)
     } catch {
-      setError('An unexpected error occurred. Please try again.')
+      showValidationToast({ error: 'An unexpected error occurred. Please try again.' })
       setIsCreatingShell(false)
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.companyName.trim()) {
-      setError('Company name is required.')
-      return
-    }
-    setIsLoading(true)
-    setError(null)
-
-    const data: AgencyFormData = {
-      ...form,
-      agencyAdminIds: form.agencyAdminIds || [],
-      website: form.website || undefined,
-      mailingStreetAddress: form.mailingStreetAddress || undefined,
-      mailingCity: form.mailingCity || undefined,
-      mailingState: form.mailingState || undefined,
-      mailingZipCode: form.mailingZipCode || undefined,
+  const onSubmit = async (data: AgencyFormData) => {
+    const payload: AgencyFormData = {
+      ...data,
+      agencyAdminIds: selectedAdminIds,
+      website: data.website || undefined,
+      mailingStreetAddress: data.mailingStreetAddress || undefined,
+      mailingCity: data.mailingCity || undefined,
+      mailingState: data.mailingState || undefined,
+      mailingZipCode: data.mailingZipCode || undefined,
     }
 
     try {
       if (isEdit && editAgency) {
         const result = await updateAgency(
           editAgency.id,
-          data,
+          payload,
           normalizeAgencyAdminIds(
             editAgency.agency_admin_ids as string[] | string | null | undefined
           )
         )
-        if (result.error) {
-          setError(result.error)
-          setIsLoading(false)
+        if (!result.success) {
+          if (result.fieldErrors) {
+            Object.entries(result.fieldErrors).forEach(([field, msgs]) => {
+              setError(field as keyof AgencyFormData, { message: msgs[0] })
+            })
+          }
+          if (result.error) showValidationToast(result)
           return
         }
       } else {
-        const result = await createAgency(data)
-        if (result.error) {
-          setError(result.error)
-          setIsLoading(false)
+        const result = await createAgency(payload)
+        if (!result.success) {
+          if (result.fieldErrors) {
+            Object.entries(result.fieldErrors).forEach(([field, msgs]) => {
+              setError(field as keyof AgencyFormData, { message: msgs[0] })
+            })
+          }
+          if (result.error) showValidationToast(result)
           return
         }
       }
+      showSuccessToast(isEdit ? 'Agency updated successfully' : 'Agency created successfully')
       onSuccess?.()
       router.refresh()
       onClose()
-    } catch (err) {
-      setError('An unexpected error occurred. Please try again.')
-    } finally {
-      setIsLoading(false)
+    } catch {
+      showValidationToast({ error: 'An unexpected error occurred. Please try again.' })
     }
   }
 
@@ -212,13 +223,7 @@ export default function AddAgencyModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
+        <form onSubmit={handleSubmit(onSubmit)} noValidate className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
           {/* Basic Information */}
           <div>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h3>
@@ -229,30 +234,30 @@ export default function AddAgencyModal({
                 </label>
                 <input
                   type="text"
-                  value={form.companyName}
-                  onChange={(e) => setField('companyName', e.target.value)}
+                  {...register('companyName')}
                   placeholder="Acme Home Care LLC"
-                  required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+                {errors.companyName && (
+                  <p className="mt-1 text-sm text-red-600">{errors.companyName.message}</p>
+                )}
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Business Type <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Business Type <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
-                  value={form.businessType}
-                  onChange={(e) => setField('businessType', e.target.value)}
+                  {...register('businessType')}
                   placeholder="Home Healthcare Agency"
-                  required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Tax ID / EIN </label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Tax ID / EIN</label>
                 <input
                   type="text"
-                  value={form.taxId}
-                  onChange={(e) => setField('taxId', e.target.value)}
+                  {...register('taxId')}
                   placeholder="12-3456789"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -261,8 +266,7 @@ export default function AddAgencyModal({
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Primary License Number</label>
                 <input
                   type="text"
-                  value={form.primaryLicenseNumber}
-                  onChange={(e) => setField('primaryLicenseNumber', e.target.value)}
+                  {...register('primaryLicenseNumber')}
                   placeholder="HCA-2022-001"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -271,8 +275,7 @@ export default function AddAgencyModal({
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Website</label>
                 <input
                   type="url"
-                  value={form.website}
-                  onChange={(e) => setField('website', e.target.value)}
+                  {...register('website')}
                   placeholder="https://example.com"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -281,7 +284,7 @@ export default function AddAgencyModal({
                 <button
                   type="button"
                   onClick={() => setAgencyAdminsOpen((prev) => !prev)}
-                  className="text-[#2460d6] flex items-center justify-between w-full text-left text-sm font-semibold text-gray-700 mb-2 py-1.5 px-2 -mx-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="text-[#2460d6] flex items-center justify-between w-full text-left text-sm font-semibold mb-2 py-1.5 px-2 -mx-2 rounded-lg hover:bg-gray-100 transition-colors"
                   aria-expanded={agencyAdminsOpen}
                 >
                   <span className='text-[#2460d6]'>Select agency admins</span>
@@ -300,7 +303,7 @@ export default function AddAgencyModal({
                         <label key={admin.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-2 rounded">
                           <input
                             type="checkbox"
-                            checked={(form.agencyAdminIds || []).includes(admin.id)}
+                            checked={selectedAdminIds.includes(admin.id)}
                             onChange={() => toggleAgencyAdmin(admin.id)}
                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                           />
@@ -312,9 +315,9 @@ export default function AddAgencyModal({
                     )}
                   </div>
                 )}
-                {!agencyAdminsOpen && (form.agencyAdminIds?.length ?? 0) > 0 && (
+                {!agencyAdminsOpen && selectedAdminIds.length > 0 && (
                   <p className="text-sm text-gray-500 mt-0.5">
-                    {(form.agencyAdminIds?.length ?? 0)} selected
+                    {selectedAdminIds.length} selected
                   </p>
                 )}
               </div>
@@ -329,8 +332,7 @@ export default function AddAgencyModal({
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Street Address</label>
                 <input
                   type="text"
-                  value={form.physicalStreetAddress}
-                  onChange={(e) => setField('physicalStreetAddress', e.target.value)}
+                  {...register('physicalStreetAddress')}
                   placeholder="123 Healthcare Blvd"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -339,8 +341,7 @@ export default function AddAgencyModal({
                 <label className="block text-sm font-semibold text-gray-700 mb-2">City</label>
                 <input
                   type="text"
-                  value={form.physicalCity}
-                  onChange={(e) => setField('physicalCity', e.target.value)}
+                  {...register('physicalCity')}
                   placeholder="Austin"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -349,8 +350,7 @@ export default function AddAgencyModal({
                 <label className="block text-sm font-semibold text-gray-700 mb-2">State</label>
                 <input
                   type="text"
-                  value={form.physicalState}
-                  onChange={(e) => setField('physicalState', e.target.value)}
+                  {...register('physicalState')}
                   placeholder="Texas"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -359,8 +359,7 @@ export default function AddAgencyModal({
                 <label className="block text-sm font-semibold text-gray-700 mb-2">ZIP Code</label>
                 <input
                   type="text"
-                  value={form.physicalZipCode}
-                  onChange={(e) => setField('physicalZipCode', e.target.value)}
+                  {...register('physicalZipCode')}
                   placeholder="78701"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -375,18 +374,14 @@ export default function AddAgencyModal({
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={form.sameAsPhysical}
+                  checked={sameAsPhysical}
                   onChange={(e) => {
-                    setField('sameAsPhysical', e.target.checked)
+                    setValue('sameAsPhysical', e.target.checked)
                     if (e.target.checked) {
-                      setForm((prev) => ({
-                        ...prev,
-                        sameAsPhysical: true,
-                        mailingStreetAddress: '',
-                        mailingCity: '',
-                        mailingState: '',
-                        mailingZipCode: '',
-                      }))
+                      setValue('mailingStreetAddress', '')
+                      setValue('mailingCity', '')
+                      setValue('mailingState', '')
+                      setValue('mailingZipCode', '')
                     }
                   }}
                   className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
@@ -394,14 +389,13 @@ export default function AddAgencyModal({
                 <span className="text-sm font-medium text-gray-700">Same as physical address</span>
               </label>
             </div>
-            {!form.sameAsPhysical && (
+            {!sameAsPhysical && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Mailing Street Address</label>
                   <input
                     type="text"
-                    value={form.mailingStreetAddress}
-                    onChange={(e) => setField('mailingStreetAddress', e.target.value)}
+                    {...register('mailingStreetAddress')}
                     placeholder="456 Mailing Ave"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
@@ -410,8 +404,7 @@ export default function AddAgencyModal({
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Mailing City</label>
                   <input
                     type="text"
-                    value={form.mailingCity}
-                    onChange={(e) => setField('mailingCity', e.target.value)}
+                    {...register('mailingCity')}
                     placeholder="Austin"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
@@ -420,8 +413,7 @@ export default function AddAgencyModal({
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Mailing State</label>
                   <input
                     type="text"
-                    value={form.mailingState}
-                    onChange={(e) => setField('mailingState', e.target.value)}
+                    {...register('mailingState')}
                     placeholder="Texas"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
@@ -430,8 +422,7 @@ export default function AddAgencyModal({
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Mailing ZIP Code</label>
                   <input
                     type="text"
-                    value={form.mailingZipCode}
-                    onChange={(e) => setField('mailingZipCode', e.target.value)}
+                    {...register('mailingZipCode')}
                     placeholder="78702"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
@@ -453,7 +444,7 @@ export default function AddAgencyModal({
                 <button
                   type="button"
                   onClick={handleCreateShell}
-                  disabled={isCreatingShell || isLoading}
+                  disabled={isCreatingShell || isSubmitting}
                   className="px-4 py-2 border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
                 >
                   {isCreatingShell ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
@@ -462,10 +453,10 @@ export default function AddAgencyModal({
               )}
               <button
                 type="submit"
-                disabled={isLoading || isCreatingShell}
+                disabled={isSubmitting || isCreatingShell}
                 className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                {isLoading ? 'Saving...' : (
+                {isSubmitting ? 'Saving...' : (
                   <>
                     <Plus className="w-4 h-4" />
                     {isEdit ? 'Update Agency' : 'Add Agency'}

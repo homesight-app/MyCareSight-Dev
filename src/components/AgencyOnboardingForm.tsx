@@ -6,6 +6,8 @@ import { submitOnboardingForm, type OnboardingFormData } from '@/app/actions/age
 import { STATE_AGENCY_CONFIGS, type StateField } from '@/lib/constants/state-agency-configs'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
+import EmailInput from '@/components/ui/EmailInput'
+import { showValidationToast } from '@/lib/form-validation-toast'
 
 const ENTITY_TYPES = ['LLC','S Corporation','C Corporation','Partnership','Sole Proprietorship','Non-profit']
 
@@ -167,6 +169,8 @@ function StateFieldRenderer({ field, value, onChange }: {
   )
 }
 
+const inputCls = 'block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none'
+
 export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: AgencyOnboardingFormProps) {
   const physicalState = (agency?.physical_state as string) ?? ''
   const stateFields = STATE_AGENCY_CONFIGS[physicalState] ?? []
@@ -224,8 +228,8 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
     buildInitialMemberOwners(keyStaff)
   )
 
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
 
   const setField = <K extends keyof typeof form>(key: K, val: typeof form[K]) => {
@@ -240,12 +244,21 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
     setMemberOwners(prev => prev.map((o, i) => i === idx ? { ...o, [field]: val } : o))
   }
 
+  const clearFieldError = (key: string) => {
+    setFieldErrors(prev => { const next = { ...prev }; delete next[key]; return next })
+  }
+
   const addMemberOwner = () => {
     setMemberOwners(prev => [...prev, { full_legal_name: '', telephone: '', email: '' }])
   }
 
   const removeMemberOwner = (idx: number) => {
     setMemberOwners(prev => prev.filter((_, i) => i !== idx))
+    setFieldErrors(prev => {
+      const next = { ...prev }
+      Object.keys(next).filter(k => k.startsWith('owner_')).forEach(k => delete next[k])
+      return next
+    })
   }
 
   const copyFromOfficer = (targetIdx: number, sourceRole: OfficerRoleKey) => {
@@ -255,6 +268,8 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
         ? { full_legal_name: source.full_legal_name, telephone: source.telephone, email: source.email }
         : o
     ))
+    clearFieldError(`owner_${targetIdx}_phone`)
+    clearFieldError(`owner_${targetIdx}_email`)
   }
 
   const filledOfficerRoles = OFFICER_ROLES.filter(r => keyStaffForm[r.key].full_legal_name.trim())
@@ -263,42 +278,41 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
     e.preventDefault()
 
     if (form.phone_number && !isValidUSPhone(form.phone_number)) {
-      setSubmitError(`Agency phone: ${PHONE_ERROR}`)
+      showValidationToast({ error: `Agency phone: ${PHONE_ERROR}` })
       return
     }
     if (form.fax_number && !isValidUSPhone(form.fax_number)) {
-      setSubmitError(`Fax number: ${PHONE_ERROR}`)
+      showValidationToast({ error: `Fax number: ${PHONE_ERROR}` })
       return
     }
     if (form.email && !isValidEmail(form.email)) {
-      setSubmitError(`Agency email: ${EMAIL_ERROR}`)
+      showValidationToast({ error: `Agency email: ${EMAIL_ERROR}` })
       return
     }
     for (const { key, label } of OFFICER_ROLES) {
       const staff = keyStaffForm[key]
       if (staff.telephone && !isValidUSPhone(staff.telephone)) {
-        setSubmitError(`${label} phone: ${PHONE_ERROR}`)
+        showValidationToast({ error: `${label} phone: ${PHONE_ERROR}` })
         return
       }
       if (staff.email && !isValidEmail(staff.email)) {
-        setSubmitError(`${label} email: ${EMAIL_ERROR}`)
+        showValidationToast({ error: `${label} email: ${EMAIL_ERROR}` })
         return
       }
     }
     for (let i = 0; i < memberOwners.length; i++) {
       const owner = memberOwners[i]
       if (owner.telephone && !isValidUSPhone(owner.telephone)) {
-        setSubmitError(`Member/Owner ${i + 1} phone: ${PHONE_ERROR}`)
+        showValidationToast({ error: `Member/Owner ${i + 1} phone: ${PHONE_ERROR}` })
         return
       }
       if (owner.email && !isValidEmail(owner.email)) {
-        setSubmitError(`Member/Owner ${i + 1} email: ${EMAIL_ERROR}`)
+        showValidationToast({ error: `Member/Owner ${i + 1} email: ${EMAIL_ERROR}` })
         return
       }
     }
 
     setIsSubmitting(true)
-    setSubmitError(null)
 
     const payload: OnboardingFormData = {
       ...form,
@@ -312,7 +326,7 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
     setIsSubmitting(false)
 
     if (result.error) {
-      setSubmitError(result.error)
+      showValidationToast({ error: result.error })
       return
     }
     setSubmitted(true)
@@ -347,7 +361,7 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} noValidate className="space-y-6">
         {/* Agency Information */}
         <section className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-4">Agency Information</h2>
@@ -412,12 +426,6 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
               onChange={v => setField('date_of_formation', v)}
               type="date"
             />
-            {/* <FormField
-              label="Date of Incorporation"
-              value={form.date_of_incorporation}
-              onChange={v => setField('date_of_incorporation', v)}
-              type="date"
-            /> */}
             <FormField
               label="Hours of Operation"
               value={form.hours_of_operation}
@@ -436,23 +444,52 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
               <label className="block text-sm font-medium text-gray-700 mb-1">Agency Phone Number</label>
               <PhoneInput
                 value={form.phone_number}
-                onChange={e => setField('phone_number', e.target.value)}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                onChange={e => {
+                  setField('phone_number', e.target.value)
+                  clearFieldError('agency_phone')
+                }}
+                onBlur={() => {
+                  if (form.phone_number && !isValidUSPhone(form.phone_number)) {
+                    setFieldErrors(prev => ({ ...prev, agency_phone: PHONE_ERROR }))
+                  }
+                }}
+                error={fieldErrors.agency_phone}
+                className={inputCls}
               />
             </div>
-            <FormField
-              label="Agency Email"
-              value={form.email}
-              onChange={v => setField('email', v)}
-              type="email"
-              placeholder="info@agency.com"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Agency Email</label>
+              <EmailInput
+                value={form.email}
+                onChange={e => {
+                  setField('email', e.target.value)
+                  clearFieldError('agency_email')
+                }}
+                onBlur={() => {
+                  if (form.email && !isValidEmail(form.email)) {
+                    setFieldErrors(prev => ({ ...prev, agency_email: EMAIL_ERROR }))
+                  }
+                }}
+                error={fieldErrors.agency_email}
+                placeholder="info@agency.com"
+                className={inputCls}
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Fax Number</label>
               <PhoneInput
                 value={form.fax_number}
-                onChange={e => setField('fax_number', e.target.value)}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                onChange={e => {
+                  setField('fax_number', e.target.value)
+                  clearFieldError('agency_fax')
+                }}
+                onBlur={() => {
+                  if (form.fax_number && !isValidUSPhone(form.fax_number)) {
+                    setFieldErrors(prev => ({ ...prev, agency_fax: PHONE_ERROR }))
+                  }
+                }}
+                error={fieldErrors.agency_fax}
+                className={inputCls}
               />
             </div>
             <FormField
@@ -661,17 +698,37 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
                     <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                     <PhoneInput
                       value={keyStaffForm[key].telephone}
-                      onChange={e => setStaffField(key, 'telephone', e.target.value)}
-                      className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                      onChange={e => {
+                        setStaffField(key, 'telephone', e.target.value)
+                        clearFieldError(`officer_${key}_phone`)
+                      }}
+                      onBlur={() => {
+                        if (keyStaffForm[key].telephone && !isValidUSPhone(keyStaffForm[key].telephone)) {
+                          setFieldErrors(prev => ({ ...prev, [`officer_${key}_phone`]: PHONE_ERROR }))
+                        }
+                      }}
+                      error={fieldErrors[`officer_${key}_phone`]}
+                      className={inputCls}
                     />
                   </div>
-                  <FormField
-                    label="Email"
-                    value={keyStaffForm[key].email}
-                    onChange={v => setStaffField(key, 'email', v)}
-                    type="email"
-                    placeholder="jane@example.com"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <EmailInput
+                      value={keyStaffForm[key].email}
+                      onChange={e => {
+                        setStaffField(key, 'email', e.target.value)
+                        clearFieldError(`officer_${key}_email`)
+                      }}
+                      onBlur={() => {
+                        if (keyStaffForm[key].email && !isValidEmail(keyStaffForm[key].email)) {
+                          setFieldErrors(prev => ({ ...prev, [`officer_${key}_email`]: EMAIL_ERROR }))
+                        }
+                      }}
+                      error={fieldErrors[`officer_${key}_email`]}
+                      placeholder="jane@example.com"
+                      className={inputCls}
+                    />
+                  </div>
                 </div>
               </div>
             ))}
@@ -729,17 +786,37 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
                     <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                     <PhoneInput
                       value={owner.telephone}
-                      onChange={e => setOwnerField(idx, 'telephone', e.target.value)}
-                      className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                      onChange={e => {
+                        setOwnerField(idx, 'telephone', e.target.value)
+                        clearFieldError(`owner_${idx}_phone`)
+                      }}
+                      onBlur={() => {
+                        if (owner.telephone && !isValidUSPhone(owner.telephone)) {
+                          setFieldErrors(prev => ({ ...prev, [`owner_${idx}_phone`]: PHONE_ERROR }))
+                        }
+                      }}
+                      error={fieldErrors[`owner_${idx}_phone`]}
+                      className={inputCls}
                     />
                   </div>
-                  <FormField
-                    label="Email"
-                    value={owner.email}
-                    onChange={v => setOwnerField(idx, 'email', v)}
-                    type="email"
-                    placeholder="john@example.com"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <EmailInput
+                      value={owner.email}
+                      onChange={e => {
+                        setOwnerField(idx, 'email', e.target.value)
+                        clearFieldError(`owner_${idx}_email`)
+                      }}
+                      onBlur={() => {
+                        if (owner.email && !isValidEmail(owner.email)) {
+                          setFieldErrors(prev => ({ ...prev, [`owner_${idx}_email`]: EMAIL_ERROR }))
+                        }
+                      }}
+                      error={fieldErrors[`owner_${idx}_email`]}
+                      placeholder="john@example.com"
+                      className={inputCls}
+                    />
+                  </div>
                 </div>
               </div>
             ))}
@@ -771,12 +848,6 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
               ))}
             </div>
           </section>
-        )}
-
-        {submitError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-            {submitError}
-          </div>
         )}
 
         <div className="flex justify-end">

@@ -224,7 +224,7 @@ export default async function ClientDetailPage({
                 <CheckCircle2 className="w-5 h-5 text-green-600" />
                 <div>
                   <div className="text-2xl font-bold text-gray-900">{activeLicenses}</div>
-                  <div className="text-sm text-gray-600">Active Licenses</div>
+                  <div className="text-sm text-gray-600">Active Certifications</div>
                 </div>
               </div>
             </div>
@@ -248,12 +248,12 @@ export default async function ClientDetailPage({
             </div>
           </div>
 
-          {/* Active Licenses List */}
+          {/* Active Certifications List */}
           {cases && cases.filter(c => c.status === 'approved').length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <CheckCircle2 className="w-5 h-5 text-green-600" />
-                <h3 className="text-lg font-semibold text-gray-900">Active Licenses</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Active Certifications</h3>
               </div>
               <div className="space-y-4">
                 {cases

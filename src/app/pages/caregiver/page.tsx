@@ -204,14 +204,14 @@ export default async function StaffDashboardPage() {
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* Active Licenses */}
+          {/* Active Certifications */}
           <div className="bg-white rounded-xl p-4 shadow-md border border-gray-100">
             <div className="flex flex-col items-center text-center">
               <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
                 <CheckCircle2 className="w-6 h-6 text-green-600" />
               </div>
               <div className="text-3xl font-bold text-gray-900 mb-1">{activeLicenses}</div>
-              <div className="text-sm text-gray-600">Active Licenses</div>
+              <div className="text-sm text-gray-600">Active Certifications</div>
             </div>
           </div>
 

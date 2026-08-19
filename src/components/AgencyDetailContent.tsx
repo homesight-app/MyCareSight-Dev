@@ -798,7 +798,7 @@ export default function AgencyDetailContent({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white rounded-xl p-5 shadow-md border border-gray-100 flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Active Licenses</p>
+                <p className="text-sm text-gray-500">Active Certifications</p>
                 <p className="text-2xl font-bold text-gray-900 mt-1">{activeLicenses.length}</p>
               </div>
               <CheckCircle2 className="w-9 h-9 text-green-500" />

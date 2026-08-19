@@ -12,6 +12,7 @@ import * as q from '@/lib/supabase/query'
 import { createStaffUserAccount } from '@/app/actions/users'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
+import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 const staffMemberSchema = z.object({
   first_name: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
@@ -38,8 +39,6 @@ interface AddStaffMemberModalProps {
 export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffRoleNames }: AddStaffMemberModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const {
     register,
@@ -56,15 +55,13 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
 
   const onSubmit = async (data: StaffMemberFormData) => {
     setIsLoading(true)
-    setError(null)
 
     try {
       const supabase = createClient()
-      
-      // Get current user
+
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
-        setError('You must be logged in to add a staff member')
+        showValidationToast({ error: 'You must be logged in to add a staff member' })
         setIsLoading(false)
         return
       }
@@ -72,7 +69,7 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
       const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
       const agencyId = up?.agency_id ?? null
       if (!agencyId) {
-        setError('Your account is not linked to an agency. Please contact the administrator.')
+        showValidationToast({ error: 'Your account is not linked to an agency. Please contact the administrator.' })
         setIsLoading(false)
         return
       }
@@ -81,7 +78,6 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
       const { data: agency } = await q.getAgencyNameById(supabase, agencyId)
       agencyName = agency?.name ?? ''
 
-      // Create user account and send login link; server generates a random bootstrap password.
       const result = await createStaffUserAccount(
         data.email,
         data.first_name,
@@ -90,26 +86,24 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
       )
 
       if (result.error || !result.data) {
-        setError(result.error || 'Failed to create user account. Please try again.')
+        showValidationToast({ error: result.error || 'Failed to create user account. Please try again.' })
         setIsLoading(false)
         return
       }
 
       const userAccount = result.data
 
-      // Ensure we have a userId - this is critical for staff members to access their dashboard
       if (!userAccount || !userAccount.userId) {
-        setError('User account was created but user ID is missing. Please contact support.')
+        showValidationToast({ error: 'User account was created but user ID is missing. Please contact support.' })
         setIsLoading(false)
         return
       }
 
       const userIdToUse = userAccount.userId
 
-      // Validate userId is a valid UUID format
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
       if (!uuidRegex.test(userIdToUse)) {
-        setError('User account was created but the ID is invalid. Please contact support.')
+        showValidationToast({ error: 'User account was created but the ID is invalid. Please contact support.' })
         setIsLoading(false)
         return
       }
@@ -128,37 +122,19 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
         start_date: data.start_date || null,
       })
 
-      if (insertError) {
-        setError('Failed to create staff member record. The user account was created successfully. Please contact support.')
+      if (insertError || !staffMember) {
+        showValidationToast({ error: 'Failed to create staff member record. The user account was created successfully. Please contact support.' })
         setIsLoading(false)
         return
       }
 
-      if (!staffMember) {
-        setError('Staff member record was not created. Please try again or contact support.')
-        setIsLoading(false)
-        return
-      }
-
-      // Show success message
-      setSuccessMessage(`Staff member created successfully! Login link sent to ${data.email}.`)
-
-      // Reset form and close modal after a short delay
-      setTimeout(() => {
-        reset()
-        setSuccessMessage(null)
-        onClose()
-        
-        // Refresh the page to show the new staff member
-        router.refresh()
-        
-        // Call success callback if provided
-        if (onSuccess) {
-          onSuccess()
-        }
-      }, 2000)
+      showSuccessToast(`Staff member created! Login link sent to ${data.email}.`)
+      reset()
+      onClose()
+      router.refresh()
+      onSuccess?.()
     } catch (err: any) {
-      setError(err.message || 'Failed to add caregiver. Please try again.')
+      showValidationToast({ error: err.message || 'Failed to add caregiver. Please try again.' })
     } finally {
       setIsLoading(false)
     }
@@ -167,27 +143,13 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
   const handleClose = () => {
     if (!isLoading) {
       reset()
-      setError(null)
-      setSuccessMessage(null)
       onClose()
     }
   }
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Add caregiver" size="lg">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-            {error}
-          </div>
-        )}
-
-        {successMessage && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">
-            {successMessage}
-          </div>
-        )}
-
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
         {/* Name Fields */}
         <div className="grid grid-cols-2 gap-4">
           <div>

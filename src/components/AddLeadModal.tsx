@@ -2,6 +2,16 @@
 
 import { useState, useEffect } from 'react'
 import Modal from './Modal'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { leadFormSchema, type LeadFormData } from '@/lib/schemas/lead'
+import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
+import { createLead, updateLead } from '@/app/actions/leads'
+import { createClient } from '@/lib/supabase/client'
+import { formatUSPhone } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
+import EmailInput from '@/components/ui/EmailInput'
+import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
@@ -10,12 +20,6 @@ const US_STATES = [
   'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
   'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC',
 ]
-import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
-import { createLead, updateLead } from '@/app/actions/leads'
-import { createClient } from '@/lib/supabase/client'
-import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
-import PhoneInput from '@/components/ui/PhoneInput'
-import EmailInput from '@/components/ui/EmailInput'
 
 interface Lead {
   id: string
@@ -60,14 +64,13 @@ const SOURCE_OPTIONS = [
   { key: 'Social Media',       label: 'Social Media' },
 ]
 
-const emptyForm = {
+const defaultValues: LeadFormData = {
   contactFirstName: '',
   contactLastName: '',
   contactEmail: '',
   contactPhone: '',
   companyName: '',
   serviceType: '',
-  serviceStates: [] as string[],
   stage: 'new',
   source: 'Other',
   price: '',
@@ -77,8 +80,6 @@ const emptyForm = {
   installmentAmount: '',
   signedDate: '',
   notes: '',
-  linkedAgencyId: '',
-  selectedStaffId: '',
   leadOwnerId: '',
 }
 
@@ -96,11 +97,10 @@ export default function AddLeadModal({
   context,
   editLead,
 }: AddLeadModalProps) {
-  const [form, setForm] = useState(emptyForm)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<{ contactPhone?: string; contactEmail?: string }>({})
   const [contactMode, setContactMode] = useState<'new' | 'existing'>('new')
+  const [serviceStates, setServiceStates] = useState<string[]>([])
+  const [linkedAgencyId, setLinkedAgencyId] = useState('')
+  const [selectedStaffId, setSelectedStaffId] = useState('')
   const [agencies, setAgencies] = useState<{ id: string; name: string }[]>([])
   const [loadingAgencies, setLoadingAgencies] = useState(false)
   const [keyStaff, setKeyStaff] = useState<{ id: string; full_legal_name: string | null; email: string | null; telephone: string | null; officer_role: string }[]>([])
@@ -109,19 +109,34 @@ export default function AddLeadModal({
 
   const isEdit = !!editLead
 
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    reset,
+    setValue,
+  } = useForm<LeadFormData>({
+    resolver: zodResolver(leadFormSchema),
+    mode: 'onBlur',
+    defaultValues,
+  })
+
   useEffect(() => {
     if (!isOpen) return
     if (editLead) {
       const hasExistingAgency = !!editLead.converted_agency_id
       setContactMode(hasExistingAgency ? 'existing' : 'new')
-      setForm({
+      setServiceStates(editLead.service_states ?? [])
+      setLinkedAgencyId(editLead.converted_agency_id ?? '')
+      setSelectedStaffId('')
+      setKeyStaff([])
+      reset({
         contactFirstName: editLead.contact_first_name ?? '',
         contactLastName: editLead.contact_last_name ?? '',
         contactEmail: editLead.contact_email ?? '',
         contactPhone: editLead.contact_phone ?? '',
         companyName: editLead.company_name ?? '',
         serviceType: editLead.service_type ?? '',
-        serviceStates: editLead.service_states ?? [],
         stage: editLead.stage ?? 'new',
         source: editLead.source ?? 'Other',
         price: editLead.price != null ? String(editLead.price) : '',
@@ -131,18 +146,17 @@ export default function AddLeadModal({
         installmentAmount: editLead.installment_amount != null ? String(editLead.installment_amount) : '',
         signedDate: editLead.signed_date ?? '',
         notes: editLead.notes ?? '',
-        linkedAgencyId: editLead.converted_agency_id ?? '',
-        selectedStaffId: '',
         leadOwnerId: editLead.lead_owner_id ?? '',
       })
     } else {
       setContactMode('new')
-      setForm(emptyForm)
+      setServiceStates([])
+      setLinkedAgencyId('')
+      setSelectedStaffId('')
+      setKeyStaff([])
+      reset(defaultValues)
     }
-    setKeyStaff([])
-    setError(null)
-    setFieldErrors({})
-  }, [isOpen, editLead])
+  }, [isOpen, editLead, reset])
 
   useEffect(() => {
     if (!isOpen || !context.billingVisible || owners.length > 0) return
@@ -171,7 +185,7 @@ export default function AddLeadModal({
   }, [contactMode, agencies.length])
 
   useEffect(() => {
-    if (contactMode !== 'existing' || !form.linkedAgencyId) {
+    if (contactMode !== 'existing' || !linkedAgencyId) {
       setKeyStaff([])
       return
     }
@@ -180,147 +194,113 @@ export default function AddLeadModal({
     supabase
       .from('agency_key_staff')
       .select('id, full_legal_name, email, telephone, officer_role')
-      .eq('agency_id', form.linkedAgencyId)
+      .eq('agency_id', linkedAgencyId)
       .eq('status', 'active')
       .order('officer_role')
       .then(({ data }) => {
         setKeyStaff(data ?? [])
         setLoadingKeyStaff(false)
       })
-  }, [contactMode, form.linkedAgencyId])
-
-  const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setForm(prev => ({ ...prev, [field]: e.target.value }))
-  }
+  }, [contactMode, linkedAgencyId])
 
   const handleAgencyChange = (agencyId: string) => {
     const agency = agencies.find(a => a.id === agencyId)
-    setForm(prev => ({
-      ...prev,
-      linkedAgencyId: agencyId,
-      selectedStaffId: '',
-      contactFirstName: '',
-      contactLastName: '',
-      contactEmail: '',
-      contactPhone: '',
-      companyName: agency?.name ?? '',
-    }))
+    setLinkedAgencyId(agencyId)
+    setSelectedStaffId('')
     setKeyStaff([])
+    setValue('contactFirstName', '')
+    setValue('contactLastName', '')
+    setValue('contactEmail', '')
+    setValue('contactPhone', '')
+    setValue('companyName', agency?.name ?? '')
   }
 
   const handleStaffChange = (staffId: string) => {
     const staff = keyStaff.find(s => s.id === staffId)
+    setSelectedStaffId(staffId)
     if (!staffId) {
-      setForm(prev => ({ ...prev, selectedStaffId: '', contactFirstName: '', contactLastName: '', contactEmail: '', contactPhone: '' }))
+      setValue('contactFirstName', '')
+      setValue('contactLastName', '')
+      setValue('contactEmail', '')
+      setValue('contactPhone', '')
       return
     }
     const { first, last } = splitFullName(staff?.full_legal_name ?? null)
-    setForm(prev => ({
-      ...prev,
-      selectedStaffId: staffId,
-      contactFirstName: first,
-      contactLastName: last,
-      contactEmail: staff?.email ?? '',
-      contactPhone: staff?.telephone ?? '',
-    }))
+    setValue('contactFirstName', first)
+    setValue('contactLastName', last)
+    setValue('contactEmail', staff?.email ?? '')
+    setValue('contactPhone', formatUSPhone(staff?.telephone ?? ''))
   }
 
   const switchMode = (mode: 'new' | 'existing') => {
     setContactMode(mode)
     setKeyStaff([])
+    setSelectedStaffId('')
+    setValue('contactFirstName', '')
+    setValue('contactLastName', '')
+    setValue('contactEmail', '')
+    setValue('contactPhone', '')
+    setValue('companyName', '')
     if (mode === 'new') {
-      setForm(prev => ({
-        ...prev,
-        linkedAgencyId: '',
-        selectedStaffId: '',
-        contactFirstName: '',
-        contactLastName: '',
-        contactEmail: '',
-        contactPhone: '',
-        companyName: '',
-      }))
-    } else {
-      setForm(prev => ({
-        ...prev,
-        selectedStaffId: '',
-        contactFirstName: '',
-        contactLastName: '',
-        contactEmail: '',
-        contactPhone: '',
-        companyName: '',
-      }))
+      setLinkedAgencyId('')
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.contactFirstName.trim() || !form.contactLastName.trim()) {
-      setError('First name and last name are required.')
-      return
-    }
-    const phoneErr = form.contactPhone && !isValidUSPhone(form.contactPhone) ? PHONE_ERROR : undefined
-    const emailErr = form.contactEmail && !isValidEmail(form.contactEmail) ? EMAIL_ERROR : undefined
-    if (phoneErr || emailErr) {
-      setFieldErrors({ contactPhone: phoneErr, contactEmail: emailErr })
-      return
-    }
-    setSaving(true)
-    setError(null)
-
+  const onSubmit = async (data: LeadFormData) => {
     const numericOrNull = (val: string) => { const n = parseFloat(val); return isNaN(n) ? null : n }
     const intOrNull    = (val: string) => { const n = parseInt(val);   return isNaN(n) ? null : n }
     const dateOrNull   = (val: string) => val.trim() || null
 
-    const convertedAgencyId = contactMode === 'existing' ? (form.linkedAgencyId || null) : null
+    const convertedAgencyId = contactMode === 'existing' ? (linkedAgencyId || null) : null
 
     if (isEdit && editLead) {
       const result = await updateLead(editLead.id, {
-        contactFirstName: form.contactFirstName,
-        contactLastName: form.contactLastName,
-        contactEmail: form.contactEmail || undefined,
-        contactPhone: form.contactPhone || undefined,
-        companyName: form.companyName || undefined,
-        serviceType: form.serviceType || undefined,
-        price: context.billingVisible ? numericOrNull(form.price) : undefined,
-        retainerAmount: context.billingVisible ? numericOrNull(form.retainerAmount) : undefined,
-        retainerPaidDate: context.billingVisible ? dateOrNull(form.retainerPaidDate) : undefined,
-        installments: context.billingVisible ? intOrNull(form.installments) : undefined,
-        installmentAmount: context.billingVisible ? numericOrNull(form.installmentAmount) : undefined,
-        signedDate: context.billingVisible ? dateOrNull(form.signedDate) : undefined,
-        notes: form.notes || null,
-        source: form.source || null,
+        contactFirstName: data.contactFirstName,
+        contactLastName: data.contactLastName,
+        contactEmail: data.contactEmail || undefined,
+        contactPhone: data.contactPhone || undefined,
+        companyName: data.companyName || undefined,
+        serviceType: data.serviceType || undefined,
+        price: context.billingVisible ? numericOrNull(data.price ?? '') : undefined,
+        retainerAmount: context.billingVisible ? numericOrNull(data.retainerAmount ?? '') : undefined,
+        retainerPaidDate: context.billingVisible ? dateOrNull(data.retainerPaidDate ?? '') : undefined,
+        installments: context.billingVisible ? intOrNull(data.installments ?? '') : undefined,
+        installmentAmount: context.billingVisible ? numericOrNull(data.installmentAmount ?? '') : undefined,
+        signedDate: context.billingVisible ? dateOrNull(data.signedDate ?? '') : undefined,
+        notes: data.notes || null,
+        source: data.source || null,
         convertedAgencyId,
-        leadOwnerId: context.billingVisible ? (form.leadOwnerId || null) : undefined,
-        serviceStates: form.serviceStates.length > 0 ? form.serviceStates : null,
+        leadOwnerId: context.billingVisible ? (data.leadOwnerId || null) : undefined,
+        serviceStates: serviceStates.length > 0 ? serviceStates : null,
       })
-      setSaving(false)
-      if (result.error) { setError(result.error); return }
+      if (result.error) { showValidationToast({ error: result.error }); return }
+      showSuccessToast('Lead updated successfully')
       onSuccess(editLead.id)
     } else {
       const result = await createLead({
         leadType: context.leadType,
         agencyId: context.agencyId,
-        contactFirstName: form.contactFirstName,
-        contactLastName: form.contactLastName,
-        contactEmail: form.contactEmail || undefined,
-        contactPhone: form.contactPhone || undefined,
-        companyName: form.companyName || undefined,
-        serviceType: form.serviceType || undefined,
-        stage: form.stage || 'new',
-        source: form.source || 'Other',
-        price: context.billingVisible ? numericOrNull(form.price) : null,
-        retainerAmount: context.billingVisible ? numericOrNull(form.retainerAmount) : null,
-        retainerPaidDate: context.billingVisible ? dateOrNull(form.retainerPaidDate) : null,
-        installments: context.billingVisible ? intOrNull(form.installments) : null,
-        installmentAmount: context.billingVisible ? numericOrNull(form.installmentAmount) : null,
-        signedDate: context.billingVisible ? dateOrNull(form.signedDate) : null,
-        notes: form.notes || undefined,
+        contactFirstName: data.contactFirstName,
+        contactLastName: data.contactLastName,
+        contactEmail: data.contactEmail || undefined,
+        contactPhone: data.contactPhone || undefined,
+        companyName: data.companyName || undefined,
+        serviceType: data.serviceType || undefined,
+        stage: data.stage || 'new',
+        source: data.source || 'Other',
+        price: context.billingVisible ? numericOrNull(data.price ?? '') : null,
+        retainerAmount: context.billingVisible ? numericOrNull(data.retainerAmount ?? '') : null,
+        retainerPaidDate: context.billingVisible ? dateOrNull(data.retainerPaidDate ?? '') : null,
+        installments: context.billingVisible ? intOrNull(data.installments ?? '') : null,
+        installmentAmount: context.billingVisible ? numericOrNull(data.installmentAmount ?? '') : null,
+        signedDate: context.billingVisible ? dateOrNull(data.signedDate ?? '') : null,
+        notes: data.notes || undefined,
         convertedAgencyId,
-        leadOwnerId: context.billingVisible ? (form.leadOwnerId || null) : null,
-        serviceStates: form.serviceStates.length > 0 ? form.serviceStates : null,
+        leadOwnerId: context.billingVisible ? (data.leadOwnerId || null) : null,
+        serviceStates: serviceStates.length > 0 ? serviceStates : null,
       })
-      setSaving(false)
-      if (result.error) { setError(result.error); return }
+      if (result.error) { showValidationToast({ error: result.error }); return }
+      showSuccessToast('Lead created successfully')
       onSuccess(result.leadId)
     }
   }
@@ -335,13 +315,7 @@ export default function AddLeadModal({
       title={isEdit ? 'Edit Lead' : 'Add New Lead'}
       size="lg"
     >
-      <form onSubmit={handleSubmit} className="space-y-5">
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-            {error}
-          </div>
-        )}
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
 
         {/* Contact */}
         <div>
@@ -373,7 +347,7 @@ export default function AddLeadModal({
                 <label className={labelCls}>Agency</label>
                 <select
                   className={inputCls}
-                  value={form.linkedAgencyId}
+                  value={linkedAgencyId}
                   onChange={e => handleAgencyChange(e.target.value)}
                   disabled={loadingAgencies}
                 >
@@ -383,12 +357,12 @@ export default function AddLeadModal({
                   ))}
                 </select>
               </div>
-              {form.linkedAgencyId && (
+              {linkedAgencyId && (
                 <div>
                   <label className={labelCls}>Contact <span className="text-gray-400 font-normal">(optional)</span></label>
                   <select
                     className={inputCls}
-                    value={form.selectedStaffId}
+                    value={selectedStaffId}
                     onChange={e => handleStaffChange(e.target.value)}
                     disabled={loadingKeyStaff}
                   >
@@ -410,54 +384,38 @@ export default function AddLeadModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>First Name <span className="text-red-500">*</span></label>
-              <input className={inputCls} value={form.contactFirstName} onChange={set('contactFirstName')} required />
+              <input className={inputCls} {...register('contactFirstName')} />
+              {errors.contactFirstName && (
+                <p className="mt-1 text-sm text-red-600">{errors.contactFirstName.message}</p>
+              )}
             </div>
             <div>
               <label className={labelCls}>Last Name <span className="text-red-500">*</span></label>
-              <input className={inputCls} value={form.contactLastName} onChange={set('contactLastName')} required />
+              <input className={inputCls} {...register('contactLastName')} />
+              {errors.contactLastName && (
+                <p className="mt-1 text-sm text-red-600">{errors.contactLastName.message}</p>
+              )}
             </div>
             <div>
               <label className={labelCls}>Email</label>
               <EmailInput
-                className={`${inputCls}${fieldErrors.contactEmail ? ' border-red-400 focus:ring-red-400' : ''}`}
-                value={form.contactEmail}
-                onChange={e => {
-                  setForm(prev => ({ ...prev, contactEmail: e.target.value }))
-                  if (fieldErrors.contactEmail) setFieldErrors(prev => ({ ...prev, contactEmail: undefined }))
-                }}
-                onBlur={() => {
-                  if (form.contactEmail && !isValidEmail(form.contactEmail)) {
-                    setFieldErrors(prev => ({ ...prev, contactEmail: EMAIL_ERROR }))
-                  } else {
-                    setFieldErrors(prev => ({ ...prev, contactEmail: undefined }))
-                  }
-                }}
-                error={fieldErrors.contactEmail}
+                className={inputCls}
+                {...register('contactEmail')}
+                error={errors.contactEmail?.message}
               />
             </div>
             <div>
               <label className={labelCls}>Phone</label>
               <PhoneInput
-                className={`${inputCls}${fieldErrors.contactPhone ? ' border-red-400 focus:ring-red-400' : ''}`}
-                value={form.contactPhone}
-                onChange={e => {
-                  setForm(prev => ({ ...prev, contactPhone: e.target.value }))
-                  if (fieldErrors.contactPhone) setFieldErrors(prev => ({ ...prev, contactPhone: undefined }))
-                }}
-                onBlur={() => {
-                  if (form.contactPhone && !isValidUSPhone(form.contactPhone)) {
-                    setFieldErrors(prev => ({ ...prev, contactPhone: PHONE_ERROR }))
-                  } else {
-                    setFieldErrors(prev => ({ ...prev, contactPhone: undefined }))
-                  }
-                }}
-                error={fieldErrors.contactPhone}
+                className={inputCls}
+                {...register('contactPhone')}
+                error={errors.contactPhone?.message}
               />
             </div>
             {context.leadType === 'agency' && (
               <div className="col-span-2">
                 <label className={labelCls}>Agency Name</label>
-                <input className={inputCls} value={form.companyName} onChange={set('companyName')} />
+                <input className={inputCls} {...register('companyName')} />
               </div>
             )}
           </div>
@@ -467,7 +425,7 @@ export default function AddLeadModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>Stage</label>
-            <select className={inputCls} value={form.stage} onChange={set('stage')}>
+            <select className={inputCls} {...register('stage')}>
               {LEAD_STAGES.map(s => (
                 <option key={s.key} value={s.key}>{s.label}</option>
               ))}
@@ -475,7 +433,7 @@ export default function AddLeadModal({
           </div>
           <div>
             <label className={labelCls}>Service Type</label>
-            <select className={inputCls} value={form.serviceType} onChange={set('serviceType')}>
+            <select className={inputCls} {...register('serviceType')}>
               <option value="">— Select —</option>
               {[...new Map(context.serviceTypes.map(s => [s.key, s])).values()].sort((a, b) => a.label.localeCompare(b.label)).map(s => (
                 <option key={s.key} value={s.key}>{s.label}</option>
@@ -489,14 +447,12 @@ export default function AddLeadModal({
                 <label key={st} className="flex items-center gap-1 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={form.serviceStates.includes(st)}
+                    checked={serviceStates.includes(st)}
                     onChange={e => {
-                      setForm(prev => ({
-                        ...prev,
-                        serviceStates: e.target.checked
-                          ? [...prev.serviceStates, st]
-                          : prev.serviceStates.filter(s => s !== st),
-                      }))
+                      setServiceStates(prev => e.target.checked
+                        ? [...prev, st]
+                        : prev.filter(s => s !== st)
+                      )
                     }}
                     className="w-3 h-3 text-blue-600 border-gray-300 rounded"
                   />
@@ -504,13 +460,13 @@ export default function AddLeadModal({
                 </label>
               ))}
             </div>
-            {form.serviceStates.length > 0 && (
-              <p className="text-xs text-gray-500 mt-1">Selected: {form.serviceStates.sort().join(', ')}</p>
+            {serviceStates.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">Selected: {serviceStates.sort().join(', ')}</p>
             )}
           </div>
           <div>
             <label className={labelCls}>Source</label>
-            <select className={inputCls} value={form.source} onChange={set('source')}>
+            <select className={inputCls} {...register('source')}>
               {SOURCE_OPTIONS.map(s => (
                 <option key={s.key} value={s.key}>{s.label}</option>
               ))}
@@ -519,7 +475,7 @@ export default function AddLeadModal({
           {context.billingVisible && (
             <div>
               <label className={labelCls}>Lead Owner</label>
-              <select className={inputCls} value={form.leadOwnerId} onChange={set('leadOwnerId')}>
+              <select className={inputCls} {...register('leadOwnerId')}>
                 <option value="">— Unassigned —</option>
                 {owners.map(u => (
                   <option key={u.id} value={u.id}>{u.full_name ?? ''}</option>
@@ -536,27 +492,27 @@ export default function AddLeadModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Price ($)</label>
-                <input type="number" step="0.01" className={inputCls} value={form.price} onChange={set('price')} placeholder="0.00" />
+                <input type="number" step="0.01" className={inputCls} {...register('price')} placeholder="0.00" />
               </div>
               <div>
                 <label className={labelCls}>Retainer ($)</label>
-                <input type="number" step="0.01" className={inputCls} value={form.retainerAmount} onChange={set('retainerAmount')} placeholder="0.00" />
+                <input type="number" step="0.01" className={inputCls} {...register('retainerAmount')} placeholder="0.00" />
               </div>
               <div>
                 <label className={labelCls}>Retainer Paid Date</label>
-                <input type="date" className={inputCls} value={form.retainerPaidDate} onChange={set('retainerPaidDate')} />
+                <input type="date" className={inputCls} {...register('retainerPaidDate')} />
               </div>
               <div>
                 <label className={labelCls}>Installments</label>
-                <input type="number" min="0" className={inputCls} value={form.installments} onChange={set('installments')} placeholder="0 = paid in full" />
+                <input type="number" min="0" className={inputCls} {...register('installments')} placeholder="0 = paid in full" />
               </div>
               <div>
                 <label className={labelCls}>Amount / Installment ($)</label>
-                <input type="number" step="0.01" className={inputCls} value={form.installmentAmount} onChange={set('installmentAmount')} placeholder="0.00" />
+                <input type="number" step="0.01" className={inputCls} {...register('installmentAmount')} placeholder="0.00" />
               </div>
               <div>
                 <label className={labelCls}>Signed Date</label>
-                <input type="date" className={inputCls} value={form.signedDate} onChange={set('signedDate')} />
+                <input type="date" className={inputCls} {...register('signedDate')} />
               </div>
             </div>
           </div>
@@ -568,8 +524,7 @@ export default function AddLeadModal({
           <textarea
             className={`${inputCls} resize-none`}
             rows={3}
-            value={form.notes}
-            onChange={set('notes')}
+            {...register('notes')}
             placeholder="Any initial notes…"
           />
         </div>
@@ -578,17 +533,17 @@ export default function AddLeadModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={saving}
+            disabled={isSubmitting}
             className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="submit"
-            disabled={saving}
+            disabled={isSubmitting}
             className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
           >
-            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Lead'}
+            {isSubmitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Lead'}
           </button>
         </div>
       </form>

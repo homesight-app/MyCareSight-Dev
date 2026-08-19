@@ -346,6 +346,7 @@ export async function copyPlaybookItems(
     .from('playbook_items')
     .select('id, item_type, name, description, instructions, estimated_days, document_type, phase, assignment, requirement_type')
     .in('id', sourceItemIds)
+    .order('item_order', { ascending: true })
 
   if (fetchErr || !sourceItems || sourceItems.length === 0) {
     return { error: fetchErr?.message ?? 'No items found', items: [] }

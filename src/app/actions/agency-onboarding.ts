@@ -8,15 +8,6 @@ import * as q from '@/lib/supabase/query'
 import { sendOnboardingLinkEmail } from '@/lib/email'
 import { encryptSSN, ssnToLast4 } from '@/lib/ssn-crypto'
 
-const OFFICER_ROLES = [
-  'president',
-  'vice_president',
-  'secretary',
-  'treasurer_cfo',
-  'administrator',
-  'alternate_administrator',
-] as const
-
 const keyStaffEntrySchema = z.object({
   full_legal_name: z.string().optional(),
   telephone: z.string().optional(),
@@ -73,6 +64,28 @@ export type OnboardingFormData = z.infer<typeof onboardingFormSchema>
 function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
   revalidatePath(`/pages/expert/agencies/${agencyId}`)
+  revalidatePath(`/pages/agency/people`)
+}
+
+// Allows platform staff OR any user with an active agency_admins record for this agency.
+// Checks the agency_admins table directly — independent of the user_profiles.role value.
+async function requirePlatformStaffOrAgencyAdmin(agencyId: string) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', session: null }
+  const role = session.profile?.role
+  if (role === 'admin' || role === 'expert') return { error: null, session }
+
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('agency_admins')
+    .select('id')
+    .eq('agency_id', agencyId)
+    .eq('user_id', session.user.id)
+    .in('status', ['active', 'invited', 'pending'])
+    .maybeSingle()
+  if (data) return { error: null, session }
+
+  return { error: 'Forbidden', session: null }
 }
 
 export async function generateOnboardingToken(
@@ -264,10 +277,8 @@ export async function saveKeyStaffAdmin(
     employment_type?: string
   }
 ) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated', data: null }
-  const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
   const supabase = createAdminClient()
   try {
@@ -296,6 +307,16 @@ export async function saveKeyStaffAdmin(
 
     const { data, error } = await q.upsertKeyStaffMember(supabase, agencyId, officerRole, clean)
     if (error) return { error: error.message, data: null }
+
+    await supabase.from('audit_log').insert({
+      agency_id: agencyId,
+      table_name: 'agency_key_staff',
+      record_id: data?.id ?? null,
+      action: 'CREATE_KEY_STAFF',
+      performed_by_user_id: session.user.id,
+      details: { officer_role: officerRole, full_legal_name: payload.full_legal_name?.trim() },
+    })
+
     revalidateAgencyDetailPages(agencyId)
     return { error: null, data }
   } catch (err: unknown) {
@@ -304,15 +325,23 @@ export async function saveKeyStaffAdmin(
 }
 
 export async function removeKeyStaff(agencyId: string, staffId: string) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated', data: null }
-  const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
   const supabase = createAdminClient()
   try {
     const { error } = await q.deactivateKeyStaffById(supabase, staffId)
     if (error) return { error: error.message, data: null }
+
+    await supabase.from('audit_log').insert({
+      agency_id: agencyId,
+      table_name: 'agency_key_staff',
+      record_id: staffId,
+      action: 'DEACTIVATE_KEY_STAFF',
+      performed_by_user_id: session.user.id,
+      details: {},
+    })
+
     revalidateAgencyDetailPages(agencyId)
     return { error: null, data: { success: true } }
   } catch (err: unknown) {
@@ -336,10 +365,8 @@ export async function updateMemberOwner(
     home_address_zip?: string
   }
 ) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated', data: null }
-  const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
   const supabase = createAdminClient()
   try {
@@ -363,6 +390,16 @@ export async function updateMemberOwner(
 
     const { data, error } = await q.updateKeyStaffById(supabase, staffId, clean)
     if (error) return { error: error.message, data: null }
+
+    await supabase.from('audit_log').insert({
+      agency_id: agencyId,
+      table_name: 'agency_key_staff',
+      record_id: staffId,
+      action: 'UPDATE_KEY_STAFF',
+      performed_by_user_id: session.user.id,
+      details: { changed_fields: Object.keys(payload).filter(k => k !== 'ssn') },
+    })
+
     revalidateAgencyDetailPages(agencyId)
     return { error: null, data }
   } catch (err: unknown) {
@@ -385,10 +422,8 @@ export async function addMemberOwner(
     home_address_zip?: string
   }
 ) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated', data: null }
-  const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
   const supabase = createAdminClient()
   try {
@@ -412,9 +447,49 @@ export async function addMemberOwner(
 
     const { data, error } = await q.insertKeyStaffMember(supabase, agencyId, 'member_owner', clean)
     if (error) return { error: error.message, data: null }
+
+    await supabase.from('audit_log').insert({
+      agency_id: agencyId,
+      table_name: 'agency_key_staff',
+      record_id: data?.id ?? null,
+      action: 'CREATE_MEMBER_OWNER',
+      performed_by_user_id: session.user.id,
+      details: { ownership_percentage: payload.ownership_percentage?.trim(), full_legal_name: payload.full_legal_name?.trim() },
+    })
+
     revalidateAgencyDetailPages(agencyId)
     return { error: null, data }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : 'Failed to add member/owner', data: null }
   }
+}
+
+export async function updateKeyStaffById(
+  agencyId: string,
+  staffId: string,
+  data: { full_legal_name?: string; telephone?: string; email?: string; officer_role?: string }
+): Promise<{ error: string | null }> {
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+
+  const supabase = createAdminClient()
+  const { error } = await supabase
+    .from('agency_key_staff')
+    .update({ ...data, updated_at: new Date().toISOString() })
+    .eq('id', staffId)
+    .eq('agency_id', agencyId)
+  if (error) return { error: error.message }
+
+  const changedFields = Object.keys(data).filter(k => data[k as keyof typeof data] !== undefined)
+  await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'agency_key_staff',
+    record_id: staffId,
+    action: 'UPDATE_KEY_STAFF',
+    performed_by_user_id: session.user.id,
+    details: { changed_fields: changedFields },
+  })
+
+  revalidateAgencyDetailPages(agencyId)
+  return { error: null }
 }

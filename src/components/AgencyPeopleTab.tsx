@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Users, UserPlus, Loader2, Mail, Phone, RefreshCw, ChevronDown,
-  Shield, User, UserX, UserCheck, Settings, KeyRound, X,
+  Users, UserPlus, Loader2, KeyRound, Pencil, RefreshCw, Search,
+  ChevronDown,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import Modal from './Modal'
 import ResetPasswordModal from './ResetPasswordModal'
 import {
@@ -17,28 +16,11 @@ import {
   addCareCoordinatorForAgency,
   promoteKeyStaffToUser,
 } from '@/app/actions/agency-users'
-import { saveKeyStaffAdmin, removeKeyStaff, addMemberOwner, updateMemberOwner } from '@/app/actions/agency-onboarding'
-import type { AgencyKeyStaff } from '@/lib/supabase/query'
+import { saveKeyStaffAdmin, addMemberOwner, updateKeyStaffById } from '@/app/actions/agency-onboarding'
+import { getPeopleForAgency, type RawKeyStaff, type RawAdmin, type RawCoordinator } from '@/app/actions/agency-people'
+import { changePersonCredential } from '@/app/actions/agency-users'
 
-// ——— Types ————————————————————————————————————————————————
-
-interface AdminRecord {
-  id: string
-  user_id: string | null
-  contact_name: string | null
-  contact_email: string | null
-  contact_phone: string | null
-  status: string | null
-}
-
-interface CoordinatorRecord {
-  id: string
-  user_id: string | null
-  first_name: string
-  last_name: string
-  email: string
-  status: string
-}
+// ——— Constants ————————————————————————————————————————————
 
 const OFFICER_ROLES = [
   { key: 'president',               label: 'President' },
@@ -48,48 +30,595 @@ const OFFICER_ROLES = [
   { key: 'administrator',           label: 'Administrator' },
   { key: 'alternate_administrator', label: 'Alternate Administrator' },
   { key: 'rn_supervisor',           label: 'RN Supervisor' },
+  { key: 'member_owner',            label: 'Member / Owner' },
 ] as const
 
-const ROLE_LABEL: Record<string, string> = {
+type OfficerRoleKey = typeof OFFICER_ROLES[number]['key']
+
+const OFFICER_ROLE_LABEL: Record<string, string> = Object.fromEntries(
+  OFFICER_ROLES.map(r => [r.key, r.label])
+)
+
+const CREDENTIAL_LABEL: Record<string, string> = {
   company_owner:    'Agency Admin',
   care_coordinator: 'Care Coordinator',
 }
 
+// ——— Data types ————————————————————————————————————————————
+
+interface PersonRow {
+  rowKey: string
+  keyStaffId: string | null
+  firstName: string
+  lastName: string
+  fullName: string
+  officerRole: string | null
+  ownershipPercentage: string | null
+  phone: string | null
+  email: string | null
+  userProfileId: string | null
+  credential: 'company_owner' | 'care_coordinator' | null
+  adminRecordId: string | null
+  coordinatorRecordId: string | null
+  status: 'active' | 'inactive' | 'suspended'
+}
+
+function splitName(full: string | null): { firstName: string; lastName: string } {
+  if (!full?.trim()) return { firstName: '', lastName: '' }
+  const parts = full.trim().split(/\s+/)
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' }
+  return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] }
+}
+
+function buildPeopleRows(
+  keyStaff: RawKeyStaff[],
+  admins: RawAdmin[],
+  coordinators: RawCoordinator[]
+): PersonRow[] {
+  const adminByUserId = new Map(admins.map(a => [a.user_id, a]))
+  const coordByUserId = new Map(coordinators.map(c => [c.user_id, c]))
+  const linkedUserIds = new Set<string>()
+
+  const rows: PersonRow[] = keyStaff.map(s => {
+    const admin = s.user_profile_id ? adminByUserId.get(s.user_profile_id) : undefined
+    const coord = s.user_profile_id ? coordByUserId.get(s.user_profile_id) : undefined
+    const credential = admin ? 'company_owner' : coord ? 'care_coordinator' : null
+    if (s.user_profile_id) linkedUserIds.add(s.user_profile_id)
+    const { firstName, lastName } = splitName(s.full_legal_name)
+    return {
+      rowKey: `ks-${s.id}`,
+      keyStaffId: s.id,
+      firstName,
+      lastName,
+      fullName: s.full_legal_name ?? '',
+      officerRole: s.officer_role,
+      ownershipPercentage: s.ownership_percentage,
+      phone: s.telephone,
+      email: s.email,
+      userProfileId: s.user_profile_id,
+      credential,
+      adminRecordId: admin?.id ?? null,
+      coordinatorRecordId: coord?.id ?? null,
+      status: (s.status as PersonRow['status']) ?? 'active',
+    }
+  })
+
+  for (const a of admins) {
+    if (a.user_id && linkedUserIds.has(a.user_id)) continue
+    const { firstName, lastName } = splitName(a.contact_name)
+    rows.push({
+      rowKey: `adm-${a.id}`,
+      keyStaffId: null,
+      firstName,
+      lastName,
+      fullName: a.contact_name ?? '',
+      officerRole: null,
+      ownershipPercentage: null,
+      phone: a.contact_phone,
+      email: a.contact_email,
+      userProfileId: a.user_id,
+      credential: 'company_owner',
+      adminRecordId: a.id,
+      coordinatorRecordId: null,
+      status: (a.status as PersonRow['status']) ?? 'active',
+    })
+  }
+
+  for (const c of coordinators) {
+    if (c.user_id && linkedUserIds.has(c.user_id)) continue
+    rows.push({
+      rowKey: `coord-${c.id}`,
+      keyStaffId: null,
+      firstName: c.first_name,
+      lastName: c.last_name,
+      fullName: `${c.first_name} ${c.last_name}`.trim(),
+      officerRole: null,
+      ownershipPercentage: null,
+      phone: null,
+      email: c.email,
+      userProfileId: c.user_id,
+      credential: 'care_coordinator',
+      adminRecordId: null,
+      coordinatorRecordId: c.id,
+      status: (c.status as PersonRow['status']) ?? 'active',
+    })
+  }
+
+  return rows
+}
+
+// ——— Give Access modal (reused) ————————————————————————————
+
+interface GiveAccessModalProps {
+  isOpen: boolean
+  onClose: () => void
+  agencyId: string
+  person: PersonRow
+  onSuccess: () => void
+}
+
+function GiveAccessModal({ isOpen, onClose, agencyId, person, onSuccess }: GiveAccessModalProps) {
+  const [firstName, setFirstName] = useState(person.firstName)
+  const [lastName, setLastName]   = useState(person.lastName)
+  const [email, setEmail]         = useState(person.email ?? '')
+  const [role, setRole]           = useState<'company_owner' | 'care_coordinator'>('company_owner')
+  const [tempPassword, setTempPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      setFirstName(person.firstName)
+      setLastName(person.lastName)
+      setEmail(person.email ?? '')
+      setRole('company_owner')
+      setTempPassword('')
+      setError(null)
+    }
+  }, [isOpen, person])
+
+  const handleSubmit = async () => {
+    if (!firstName.trim() || !email.trim() || !tempPassword.trim()) {
+      setError('First name, email, and temporary password are required.')
+      return
+    }
+    if (tempPassword.length < 8) {
+      setError('Temporary password must be at least 8 characters.')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    const result = await promoteKeyStaffToUser(person.keyStaffId!, agencyId, role, {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim(),
+      tempPassword,
+    })
+    setSubmitting(false)
+    if (result.error) { setError(result.error); return }
+    onSuccess()
+    onClose()
+  }
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Give System Access" size="md">
+      <div className="space-y-4">
+        <p className="text-sm text-gray-600">
+          Create a login account for this person. They will be able to sign in with their email and the temporary password you set.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldInput label="First Name" value={firstName} onChange={setFirstName} required />
+          <FieldInput label="Last Name" value={lastName} onChange={setLastName} />
+        </div>
+        <FieldInput label="Email" type="email" value={email} onChange={setEmail} required />
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            System Role<span className="text-red-500 ml-0.5">*</span>
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { value: 'company_owner',    label: 'Agency Admin',     desc: 'Full agency access' },
+              { value: 'care_coordinator', label: 'Care Coordinator', desc: 'Scheduling & coordination' },
+            ] as const).map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setRole(opt.value)}
+                className={`text-left px-3 py-2.5 rounded-lg border-2 transition-colors ${role === opt.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
+              >
+                <p className="text-sm font-medium text-gray-900">{opt.label}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <FieldInput label="Temporary Password" type="password" value={tempPassword} onChange={setTempPassword} placeholder="Min. 8 characters" required />
+          <p className="text-xs text-gray-400 mt-1">Share this with the user — they should change it after first login.</p>
+        </div>
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+            {submitting ? 'Creating…' : 'Create Login'}
+          </button>
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ——— Add Person modal ——————————————————————————————————————
+
+interface AddPersonModalProps {
+  isOpen: boolean
+  onClose: () => void
+  agencyId: string
+  onSuccess: () => void
+}
+
+function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModalProps) {
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName]   = useState('')
+  const [officerRole, setOfficerRole] = useState<OfficerRoleKey | ''>('')
+  const [ownershipPct, setOwnershipPct] = useState('')
+  const [phone, setPhone]         = useState('')
+  const [email, setEmail]         = useState('')
+  const [createLogin, setCreateLogin] = useState(false)
+  const [credential, setCredential]   = useState<'company_owner' | 'care_coordinator'>('company_owner')
+  const [tempPassword, setTempPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    setFirstName(''); setLastName(''); setOfficerRole(''); setOwnershipPct('')
+    setPhone(''); setEmail(''); setCreateLogin(false)
+    setCredential('company_owner'); setTempPassword(''); setError(null)
+  }, [isOpen])
+
+  const handleSubmit = async () => {
+    if (!firstName.trim() || !lastName.trim()) { setError('First and last name are required.'); return }
+    if (createLogin && !email.trim()) { setError('Email is required when creating a login.'); return }
+    if (createLogin && tempPassword.length < 8) { setError('Temporary password must be at least 8 characters.'); return }
+    setSubmitting(true)
+    setError(null)
+
+    const fullName = `${firstName.trim()} ${lastName.trim()}`
+    let staffId: string | null = null
+
+    if (officerRole === 'member_owner') {
+      const res = await addMemberOwner(agencyId, {
+        full_legal_name: fullName,
+        email: email.trim() || undefined,
+        telephone: phone.trim() || undefined,
+        ownership_percentage: ownershipPct.trim() || undefined,
+      })
+      if (res.error) { setError(res.error); setSubmitting(false); return }
+      staffId = (res.data as { id?: string } | null)?.id ?? null
+    } else if (officerRole) {
+      const res = await saveKeyStaffAdmin(agencyId, officerRole, {
+        full_legal_name: fullName,
+        telephone: phone.trim() || undefined,
+        email: email.trim() || undefined,
+      })
+      if (res.error) { setError(res.error); setSubmitting(false); return }
+      staffId = (res.data as { id?: string } | null)?.id ?? null
+    }
+
+    if (createLogin) {
+      if (staffId) {
+        const res = await promoteKeyStaffToUser(staffId, agencyId, credential, {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim(),
+          tempPassword,
+        })
+        if (res.error) { setError(res.error); setSubmitting(false); return }
+      } else {
+        const res = credential === 'company_owner'
+          ? await createAndLinkAgencyAdmin(agencyId, { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim(), phone: phone.trim() || undefined })
+          : await addCareCoordinatorForAgency(agencyId, { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim() })
+        if (res.error) { setError(res.error); setSubmitting(false); return }
+      }
+    }
+
+    setSubmitting(false)
+    onSuccess()
+    onClose()
+  }
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Add Person" size="md">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <FieldInput label="First Name" value={firstName} onChange={setFirstName} required />
+          <FieldInput label="Last Name" value={lastName} onChange={setLastName} required />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Officer Role</label>
+          <div className="relative">
+            <select
+              value={officerRole}
+              onChange={e => setOfficerRole(e.target.value as OfficerRoleKey | '')}
+              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none bg-white"
+            >
+              <option value="">— None (contact only) —</option>
+              {OFFICER_ROLES.map(r => (
+                <option key={r.key} value={r.key}>{r.label}</option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          </div>
+        </div>
+
+        {officerRole === 'member_owner' && (
+          <FieldInput label="Ownership %" value={ownershipPct} onChange={setOwnershipPct} placeholder="e.g. 25" />
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <FieldInput label="Phone" value={phone} onChange={setPhone} placeholder="(555) 123-4567" />
+          <FieldInput label="Email" type="email" value={email} onChange={setEmail} />
+        </div>
+
+        <div className="border-t border-gray-100 pt-3">
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={createLogin}
+              onChange={e => setCreateLogin(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-gray-700">Create system login for this person</span>
+          </label>
+        </div>
+
+        {createLogin && (
+          <div className="space-y-3 bg-blue-50/50 rounded-lg p-3 border border-blue-100">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">System Role<span className="text-red-500 ml-0.5">*</span></label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { value: 'company_owner',    label: 'Agency Admin',     desc: 'Full agency access' },
+                  { value: 'care_coordinator', label: 'Care Coordinator', desc: 'Scheduling & coordination' },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setCredential(opt.value)}
+                    className={`text-left px-3 py-2 rounded-lg border-2 transition-colors ${credential === opt.value ? 'border-blue-500 bg-white' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
+                  >
+                    <p className="text-xs font-semibold text-gray-900">{opt.label}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <FieldInput label="Temporary Password" type="password" value={tempPassword} onChange={setTempPassword} placeholder="Min. 8 characters" required />
+            <p className="text-xs text-gray-400">Share this with the user — they should change it after first login.</p>
+          </div>
+        )}
+
+        {error && <p className="text-xs text-red-600">{error}</p>}
+
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+            {submitting ? 'Adding…' : 'Add Person'}
+          </button>
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ——— Edit Person modal ———————————————————————————————————
+
+interface EditPersonModalProps {
+  isOpen: boolean
+  onClose: () => void
+  agencyId: string
+  person: PersonRow
+  onSuccess: () => void
+}
+
+function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditPersonModalProps) {
+  const [firstName, setFirstName]       = useState(person.firstName)
+  const [lastName, setLastName]         = useState(person.lastName)
+  const [phone, setPhone]               = useState(person.phone ?? '')
+  const [email, setEmail]               = useState(person.email ?? '')
+  const [officerRole, setOfficerRole]   = useState(person.officerRole ?? '')
+  const [credential, setCredential]     = useState<'company_owner' | 'care_coordinator' | ''>(person.credential ?? '')
+  const [submitting, setSubmitting]     = useState(false)
+  const [error, setError]               = useState<string | null>(null)
+  const [passwordOpen, setPasswordOpen] = useState(false)
+
+  useEffect(() => {
+    if (isOpen) {
+      setFirstName(person.firstName)
+      setLastName(person.lastName)
+      setPhone(person.phone ?? '')
+      setEmail(person.email ?? '')
+      setOfficerRole(person.officerRole ?? '')
+      setCredential(person.credential ?? '')
+      setError(null)
+    }
+  }, [isOpen, person])
+
+  const handleSubmit = async () => {
+    if (!firstName.trim() || !lastName.trim()) { setError('First and last name are required.'); return }
+    setSubmitting(true)
+    setError(null)
+    const fullName = `${firstName.trim()} ${lastName.trim()}`
+
+    if (person.keyStaffId) {
+      const res = await updateKeyStaffById(agencyId, person.keyStaffId, {
+        full_legal_name: fullName,
+        telephone: phone.trim() || undefined,
+        email: email.trim() || undefined,
+        officer_role: officerRole || undefined,
+      })
+      if (res.error) { setError(res.error); setSubmitting(false); return }
+    }
+    if (person.adminRecordId && credential !== 'care_coordinator') {
+      const res = await updateAgencyAdminProfile(agencyId, person.adminRecordId, {
+        contact_name: fullName,
+        contact_phone: phone.trim() || undefined,
+      })
+      if (res.error) { setError(res.error); setSubmitting(false); return }
+    }
+    if (person.coordinatorRecordId && credential !== 'company_owner') {
+      const res = await updateCareCoordinatorProfile(agencyId, person.coordinatorRecordId, {
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+      })
+      if (res.error) { setError(res.error); setSubmitting(false); return }
+    }
+
+    // Credential change
+    if (credential && credential !== person.credential && person.userProfileId) {
+      const res = await changePersonCredential(agencyId, {
+        userProfileId: person.userProfileId,
+        adminRecordId: person.adminRecordId,
+        coordinatorRecordId: person.coordinatorRecordId,
+        toCredential: credential,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+      })
+      if (res.error) { setError(res.error); setSubmitting(false); return }
+    }
+
+    setSubmitting(false)
+    onSuccess()
+    onClose()
+  }
+
+  return (
+    <>
+      <Modal isOpen={isOpen} onClose={onClose} title="Edit Person" size="md">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <FieldInput label="First Name" value={firstName} onChange={setFirstName} required />
+            <FieldInput label="Last Name" value={lastName} onChange={setLastName} required />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldInput label="Phone" value={phone} onChange={setPhone} placeholder="(555) 123-4567" />
+            <FieldInput label="Email" type="email" value={email} onChange={setEmail} />
+          </div>
+
+          {person.keyStaffId && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Officer Role</label>
+              <div className="relative">
+                <select
+                  value={officerRole}
+                  onChange={e => setOfficerRole(e.target.value)}
+                  className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 pr-8"
+                >
+                  <option value="">— None —</option>
+                  {OFFICER_ROLES.map(r => (
+                    <option key={r.key} value={r.key}>{r.label}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </div>
+            </div>
+          )}
+
+          {person.credential && (
+            <div className="border-t border-gray-100 pt-3 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">System Credential</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { value: 'company_owner',    label: 'Agency Admin',     desc: 'Full agency access' },
+                    { value: 'care_coordinator', label: 'Care Coordinator', desc: 'Scheduling & coordination' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setCredential(opt.value)}
+                      className={`text-left px-3 py-2.5 rounded-lg border-2 transition-colors ${credential === opt.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
+                    >
+                      <p className="text-sm font-medium text-gray-900">{opt.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                    </button>
+                  ))}
+                </div>
+                {credential !== person.credential && (
+                  <p className="mt-1.5 text-xs text-amber-600">
+                    This will change the user&apos;s system access level.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Password</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Set a new password for this user.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPasswordOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Change Password
+                </button>
+              </div>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {submitting ? 'Saving…' : 'Save Changes'}
+            </button>
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {person.userProfileId && (
+        <ResetPasswordModal
+          isOpen={passwordOpen}
+          onClose={() => setPasswordOpen(false)}
+          userName={person.fullName}
+          userEmail={person.email ?? ''}
+          userId={person.userProfileId}
+        />
+      )}
+    </>
+  )
+}
+
 // ——— Shared helpers ———————————————————————————————————————
-
-function Avatar({ name, email, color = 'blue' }: { name?: string | null; email?: string; color?: 'blue' | 'purple' | 'teal' | 'gray' }) {
-  const initial = (name || email || '?')[0].toUpperCase()
-  const colors = {
-    blue:   'bg-blue-100 text-blue-700',
-    purple: 'bg-purple-100 text-purple-700',
-    teal:   'bg-teal-100 text-teal-700',
-    gray:   'bg-gray-100 text-gray-500',
-  }
-  return (
-    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-semibold text-sm ${colors[color]}`}>
-      {initial}
-    </div>
-  )
-}
-
-function LoginBadge({ linked }: { linked: boolean }) {
-  return linked
-    ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Has login</span>
-    : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">No login</span>
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const cls: Record<string, string> = {
-    active:    'bg-green-100 text-green-700',
-    inactive:  'bg-gray-100 text-gray-500',
-    suspended: 'bg-red-100 text-red-600',
-  }
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls[status] ?? 'bg-gray-100 text-gray-500'}`}>
-      {status}
-    </span>
-  )
-}
 
 function FieldInput({ label, value, onChange, placeholder, required, type = 'text' }: {
   label: string; value: string; onChange: (v: string) => void
@@ -112,804 +641,115 @@ function FieldInput({ label, value, onChange, placeholder, required, type = 'tex
   )
 }
 
-function SectionHeader({ icon: Icon, title, count, action, open, onToggle }: {
-  icon: React.ElementType; title: string; count: number
-  action?: React.ReactNode; open: boolean; onToggle: () => void
-}) {
+function CredentialBadge({ credential }: { credential: string | null }) {
+  if (!credential) return <span className="text-gray-400 text-sm">—</span>
+  const styles: Record<string, string> = {
+    company_owner:    'bg-purple-100 text-purple-700',
+    care_coordinator: 'bg-teal-100 text-teal-700',
+  }
   return (
-    <div className="px-5 py-3.5 flex items-center justify-between gap-3 border-b border-gray-100">
-      <button type="button" onClick={onToggle} className="flex items-center gap-2.5 flex-1 min-w-0">
-        <Icon className="w-5 h-5 text-blue-600 flex-shrink-0" />
-        <span className="text-sm font-semibold text-gray-900">{title}</span>
-        <span className="text-xs bg-gray-100 text-gray-600 font-medium px-2 py-0.5 rounded-full">{count}</span>
-        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {action && <div className="flex-shrink-0">{action}</div>}
-    </div>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${styles[credential] ?? 'bg-gray-100 text-gray-600'}`}>
+      {CREDENTIAL_LABEL[credential] ?? credential}
+    </span>
   )
 }
 
-// ——— Give Access modal ————————————————————————————————————
-
-interface GiveAccessModalProps {
-  isOpen: boolean
-  onClose: () => void
-  agencyId: string
-  keyStaffId: string
-  defaultName: string
-  defaultEmail: string
-  onSuccess: () => void
-}
-
-function GiveAccessModal({ isOpen, onClose, agencyId, keyStaffId, defaultName, defaultEmail, onSuccess }: GiveAccessModalProps) {
-  const nameParts = defaultName.trim().split(/\s+/)
-  const [firstName, setFirstName] = useState(nameParts.slice(0, -1).join(' ') || defaultName)
-  const [lastName, setLastName]   = useState(nameParts.length > 1 ? nameParts[nameParts.length - 1] : '')
-  const [email, setEmail]         = useState(defaultEmail)
-  const [role, setRole]           = useState<'company_owner' | 'care_coordinator'>('company_owner')
-  const [tempPassword, setTempPassword] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (isOpen) {
-      const parts = defaultName.trim().split(/\s+/)
-      setFirstName(parts.slice(0, -1).join(' ') || defaultName)
-      setLastName(parts.length > 1 ? parts[parts.length - 1] : '')
-      setEmail(defaultEmail)
-      setRole('company_owner')
-      setTempPassword('')
-      setError(null)
-    }
-  }, [isOpen, defaultName, defaultEmail])
-
-  const handleSubmit = async () => {
-    if (!firstName.trim() || !email.trim() || !tempPassword.trim()) {
-      setError('First name, email, and temporary password are required.')
-      return
-    }
-    if (tempPassword.length < 8) {
-      setError('Temporary password must be at least 8 characters.')
-      return
-    }
-    setSubmitting(true)
-    setError(null)
-    const result = await promoteKeyStaffToUser(keyStaffId, agencyId, role, {
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      email: email.trim(),
-      tempPassword,
-    })
-    setSubmitting(false)
-    if (result.error) { setError(result.error); return }
-    onSuccess()
-    onClose()
-  }
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Give System Access" size="md">
-      <div className="space-y-4">
-        <p className="text-sm text-gray-600">
-          Create a login account for this person. They will be able to sign in with their email and the temporary password you set.
-        </p>
-
-        <div className="grid grid-cols-2 gap-3">
-          <FieldInput label="First Name" value={firstName} onChange={setFirstName} required />
-          <FieldInput label="Last Name" value={lastName} onChange={setLastName} />
-        </div>
-        <FieldInput label="Email" type="email" value={email} onChange={setEmail} required />
-
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">
-            System Role<span className="text-red-500 ml-0.5">*</span>
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              { value: 'company_owner',    label: 'Agency Admin',      desc: 'Full agency access' },
-              { value: 'care_coordinator', label: 'Care Coordinator',  desc: 'Scheduling & coordination' },
-            ] as const).map(opt => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setRole(opt.value)}
-                className={`text-left px-3 py-2.5 rounded-lg border-2 transition-colors ${role === opt.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
-              >
-                <p className="text-sm font-medium text-gray-900">{opt.label}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <FieldInput
-            label="Temporary Password"
-            type="password"
-            value={tempPassword}
-            onChange={setTempPassword}
-            placeholder="Min. 8 characters"
-            required
-          />
-          <p className="text-xs text-gray-400 mt-1">Share this with the user — they should change it after first login.</p>
-        </div>
-
-        {error && <p className="text-xs text-red-600">{error}</p>}
-
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-            {submitting ? 'Creating…' : 'Create Login'}
-          </button>
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-            Cancel
-          </button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-// ——— Key Staff section ———————————————————————————————————
-
-function KeyStaffSection({ agencyId, keyStaff, admins, coordinators, onRefresh }: {
-  agencyId: string
-  keyStaff: AgencyKeyStaff[]
-  admins: AdminRecord[]
-  coordinators: CoordinatorRecord[]
-  onRefresh: () => void
+function StatusToggle({
+  row,
+  toggling,
+  onToggle,
+}: {
+  row: PersonRow
+  toggling: boolean
+  onToggle: () => void
 }) {
-  const [open, setOpen] = useState(true)
-  const [giveAccessTo, setGiveAccessTo] = useState<AgencyKeyStaff | null>(null)
-  const [removingId, setRemovingId] = useState<string | null>(null)
-
-  const officers = keyStaff.filter(s => s.officer_role !== 'member_owner')
-  const linkedUserIds = new Set([
-    ...admins.map(a => a.user_id).filter(Boolean),
-    ...coordinators.map(c => c.user_id).filter(Boolean),
-  ])
-
-  const officerLabel = (roleKey: string) =>
-    OFFICER_ROLES.find(r => r.key === roleKey)?.label ?? roleKey.replace(/_/g, ' ')
-
-  const linkedRoleLabel = (staff: AgencyKeyStaff) => {
-    if (!staff.user_profile_id) return null
-    const admin = admins.find(a => a.user_id === staff.user_profile_id)
-    if (admin) return 'Agency Admin'
-    const coord = coordinators.find(c => c.user_id === staff.user_profile_id)
-    if (coord) return 'Care Coordinator'
-    return 'System User'
+  if (!row.credential) {
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Contact</span>
   }
-
-  const handleRemove = async (staffId: string) => {
-    if (!confirm('Remove this key staff record?')) return
-    setRemovingId(staffId)
-    await removeKeyStaff(agencyId, staffId)
-    setRemovingId(null)
-    onRefresh()
-  }
-
+  const isActive = row.status === 'active'
   return (
-    <>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <SectionHeader
-          icon={Users}
-          title="Key Staff"
-          count={officers.length}
-          open={open}
-          onToggle={() => setOpen(p => !p)}
-        />
-
-        {open && (
-          <div className="divide-y divide-gray-50">
-            {OFFICER_ROLES.map(({ key: roleKey, label }) => {
-              const staff = keyStaff.find(s => s.officer_role === roleKey)
-              const hasLogin = staff?.user_profile_id
-                ? linkedUserIds.has(staff.user_profile_id)
-                : false
-              const roleName = staff ? linkedRoleLabel(staff) : null
-
-              return (
-                <div key={roleKey} className="px-5 py-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Avatar name={staff?.full_legal_name} email={staff?.email ?? undefined} color={hasLogin ? 'blue' : 'gray'} />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium text-gray-900">{label}</p>
-                        {staff?.full_legal_name && (
-                          <span className="text-sm text-gray-600 truncate">{staff.full_legal_name}</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className="text-xs text-gray-400">
-                          {staff ? 'informational' : 'not filled'}
-                        </span>
-                        {staff && roleName && (
-                          <span className="text-xs text-gray-500">· {roleName}</span>
-                        )}
-                        {staff?.email && (
-                          <span className="text-xs text-gray-400 flex items-center gap-1">
-                            · <Mail className="w-3 h-3" /> {staff.email}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {staff && <LoginBadge linked={!!staff.user_profile_id} />}
-                    {staff && !staff.user_profile_id && (
-                      <button
-                        type="button"
-                        onClick={() => setGiveAccessTo(staff)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                        title="Give system login access"
-                      >
-                        <KeyRound className="w-3 h-3" />
-                        Give Access
-                      </button>
-                    )}
-                    {staff && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemove(staff.id)}
-                        disabled={removingId === staff.id}
-                        className="text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
-                        title="Remove"
-                      >
-                        {removingId === staff.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {giveAccessTo && (
-        <GiveAccessModal
-          isOpen
-          onClose={() => setGiveAccessTo(null)}
-          agencyId={agencyId}
-          keyStaffId={giveAccessTo.id}
-          defaultName={giveAccessTo.full_legal_name ?? ''}
-          defaultEmail={giveAccessTo.email ?? ''}
-          onSuccess={onRefresh}
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={toggling}
+      title={isActive ? 'Deactivate' : 'Activate'}
+      className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-50"
+      style={{ backgroundColor: isActive ? '#2460d6' : '#d1d5db' }}
+    >
+      {toggling ? (
+        <Loader2 className="w-3 h-3 animate-spin absolute left-0.5 text-white" />
+      ) : (
+        <span
+          className="pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform"
+          style={{ transform: isActive ? 'translateX(16px)' : 'translateX(0)' }}
         />
       )}
-    </>
-  )
-}
-
-// ——— Members / Owners section ————————————————————————————
-
-function MembersOwnersSection({ agencyId, members, admins, coordinators, onRefresh }: {
-  agencyId: string
-  members: AgencyKeyStaff[]
-  admins: AdminRecord[]
-  coordinators: CoordinatorRecord[]
-  onRefresh: () => void
-}) {
-  const [open, setOpen] = useState(true)
-  const [giveAccessTo, setGiveAccessTo] = useState<AgencyKeyStaff | null>(null)
-  const [removingId, setRemovingId] = useState<string | null>(null)
-  const [showAdd, setShowAdd] = useState(false)
-  const [addForm, setAddForm] = useState({ full_legal_name: '', email: '', telephone: '', ownership_percentage: '' })
-  const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
-
-  const linkedUserIds = new Set([
-    ...admins.map(a => a.user_id).filter(Boolean),
-    ...coordinators.map(c => c.user_id).filter(Boolean),
-  ])
-
-  const handleRemove = async (staffId: string) => {
-    if (!confirm('Remove this member/owner record?')) return
-    setRemovingId(staffId)
-    await removeKeyStaff(agencyId, staffId)
-    setRemovingId(null)
-    onRefresh()
-  }
-
-  const handleAdd = async () => {
-    if (!addForm.full_legal_name.trim()) { setAddError('Full legal name is required.'); return }
-    setAdding(true)
-    setAddError(null)
-    const result = await addMemberOwner(agencyId, {
-      full_legal_name: addForm.full_legal_name.trim(),
-      email: addForm.email.trim(),
-      telephone: addForm.telephone.trim(),
-      ownership_percentage: addForm.ownership_percentage.trim(),
-    })
-    setAdding(false)
-    if (result.error) { setAddError(result.error); return }
-    setShowAdd(false)
-    setAddForm({ full_legal_name: '', email: '', telephone: '', ownership_percentage: '' })
-    onRefresh()
-  }
-
-  return (
-    <>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <SectionHeader
-          icon={Users}
-          title="Members / Owners"
-          count={members.length}
-          open={open}
-          onToggle={() => setOpen(p => !p)}
-          action={
-            <button
-              type="button"
-              onClick={() => { setShowAdd(p => !p); setAddError(null) }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              Add Member/Owner
-            </button>
-          }
-        />
-
-        {open && (
-          <div>
-            {showAdd && (
-              <div className="mx-5 mb-4 mt-3 p-4 border border-dashed border-blue-200 rounded-lg bg-blue-50/40">
-                <h4 className="text-xs font-semibold text-gray-700 mb-3 uppercase tracking-wide">New Member / Owner</h4>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <FieldInput label="Full Legal Name" value={addForm.full_legal_name} onChange={v => setAddForm(p => ({ ...p, full_legal_name: v }))} required />
-                    <FieldInput label="Ownership %" value={addForm.ownership_percentage} onChange={v => setAddForm(p => ({ ...p, ownership_percentage: v }))} placeholder="e.g. 25" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <FieldInput label="Email" type="email" value={addForm.email} onChange={v => setAddForm(p => ({ ...p, email: v }))} />
-                    <FieldInput label="Phone" value={addForm.telephone} onChange={v => setAddForm(p => ({ ...p, telephone: v }))} />
-                  </div>
-                </div>
-                {addError && <p className="mt-2 text-xs text-red-600">{addError}</p>}
-                <div className="flex gap-2 mt-3">
-                  <button
-                    type="button"
-                    onClick={handleAdd}
-                    disabled={adding}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                  >
-                    {adding ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                    {adding ? 'Adding…' : 'Add'}
-                  </button>
-                  <button type="button" onClick={() => setShowAdd(false)} className="px-3 py-1.5 border border-gray-200 text-xs text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
-                </div>
-              </div>
-            )}
-
-            {members.length === 0 && !showAdd ? (
-              <p className="px-5 py-4 text-sm text-gray-400 italic">No members/owners on file.</p>
-            ) : (
-              <div className="divide-y divide-gray-50">
-                {members.map(m => {
-                  const hasLogin = m.user_profile_id ? linkedUserIds.has(m.user_profile_id) : false
-                  return (
-                    <div key={m.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Avatar name={m.full_legal_name} email={m.email ?? undefined} color={hasLogin ? 'blue' : 'gray'} />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{m.full_legal_name || 'Unnamed'}</p>
-                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            {m.ownership_percentage && (
-                              <span className="text-xs text-gray-500">{m.ownership_percentage}% ownership</span>
-                            )}
-                            {m.email && (
-                              <span className="text-xs text-gray-400 flex items-center gap-1">
-                                <Mail className="w-3 h-3" /> {m.email}
-                              </span>
-                            )}
-                            {m.telephone && (
-                              <span className="text-xs text-gray-400 flex items-center gap-1">
-                                <Phone className="w-3 h-3" /> {m.telephone}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <LoginBadge linked={!!m.user_profile_id} />
-                        {!m.user_profile_id && (
-                          <button
-                            type="button"
-                            onClick={() => setGiveAccessTo(m)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                          >
-                            <KeyRound className="w-3 h-3" />
-                            Give Access
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(m.id)}
-                          disabled={removingId === m.id}
-                          className="text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
-                          title="Remove"
-                        >
-                          {removingId === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {giveAccessTo && (
-        <GiveAccessModal
-          isOpen
-          onClose={() => setGiveAccessTo(null)}
-          agencyId={agencyId}
-          keyStaffId={giveAccessTo.id}
-          defaultName={giveAccessTo.full_legal_name ?? ''}
-          defaultEmail={giveAccessTo.email ?? ''}
-          onSuccess={onRefresh}
-        />
-      )}
-    </>
-  )
-}
-
-// ——— Agency Users section (Admins + Coordinators with no key_staff link) ——
-
-function AgencyUsersSection({ agencyId, admins, coordinators, linkedUserIds, onRefresh }: {
-  agencyId: string
-  admins: AdminRecord[]
-  coordinators: CoordinatorRecord[]
-  linkedUserIds: Set<string>
-  onRefresh: () => void
-}) {
-  const [open, setOpen] = useState(true)
-  const [togglingId, setTogglingId] = useState<string | null>(null)
-  const [showCreate, setShowCreate] = useState(false)
-  const [createType, setCreateType] = useState<'company_owner' | 'care_coordinator'>('company_owner')
-  const [createForm, setCreateForm] = useState({ firstName: '', lastName: '', email: '', phone: '' })
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-
-  const [settingsItem, setSettingsItem] = useState<{ type: 'admin' | 'coordinator'; id: string; userId: string | null; name: string; email: string } | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editPhone, setEditPhone] = useState('')
-  const [editFirst, setEditFirst] = useState('')
-  const [editLast, setEditLast] = useState('')
-  const [savingEdit, setSavingEdit] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
-  const [passwordOpen, setPasswordOpen] = useState(false)
-
-  // Only show users NOT already linked via a key_staff record
-  const unlinkedAdmins = admins.filter(a => !a.user_id || !linkedUserIds.has(a.user_id))
-  const unlinkedCoords = coordinators.filter(c => !c.user_id || !linkedUserIds.has(c.user_id))
-  const total = unlinkedAdmins.length + unlinkedCoords.length
-
-  const handleToggleAdmin = async (admin: AdminRecord) => {
-    const next = (admin.status ?? 'active') === 'active' ? 'inactive' : 'active'
-    setTogglingId(admin.id)
-    await updateAgencyAdminStatus(agencyId, admin.id, next)
-    setTogglingId(null)
-    onRefresh()
-  }
-
-  const handleToggleCoord = async (coord: CoordinatorRecord) => {
-    const next = coord.status === 'active' ? 'inactive' : 'active'
-    setTogglingId(coord.id)
-    await updateCareCoordinatorStatus(agencyId, coord.id, next)
-    setTogglingId(null)
-    onRefresh()
-  }
-
-  const handleCreate = async () => {
-    if (!createForm.firstName.trim() || !createForm.lastName.trim() || !createForm.email.trim()) {
-      setCreateError('First name, last name, and email are required.')
-      return
-    }
-    setCreating(true)
-    setCreateError(null)
-    const opts = { firstName: createForm.firstName.trim(), lastName: createForm.lastName.trim(), email: createForm.email.trim(), phone: createForm.phone.trim() || undefined }
-    const result = createType === 'company_owner'
-      ? await createAndLinkAgencyAdmin(agencyId, opts)
-      : await addCareCoordinatorForAgency(agencyId, opts)
-    setCreating(false)
-    if (result.error) { setCreateError(result.error); return }
-    setShowCreate(false)
-    setCreateForm({ firstName: '', lastName: '', email: '', phone: '' })
-    onRefresh()
-  }
-
-  const openAdminSettings = (admin: AdminRecord) => {
-    setSettingsItem({ type: 'admin', id: admin.id, userId: admin.user_id, name: admin.contact_name ?? '', email: admin.contact_email ?? '' })
-    setEditName(admin.contact_name ?? '')
-    setEditPhone(admin.contact_phone ?? '')
-    setEditError(null)
-  }
-
-  const openCoordSettings = (coord: CoordinatorRecord) => {
-    setSettingsItem({ type: 'coordinator', id: coord.id, userId: coord.user_id, name: `${coord.first_name} ${coord.last_name}`, email: coord.email })
-    setEditFirst(coord.first_name)
-    setEditLast(coord.last_name)
-    setEditError(null)
-  }
-
-  const handleSaveEdit = async () => {
-    if (!settingsItem) return
-    setSavingEdit(true)
-    setEditError(null)
-    let result: { error: string | null }
-    if (settingsItem.type === 'admin') {
-      if (!editName.trim()) { setEditError('Name is required.'); setSavingEdit(false); return }
-      result = await updateAgencyAdminProfile(agencyId, settingsItem.id, { contact_name: editName.trim(), contact_phone: editPhone.trim() || undefined })
-    } else {
-      if (!editFirst.trim() || !editLast.trim()) { setEditError('Name is required.'); setSavingEdit(false); return }
-      result = await updateCareCoordinatorProfile(agencyId, settingsItem.id, { first_name: editFirst.trim(), last_name: editLast.trim() })
-    }
-    setSavingEdit(false)
-    if (result.error) { setEditError(result.error); return }
-    setSettingsItem(null)
-    onRefresh()
-  }
-
-  return (
-    <>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <SectionHeader
-          icon={Shield}
-          title="Agency Users"
-          count={total}
-          open={open}
-          onToggle={() => setOpen(p => !p)}
-          action={
-            <button
-              type="button"
-              onClick={() => { setShowCreate(p => !p); setCreateError(null) }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              Add User
-            </button>
-          }
-        />
-
-        {open && (
-          <div>
-            {showCreate && (
-              <div className="mx-5 mb-4 mt-3 p-4 border border-dashed border-blue-200 rounded-lg bg-blue-50/40">
-                <div className="flex gap-2 mb-3">
-                  {([
-                    { value: 'company_owner', label: 'Agency Admin' },
-                    { value: 'care_coordinator', label: 'Care Coordinator' },
-                  ] as const).map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setCreateType(opt.value)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${createType === opt.value ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <FieldInput label="First Name" value={createForm.firstName} onChange={v => setCreateForm(p => ({ ...p, firstName: v }))} required />
-                    <FieldInput label="Last Name" value={createForm.lastName} onChange={v => setCreateForm(p => ({ ...p, lastName: v }))} required />
-                  </div>
-                  <FieldInput label="Email" type="email" value={createForm.email} onChange={v => setCreateForm(p => ({ ...p, email: v }))} required />
-                  {createType === 'company_owner' && (
-                    <FieldInput label="Phone (optional)" value={createForm.phone} onChange={v => setCreateForm(p => ({ ...p, phone: v }))} placeholder="e.g. 555-123-4567" />
-                  )}
-                </div>
-                {createError && <p className="mt-2 text-xs text-red-600">{createError}</p>}
-                <div className="flex gap-2 mt-3">
-                  <button
-                    type="button"
-                    onClick={handleCreate}
-                    disabled={creating}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                  >
-                    {creating ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                    {creating ? 'Creating…' : 'Create Account'}
-                  </button>
-                  <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 border border-gray-200 text-xs text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
-                </div>
-              </div>
-            )}
-
-            {total === 0 && !showCreate ? (
-              <p className="px-5 py-4 text-sm text-gray-400 italic">No agency users without a regulatory role.</p>
-            ) : (
-              <div className="divide-y divide-gray-50">
-                {unlinkedAdmins.map(admin => {
-                  const isActive = (admin.status ?? 'active') === 'active'
-                  return (
-                    <div key={admin.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${!isActive ? 'opacity-60' : ''}`}>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Avatar name={admin.contact_name} email={admin.contact_email ?? undefined} color="purple" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{admin.contact_name || 'Unnamed Admin'}</p>
-                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                            <span className="text-xs text-gray-400">Agency Admin</span>
-                            {admin.contact_email && (
-                              <span className="text-xs text-gray-400 flex items-center gap-1">
-                                · <Mail className="w-3 h-3" /> {admin.contact_email}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {admin.status && <StatusBadge status={admin.status} />}
-                        <button
-                          type="button"
-                          onClick={() => handleToggleAdmin(admin)}
-                          disabled={togglingId === admin.id}
-                          className={`${isActive ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'} disabled:opacity-50 transition-colors`}
-                          title={isActive ? 'Disable' : 'Enable'}
-                        >
-                          {togglingId === admin.id ? <Loader2 className="w-4 h-4 animate-spin" /> : isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                        </button>
-                        <button type="button" onClick={() => openAdminSettings(admin)} className="text-blue-600 hover:text-blue-800 transition-colors"><Settings className="w-4 h-4" /></button>
-                      </div>
-                    </div>
-                  )
-                })}
-                {unlinkedCoords.map(coord => {
-                  const isActive = coord.status === 'active'
-                  return (
-                    <div key={coord.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${!isActive ? 'opacity-60' : ''}`}>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Avatar name={`${coord.first_name} ${coord.last_name}`} email={coord.email} color="blue" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{coord.first_name} {coord.last_name}</p>
-                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                            <span className="text-xs text-gray-400">Care Coordinator</span>
-                            <span className="text-xs text-gray-400 flex items-center gap-1">
-                              · <Mail className="w-3 h-3" /> {coord.email}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <StatusBadge status={coord.status} />
-                        <button
-                          type="button"
-                          onClick={() => handleToggleCoord(coord)}
-                          disabled={togglingId === coord.id}
-                          className={`${isActive ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'} disabled:opacity-50 transition-colors`}
-                          title={isActive ? 'Disable' : 'Enable'}
-                        >
-                          {togglingId === coord.id ? <Loader2 className="w-4 h-4 animate-spin" /> : isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                        </button>
-                        <button type="button" onClick={() => openCoordSettings(coord)} className="text-blue-600 hover:text-blue-800 transition-colors"><Settings className="w-4 h-4" /></button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Settings modal */}
-      <Modal isOpen={!!settingsItem} onClose={() => { setSettingsItem(null); setEditError(null) }} title="User Settings" size="md">
-        {settingsItem && (
-          <div className="space-y-5">
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Edit Profile</h3>
-              <div className="space-y-3">
-                {settingsItem.type === 'admin' ? (
-                  <>
-                    <FieldInput label="Full Name" value={editName} onChange={setEditName} required />
-                    <FieldInput label="Phone (optional)" value={editPhone} onChange={setEditPhone} placeholder="e.g. 555-123-4567" />
-                  </>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    <FieldInput label="First Name" value={editFirst} onChange={setEditFirst} required />
-                    <FieldInput label="Last Name" value={editLast} onChange={setEditLast} required />
-                  </div>
-                )}
-              </div>
-              {editError && <p className="mt-2 text-xs text-red-600">{editError}</p>}
-              <div className="flex gap-2 mt-3">
-                <button
-                  type="button"
-                  onClick={handleSaveEdit}
-                  disabled={savingEdit}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                >
-                  {savingEdit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                  {savingEdit ? 'Saving…' : 'Save Changes'}
-                </button>
-              </div>
-            </div>
-            <div className="border-t border-gray-200" />
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-900">Password</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {settingsItem.userId ? 'Set a new password for this user.' : 'No system account linked.'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => settingsItem.userId && setPasswordOpen(true)}
-                disabled={!settingsItem.userId}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Change Password
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {settingsItem?.userId && (
-        <ResetPasswordModal
-          isOpen={passwordOpen}
-          onClose={() => setPasswordOpen(false)}
-          userName={settingsItem.name}
-          userEmail={settingsItem.email}
-          userId={settingsItem.userId}
-        />
-      )}
-    </>
+    </button>
   )
 }
 
 // ——— Main component ——————————————————————————————————————
 
 export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
-  const [keyStaff, setKeyStaff] = useState<AgencyKeyStaff[]>([])
-  const [admins, setAdmins] = useState<AdminRecord[]>([])
-  const [coordinators, setCoordinators] = useState<CoordinatorRecord[]>([])
-  const [loading, setLoading] = useState(true)
+  const [rows, setRows]         = useState<PersonRow[]>([])
+  const [loading, setLoading]   = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+
+  // Filters
+  const [search, setSearch]     = useState('')
+  const [roleFilter, setRoleFilter]           = useState('')
+  const [credentialFilter, setCredentialFilter] = useState('')
+
+  // Modal state
+  const [addOpen, setAddOpen]         = useState(false)
+  const [editPerson, setEditPerson]   = useState<PersonRow | null>(null)
+  const [accessPerson, setAccessPerson] = useState<PersonRow | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     setFetchError(null)
-    const supabase = createClient()
-
-    const [staffRes, adminsRes, coordsRes] = await Promise.all([
-      supabase
-        .from('agency_key_staff')
-        .select('*')
-        .eq('agency_id', agencyId)
-        .eq('status', 'active')
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('agency_admins')
-        .select('id, user_id, contact_name, contact_email, contact_phone, status')
-        .eq('agency_id', agencyId)
-        .order('contact_name', { ascending: true }),
-      supabase
-        .from('care_coordinators')
-        .select('id, user_id, first_name, last_name, email, status')
-        .eq('agency_id', agencyId)
-        .order('first_name', { ascending: true }),
-    ])
-
-    const err = staffRes.error || adminsRes.error || coordsRes.error
-    if (err) {
-      setFetchError(err.message)
+    const result = await getPeopleForAgency(agencyId)
+    if (result.error) {
+      setFetchError(result.error)
     } else {
-      setKeyStaff((staffRes.data ?? []) as AgencyKeyStaff[])
-      setAdmins((adminsRes.data ?? []) as AdminRecord[])
-      setCoordinators((coordsRes.data ?? []) as CoordinatorRecord[])
+      setRows(buildPeopleRows(result.keyStaff, result.admins, result.coordinators))
     }
     setLoading(false)
   }, [agencyId])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  const handleToggle = async (row: PersonRow) => {
+    if (!row.credential) return
+    const next = row.status === 'active' ? 'inactive' : 'active'
+    setTogglingId(row.rowKey)
+    if (row.adminRecordId) {
+      await updateAgencyAdminStatus(agencyId, row.adminRecordId, next)
+    } else if (row.coordinatorRecordId) {
+      await updateCareCoordinatorStatus(agencyId, row.coordinatorRecordId, next)
+    }
+    setTogglingId(null)
+    fetchData()
+  }
+
+  const filtered = rows.filter(r => {
+    if (search) {
+      const q = search.toLowerCase()
+      if (!r.fullName.toLowerCase().includes(q) && !(r.email ?? '').toLowerCase().includes(q)) return false
+    }
+    if (roleFilter === '__none__') {
+      if (r.officerRole) return false
+    } else if (roleFilter) {
+      if (r.officerRole !== roleFilter) return false
+    }
+    if (credentialFilter === '__none__') {
+      if (r.credential) return false
+    } else if (credentialFilter) {
+      if (r.credential !== credentialFilter) return false
+    }
+    return true
+  })
 
   if (loading) {
     return (
@@ -928,57 +768,177 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
     )
   }
 
-  const officers    = keyStaff.filter(s => s.officer_role !== 'member_owner')
-  const members     = keyStaff.filter(s => s.officer_role === 'member_owner')
-
-  // User IDs already linked via key_staff records — used to filter the Agency Users section
-  const linkedUserIds = new Set<string>(
-    keyStaff.map(s => s.user_profile_id).filter((id): id is string => !!id)
-  )
-
-  const totalPeople = admins.length + coordinators.length + keyStaff.length
-  const User_ = User
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <User_ className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-500">{totalPeople} people</span>
+          <Users className="w-4 h-4 text-gray-400" />
+          <span className="text-sm font-medium text-gray-600">{rows.length} {rows.length === 1 ? 'person' : 'people'}</span>
         </div>
-        <button
-          type="button"
-          onClick={fetchData}
-          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fetchData}
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <UserPlus className="w-4 h-4" />
+            Add Person
+          </button>
+        </div>
       </div>
 
-      <KeyStaffSection
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-2">
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name or email…"
+            className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+          />
+        </div>
+        <div className="relative">
+          <select
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.target.value)}
+            className="pl-3 pr-7 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none bg-white"
+          >
+            <option value="">All Roles</option>
+            {OFFICER_ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+            <option value="__none__">No Role</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+        </div>
+        <div className="relative">
+          <select
+            value={credentialFilter}
+            onChange={e => setCredentialFilter(e.target.value)}
+            className="pl-3 pr-7 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none bg-white"
+          >
+            <option value="">All Credentials</option>
+            <option value="company_owner">Agency Admin</option>
+            <option value="care_coordinator">Care Coordinator</option>
+            <option value="__none__">No Credential</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {filtered.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-gray-400 italic">
+            {rows.length === 0 ? 'No people associated with this agency yet.' : 'No people match the current filters.'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/60">
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Phone</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Email</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Credential</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filtered.map(row => {
+                  const isInactive = row.status !== 'active'
+                  return (
+                    <tr key={row.rowKey} className={`hover:bg-gray-50/50 transition-colors ${isInactive ? 'opacity-60' : ''}`}>
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="font-medium text-gray-900">{row.fullName || '—'}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.officerRole
+                          ? <span className="text-gray-700">{OFFICER_ROLE_LABEL[row.officerRole] ?? row.officerRole}</span>
+                          : <span className="text-gray-400">—</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell text-gray-600">{row.phone || <span className="text-gray-400">—</span>}</td>
+                      <td className="px-4 py-3 hidden md:table-cell text-gray-600">{row.email || <span className="text-gray-400">—</span>}</td>
+                      <td className="px-4 py-3"><CredentialBadge credential={row.credential} /></td>
+                      <td className="px-4 py-3">
+                        <StatusToggle
+                          row={row}
+                          toggling={togglingId === row.rowKey}
+                          onToggle={() => handleToggle(row)}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setEditPerson(row)}
+                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          {row.keyStaffId && !row.credential && (
+                            <button
+                              type="button"
+                              onClick={() => setAccessPerson(row)}
+                              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Give system access"
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      <AddPersonModal
+        isOpen={addOpen}
+        onClose={() => setAddOpen(false)}
         agencyId={agencyId}
-        keyStaff={officers}
-        admins={admins}
-        coordinators={coordinators}
-        onRefresh={fetchData}
+        onSuccess={fetchData}
       />
 
-      <MembersOwnersSection
-        agencyId={agencyId}
-        members={members}
-        admins={admins}
-        coordinators={coordinators}
-        onRefresh={fetchData}
-      />
+      {editPerson && (
+        <EditPersonModal
+          isOpen
+          onClose={() => setEditPerson(null)}
+          agencyId={agencyId}
+          person={editPerson}
+          onSuccess={() => { setEditPerson(null); fetchData() }}
+        />
+      )}
 
-      <AgencyUsersSection
-        agencyId={agencyId}
-        admins={admins}
-        coordinators={coordinators}
-        linkedUserIds={linkedUserIds}
-        onRefresh={fetchData}
-      />
+      {accessPerson && (
+        <GiveAccessModal
+          isOpen
+          onClose={() => setAccessPerson(null)}
+          agencyId={agencyId}
+          person={accessPerson}
+          onSuccess={() => { setAccessPerson(null); fetchData() }}
+        />
+      )}
     </div>
   )
 }

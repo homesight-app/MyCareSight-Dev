@@ -87,17 +87,19 @@ export default function DashboardLayout({
     return () => { mounted = false }
   }, [timeBillingPendingCount, profile?.role, pathname])
 
-  function isAllowed(featureKey: string): boolean {
+  function isAllowed(featureKey?: string): boolean {
+    if (!featureKey) return true  // items without a featureKey are always unlocked
     if (allowedFeatures == null) return true
     return allowedFeatures.includes(featureKey)
   }
 
-  const allOwnerItems: (MenuItemDef & { featureKey: string })[] = [
+  const allOwnerItems: (MenuItemDef & { featureKey?: string })[] = [
     { href: '/pages/agency',                  label: 'Home',           icon: Home,          title: 'Home',           featureKey: 'home' },
     { href: '/pages/agency/certifications',   label: 'Certifications', icon: Award,         title: 'Certifications', featureKey: 'certifications' },
     { href: '/pages/agency/programs',         label: 'Programs',       icon: ClipboardList, title: 'Programs',       featureKey: 'programs' },
     { href: '/pages/agency/clients',          label: 'Clients',        icon: UserCircle,    title: 'Clients',        featureKey: 'clients' },
     { href: '/pages/agency/caregiver',        label: 'Caregivers',     icon: Users,         title: 'Caregivers',     featureKey: 'caregivers' },
+    { href: '/pages/agency/people',           label: 'People',         icon: Users,         title: 'People' },
     { href: '/pages/agency/care-visits',      label: 'Care Visits',    icon: CalendarDays,  title: 'Care Visits',    featureKey: 'care_visits', badge: resolvedCareVisits || undefined },
     { href: '/pages/agency/time-billing',     label: 'Time & Billing', icon: DollarSign,    title: 'Time & Billing', featureKey: 'time_billing', badge: resolvedTimeBilling || undefined },
     { href: '/pages/agency/leads',            label: 'Leads',          icon: Target,        title: 'Leads',          featureKey: 'leads' },
@@ -118,7 +120,7 @@ export default function DashboardLayout({
 
   // Split into accessible and locked menu items
   const menuItems: MenuItemDef[] = []
-  const lockedItems: (MenuItemDef & { featureKey: string })[] = []
+  const lockedItems: (MenuItemDef & { featureKey?: string })[] = []
   for (const item of sourceItems) {
     if (isAllowed(item.featureKey)) {
       menuItems.push(item)
@@ -137,7 +139,7 @@ export default function DashboardLayout({
         const Icon = item.icon
         return (
           <button
-            key={item.featureKey}
+            key={item.featureKey ?? item.href}
             type="button"
             onClick={() => setUpgradeOpen(true)}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg w-full text-sm text-slate-300 cursor-not-allowed border-l-2 border-transparent pl-[10px] hover:bg-white/5 transition-colors"

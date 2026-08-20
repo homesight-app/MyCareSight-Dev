@@ -8,14 +8,28 @@ import { getSession } from '@/lib/auth'
 function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
   revalidatePath(`/pages/expert/agencies/${agencyId}`)
+  revalidatePath(`/pages/agency/people`)
 }
 
-async function requirePlatformStaff() {
+// Allows platform staff OR any user with an active agency_admins record for this agency.
+// Checks the agency_admins table directly — independent of the user_profiles.role value.
+async function requirePlatformStaffOrAgencyAdmin(agencyId: string) {
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', session: null }
   const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', session: null }
-  return { error: null, session }
+  if (role === 'admin' || role === 'expert') return { error: null, session }
+
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('agency_admins')
+    .select('id')
+    .eq('agency_id', agencyId)
+    .eq('user_id', session.user.id)
+    .in('status', ['active', 'invited', 'pending'])
+    .maybeSingle()
+  if (data) return { error: null, session }
+
+  return { error: 'Forbidden', session: null }
 }
 
 // Polls for the user_profiles row created by DB trigger after auth user insert.
@@ -135,10 +149,17 @@ export async function updateAgencyAdminStatus(
   adminId: string,
   status: 'active' | 'inactive'
 ) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()
+  const { data: current } = await supabase
+    .from('agency_admins')
+    .select('status')
+    .eq('id', adminId)
+    .eq('agency_id', agencyId)
+    .single()
+
   const { error } = await supabase
     .from('agency_admins')
     .update({ status, updated_at: new Date().toISOString() })
@@ -146,6 +167,16 @@ export async function updateAgencyAdminStatus(
     .eq('agency_id', agencyId)
 
   if (error) return { error: error.message }
+
+  await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'agency_admins',
+    record_id: adminId,
+    action: 'UPDATE_STATUS',
+    performed_by_user_id: session.user.id,
+    details: { old_status: current?.status ?? null, new_status: status },
+  })
+
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
 }
@@ -155,10 +186,17 @@ export async function updateCaregiverStatus(
   caregiverId: string,
   status: 'active' | 'inactive'
 ) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()
+  const { data: current } = await supabase
+    .from('caregiver_members')
+    .select('status')
+    .eq('id', caregiverId)
+    .eq('agency_id', agencyId)
+    .single()
+
   const { error } = await supabase
     .from('caregiver_members')
     .update({ status, updated_at: new Date().toISOString() })
@@ -166,6 +204,16 @@ export async function updateCaregiverStatus(
     .eq('agency_id', agencyId)
 
   if (error) return { error: error.message }
+
+  await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'caregiver_members',
+    record_id: caregiverId,
+    action: 'UPDATE_STATUS',
+    performed_by_user_id: session.user.id,
+    details: { old_status: current?.status ?? null, new_status: status },
+  })
+
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
 }
@@ -175,10 +223,17 @@ export async function updateCareCoordinatorStatus(
   coordinatorId: string,
   status: 'active' | 'inactive'
 ) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()
+  const { data: current } = await supabase
+    .from('care_coordinators')
+    .select('status')
+    .eq('id', coordinatorId)
+    .eq('agency_id', agencyId)
+    .single()
+
   const { error } = await supabase
     .from('care_coordinators')
     .update({ status, updated_at: new Date().toISOString() })
@@ -186,6 +241,16 @@ export async function updateCareCoordinatorStatus(
     .eq('agency_id', agencyId)
 
   if (error) return { error: error.message }
+
+  await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'care_coordinators',
+    record_id: coordinatorId,
+    action: 'UPDATE_STATUS',
+    performed_by_user_id: session.user.id,
+    details: { old_status: current?.status ?? null, new_status: status },
+  })
+
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
 }
@@ -196,12 +261,21 @@ export async function addCaregiverForAgency(
   agencyId: string,
   opts: { firstName: string; lastName: string; email: string }
 ) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabaseAdmin = createAdminClient()
   const result = await createUserForAgency(supabaseAdmin, agencyId, 'staff_member', opts)
   if ('error' in result) return { error: result.error }
+
+  await supabaseAdmin.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'caregiver_members',
+    record_id: result.userId,
+    action: 'GRANT_SYSTEM_ACCESS',
+    performed_by_user_id: session.user.id,
+    details: { credential: 'staff_member', contact_name: `${opts.firstName} ${opts.lastName}` },
+  })
 
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
@@ -211,12 +285,21 @@ export async function addCareCoordinatorForAgency(
   agencyId: string,
   opts: { firstName: string; lastName: string; email: string }
 ) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabaseAdmin = createAdminClient()
   const result = await createUserForAgency(supabaseAdmin, agencyId, 'care_coordinator', opts)
   if ('error' in result) return { error: result.error }
+
+  await supabaseAdmin.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'care_coordinators',
+    record_id: result.userId,
+    action: 'GRANT_SYSTEM_ACCESS',
+    performed_by_user_id: session.user.id,
+    details: { credential: 'care_coordinator', contact_name: `${opts.firstName} ${opts.lastName}` },
+  })
 
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
@@ -226,12 +309,21 @@ export async function createAndLinkAgencyAdmin(
   agencyId: string,
   opts: { firstName: string; lastName: string; email: string; phone?: string }
 ) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabaseAdmin = createAdminClient()
   const result = await createUserForAgency(supabaseAdmin, agencyId, 'company_owner', opts)
   if ('error' in result) return { error: result.error }
+
+  await supabaseAdmin.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'agency_admins',
+    record_id: result.userId,
+    action: 'GRANT_SYSTEM_ACCESS',
+    performed_by_user_id: session.user.id,
+    details: { credential: 'company_owner', contact_name: `${opts.firstName} ${opts.lastName}` },
+  })
 
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
@@ -244,7 +336,7 @@ export async function updateCaregiverProfile(
   caregiverId: string,
   updates: { first_name: string; last_name: string; phone?: string; job_title?: string }
 ) {
-  const { error: authErr } = await requirePlatformStaff()
+  const { error: authErr } = await requirePlatformStaffOrAgencyAdmin(agencyId)
   if (authErr) return { error: authErr }
 
   const supabaseAdmin = createAdminClient()
@@ -286,7 +378,7 @@ export async function updateCareCoordinatorProfile(
   coordinatorId: string,
   updates: { first_name: string; last_name: string }
 ) {
-  const { error: authErr } = await requirePlatformStaff()
+  const { error: authErr } = await requirePlatformStaffOrAgencyAdmin(agencyId)
   if (authErr) return { error: authErr }
 
   const supabaseAdmin = createAdminClient()
@@ -324,7 +416,7 @@ export async function updateAgencyAdminProfile(
   adminId: string,
   updates: { contact_name: string; contact_phone?: string }
 ) {
-  const { error: authErr } = await requirePlatformStaff()
+  const { error: authErr } = await requirePlatformStaffOrAgencyAdmin(agencyId)
   if (authErr) return { error: authErr }
 
   const supabaseAdmin = createAdminClient()
@@ -351,8 +443,8 @@ export async function promoteKeyStaffToUser(
   role: 'company_owner' | 'care_coordinator',
   opts: { firstName: string; lastName: string; email: string; tempPassword: string }
 ): Promise<{ error: string | null }> {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabaseAdmin = createAdminClient()
   const normalizedEmail = opts.email.toLowerCase().trim()
@@ -419,6 +511,125 @@ export async function promoteKeyStaffToUser(
     .eq('id', keyStaffId)
     .eq('agency_id', agencyId)
   if (linkErr) return { error: `User created but failed to link: ${linkErr.message}` }
+
+  await supabaseAdmin.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: role === 'company_owner' ? 'agency_admins' : 'care_coordinators',
+    record_id: userId,
+    action: 'GRANT_SYSTEM_ACCESS',
+    performed_by_user_id: session.user.id,
+    details: { credential: role, user_profile_id: userId, key_staff_id: keyStaffId },
+  })
+
+  revalidateAgencyDetailPages(agencyId)
+  return { error: null }
+}
+
+export async function changePersonCredential(
+  agencyId: string,
+  opts: {
+    userProfileId: string
+    adminRecordId: string | null
+    coordinatorRecordId: string | null
+    toCredential: 'company_owner' | 'care_coordinator'
+    firstName: string
+    lastName: string
+    email: string
+  }
+): Promise<{ error: string | null }> {
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+
+  const supabase = createAdminClient()
+  const fullName = `${opts.firstName} ${opts.lastName}`.trim()
+  const { userProfileId, toCredential } = opts
+
+  if (toCredential === 'care_coordinator') {
+    // Deactivate any existing admin record
+    if (opts.adminRecordId) {
+      await supabase
+        .from('agency_admins')
+        .update({ status: 'inactive', updated_at: new Date().toISOString() })
+        .eq('id', opts.adminRecordId)
+        .eq('agency_id', agencyId)
+
+      // Remove from agencies.agency_admin_ids
+      const { data: agency } = await supabase.from('agencies').select('agency_admin_ids').eq('id', agencyId).single()
+      const adminIds = ((agency?.agency_admin_ids as string[] | null) ?? []).filter((id: string) => id !== userProfileId)
+      await supabase.from('agencies').update({ agency_admin_ids: adminIds, updated_at: new Date().toISOString() }).eq('id', agencyId)
+    }
+
+    // Reactivate existing coordinator record or create one
+    if (opts.coordinatorRecordId) {
+      await supabase
+        .from('care_coordinators')
+        .update({ status: 'active', updated_at: new Date().toISOString() })
+        .eq('id', opts.coordinatorRecordId)
+        .eq('agency_id', agencyId)
+    } else {
+      const { error: insErr } = await supabase.from('care_coordinators').insert({
+        user_id: userProfileId,
+        agency_id: agencyId,
+        first_name: opts.firstName,
+        last_name: opts.lastName,
+        email: opts.email,
+        status: 'active',
+      })
+      if (insErr) return { error: insErr.message }
+    }
+  } else {
+    // Deactivate existing coordinator record
+    if (opts.coordinatorRecordId) {
+      await supabase
+        .from('care_coordinators')
+        .update({ status: 'inactive', updated_at: new Date().toISOString() })
+        .eq('id', opts.coordinatorRecordId)
+        .eq('agency_id', agencyId)
+    }
+
+    // Reactivate existing admin record or create one
+    if (opts.adminRecordId) {
+      await supabase
+        .from('agency_admins')
+        .update({ status: 'active', updated_at: new Date().toISOString() })
+        .eq('id', opts.adminRecordId)
+        .eq('agency_id', agencyId)
+    } else {
+      const { error: insErr } = await supabase.from('agency_admins').insert({
+        user_id: userProfileId,
+        company_owner_id: userProfileId,
+        contact_name: fullName,
+        contact_email: opts.email,
+        status: 'active',
+        agency_id: agencyId,
+      })
+      if (insErr) return { error: insErr.message }
+    }
+
+    // Add to agencies.agency_admin_ids if not already present
+    const { data: agency } = await supabase.from('agencies').select('agency_admin_ids').eq('id', agencyId).single()
+    const adminIds = (agency?.agency_admin_ids as string[] | null) ?? []
+    if (!adminIds.includes(userProfileId)) {
+      await supabase.from('agencies').update({ agency_admin_ids: [...adminIds, userProfileId], updated_at: new Date().toISOString() }).eq('id', agencyId)
+    }
+  }
+
+  await supabase
+    .from('user_profiles')
+    .update({ role: toCredential, updated_at: new Date().toISOString() })
+    .eq('id', userProfileId)
+
+  await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: toCredential === 'company_owner' ? 'agency_admins' : 'care_coordinators',
+    record_id: userProfileId,
+    action: 'CHANGE_CREDENTIAL',
+    performed_by_user_id: session.user.id,
+    details: {
+      to_credential: toCredential,
+      from_credential: toCredential === 'company_owner' ? 'care_coordinator' : 'company_owner',
+    },
+  })
 
   revalidateAgencyDetailPages(agencyId)
   return { error: null }

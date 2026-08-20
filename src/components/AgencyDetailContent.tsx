@@ -1389,7 +1389,7 @@ export default function AgencyDetailContent({
                   {canEdit && (
                     <AgencyOnboardingLinkPanel agencyId={agency.id} agencyName={agency.name} activeToken={activeToken} />
                   )}
-                  <AgencyAdminsSection agencyId={agency.id} agencyAdmins={agencyAdmins} availableAdmins={availableAdmins} />
+                  
                 </div>
               )}
 

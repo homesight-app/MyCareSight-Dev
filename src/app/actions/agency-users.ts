@@ -3,33 +3,12 @@
 import { randomBytes } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getSession } from '@/lib/auth'
+import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 
 function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
   revalidatePath(`/pages/expert/agencies/${agencyId}`)
   revalidatePath(`/pages/agency/people`)
-}
-
-// Allows platform staff OR any user with an active agency_admins record for this agency.
-// Checks the agency_admins table directly — independent of the user_profiles.role value.
-async function requirePlatformStaffOrAgencyAdmin(agencyId: string) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated', session: null }
-  const role = session.profile?.role
-  if (role === 'admin' || role === 'expert') return { error: null, session }
-
-  const supabase = createAdminClient()
-  const { data } = await supabase
-    .from('agency_admins')
-    .select('id')
-    .eq('agency_id', agencyId)
-    .eq('user_id', session.user.id)
-    .in('status', ['active', 'invited', 'pending'])
-    .maybeSingle()
-  if (data) return { error: null, session }
-
-  return { error: 'Forbidden', session: null }
 }
 
 // Polls for the user_profiles row created by DB trigger after auth user insert.
@@ -149,7 +128,7 @@ export async function updateAgencyAdminStatus(
   adminId: string,
   status: 'active' | 'inactive'
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()
@@ -186,7 +165,7 @@ export async function updateCaregiverStatus(
   caregiverId: string,
   status: 'active' | 'inactive'
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()
@@ -223,7 +202,7 @@ export async function updateCareCoordinatorStatus(
   coordinatorId: string,
   status: 'active' | 'inactive'
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()
@@ -261,7 +240,7 @@ export async function addCaregiverForAgency(
   agencyId: string,
   opts: { firstName: string; lastName: string; email: string }
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabaseAdmin = createAdminClient()
@@ -285,7 +264,7 @@ export async function addCareCoordinatorForAgency(
   agencyId: string,
   opts: { firstName: string; lastName: string; email: string }
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabaseAdmin = createAdminClient()
@@ -309,7 +288,7 @@ export async function createAndLinkAgencyAdmin(
   agencyId: string,
   opts: { firstName: string; lastName: string; email: string; phone?: string }
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabaseAdmin = createAdminClient()
@@ -336,7 +315,7 @@ export async function updateCaregiverProfile(
   caregiverId: string,
   updates: { first_name: string; last_name: string; phone?: string; job_title?: string }
 ) {
-  const { error: authErr } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { error: authErr }
 
   const supabaseAdmin = createAdminClient()
@@ -378,7 +357,7 @@ export async function updateCareCoordinatorProfile(
   coordinatorId: string,
   updates: { first_name: string; last_name: string }
 ) {
-  const { error: authErr } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { error: authErr }
 
   const supabaseAdmin = createAdminClient()
@@ -416,7 +395,7 @@ export async function updateAgencyAdminProfile(
   adminId: string,
   updates: { contact_name: string; contact_phone?: string }
 ) {
-  const { error: authErr } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { error: authErr }
 
   const supabaseAdmin = createAdminClient()
@@ -443,7 +422,7 @@ export async function promoteKeyStaffToUser(
   role: 'company_owner' | 'care_coordinator',
   opts: { firstName: string; lastName: string; email: string; tempPassword: string }
 ): Promise<{ error: string | null }> {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabaseAdmin = createAdminClient()
@@ -537,7 +516,7 @@ export async function changePersonCredential(
     email: string
   }
 ): Promise<{ error: string | null }> {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()

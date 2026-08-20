@@ -42,9 +42,26 @@ and auditors.
 - **Files changed:** `src/app/actions/agency-users.ts`, `src/app/actions/agency-onboarding.ts`
 - **Audit row shape:** `{ agency_id, table_name, record_id, action, performed_by_user_id, details: { old_status?, new_status?, credential?, officer_role?, full_legal_name?, changed_fields? } }`
 
+### Login Audit Trail — `last_login_at` (2026-08-19)
+- **What:** `user_profiles.last_login_at` (timestamptz, nullable) added to the schema. Updated to the current timestamp on every successful `signIn()` call.
+- **Files changed:** `supabase/migrations/phase_two/162_user_agency_roles_phase_a.sql` (ADD COLUMN), `src/lib/auth.ts` (update on sign-in)
+- **Audit row:** Column on `user_profiles` — no separate log row needed; the value is an authoritative, server-written timestamp that cannot be set by the user.
+- **Why it matters:** Provides an auditable record of when each user last authenticated, enabling investigation of unauthorized access and session anomalies.
+
 ---
 
 ## § 164.312(a)(1) — Access Control
+
+### Permission Centralization — `requirePlatformStaffOrAgencyRole` (2026-08-19)
+- **What:** Replaced three separate copy-pasted inline permission helpers in `agency-users.ts`, `agency-onboarding.ts`, and `agency-people.ts` with a single authoritative function in `src/lib/permissions.ts`. All agency-scoped server actions now go through one audit point.
+- **Files changed:** `src/lib/permissions.ts` (new), `src/app/actions/agency-users.ts`, `src/app/actions/agency-onboarding.ts`, `src/app/actions/agency-people.ts`
+- **Why it matters:** A single permission function means access-control logic can be audited, tested, and corrected in one place rather than across N files that may drift out of sync.
+
+### Account Lockout — `is_active` (2026-08-19)
+- **What:** `user_profiles.is_active` (boolean NOT NULL DEFAULT true) added to schema. When set to `false`: (1) `requirePlatformStaffOrAgencyRole` returns Forbidden before any DB query executes, (2) `is_platform_staff()` RLS function denies all table access, (3) `has_agency_role()` RLS function denies all agency-scoped access. Deactivation takes effect immediately with no login session invalidation needed.
+- **Files changed:** `supabase/migrations/phase_two/162_user_agency_roles_phase_a.sql` (ADD COLUMN, update `has_agency_role()`), `supabase/migrations/phase_two/163_rls_functions_phase_b.sql` (update `is_platform_staff()`), `src/lib/permissions.ts` (application-layer check)
+- **Gap fixed:** Prior to this, deactivating a user required updating status in each of `agency_admins`, `care_coordinators`, and `caregiver_members` separately — none of which blocked login or prevented API access.
+- **Why it matters:** Satisfies the requirement to revoke ePHI access immediately when a workforce member's authorization changes or employment ends.
 
 ### Agency People Self-Management (2026-08-19)
 - **What:** `requireAdminOrAgencyOwner(agencyId)` helper added to `agency-users.ts` and `agency-onboarding.ts`. All people-management server actions now enforce that callers are either platform staff (admin/expert) or the `company_owner` of that specific agency. Cross-agency access returns Forbidden.

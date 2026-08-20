@@ -1,7 +1,7 @@
 'use server'
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getSession } from '@/lib/auth'
+import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 
 // ——— Shared types (imported by AgencyPeopleTab) ————————————————————————————
 
@@ -42,29 +42,10 @@ export interface PeopleData {
   error: string | null
 }
 
-// ——— Auth helper ————————————————————————————————————————————————————————————
-
-async function requirePlatformStaffOrAgencyAdmin(agencyId: string) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated', session: null }
-  const role = session.profile?.role
-  if (role === 'admin' || role === 'expert') return { error: null, session }
-  const supabase = createAdminClient()
-  const { data } = await supabase
-    .from('agency_admins')
-    .select('id')
-    .eq('agency_id', agencyId)
-    .eq('user_id', session.user.id)
-    .in('status', ['active', 'invited', 'pending'])
-    .maybeSingle()
-  if (data) return { error: null, session }
-  return { error: 'Forbidden', session: null }
-}
-
 // ——— Server action ——————————————————————————————————————————————————————————
 
 export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> {
-  const { error: authErr } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { keyStaff: [], admins: [], coordinators: [], error: authErr }
 
   const supabase = createAdminClient()

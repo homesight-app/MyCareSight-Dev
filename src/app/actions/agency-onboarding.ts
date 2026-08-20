@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
+import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 import * as q from '@/lib/supabase/query'
 import { sendOnboardingLinkEmail } from '@/lib/email'
 import { encryptSSN, ssnToLast4 } from '@/lib/ssn-crypto'
@@ -65,27 +66,6 @@ function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
   revalidatePath(`/pages/expert/agencies/${agencyId}`)
   revalidatePath(`/pages/agency/people`)
-}
-
-// Allows platform staff OR any user with an active agency_admins record for this agency.
-// Checks the agency_admins table directly — independent of the user_profiles.role value.
-async function requirePlatformStaffOrAgencyAdmin(agencyId: string) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated', session: null }
-  const role = session.profile?.role
-  if (role === 'admin' || role === 'expert') return { error: null, session }
-
-  const supabase = createAdminClient()
-  const { data } = await supabase
-    .from('agency_admins')
-    .select('id')
-    .eq('agency_id', agencyId)
-    .eq('user_id', session.user.id)
-    .in('status', ['active', 'invited', 'pending'])
-    .maybeSingle()
-  if (data) return { error: null, session }
-
-  return { error: 'Forbidden', session: null }
 }
 
 export async function generateOnboardingToken(
@@ -277,7 +257,7 @@ export async function saveKeyStaffAdmin(
     employment_type?: string
   }
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
   const supabase = createAdminClient()
@@ -325,7 +305,7 @@ export async function saveKeyStaffAdmin(
 }
 
 export async function removeKeyStaff(agencyId: string, staffId: string) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
   const supabase = createAdminClient()
@@ -365,7 +345,7 @@ export async function updateMemberOwner(
     home_address_zip?: string
   }
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
   const supabase = createAdminClient()
@@ -422,7 +402,7 @@ export async function addMemberOwner(
     home_address_zip?: string
   }
 ) {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
   const supabase = createAdminClient()
@@ -469,7 +449,7 @@ export async function updateKeyStaffById(
   staffId: string,
   data: { full_legal_name?: string; telephone?: string; email?: string; officer_role?: string }
 ): Promise<{ error: string | null }> {
-  const { error: authErr, session } = await requirePlatformStaffOrAgencyAdmin(agencyId)
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()

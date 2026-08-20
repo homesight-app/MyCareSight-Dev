@@ -1,6 +1,6 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { UserRole } from '@/types/auth'
+import { UserRole, AgencyRole } from '@/types/auth'
 
 function isDynamicServerUsageError(error: unknown): boolean {
   return (
@@ -30,9 +30,19 @@ export const getSession = cache(async () => {
       .eq('id', user.id)
       .single()
 
+    // Load agency roles for permission checks (no extra DB query in server actions)
+    const { data: agencyRolesData } = await supabase
+      .from('user_agency_roles')
+      .select('agency_id, role, status')
+      .eq('user_id', user.id)
+      .in('status', ['active', 'invited', 'pending'])
+
+    const agencyRoles: AgencyRole[] = (agencyRolesData ?? []) as AgencyRole[]
+
     return {
       user,
       profile,
+      agencyRoles,
     }
   } catch (error) {
     // Let Next.js handle dynamic-render bailouts for routes using cookies/headers.
@@ -68,6 +78,14 @@ export async function signIn(email: string, password: string, rememberMe: boolea
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,
     })
+  }
+
+  // HIPAA § 164.312(b): record login timestamp for audit trail
+  if (data.user) {
+    await supabase
+      .from('user_profiles')
+      .update({ last_login_at: new Date().toISOString() })
+      .eq('id', data.user.id)
   }
 
   return { data, error: null }

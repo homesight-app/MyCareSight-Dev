@@ -8,6 +8,7 @@ import {
   Check, X,
 } from 'lucide-react'
 import { acceptApplicationRequest, rejectProgramRequest } from '@/app/actions/applications'
+import { formatDateShort } from '@/lib/format-date'
 
 type ItemStatus = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
 
@@ -61,10 +62,6 @@ function statusLabel(s: string) {
   return s.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
 }
 
-function formatDate(d: string | null) {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 export default function AdminProgramsContent({ requestedPrograms, allPrograms }: Props) {
   const router = useRouter()
@@ -188,7 +185,7 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
                       <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 ml-16">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
-                          Submitted {formatDate(program.created_at)}
+                          Submitted {formatDateShort(program.created_at)}
                         </span>
                         <span className="flex items-center gap-1">
                           <MapPin className="w-4 h-4" />

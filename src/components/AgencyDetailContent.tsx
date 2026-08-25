@@ -52,6 +52,7 @@ import AgencyDocumentsTab from './AgencyDocumentsTab'
 import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
 import Modal from './Modal'
 import type { OnboardingToken, AgencyKeyStaff } from '@/lib/supabase/query'
+import { formatDateShort } from '@/lib/format-date'
 
 interface Agency {
   id: string
@@ -308,18 +309,6 @@ const APP_STATUS_COLORS: Record<string, string> = {
   closed: 'bg-gray-100 text-gray-600',
 }
 
-function formatDate(dateStr?: string | null) {
-  if (!dateStr) return '—'
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    })
-  } catch {
-    return '—'
-  }
-}
 
 function isExpiringSoon(expiryDate?: string | null) {
   if (!expiryDate) return false
@@ -935,10 +924,10 @@ export default function AgencyDetailContent({
                           {license.license_number || '—'}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                          {formatDate(license.activated_date)}
+                          {formatDateShort(license.activated_date)}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                          {formatDate(license.expiry_date)}
+                          {formatDateShort(license.expiry_date)}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span
@@ -1313,7 +1302,7 @@ export default function AgencyDetailContent({
                         <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Previously Licensed</label>
                         <p className="text-sm text-gray-900">
                           {agency.previously_licensed === true
-                            ? `Yes${agency.prev_license_closed_date ? ` (closed ${formatDate(agency.prev_license_closed_date)})` : ''}`
+                            ? `Yes${agency.prev_license_closed_date ? ` (closed ${formatDateShort(agency.prev_license_closed_date)})` : ''}`
                             : agency.previously_licensed === false ? 'No' : '—'}
                         </p>
                       </div>

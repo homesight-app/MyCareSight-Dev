@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { formatDate } from '@/lib/format-date'
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>
 
@@ -179,16 +180,8 @@ export async function getStaffCertificationsReport() {
         cert_number: (cert.credential_number as string) || '',
         state: (cert.state as string) || 'N/A',
         issuing_authority: (cert.issuing_authority as string) || 'N/A',
-        issue_date: cert.issue_date
-          ? new Date(cert.issue_date as string).toLocaleDateString('en-US', {
-              month: '2-digit',
-              day: '2-digit',
-              year: 'numeric',
-            })
-          : 'N/A',
-        expiration: expStr
-          ? new Date(expStr).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-          : 'N/A',
+        issue_date: formatDate(cert.issue_date as string | null),
+        expiration: formatDate(expStr),
         status,
         certification_id: cert.id as string,
         document_url: cert.document_url as string | null,
@@ -279,11 +272,7 @@ export async function getExpiringCertificationsReport() {
           contact: contact.trim(),
           certification: (cert.source_credential_name as string) || 'Credential',
           cert_number: (cert.credential_number as string) || '',
-          expiration: new Date(expStr).toLocaleDateString('en-US', {
-            month: '2-digit',
-            day: '2-digit',
-            year: 'numeric',
-          }),
+          expiration: formatDate(expStr),
           status,
           certification_id: cert.id as string,
           document_url: cert.document_url as string | null,

@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { Search, FileText, ChevronDown } from 'lucide-react'
 import { type CertLicense } from './CertificationDetailModal'
 import CertificationDetailModal from './CertificationDetailModal'
+import { formatDateShort } from '@/lib/format-date'
 
 const CERT_CATEGORIES: { value: string; label: string }[] = [
   { value: 'all',           label: 'All' },
@@ -21,13 +22,6 @@ const STATUS_COLORS: Record<string, string> = {
   expired:  'bg-red-100 text-red-700',
   expiring: 'bg-orange-100 text-orange-700',
   pending:  'bg-yellow-100 text-yellow-700',
-}
-
-function formatDate(dateStr?: string | null) {
-  if (!dateStr) return '—'
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  } catch { return '—' }
 }
 
 function isExpiringSoon(expiryDate?: string | null) {
@@ -207,10 +201,10 @@ export default function AgencyCertificationsContent({ certifications, agencyId }
                       {cert.license_number || '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                      {formatDate(cert.activated_date)}
+                      {formatDateShort(cert.activated_date)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                      {formatDate(cert.expiry_date)}
+                      {formatDateShort(cert.expiry_date)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[cert.status] ?? 'bg-gray-100 text-gray-600'}`}>

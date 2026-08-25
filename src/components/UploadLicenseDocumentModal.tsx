@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Modal from './Modal'
+import { formatDateShort } from '@/lib/format-date'
 import { Upload, X, Loader2, FileText, Calendar } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -284,9 +285,7 @@ export default function UploadLicenseDocumentModal({
           </div>
           {licenseExpiryDate && (
             <p className="text-xs text-gray-500 mt-1">
-              License expiry date: {typeof licenseExpiryDate === 'string' 
-                ? new Date(licenseExpiryDate).toLocaleDateString()
-                : licenseExpiryDate.toLocaleDateString()}
+              License expiry date: {formatDateShort(licenseExpiryDate)}
             </p>
           )}
         </div>

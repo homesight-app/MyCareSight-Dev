@@ -22,6 +22,7 @@ import AddProgramItemModal from './AddProgramItemModal'
 import InternalNotesPanel from './InternalNotesPanel'
 import CreateLicenseModal from './CreateLicenseModal'
 import Modal from './Modal'
+import { formatDate } from '@/lib/format-date'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -717,7 +718,7 @@ export default function ExpertProgramView({
                   </Link>
                   <span className="text-xs text-gray-400 capitalize flex-shrink-0">{row.link_type.replace(/_/g, ' ')}</span>
                   {cert.expiry_date && (
-                    <span className="text-xs text-gray-400 flex-shrink-0">Exp: {new Date(cert.expiry_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                    <span className="text-xs text-gray-400 flex-shrink-0">Exp: {formatDate(cert.expiry_date, { month: 'short', year: 'numeric' })}</span>
                   )}
                 </div>
               )

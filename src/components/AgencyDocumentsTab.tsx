@@ -7,6 +7,7 @@ import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { uploadAgencyDocument, deleteAgencyDocumentAction } from '@/app/actions/agencies'
 import { deleteLeadDocumentAction } from '@/app/actions/leads'
 import * as q from '@/lib/supabase/query'
+import { formatDateShort } from '@/lib/format-date'
 
 interface LeadDoc {
   id: string
@@ -41,9 +42,6 @@ type SortKey = 'name' | 'type' | 'lead' | 'date'
 
 const DOC_TYPES = ['Proposal', 'Contract', 'Agreement', 'Invoice', 'NDA', 'Other']
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMap }: AgencyDocumentsTabProps) {
   const [agencyDocs, setAgencyDocs] = useState<UnifiedDoc[]>([])
@@ -303,7 +301,7 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
                     }
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                    {formatDate(doc.created_at)}
+                    {formatDateShort(doc.created_at)}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">

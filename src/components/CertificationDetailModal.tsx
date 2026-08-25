@@ -30,6 +30,7 @@ import {
 } from '@/app/actions/licenses'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
+import { formatDate, formatDateShort } from '@/lib/format-date'
 
 // ── Shared types (mirror what AgencyDetailContent passes down) ──────────────
 
@@ -74,20 +75,6 @@ export interface CertLicense {
 type Tab = 'overview' | 'history'
 
 // ── Utilities ────────────────────────────────────────────────────────────────
-
-function formatDate(dateStr?: string | null) {
-  if (!dateStr) return '—'
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  } catch { return '—' }
-}
-
-function formatDateShort(dateStr?: string | null) {
-  if (!dateStr) return '—'
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-  } catch { return '—' }
-}
 
 const STATUS_COLORS: Record<string, string> = {
   active:   'bg-green-100 text-green-700',
@@ -264,9 +251,9 @@ function CertInfoSection({
         {field('Status', license.status, 'status', 'status')}
         {field('Category', license.certification_category ? license.certification_category.replace(/_/g, ' ') : '', 'certification_category', 'category')}
         {field('Issuing Body', license.issuing_body ?? '', 'issuing_body')}
-        {field('Issued Date', formatDate(license.activated_date), 'activated_date', 'date')}
-        {field('Expiry Date', formatDate(license.expiry_date), 'expiry_date', 'date')}
-        {field('Renewal Due', formatDate(license.renewal_due_date), 'renewal_due_date', 'date')}
+        {field('Issued Date', formatDateShort(license.activated_date), 'activated_date', 'date')}
+        {field('Expiry Date', formatDateShort(license.expiry_date), 'expiry_date', 'date')}
+        {field('Renewal Due', formatDateShort(license.renewal_due_date), 'renewal_due_date', 'date')}
       </div>
     </div>
   )
@@ -388,7 +375,7 @@ function DocumentsSection({
                   {doc.document_type && (
                     <span className="text-xs text-gray-400 capitalize">{doc.document_type}</span>
                   )}
-                  <span className="text-xs text-gray-400">{formatDate(doc.created_at)}</span>
+                  <span className="text-xs text-gray-400">{formatDateShort(doc.created_at)}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -587,7 +574,7 @@ function ProgramsSection({
                   <p className="text-xs text-gray-400 mt-1">
                     {row.link_type === 'created_from' ? 'Created from this program' : 'Renewal'}
                     {' · '}
-                    {formatDate(row.linked_at)}
+                    {formatDateShort(row.linked_at)}
                   </p>
                 </div>
                 {canEdit && (
@@ -716,7 +703,7 @@ function HistoryTab({
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                {formatDateShort(v.activated_date)} → {formatDateShort(v.expiry_date)}
+                {formatDate(v.activated_date, { month: 'short', year: 'numeric' })} → {formatDate(v.expiry_date, { month: 'short', year: 'numeric' })}
               </p>
             </div>
           </div>

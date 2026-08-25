@@ -7,6 +7,7 @@ import { getSession } from '@/lib/auth'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 import * as q from '@/lib/supabase/query'
 import { sendOnboardingLinkEmail } from '@/lib/email'
+import { formatDate } from '@/lib/format-date'
 import { encryptSSN, ssnToLast4 } from '@/lib/ssn-crypto'
 
 const keyStaffEntrySchema = z.object({
@@ -97,9 +98,7 @@ export async function generateOnboardingToken(
     if (options.recipientEmail?.trim()) {
       const { data: agencyData } = await supabase.from('agencies').select('name').eq('id', agencyId).single()
       const link = `${process.env.NEXT_PUBLIC_APP_URL}/pages/onboarding/${token.token}`
-      const expiresAtFormatted = new Date(expiresAt).toLocaleDateString('en-US', {
-        month: 'long', day: 'numeric', year: 'numeric',
-      })
+      const expiresAtFormatted = formatDate(expiresAt, { month: 'long', day: 'numeric', year: 'numeric' })
       await sendOnboardingLinkEmail({
         to: options.recipientEmail.trim(),
         agencyName: agencyData?.name ?? 'Your Agency',

@@ -40,20 +40,27 @@ function PlaybookCard({ playbook, onSelect }: { playbook: StandalonePlaybook; on
         </div>
         <div className="flex-1">
           <h3 className="font-bold text-gray-900 text-lg mb-1">{playbook.name}</h3>
-          {(playbook.category || playbook.subcategory) && (
-            <div className="flex items-center gap-1.5 mb-2">
-              {playbook.category && (
-                <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-full font-medium">
-                  {playbook.category.name}
-                </span>
-              )}
-              {playbook.subcategory && (
-                <span className="text-xs bg-gray-100 text-gray-600 border border-gray-200 px-2 py-0.5 rounded-full">
-                  {playbook.subcategory.name}
-                </span>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+            {playbook.state === null ? (
+              <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-full font-semibold">
+                National
+              </span>
+            ) : (
+              <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-semibold">
+                {playbook.state}
+              </span>
+            )}
+            {playbook.category && (
+              <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-full font-medium">
+                {playbook.category.name}
+              </span>
+            )}
+            {playbook.subcategory && (
+              <span className="text-xs bg-gray-100 text-gray-600 border border-gray-200 px-2 py-0.5 rounded-full">
+                {playbook.subcategory.name}
+              </span>
+            )}
+          </div>
           {playbook.description && (
             <p className="text-gray-600 text-sm mb-3">{playbook.description}</p>
           )}
@@ -172,7 +179,7 @@ export default function SelectLicenseTypeModal({
   }, [state])
 
   useEffect(() => {
-    if (isOpen && state) {
+    if (isOpen) {
       setSearch('')
       setSelectedCategoryId('')
       setSelectedSubcategoryId('')
@@ -183,7 +190,7 @@ export default function SelectLicenseTypeModal({
   const hasActiveFilters = search.trim() || selectedCategoryId || selectedSubcategoryId
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={programsOnly ? `Select Program - ${getStateAbbr(state)}` : `Select License Type - ${getStateAbbr(state)}`} size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={programsOnly ? (state ? `Select Program - ${getStateAbbr(state)}` : 'Select Program') : `Select License Type - ${getStateAbbr(state)}`} size="lg">
       <div className="space-y-4">
         {isLoading && (
           <div className="flex items-center justify-center py-12">

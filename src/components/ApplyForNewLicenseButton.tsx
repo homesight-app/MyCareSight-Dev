@@ -84,23 +84,22 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, 
         isOpen={isStateModalOpen}
         onClose={handleCloseAll}
         onStateSelect={handleStateSelect}
+        programsOnly={programsOnly}
       />
 
       {/* License Type + Program Selection Modal */}
-      {selectedState && (
-        <SelectLicenseTypeModal
-          isOpen={isLicenseTypeModalOpen}
-          onClose={handleCloseAll}
-          state={selectedState}
-          onSelectLicenseType={handleLicenseTypeSelect}
-          onSelectPlaybook={handlePlaybookSelect}
-          onBack={handleBackToStateSelection}
-          programsOnly={programsOnly}
-        />
-      )}
+      <SelectLicenseTypeModal
+        isOpen={isLicenseTypeModalOpen}
+        onClose={handleCloseAll}
+        state={selectedState}
+        onSelectLicenseType={handleLicenseTypeSelect}
+        onSelectPlaybook={handlePlaybookSelect}
+        onBack={handleBackToStateSelection}
+        programsOnly={programsOnly}
+      />
 
       {/* Review License Request Modal */}
-      {selectedState && selectedLicenseType && (
+      {selectedLicenseType && (
         <ReviewLicenseRequestModal
           isOpen={isReviewModalOpen}
           onClose={handleCloseAll}
@@ -112,7 +111,7 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, 
       )}
 
       {/* Review Program Request Modal */}
-      {selectedState && selectedPlaybook && (
+      {selectedPlaybook && (
         <ReviewPlaybookRequestModal
           isOpen={isPlaybookReviewModalOpen}
           onClose={handleCloseAll}

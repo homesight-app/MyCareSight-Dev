@@ -168,7 +168,7 @@ Runs on every request except `_next/static`, `_next/image`, and `favicon`. Calls
 
 ### Forms
 
-Use **React Hook Form** + **Zod** for all forms. Schemas live co-located with the component or in the component file itself. Server validation is always the source of truth; client-side Zod is UX only.
+Use **React Hook Form** + **Zod** for all forms. All Zod schemas live in `src/lib/schemas/` (one file per domain, e.g. `certification.ts`, `agency.ts`) and are imported by **both** the form component (passed to `zodResolver`) and the corresponding server action (used in `safeParse`). This is the single source of truth for what's required and what format is valid on both client and server. Never define a form schema inline inside a component file.
 
 ### Phone and email fields — always use the shared components and schemas
 
@@ -181,7 +181,7 @@ Use **React Hook Form** + **Zod** for all forms. Schemas live co-located with th
 
 `PhoneInput` auto-formats to `(XXX) XXX-XXXX` as the user types, renders `type="tel"` and a standard placeholder, and displays an inline `error` prop below the field. `EmailInput` does the same for email with `type="email"`.
 
-**RHF forms** — use `mode: 'onBlur'` on `useForm` so validation fires on blur, then spread `register` directly into the component:
+Wire with RHF — use `mode: 'onBlur'` on `useForm` so validation fires on blur, then spread `register` directly into the component:
 
 ```tsx
 import PhoneInput from '@/components/ui/PhoneInput'
@@ -193,30 +193,58 @@ const { register, formState: { errors } } = useForm({ mode: 'onBlur', resolver: 
 <EmailInput {...register('email')} error={errors.email?.message} className="..." />
 ```
 
-**Plain state forms** — pass `value` and `onChange` (event handler); `e.target.value` is already formatted:
-
-```tsx
-<PhoneInput
-  value={form.phone}
-  onChange={e => setForm(prev => ({ ...prev, phone: e.target.value }))}
-  error={fieldErrors.phone}
-  className="..."
-/>
-```
-
 **Zod schemas** — use the pre-built field schemas from `src/lib/validation.ts` instead of re-writing the regex refine:
 
 ```ts
 import { phoneZodField, emailZodField, optionalEmailZodField } from '@/lib/validation'
 
 const schema = z.object({
-  phone: phoneZodField,           // optional, validates format if non-empty
-  email: emailZodField,           // required valid email
-  alt_email: optionalEmailZodField, // optional, validates format if non-empty
+  phone: phoneZodField,              // optional, validates format if non-empty
+  email: emailZodField,              // required valid email
+  alt_email: optionalEmailZodField,  // optional, validates format if non-empty
 })
 ```
 
-**Server-side / submit-time validation** for plain state forms — use `isValidUSPhone` and `isValidEmail` from `src/lib/validation.ts` as a final guard before calling server actions.
+### Forms, Validation, and Error Handling
+
+All new forms and any form that is substantially modified must follow this pattern:
+
+- **Schema location** — Zod schema in `src/lib/schemas/<domain>.ts`, imported by both the form component and the server action. Required fields use `.min(1, 'Field is required')`. Phone/email use `phoneZodField` / `emailZodField` / `optionalEmailZodField` from `src/lib/validation.ts`.
+- **Client-side field validation** → React Hook Form + Zod. `useForm({ resolver: zodResolver(schema), mode: 'onBlur' })`. Display inline errors below each field: `{errors.x && <p className="mt-1 text-sm text-red-600">{errors.x.message}</p>}`. Add `noValidate` to the `<form>` element. Mark required fields with `<span className="text-red-500">*</span>` in the label. RHF blocks `onSubmit` automatically if any field fails — no manual `if (!field)` checks needed.
+- **Server action return shape** — every server action handling a form must return `{ success: boolean; error?: string; fieldErrors?: Record<string, string[]> }`. Import the shared schema and call `schema.safeParse(payload)`; on failure return `{ success: false as const, fieldErrors: zodErrorToFieldErrors(parsed.error) }` using `zodErrorToFieldErrors` from `@/lib/validation`.
+- **Server fieldErrors → surface inline** — in `onSubmit`, after calling the server action, if `result.fieldErrors` is present use RHF's `setError` to display errors on the specific field. Use `showValidationToast` only for non-field server errors (permission denied, duplicate record, etc.) and for success.
+
+```tsx
+const { register, handleSubmit, formState: { errors }, setError, reset } = useForm<FormData>({
+  resolver: zodResolver(schema),
+  mode: 'onBlur',
+})
+
+const onSubmit = async (data: FormData) => {
+  const result = await serverAction(data)
+  if (!result.success) {
+    if (result.fieldErrors) {
+      Object.entries(result.fieldErrors).forEach(([field, msgs]) => {
+        setError(field as keyof FormData, { message: msgs[0] })
+      })
+    }
+    if (result.error) showValidationToast(result)   // non-field error only
+    return
+  }
+  showSuccessToast('...')
+  reset()
+  onClose()
+}
+```
+
+Do **not** use inline `<div className="bg-red-50 ...">` error blocks — old pattern. Do **not** use Sonner for field-level errors — those belong inline. Sonner is for non-field server errors and success only.
+
+**Form audit on every code change:** Whenever you modify a file that contains a form or modal component (any file with "Modal", "Form", "Add", "Edit", "Create" in the name, or any file containing a `<form>` element), you must:
+1. Check whether the form follows the pattern described above (shared schema in `src/lib/schemas/`, RHF+Zod inline errors, `setError` for server fieldErrors, Sonner for non-field errors/success, `noValidate`, `*` on required labels).
+2. If anything is missing or uses the old pattern, **flag it explicitly to the user** before completing the task. Include: which form, what is missing, and a brief description of the fix needed.
+3. Do **not** silently skip the audit. The user must explicitly approve or defer the validation update before you move on.
+
+---
 
 ### Configurable dropdown values (`configuration_values`)
 
@@ -294,3 +322,18 @@ RLS is the primary access control layer. Keep it correct rather than working aro
 - When writing a server action that mutates data and is called by a non-admin role, use `createClient()` (RLS client). If RLS blocks it, determine whether the role *should* have access (fix the policy) or *should not* (add an explicit server-side role guard instead of bypassing).
 - `createAdminClient()` is appropriate when: creating/modifying data on behalf of another user (e.g. admin creating an application for an agency), reading data the role has UI access to but whose RLS is not yet defined (temporary, must be paired with a migration ticket), or operations that inherently span multiple users.
 - Migration files live in `supabase/migrations/phase_two/`. Increment the prefix number. Run them in the Supabase SQL editor. The `is_platform_staff()` function (covers `admin` and `expert` roles) and `is_agency_member(agency_id)` are available for use in policies.
+
+### HIPAA compliance log (`docs/hipaa/compliance-log.md`)
+
+Whenever you implement or modify a feature that touches any of the following, you must consult and then update `docs/hipaa/compliance-log.md`:
+- User permissions, access controls, or authentication
+- Audit requirements (anything writing to or reading `audit_log`)
+- PHI (patient, caregiver, visit, document, or internal note data)
+
+**Steps:**
+1. Read `docs/hipaa/compliance-log.md` first to understand what is already in place.
+2. Identify which HIPAA Security Rule provision(s) (45 CFR § 164.312) the feature addresses or impacts.
+3. After implementation, append an entry documenting: what was done, which provision it satisfies, and which files were changed. Use existing provision sections; add a new section heading if the provision is new.
+4. If a pre-existing compliance gap is discovered and fixed as part of the work, document both the gap and the fix.
+
+This log is a living evidence trail for compliance officers and auditors. Keep entries factual and concise.

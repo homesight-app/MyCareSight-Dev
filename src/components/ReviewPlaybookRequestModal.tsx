@@ -102,7 +102,7 @@ export default function ReviewPlaybookRequestModal({
                 </div>
                 <div className="flex items-center gap-1 px-3 py-1 bg-teal-100 text-teal-700 rounded-full text-sm font-semibold flex-shrink-0 ml-4">
                   <MapPin className="w-4 h-4" />
-                  {getStateAbbr(state)}
+                  {playbook.state === null ? 'National' : getStateAbbr(state)}
                 </div>
               </div>
             </div>

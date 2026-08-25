@@ -6,6 +6,7 @@ import PlaybookTab from './PlaybookTab'
 import Modal from './Modal'
 import { createClient } from '@/lib/supabase/client'
 import { updatePlaybook, createPlaybookTemplate, updatePlaybookTemplateAction, deletePlaybookTemplateAction } from '@/app/actions/playbooks'
+import { US_STATES } from '@/lib/constants'
 import type { PlaybookItem, PlaybookTemplate } from '@/lib/supabase/query/playbooks'
 
 export type PlaybookRow = {
@@ -104,6 +105,7 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
   const [itemCount, setItemCount] = useState(initialItems.length)
   const [categoryId, setCategoryId] = useState(playbook.category_id ?? '')
   const [subcategoryId, setSubcategoryId] = useState(playbook.subcategory_id ?? '')
+  const [stateVal, setStateVal] = useState(playbook.state ?? '')
 
   // Templates state
   const [templates, setTemplates] = useState<PlaybookTemplate[]>(initialTemplates)
@@ -303,6 +305,25 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
                 {saveStatus === 'saving' && <span className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Saving…</span>}
                 {saveStatus === 'saved' && <span className="text-xs text-green-600">Saved</span>}
               </div>
+            </div>
+
+            {/* State */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">State</label>
+              <select
+                value={stateVal}
+                onChange={e => {
+                  const next = e.target.value
+                  setStateVal(next)
+                  saveNow({ state: next || null })
+                }}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">National (All States)</option>
+                {US_STATES.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
             </div>
 
             {/* Category / Subcategory */}

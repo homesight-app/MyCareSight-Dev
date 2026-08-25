@@ -398,7 +398,7 @@ export default function PlaybookLibraryContent({ playbooks, categories }: Props)
                   onChange={e => setState(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">— Select state —</option>
+                  <option value="">National (All States)</option>
                   {US_STATES.map(s => (
                     <option key={s} value={s}>{s}</option>
                   ))}

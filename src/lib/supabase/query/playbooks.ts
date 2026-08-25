@@ -734,8 +734,8 @@ export async function getStandalonePlaybooksByState(supabase: Supabase, state: s
 
   const filtered = (result.data ?? []).filter(p => {
     const lr = p.license_requirement as unknown as { state: string } | null
-    const effectiveState = p.state ?? lr?.state
-    return effectiveState === state
+    const effectiveState = p.state ?? lr?.state ?? null
+    return effectiveState === state || effectiveState === null
   })
 
   return { ...result, data: filtered as unknown as StandalonePlaybook[] }

@@ -9,6 +9,7 @@ import ResetPasswordModal from './ResetPasswordModal'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
 import { useTableState } from '@/hooks/useTableState'
+import TablePagination from '@/components/ui/TablePagination'
 import {
   updateAgencyAdminStatus,
   updateCareCoordinatorStatus,
@@ -698,8 +699,9 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
 
   const [roleFilter, setRoleFilter]           = useState('')
   const [credentialFilter, setCredentialFilter] = useState('')
+  const [statusTab, setStatusTab] = useState<'active' | 'inactive'>('active')
 
-  const { search, setSearch, sort, setSort, applySortedData } = useTableState({
+  const { search, setSearch, sort, setSort, page, setPage, pageSize, resetPage, applySortedData, applyPageSlice } = useTableState({
     defaultSort: { key: 'name', dir: 'asc' },
   })
 
@@ -744,6 +746,11 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
     []
   )
 
+  const inactiveCount = useMemo(
+    () => rows.filter(r => !!r.credential && r.status !== 'active').length,
+    [rows]
+  )
+
   const filtered = useMemo(() => {
     let result = rows
     if (search) {
@@ -756,8 +763,15 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
     else if (roleFilter) result = result.filter(r => r.officerRoles.includes(roleFilter))
     if (credentialFilter === '__none__') result = result.filter(r => !r.credential)
     else if (credentialFilter) result = result.filter(r => r.credential === credentialFilter)
+    if (statusTab === 'active') {
+      result = result.filter(r => !r.credential || r.status === 'active')
+    } else {
+      result = result.filter(r => !!r.credential && r.status !== 'active')
+    }
     return applySortedData(result, sortFn)
-  }, [rows, search, roleFilter, credentialFilter, applySortedData, sortFn])
+  }, [rows, search, roleFilter, credentialFilter, statusTab, applySortedData, sortFn])
+
+  const { slice: pageRows, totalCount } = applyPageSlice(filtered)
 
   if (loading) {
     return (
@@ -780,22 +794,36 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-500">
-            {filtered.length === rows.length
-              ? `${rows.length} ${rows.length === 1 ? 'person' : 'people'}`
-              : `${filtered.length} of ${rows.length} people`}
-          </span>
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+          <button
+            type="button"
+            onClick={() => { setStatusTab('active'); resetPage() }}
+            aria-pressed={statusTab === 'active'}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+              statusTab === 'active' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            onClick={() => { setStatusTab('inactive'); resetPage() }}
+            aria-pressed={statusTab === 'inactive'}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+              statusTab === 'inactive' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Inactive{inactiveCount > 0 ? ` (${inactiveCount})` : ''}
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={fetchData}
-            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Refresh"
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
           </button>
           <button
             type="button"
@@ -823,7 +851,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
         <div className="relative">
           <select
             value={roleFilter}
-            onChange={e => setRoleFilter(e.target.value)}
+            onChange={e => { setRoleFilter(e.target.value); resetPage() }}
             className="pl-3 pr-7 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none bg-white"
           >
             <option value="">All Roles</option>
@@ -835,7 +863,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
         <div className="relative">
           <select
             value={credentialFilter}
-            onChange={e => setCredentialFilter(e.target.value)}
+            onChange={e => { setCredentialFilter(e.target.value); resetPage() }}
             className="pl-3 pr-7 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none bg-white"
           >
             <option value="">All Credentials</option>
@@ -849,7 +877,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
 
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        {filtered.length === 0 ? (
+        {pageRows.length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-gray-400 italic">
             {rows.length === 0 ? 'No people associated with this agency yet.' : 'No people match the current filters.'}
           </p>
@@ -868,7 +896,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filtered.map(row => {
+                {pageRows.map(row => {
                   const isInactive = row.status !== 'active'
                   const isToggling = togglingId === row.rowKey
                   return (
@@ -923,6 +951,16 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
           </div>
         )}
       </div>
+
+      {totalCount > pageSize && (
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          onPageChange={setPage}
+          entityLabel="people"
+        />
+      )}
 
       {/* Modals */}
       <AddPersonModal

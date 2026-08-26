@@ -108,8 +108,8 @@ export default function NewLicenseApplicationModal({
                 <Globe className="w-8 h-8 text-teal-600" />
               </div>
               <div>
-                <p className="font-bold text-gray-900 text-base mb-1">No State Required</p>
-                <p className="text-sm text-gray-500">Browse programs available in all states</p>
+                <p className="font-bold text-gray-900 text-base mb-1">Not State Specific</p>
+                <p className="text-sm text-gray-500">Browse programs</p>
               </div>
               <span className="px-5 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg group-hover:bg-teal-700 transition-colors">
                 Browse National
@@ -123,7 +123,7 @@ export default function NewLicenseApplicationModal({
               </div>
               <div>
                 <p className="font-bold text-gray-900 text-base mb-1">Select a State</p>
-                <p className="text-sm text-gray-500">See state-specific programs alongside national ones</p>
+                <p className="text-sm text-gray-500">See state-specific programs</p>
               </div>
               <div className="w-full space-y-3">
                 <div className="relative">

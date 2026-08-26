@@ -388,9 +388,9 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
           <button
             type="button"
             onClick={() => { setShowAdd(p => !p); setAddError(null) }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors flex-shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
           >
-            <UserPlus className="w-3.5 h-3.5" />
+            <UserPlus className="w-4 h-4" />
             Add Caregiver
           </button>
         </div>

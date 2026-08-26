@@ -237,26 +237,7 @@ export default function StaffManagementClient({
     <>
       <div className="space-y-6 ">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Users className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Caregiver Management</h1>
-              <p className="text-gray-600 text-sm">
-                Manage your team members and track their professional licenses
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all flex items-center gap-2 shadow-lg"
-          >
-            <Plus className="w-5 h-5" />
-            Add Caregiver
-          </button>
-        </div>
+
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -267,6 +248,7 @@ export default function StaffManagementClient({
             </div>
             <div className="text-xl font-bold text-gray-900">{totalStaff}</div>
           </div>
+
 
           <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
             <div className="flex items-center gap-3 mb-2">
@@ -284,7 +266,18 @@ export default function StaffManagementClient({
             <div className="text-xl font-bold text-gray-900">{expiringLicenses}</div>
           </div>
         </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
 
+          </div>
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all flex items-center gap-2 shadow-lg"
+          >
+            <Plus className="w-5 h-5" />
+            Add Caregiver
+          </button>
+        </div>
         {/* Active/Inactive tabs + Search + Filter */}
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
           <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">

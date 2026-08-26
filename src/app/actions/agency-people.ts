@@ -9,6 +9,7 @@ export interface RawKeyStaff {
   id: string
   agency_id: string
   officer_role: string | null
+  officer_roles: string[]
   full_legal_name: string | null
   telephone: string | null
   email: string | null
@@ -53,7 +54,7 @@ export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> 
   const [staffRes, adminsRes, coordsRes] = await Promise.all([
     supabase
       .from('agency_key_staff')
-      .select('id, agency_id, officer_role, full_legal_name, telephone, email, ownership_percentage, user_profile_id, status')
+      .select('id, agency_id, officer_role, officer_roles, full_legal_name, telephone, email, ownership_percentage, user_profile_id, status')
       .eq('agency_id', agencyId)
       .eq('status', 'active')
       .order('created_at', { ascending: true }),

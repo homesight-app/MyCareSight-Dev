@@ -53,6 +53,7 @@ import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
 import Modal from './Modal'
 import type { OnboardingToken, AgencyKeyStaff } from '@/lib/supabase/query'
 import { formatDateShort } from '@/lib/format-date'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 
 interface Agency {
   id: string
@@ -878,9 +879,9 @@ export default function AgencyDetailContent({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/60">
                       {([
                         ['name',      'Certification'],
                         ['state',     'State'],
@@ -892,7 +893,7 @@ export default function AgencyDetailContent({
                         <th
                           key={key}
                           onClick={() => makeHandleSort(key, licSortKey, setLicSortKey, licSortDir, setLicSortDir)()}
-                          className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:text-gray-900"
+                          className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700"
                         >
                           <span className="inline-flex items-center gap-1">
                             {label} <SortIcon active={licSortKey === key} dir={licSortDir} />
@@ -901,7 +902,7 @@ export default function AgencyDetailContent({
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-50">
                     {displayedLicenses.map((license) => (
                       <tr
                         key={license.id}
@@ -996,11 +997,19 @@ export default function AgencyDetailContent({
               <div className="px-6 py-10 text-center text-sm text-gray-500">No programs match the selected filters.</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/60">
+                      <th className="w-10 px-2" />
+                      <th
+                        onClick={() => makeHandleSort('name', programSortKey, setProgramSortKey, programSortDir, setProgramSortDir)()}
+                        className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Program Name <SortIcon active={programSortKey === 'name'} dir={programSortDir} />
+                        </span>
+                      </th>
                       {([
-                        ['name',     'Program Name'],
                         ['state',    'State'],
                         ['status',   'Status'],
                         ['progress', 'Progress'],
@@ -1009,17 +1018,16 @@ export default function AgencyDetailContent({
                         <th
                           key={key}
                           onClick={() => makeHandleSort(key, programSortKey, setProgramSortKey, programSortDir, setProgramSortDir)()}
-                          className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700"
+                          className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700"
                         >
                           <span className="inline-flex items-center gap-1">
                             {label} <SortIcon active={programSortKey === key} dir={programSortDir} />
                           </span>
                         </th>
                       ))}
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-50">
                     {displayedPrograms.map((program) => {
                       const items = program.application_playbook_items ?? []
                       const na = items.filter(i => i.status === 'not_applicable').length
@@ -1028,7 +1036,15 @@ export default function AgencyDetailContent({
                       const pct = countable > 0 ? Math.round((approved / countable) * 100) : 0
                       const programDetailPath = `${backPath.startsWith('/pages/admin') ? '/pages/admin/programs' : '/pages/expert/programs'}/${program.id}`
                       return (
-                        <tr key={program.id} className="hover:bg-gray-50">
+                        <tr key={program.id} className="hover:bg-gray-50/50 transition-colors cursor-pointer" onClick={() => router.push(programDetailPath)}>
+                          <td className="w-10 px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                            <RecordActionsMenu
+                              label={`Actions for ${program.application_name}`}
+                              actions={[
+                                { label: 'View Details', icon: Eye, href: programDetailPath },
+                              ]}
+                            />
+                          </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <div className="flex items-center gap-2">
                               <TrendingUp className="w-4 h-4 text-blue-500 flex-shrink-0" />
@@ -1059,14 +1075,6 @@ export default function AgencyDetailContent({
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                             {items.length} items
-                          </td>
-                          <td className="px-4 py-3 text-right whitespace-nowrap">
-                            <Link
-                              href={programDetailPath}
-                              className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
-                            >
-                              View Details
-                            </Link>
                           </td>
                         </tr>
                       )
@@ -1521,21 +1529,31 @@ export default function AgencyDetailContent({
               ) : (
                 <table className="w-full">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="px-5 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Lead</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-36">Stage</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-40">Service Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Price</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Signed Date</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Actions</th>
+                    <tr className="border-b border-gray-100 bg-gray-50/60">
+                      <th className="w-10 px-2" />
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Lead</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Stage</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-40">Service Type</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Price</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Signed Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {agencyLeads.map(lead => {
                       const name = leadNameMap[lead.id]
                       return (
-                        <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-5 py-3">
+                        <tr key={lead.id} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="w-10 px-2 py-3">
+                            <RecordActionsMenu
+                              label={`Actions for ${name}`}
+                              actions={[
+                                { label: 'View Documents', icon: FileText, onClick: () => openDocsPanel(lead.id, name) },
+                                { label: 'View Notes', icon: StickyNote, onClick: () => openNotesPanel(lead.id, name) },
+                                { label: 'Open Lead', icon: ExternalLink, href: `/pages/admin/leads/${lead.id}` },
+                              ]}
+                            />
+                          </td>
+                          <td className="px-4 py-3">
                             <p className="text-sm font-medium text-gray-900">{name}</p>
                             {lead.company_name && (
                               <p className="text-xs text-gray-400 mt-0.5">{lead.company_name}</p>
@@ -1550,33 +1568,6 @@ export default function AgencyDetailContent({
                           <td className="px-4 py-3 text-sm text-gray-600">{lead.price != null ? fmtCurrency(lead.price) : '—'}</td>
                           <td className="px-4 py-3 text-sm text-gray-600">
                             {lead.signed_date ? new Date(lead.signed_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                title="View documents"
-                                onClick={() => openDocsPanel(lead.id, name)}
-                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                              >
-                                <FileText className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                title="View notes"
-                                onClick={() => openNotesPanel(lead.id, name)}
-                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                              >
-                                <StickyNote className="w-4 h-4" />
-                              </button>
-                              <a
-                                href={`/pages/admin/leads/${lead.id}`}
-                                title="Open lead"
-                                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors inline-flex"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                              </a>
-                            </div>
                           </td>
                         </tr>
                       )

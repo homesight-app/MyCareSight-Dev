@@ -1,13 +1,17 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Upload, FileText, Trash2, Download, Loader2, ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Upload, FileText, Loader2, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { uploadAgencyDocument, deleteAgencyDocumentAction } from '@/app/actions/agencies'
 import { deleteLeadDocumentAction } from '@/app/actions/leads'
 import * as q from '@/lib/supabase/query'
 import { formatDateShort } from '@/lib/format-date'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
+import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
+import TablePagination from '@/components/ui/TablePagination'
+import { useTableState } from '@/hooks/useTableState'
 
 interface LeadDoc {
   id: string
@@ -38,17 +42,12 @@ interface UnifiedDoc {
   created_at: string
 }
 
-type SortKey = 'name' | 'type' | 'lead' | 'date'
-
 const DOC_TYPES = ['Proposal', 'Contract', 'Agreement', 'Invoice', 'NDA', 'Other']
-
 
 export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMap }: AgencyDocumentsTabProps) {
   const [agencyDocs, setAgencyDocs] = useState<UnifiedDoc[]>([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [sortKey, setSortKey] = useState<SortKey>('date')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const [showForm, setShowForm] = useState(false)
   const [docName, setDocName] = useState('')
@@ -59,6 +58,10 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
   const fileRef = useRef<HTMLInputElement>(null)
 
   const supabase = createClient()
+
+  const { search, setSearch, sort, setSort, page, setPage, pageSize, applySortedData, applyPageSlice } = useTableState({
+    defaultSort: { key: 'date', dir: 'desc' },
+  })
 
   const fetchAgencyDocs = useCallback(async () => {
     const { data } = await q.getAgencyDocuments(supabase, agencyId)
@@ -83,27 +86,28 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
     [leadDocuments]
   )
 
-  const allDocs = useMemo(() => {
+  const sortFn = useCallback((key: string, dir: 'asc' | 'desc') => (a: UnifiedDoc, b: UnifiedDoc): number => {
+    let cmp = 0
+    if (key === 'name') cmp = a.document_name.localeCompare(b.document_name)
+    else if (key === 'type') cmp = (a.document_type ?? '').localeCompare(b.document_type ?? '')
+    else if (key === 'lead') cmp = (a.lead_id ? (leadNameMap[a.lead_id] ?? '') : '').localeCompare(b.lead_id ? (leadNameMap[b.lead_id] ?? '') : '')
+    else if (key === 'date') cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    return dir === 'asc' ? cmp : -cmp
+  }, [leadNameMap])
+
+  const filtered = useMemo(() => {
     const combined = [...agencyDocs, ...leadDocs]
-    return combined.sort((a, b) => {
-      let cmp = 0
-      if (sortKey === 'name')  cmp = a.document_name.localeCompare(b.document_name)
-      if (sortKey === 'type')  cmp = (a.document_type ?? '').localeCompare(b.document_type ?? '')
-      if (sortKey === 'lead')  cmp = (a.lead_id ? (leadNameMap[a.lead_id] ?? '') : '').localeCompare(b.lead_id ? (leadNameMap[b.lead_id] ?? '') : '')
-      if (sortKey === 'date')  cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [agencyDocs, leadDocs, sortKey, sortDir, leadNameMap])
+    const term = search.toLowerCase()
+    if (!term) return combined
+    return combined.filter(doc =>
+      doc.document_name.toLowerCase().includes(term) ||
+      (doc.document_type && doc.document_type.toLowerCase().includes(term)) ||
+      (doc.lead_id && (leadNameMap[doc.lead_id] || '').toLowerCase().includes(term))
+    )
+  }, [agencyDocs, leadDocs, search, leadNameMap])
 
-  function handleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('asc') }
-  }
-
-  function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 opacity-40" />
-    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-  }
+  const sorted = useMemo(() => applySortedData(filtered, sortFn), [filtered, applySortedData, sortFn])
+  const { slice: rows, totalCount } = useMemo(() => applyPageSlice(sorted), [sorted, applyPageSlice])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null
@@ -182,10 +186,21 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      {/* Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search documents…"
+            className="w-full pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+        </div>
         <button
           onClick={() => setShowForm(v => !v)}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors sm:ml-auto"
         >
           <Upload className="w-4 h-4" />
           Upload Document
@@ -249,39 +264,42 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
         </form>
       )}
 
-      {allDocs.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="py-12 text-center text-gray-400 border border-dashed border-gray-200 rounded-xl">
           <FileText className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-          <p className="text-sm">No documents yet.</p>
-          <p className="text-xs mt-1">Upload agency-level documents above, or add docs from individual leads.</p>
+          <p className="text-sm">{search ? 'No documents match your search.' : 'No documents yet.'}</p>
+          {!search && <p className="text-xs mt-1">Upload agency-level documents above, or add docs from individual leads.</p>}
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <table className="w-full">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {([
-                  ['name', 'Name'],
-                  ['type', 'Type'],
-                  ['lead', 'Lead'],
-                  ['date', 'Date Added'],
-                ] as [SortKey, string][]).map(([key, label]) => (
-                  <th
-                    key={key}
-                    onClick={() => handleSort(key)}
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none whitespace-nowrap"
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {label} <SortIcon col={key} />
-                    </span>
-                  </th>
-                ))}
-                <th className="px-4 py-3 w-24" />
+              <tr className="border-b border-gray-100 bg-gray-50/60">
+                <th className="w-10 px-2 py-2.5" />
+                <SortableColumnHeader label="Name" sortKey="name" currentSort={sort} onSort={setSort} />
+                <SortableColumnHeader label="Type" sortKey="type" currentSort={sort} onSort={setSort} />
+                <SortableColumnHeader label="Lead" sortKey="lead" currentSort={sort} onSort={setSort} />
+                <SortableColumnHeader label="Date Added" sortKey="date" currentSort={sort} onSort={setSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {allDocs.map(doc => (
-                <tr key={`${doc.source}-${doc.id}`} className="hover:bg-gray-50 transition-colors">
+              {rows.map(doc => (
+                <tr key={`${doc.source}-${doc.id}`} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="w-10 px-2 py-3">
+                    <RecordActionsMenu
+                      label={`Actions for ${doc.document_name}`}
+                      actions={[
+                        { label: 'View Document', onClick: () => handleView(doc) },
+                        { label: 'Download', onClick: () => handleDownload(doc) },
+                        {
+                          label: 'Delete',
+                          onClick: () => handleDelete(doc),
+                          destructive: true,
+                          hidden: deletingId === doc.id,
+                        },
+                      ]}
+                    />
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -291,46 +309,17 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
                       <p className="text-xs text-gray-400 ml-6 mt-0.5">{doc.file_name}</p>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                  <td className="px-4 py-3 text-sm text-gray-700">
                     {doc.document_type ?? '—'}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                  <td className="px-4 py-3 text-sm">
                     {doc.source === 'lead' && doc.lead_id
                       ? <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{leadNameMap[doc.lead_id] ?? 'Unknown lead'}</span>
                       : <span className="text-gray-300">—</span>
                     }
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                  <td className="px-4 py-3 text-sm text-gray-700">
                     {formatDateShort(doc.created_at)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1 justify-end">
-                      <button
-                        onClick={() => handleView(doc)}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 rounded transition-colors"
-                        title="View"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDownload(doc)}
-                        className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors"
-                        title="Download"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(doc)}
-                        disabled={deletingId === doc.id}
-                        className="p-1.5 text-gray-400 hover:text-red-500 rounded transition-colors disabled:opacity-50"
-                        title="Delete"
-                      >
-                        {deletingId === doc.id
-                          ? <Loader2 className="w-4 h-4 animate-spin" />
-                          : <Trash2 className="w-4 h-4" />
-                        }
-                      </button>
-                    </div>
                   </td>
                 </tr>
               ))}
@@ -338,6 +327,14 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
           </table>
         </div>
       )}
+
+      <TablePagination
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
+        onPageChange={setPage}
+        entityLabel="documents"
+      />
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { coordinatorAuthFile } from './auth.setup'
+import { coordinatorAuthFile } from './auth-paths'
 
 test.use({ storageState: coordinatorAuthFile })
 

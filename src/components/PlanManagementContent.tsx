@@ -6,6 +6,7 @@ import { Plus, Pencil, Trash2, X, Layers } from 'lucide-react'
 import { AGENCY_FEATURES } from '@/lib/constants/feature-keys'
 import { createPlan, updatePlan, deletePlan } from '@/app/actions/feature-plans'
 import type { FeaturePlanRow } from '@/lib/supabase/query/feature-plans'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 
 interface Props {
   plans: (FeaturePlanRow & { agency_count?: number })[]
@@ -247,24 +248,33 @@ export default function PlanManagementContent({ plans: initialPlans }: Props) {
         <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Plan</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Features</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Agencies</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Actions</th>
+              <tr className="border-b border-gray-100 bg-gray-50/60">
+                <th className="w-10 px-2" />
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Features</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Agencies</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-50">
               {plans.map(plan => {
                 const featureLabels = plan.plan_features
                   .map(f => AGENCY_FEATURES.find(a => a.key === f.feature_key)?.label ?? f.feature_key)
                 return (
-                  <tr key={plan.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4">
+                  <tr key={plan.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="w-10 px-2 py-3">
+                      <RecordActionsMenu
+                        label={`Actions for ${plan.name}`}
+                        actions={[
+                          { label: 'Edit Plan', icon: Pencil, onClick: () => openEdit(plan) },
+                          { label: 'Delete Plan', icon: Trash2, onClick: () => { setDeleteTarget(plan); setDeleteError(null) }, destructive: true },
+                        ]}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="font-medium text-slate-900">{plan.name}</div>
                       {plan.description && <div className="text-xs text-slate-500 mt-0.5">{plan.description}</div>}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1 max-w-md">
                         {featureLabels.length === 0 ? (
                           <span className="text-slate-400 text-xs italic">No features</span>
@@ -277,30 +287,10 @@ export default function PlanManagementContent({ plans: initialPlans }: Props) {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-4 py-3 text-right">
                       <span className={`font-medium ${(plan.agency_count ?? 0) > 0 ? 'text-slate-900' : 'text-slate-400'}`}>
                         {plan.agency_count ?? 0}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(plan)}
-                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="Edit plan"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setDeleteTarget(plan); setDeleteError(null) }}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete plan"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
                     </td>
                   </tr>
                 )

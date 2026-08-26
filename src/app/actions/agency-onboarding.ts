@@ -446,7 +446,7 @@ export async function addMemberOwner(
 export async function updateKeyStaffById(
   agencyId: string,
   staffId: string,
-  data: { full_legal_name?: string; telephone?: string; email?: string; officer_role?: string }
+  data: { full_legal_name?: string; telephone?: string; email?: string; officer_role?: string; officer_roles?: string[] }
 ): Promise<{ error: string | null }> {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
@@ -471,4 +471,54 @@ export async function updateKeyStaffById(
 
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
+}
+
+export async function addKeyStaffWithRoles(
+  agencyId: string,
+  payload: {
+    officer_roles: string[]
+    full_legal_name?: string
+    telephone?: string
+    email?: string
+    ownership_percentage?: string
+  }
+): Promise<{ error: string | null; data: { id: string } | null }> {
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
+
+  if (!payload.officer_roles.length) return { error: 'At least one officer role is required', data: null }
+
+  const supabase = createAdminClient()
+  try {
+    const primaryRole = payload.officer_roles[0]
+    const { data, error } = await supabase
+      .from('agency_key_staff')
+      .insert({
+        agency_id: agencyId,
+        officer_role: primaryRole,
+        officer_roles: payload.officer_roles,
+        full_legal_name: payload.full_legal_name?.trim() || null,
+        telephone: payload.telephone?.trim() || null,
+        email: payload.email?.trim() || null,
+        ownership_percentage: payload.ownership_percentage?.trim() || null,
+      })
+      .select('id')
+      .single()
+
+    if (error) return { error: error.message, data: null }
+
+    await supabase.from('audit_log').insert({
+      agency_id: agencyId,
+      table_name: 'agency_key_staff',
+      record_id: data?.id ?? null,
+      action: 'CREATE_KEY_STAFF',
+      performed_by_user_id: session.user.id,
+      details: { officer_roles: payload.officer_roles, full_legal_name: payload.full_legal_name?.trim() },
+    })
+
+    revalidateAgencyDetailPages(agencyId)
+    return { error: null, data }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to add key staff', data: null }
+  }
 }

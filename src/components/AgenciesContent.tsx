@@ -154,11 +154,11 @@ export default function AgenciesContent({
     router.refresh()
   }
 
-  const thCls = 'px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:text-gray-900'
+  const thCls = 'px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700'
 
   return (
     <>
-      <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className="px-4 py-4 sm:px-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h2 className="text-lg font-semibold text-gray-900"></h2>
@@ -214,12 +214,12 @@ export default function AgenciesContent({
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/60">
                 <th scope="col" className={thCls} onClick={() => handleSort('name')}>
                   <span className="inline-flex items-center gap-1">Agency Name <SortIcon col="name" /></span>
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                <th scope="col" className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Primary Contact
                 </th>
                 <th scope="col" className={thCls} onClick={() => handleSort('created')}>
@@ -230,7 +230,7 @@ export default function AgenciesContent({
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-50">
               {agencies.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-gray-500 text-sm">
@@ -248,7 +248,7 @@ export default function AgenciesContent({
                     <tr
                       key={agency.id}
                       onClick={() => detailBasePath && router.push(`${detailBasePath}/${agency.id}`)}
-                      className={`transition-colors ${detailBasePath ? 'cursor-pointer hover:bg-gray-50' : ''} ${!isActive ? 'opacity-60' : ''}`}
+                      className={`transition-colors ${detailBasePath ? 'cursor-pointer hover:bg-gray-50/50' : ''} ${!isActive ? 'opacity-60' : ''}`}
                     >
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
                         {agency.name}

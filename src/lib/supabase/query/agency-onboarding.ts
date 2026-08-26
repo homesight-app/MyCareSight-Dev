@@ -98,7 +98,7 @@ export async function insertKeyStaffMember(
 ) {
   return supabase
     .from('agency_key_staff')
-    .insert({ agency_id: agencyId, officer_role: officerRole, ...payload })
+    .insert({ agency_id: agencyId, officer_role: officerRole, officer_roles: [officerRole], ...payload })
     .select('*')
     .single()
 }
@@ -111,23 +111,26 @@ export async function upsertKeyStaffMember(
 ) {
   const { data: existing } = await supabase
     .from('agency_key_staff')
-    .select('id')
+    .select('id, officer_roles')
     .eq('agency_id', agencyId)
     .eq('officer_role', officerRole)
     .eq('status', 'active')
     .maybeSingle()
 
   if (existing?.id) {
+    // Ensure this role is in the array (may have been backfilled as empty)
+    const existingRoles = existing.officer_roles as string[]
+    const mergedRoles = existingRoles.includes(officerRole) ? existingRoles : [...existingRoles, officerRole]
     return supabase
       .from('agency_key_staff')
-      .update({ ...payload, updated_at: new Date().toISOString() })
+      .update({ ...payload, officer_roles: mergedRoles, updated_at: new Date().toISOString() })
       .eq('id', existing.id)
       .select('*')
       .single()
   }
   return supabase
     .from('agency_key_staff')
-    .insert({ agency_id: agencyId, officer_role: officerRole, ...payload })
+    .insert({ agency_id: agencyId, officer_role: officerRole, officer_roles: [officerRole], ...payload })
     .select('*')
     .single()
 }

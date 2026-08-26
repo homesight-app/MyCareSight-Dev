@@ -1,10 +1,14 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, MoreVertical, Copy, Pencil, Trash2, Globe, Building2 } from 'lucide-react'
+import { Plus, Search, Globe, Building2 } from 'lucide-react'
 import { TEMPLATE_CATEGORIES, TEMPLATE_TYPES } from '@/lib/constants/template-variables'
 import { toggleTemplateActive, deleteTemplate, duplicateTemplate } from '@/app/actions/templates'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
+import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
+import TablePagination from '@/components/ui/TablePagination'
+import { useTableState } from '@/hooks/useTableState'
 
 interface Template {
   id: string
@@ -47,21 +51,14 @@ const categoryColors: Record<string, string> = {
 
 export default function TemplatesContent({ templates, isAdmin, agencyId, basePath }: TemplatesContentProps) {
   const router = useRouter()
-  const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [copyingId, setCopyingId] = useState<string | null>(null)
 
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    return templates.filter(t => {
-      if (typeFilter !== 'all' && t.type !== typeFilter) return false
-      if (!term) return true
-      return t.name.toLowerCase().includes(term)
-    })
-  }, [templates, search, typeFilter])
+  const { search, setSearch, sort, setSort, page, setPage, pageSize, applySortedData, applyPageSlice, resetPage } = useTableState({})
+
+  useEffect(() => { resetPage() }, [typeFilter, resetPage])
 
   const counts = useMemo(() => ({
     all: templates.length,
@@ -74,27 +71,40 @@ export default function TemplatesContent({ templates, isAdmin, agencyId, basePat
     return !t.is_global && t.agency_id === agencyId
   }
 
-  const handleToggleActive = async (e: React.MouseEvent, t: Template) => {
-    e.stopPropagation()
-    setMenuOpenId(null)
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return templates.filter(t => {
+      if (typeFilter !== 'all' && t.type !== typeFilter) return false
+      if (!term) return true
+      return t.name.toLowerCase().includes(term)
+    })
+  }, [templates, search, typeFilter])
+
+  const sortFn = useCallback((key: string, dir: 'asc' | 'desc') => (a: Template, b: Template): number => {
+    let cmp = 0
+    if (key === 'name') cmp = a.name.localeCompare(b.name)
+    else if (key === 'type') cmp = a.type.localeCompare(b.type)
+    return dir === 'asc' ? cmp : -cmp
+  }, [])
+
+  const sorted = useMemo(() => applySortedData(filtered, sortFn), [filtered, applySortedData, sortFn])
+  const { slice: rows, totalCount } = useMemo(() => applyPageSlice(sorted), [sorted, applyPageSlice])
+
+  const handleToggleActive = useCallback(async (t: Template) => {
     setTogglingId(t.id)
     await toggleTemplateActive(t.id, !t.is_active)
     setTogglingId(null)
     router.refresh()
-  }
+  }, [router])
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation()
-    setMenuOpenId(null)
+  const handleDelete = useCallback(async (id: string) => {
     setDeletingId(id)
     await deleteTemplate(id)
     setDeletingId(null)
     router.refresh()
-  }
+  }, [router])
 
-  const handleCopy = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation()
-    setMenuOpenId(null)
+  const handleCopy = useCallback(async (id: string) => {
     if (!agencyId) return
     setCopyingId(id)
     const result = await duplicateTemplate(id, agencyId)
@@ -104,7 +114,7 @@ export default function TemplatesContent({ templates, isAdmin, agencyId, basePat
     } else {
       router.refresh()
     }
-  }
+  }, [agencyId, basePath, router])
 
   const formatDate = (val: string) => {
     try { return new Date(val).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
@@ -112,7 +122,7 @@ export default function TemplatesContent({ templates, isAdmin, agencyId, basePat
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
       {/* Header */}
       <div className="px-4 py-4 sm:px-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h2 className="text-lg font-semibold text-gray-900"></h2>
@@ -165,23 +175,23 @@ export default function TemplatesContent({ templates, isAdmin, agencyId, basePat
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Name</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Type</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Category</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Scope</th>
+        <table className="min-w-full">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50/60">
+              <th className="w-10 px-2 py-2.5" />
+              <SortableColumnHeader label="Name" sortKey="name" currentSort={sort} onSort={setSort} />
+              <SortableColumnHeader label="Type" sortKey="type" currentSort={sort} onSort={setSort} />
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Scope</th>
               {isAdmin && (
-                <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Agency</th>
+                <th className="hidden lg:table-cell px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Agency</th>
               )}
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Active</th>
-              <th className="hidden xl:table-cell px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Created</th>
-              <th className="relative px-4 py-3"><span className="sr-only">Actions</span></th>
+              <th className="hidden xl:table-cell px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Created</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {filtered.length === 0 ? (
+          <tbody className="divide-y divide-gray-50">
+            {rows.length === 0 ? (
               <tr>
                 <td colSpan={isAdmin ? 8 : 7} className="px-4 py-8 text-center text-gray-500 text-sm">
                   {search || typeFilter !== 'all'
@@ -189,12 +199,38 @@ export default function TemplatesContent({ templates, isAdmin, agencyId, basePat
                     : 'No templates yet. Click "New Template" to create one.'}
                 </td>
               </tr>
-            ) : filtered.map(t => (
+            ) : rows.map(t => (
               <tr
                 key={t.id}
                 onClick={() => canEdit(t) ? router.push(`${basePath}/${t.id}`) : undefined}
-                className={`transition-colors ${canEdit(t) ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                className={`hover:bg-gray-50/50 transition-colors ${canEdit(t) ? 'cursor-pointer' : ''}`}
               >
+                <td className="w-10 px-2 py-3" onClick={e => e.stopPropagation()}>
+                  <RecordActionsMenu
+                    label={`Actions for ${t.name}`}
+                    actions={canEdit(t) ? [
+                      { label: 'Edit', href: `${basePath}/${t.id}` },
+                      {
+                        label: t.is_active ? 'Deactivate' : 'Activate',
+                        onClick: () => handleToggleActive(t),
+                        hidden: togglingId === t.id,
+                        destructive: t.is_active,
+                      },
+                      {
+                        label: 'Delete',
+                        onClick: () => handleDelete(t.id),
+                        hidden: deletingId === t.id,
+                        destructive: true,
+                      },
+                    ] : agencyId ? [
+                      {
+                        label: copyingId === t.id ? 'Copying…' : 'Copy to My Templates',
+                        onClick: () => handleCopy(t.id),
+                        hidden: copyingId === t.id,
+                      },
+                    ] : []}
+                  />
+                </td>
                 <td className="px-4 py-3 text-sm font-medium text-gray-900">
                   {t.name}
                   {t.description && (
@@ -229,77 +265,29 @@ export default function TemplatesContent({ templates, isAdmin, agencyId, basePat
                       : '—'}
                   </td>
                 )}
-                <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                  {canEdit(t) ? (
-                    <button
-                      type="button"
-                      disabled={togglingId === t.id}
-                      onClick={e => handleToggleActive(e, t)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-50 ${t.is_active ? 'bg-green-500' : 'bg-gray-300'}`}
-                    >
-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${t.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                    </button>
-                  ) : (
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${t.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {t.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  )}
-                </td>
-                <td className="hidden xl:table-cell px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                <td className="hidden xl:table-cell px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
                   {formatDate(t.created_at)}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap text-right" onClick={e => e.stopPropagation()}>
-                  <div className="relative inline-block">
-                    <button
-                      type="button"
-                      onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === t.id ? null : t.id) }}
-                      className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                    {menuOpenId === t.id && (
-                      <div className="absolute right-0 z-10 mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-100 py-1">
-                        {canEdit(t) ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => { setMenuOpenId(null); router.push(`${basePath}/${t.id}`) }}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
-                            >
-                              <Pencil className="w-3.5 h-3.5" /> Edit
-                            </button>
-                            <button
-                              type="button"
-                              disabled={deletingId === t.id}
-                              onClick={e => handleDelete(e, t.id)}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              {deletingId === t.id ? 'Deleting…' : 'Delete'}
-                            </button>
-                          </>
-                        ) : (
-                          agencyId && (
-                            <button
-                              type="button"
-                              disabled={copyingId === t.id}
-                              onClick={e => handleCopy(e, t.id)}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                              {copyingId === t.id ? 'Copying…' : 'Copy to My Templates'}
-                            </button>
-                          )
-                        )}
-                      </div>
-                    )}
-                  </div>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                    t.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {t.is_active ? 'Active' : 'Inactive'}
+                  </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <TablePagination
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
+        onPageChange={setPage}
+        entityLabel="templates"
+      />
     </div>
   )
 }

@@ -1,23 +1,12 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { fetchFilteredExpertsAction } from '@/app/actions/admin-list-filters'
-import {
-  Search,
-  Mail,
-  Phone,
-  MapPin,
-  Briefcase,
-  MoreVertical,
-  User,
-  Edit,
-  Users,
-  BarChart3,
-  UserX,
-} from 'lucide-react'
+import { Search, Mail, Phone, MapPin, Briefcase } from 'lucide-react'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 
 interface Expert {
   id: string
@@ -55,16 +44,13 @@ export default function ExpertListWithFilters({
   const [searchInput, setSearchInput] = useState('')
   const debouncedSearch = useDebouncedValue(searchInput, 300)
   const [selectedState, setSelectedState] = useState('All States')
-  const [selectedStatus, setSelectedStatus] = useState('All Status')
-  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
-  const dropdownRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const [expertTab, setExpertTab] = useState<'active' | 'inactive'>('active')
 
+  // Only search + state trigger the server filter; tab is applied client-side
+  // when no server filter is active, and passed along when it is.
   const hasServerFilter = useMemo(
-    () =>
-      debouncedSearch.trim() !== '' ||
-      selectedState !== 'All States' ||
-      selectedStatus !== 'All Status',
-    [debouncedSearch, selectedState, selectedStatus]
+    () => debouncedSearch.trim() !== '' || selectedState !== 'All States',
+    [debouncedSearch, selectedState]
   )
 
   const [serverPayload, setServerPayload] = useState<Awaited<
@@ -83,22 +69,28 @@ export default function ExpertListWithFilters({
     fetchFilteredExpertsAction({
       search: debouncedSearch,
       selectedState,
-      selectedStatus,
+      selectedStatus: expertTab === 'active' ? 'Active' : 'Inactive',
     }).then((res) => {
       if (cancelled) return
-      if (res.error) {
-        setServerPayload(null)
-      } else {
-        setServerPayload(res.data)
-      }
+      setServerPayload(res.error ? null : res.data)
       setFilterLoading(false)
     })
-    return () => {
-      cancelled = true
-    }
-  }, [hasServerFilter, debouncedSearch, selectedState, selectedStatus])
+    return () => { cancelled = true }
+  }, [hasServerFilter, debouncedSearch, selectedState, expertTab])
 
-  const displayExperts = hasServerFilter ? ((serverPayload?.experts ?? []) as unknown as Expert[]) : experts
+  const tabFilteredExperts = useMemo(() => {
+    const status = expertTab === 'active' ? 'active' : 'inactive'
+    return experts.filter(e => e.status === status)
+  }, [experts, expertTab])
+
+  const inactiveCount = useMemo(
+    () => experts.filter(e => e.status !== 'active').length,
+    [experts]
+  )
+
+  const displayExperts = hasServerFilter
+    ? ((serverPayload?.experts ?? []) as unknown as Expert[])
+    : tabFilteredExperts
   const displayStatesByExpert = hasServerFilter ? serverPayload?.statesByExpert ?? {} : statesByExpert
   const displayClientsByExpert = hasServerFilter ? serverPayload?.clientsByExpert ?? {} : clientsByExpert
 
@@ -114,59 +106,19 @@ export default function ExpertListWithFilters({
     return `${firstName[0]}${lastName[0]}`.toUpperCase()
   }
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        openDropdownId &&
-        dropdownRefs.current[openDropdownId] &&
-        !dropdownRefs.current[openDropdownId]?.contains(event.target as Node)
-      ) {
-        setOpenDropdownId(null)
-      }
-    }
-
-    if (openDropdownId) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [openDropdownId])
-
-  const handleToggleDropdown = (expertId: string) => {
-    setOpenDropdownId(openDropdownId === expertId ? null : expertId)
+  const handleTabChange = (tab: 'active' | 'inactive') => {
+    setExpertTab(tab)
+    setSearchInput('')
+    setSelectedState('All States')
   }
 
-  const handleViewProfile = (expert: Expert) => {
-    setOpenDropdownId(null)
-    router.push(`/pages/admin/experts/${expert.id}`)
-  }
-
-  const handleEditInformation = (expert: Expert) => {
-    setOpenDropdownId(null)
-    router.push(`/pages/admin/experts/${expert.id}/edit`)
-  }
-
-  const handleManageClients = (expert: Expert) => {
-    setOpenDropdownId(null)
-    router.push(`/pages/admin/experts/${expert.id}/clients`)
-  }
-
-  const handleViewPerformance = (expert: Expert) => {
-    setOpenDropdownId(null)
-    router.push(`/pages/admin/experts/${expert.id}/performance`)
-  }
-
-  const handleToggleStatus = async (expert: Expert) => {
+  const handleToggleStatus = useCallback(async (expert: Expert) => {
     const isActive = expert.status === 'active'
     const actionText = isActive ? 'deactivate' : 'activate'
 
     if (!confirm(`Are you sure you want to ${actionText} ${expert.first_name} ${expert.last_name}?`)) {
       return
     }
-
-    setOpenDropdownId(null)
 
     try {
       const supabase = createClient()
@@ -187,10 +139,39 @@ export default function ExpertListWithFilters({
       const message = err instanceof Error ? err.message : 'Unknown error'
       alert(`Failed to ${actionText} expert: ${message}`)
     }
-  }
+  }, [router])
 
   return (
     <div className="space-y-4 md:space-y-6">
+      {/* Active / Inactive tabs */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => handleTabChange('active')}
+          aria-pressed={expertTab === 'active'}
+          className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
+            expertTab === 'active'
+              ? 'bg-gray-900 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Active
+        </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('inactive')}
+          aria-pressed={expertTab === 'inactive'}
+          className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
+            expertTab === 'inactive'
+              ? 'bg-gray-900 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Inactive{inactiveCount > 0 ? ` (${inactiveCount})` : ''}
+        </button>
+      </div>
+
+      {/* Filters */}
       <div className="bg-white rounded-xl p-4 shadow-md border border-gray-100">
         <div className="flex flex-col gap-4">
           <div className="flex-1 relative">
@@ -216,19 +197,20 @@ export default function ExpertListWithFilters({
                 </option>
               ))}
             </select>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="flex-1 min-w-[120px] px-3 md:px-4 py-2 text-sm md:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="All Status">All Status</option>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
           </div>
         </div>
       </div>
 
+      {/* Row count */}
+      {!filterLoading && (
+        <p className="text-sm text-gray-500">
+          Showing <span className="font-medium">{displayExperts.length}</span>{' '}
+          {expertTab} expert{displayExperts.length !== 1 ? 's' : ''}
+          {(searchInput || selectedState !== 'All States') ? ' matching filters' : ''}
+        </p>
+      )}
+
+      {/* Expert cards */}
       <div className="space-y-4">
         {hasServerFilter && filterLoading ? (
           <div className="bg-white rounded-xl p-6 text-center text-gray-500 text-sm border border-gray-100 shadow-md">
@@ -295,81 +277,21 @@ export default function ExpertListWithFilters({
                       </div>
                     </div>
                   </div>
-                  <div
-                    className="relative flex-shrink-0"
-                    ref={(el) => {
-                      dropdownRefs.current[expert.id] = el
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        handleToggleDropdown(expert.id)
-                      }}
-                      className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-                      aria-label="More options"
-                    >
-                      <MoreVertical className="w-4 h-4 md:w-5 md:h-5" />
-                    </button>
-
-                    {openDropdownId === expert.id && (
-                      <div className="absolute right-0 top-10 z-50 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleViewProfile(expert)
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-gray-50 flex items-center gap-2 transition-colors"
-                        >
-                          <User className="w-4 h-4" />
-                          <span>View Profile</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleEditInformation(expert)
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-gray-50 flex items-center gap-2 transition-colors"
-                        >
-                          <Edit className="w-4 h-4" />
-                          <span>Edit Information</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleManageClients(expert)
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-gray-50 flex items-center gap-2 transition-colors"
-                        >
-                          <Users className="w-4 h-4" />
-                          <span>Manage Clients</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleViewPerformance(expert)
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-gray-50 flex items-center gap-2 transition-colors"
-                        >
-                          <BarChart3 className="w-4 h-4" />
-                          <span>View Performance</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleToggleStatus(expert)
-                          }}
-                          className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 transition-colors ${
-                            expert.status === 'active' ? 'text-red-600' : 'text-green-600'
-                          }`}
-                        >
-                          <UserX className="w-4 h-4" />
-                          <span>{expert.status === 'active' ? 'Deactivate' : 'Activate'}</span>
-                        </button>
-                      </div>
-                    )}
+                  <div className="flex-shrink-0">
+                    <RecordActionsMenu
+                      label={`Actions for ${expert.first_name} ${expert.last_name}`}
+                      actions={[
+                        { label: 'View Profile', href: `/pages/admin/experts/${expert.id}` },
+                        { label: 'Edit Information', href: `/pages/admin/experts/${expert.id}/edit` },
+                        { label: 'Manage Clients', href: `/pages/admin/experts/${expert.id}/clients` },
+                        { label: 'View Performance', href: `/pages/admin/experts/${expert.id}/performance` },
+                        {
+                          label: expert.status === 'active' ? 'Deactivate' : 'Activate',
+                          onClick: () => handleToggleStatus(expert),
+                          destructive: expert.status === 'active',
+                        },
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
@@ -378,13 +300,12 @@ export default function ExpertListWithFilters({
         ) : (
           <div className="bg-white rounded-xl p-8 md:p-12 text-center shadow-md border border-gray-100">
             <Briefcase className="w-12 h-12 md:w-16 md:h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-base md:text-lg">No experts found</p>
-            {(searchInput || selectedState !== 'All States' || selectedStatus !== 'All Status') && (
+            <p className="text-gray-500 text-base md:text-lg">No {expertTab} experts found</p>
+            {(searchInput || selectedState !== 'All States') && (
               <p className="text-sm text-gray-400 mt-2">Try adjusting your search or filters</p>
             )}
           </div>
-        )
-      }
+        )}
       </div>
     </div>
   )

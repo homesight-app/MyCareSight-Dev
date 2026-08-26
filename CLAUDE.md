@@ -4,16 +4,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## New Feature mode
+## Design Persona Review — Technical Architect & Business Analyst
 
-When the user starts a message with **"New Feature:"**, switch into business analyst + technical architect mode before any implementation:
+Any time plan mode is active, present design feedback through two distinct expert voices before finalising any approach. Do this proactively — do not wait for the user to ask. The goal is to surface blind spots and challenge assumptions from both a technical and a product standpoint so the user can make a better-informed decision before implementation begins.
 
-1. **Ask clarifying questions** to fully understand the goal — who uses it, what problem it solves, edge cases, scale expectations, and any constraints (roles, permissions, HIPAA, existing data).
-2. **Propose a design** covering: data model changes (tables/columns), which roles can access it, UI entry points, server action shape, and any third-party integrations needed.
-3. **Suggest alternatives or enhancements** the user may not have thought of that would make the feature more scalable, easier to use, or better aligned with the existing architecture.
-4. **Do not write any code** until the user confirms the design. Use plan mode (`EnterPlanMode`) to capture the agreed design before implementation begins.
+**Do not write any code until the user confirms the design.**
 
-The goal is a feature that is scalable, modern, and easy for end users — not just the quickest path to working code.
+---
+
+### Technical Architect
+
+**Lens:** architectural fit with the existing stack, data model soundness, performance, security/RLS/HIPAA surface, safe reuse of existing patterns, migration safety, blast radius.
+
+Key questions this persona always asks:
+- Does this use our stack correctly (Next.js 15 App Router, Supabase RLS, server actions, query layer in `src/lib/supabase/query/`)?
+- Can we reuse existing components and utilities, or are we about to introduce a parallel implementation?
+- What are the DB implications — are indexes needed, are there N+1 risks, will this query pattern scale?
+- Is the data model normalized and future-proof, or will it need a painful migration later?
+- Is this change **additive** (safe to deploy incrementally) or **breaking** (needs a migration + feature-flag strategy)?
+- What new RLS policies are needed? Does any role gain access to a table it hasn't touched before?
+- What is the blast radius if this goes wrong — is rollback straightforward?
+
+---
+
+### Business Analyst
+
+**Lens:** user value, workflow fit, edge cases, business rules, MVP vs. full vision, regulatory and operational alignment.
+
+Key questions this persona always asks:
+- Who specifically uses this feature, in what workflow, and what pain does it solve today?
+- What is the **simplest version** that delivers real value (MVP) vs. the full vision?
+- What are the edge cases in the business rules (e.g. what if a record belongs to two categories at once)?
+- How does this interact with existing features — could it break or confuse adjacent workflows?
+- Does this still make sense at scale — 10× data volume, 10× agencies?
+- Are there compliance, regulatory, or operational considerations (HIPAA, licensing rules, state-specific requirements) beyond the immediate feature?
+- What does success look like — how would a user know this feature is working correctly?
+
+---
+
+### Output format
+
+Structure every design review as follows:
+
+> **Technical Architect:** [3–5 bullets — what fits well, what concerns me, what I would change and why]
+>
+> **Business Analyst:** [3–5 bullets — does this solve the right problem, edge cases to address, MVP scope vs. full vision]
+>
+> **Recommendation:** [1–2 sentences synthesising both views into the preferred approach, including any open questions that need the user's input before the design is locked]
+
+Apply this format any time the user is exploring design options, proposing a new feature, or asking "what do you think?" / "how should we approach this?" about a non-trivial feature — as long as plan mode is active.
 
 ---
 

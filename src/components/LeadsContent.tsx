@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, MoreVertical, Archive, ArchiveRestore, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Info, X } from 'lucide-react'
+import { Plus, Search, Archive, ArchiveRestore, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import AddLeadModal from './AddLeadModal'
 import LeadsKanbanBoard from './LeadsKanbanBoard'
 import LeadSignedModal from './LeadSignedModal'
@@ -80,8 +81,6 @@ export default function LeadsContent({
   const [modalOpen, setModalOpen] = useState(false)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [unarchivingId, setUnarchivingId] = useState<string | null>(null)
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
-  const [infoLeadId, setInfoLeadId] = useState<string | null>(null)
   const [signedModalLead, setSignedModalLead] = useState<Lead | null>(null)
   const [collectRetainerLeadId, setCollectRetainerLeadId] = useState<string | null>(null)
   const [convertPromptLead, setConvertPromptLead] = useState<Lead | null>(null)
@@ -179,18 +178,14 @@ export default function LeadsContent({
     return counts
   }, [stageCountsProp, leads])
 
-  const handleArchive = async (e: React.MouseEvent, leadId: string) => {
-    e.stopPropagation()
-    setMenuOpenId(null)
+  const handleArchive = async (leadId: string) => {
     setArchivingId(leadId)
     await archiveLead(leadId)
     setArchivingId(null)
     router.refresh()
   }
 
-  const handleUnarchive = async (e: React.MouseEvent, leadId: string) => {
-    e.stopPropagation()
-    setMenuOpenId(null)
+  const handleUnarchive = async (leadId: string) => {
     setUnarchivingId(leadId)
     await unarchiveLead(leadId)
     setUnarchivingId(null)
@@ -399,19 +394,41 @@ export default function LeadsContent({
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                {(['name', context.leadType === 'agency' ? 'company' : null, 'service_type', 'stage'] as const).filter(Boolean).map(col => {
-                  const labels: Record<string, string> = { name: 'Name', company: 'Agency', service_type: 'Service Type', stage: 'Stage' }
-                  const key = col as SortKey
-                  const active = sortKey === key
+                <th className="w-10 px-2 py-3" />
+                <th
+                  scope="col"
+                  onClick={() => handleSort('name')}
+                  className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                >
+                  <span className="flex items-center gap-1">
+                    Name
+                    {sortKey === 'name' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
+                  </span>
+                </th>
+                {context.leadType === 'agency' && (
+                  <th
+                    scope="col"
+                    onClick={() => handleSort('company')}
+                    className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                  >
+                    <span className="flex items-center gap-1">
+                      Agency
+                      {sortKey === 'company' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
+                    </span>
+                  </th>
+                )}
+                {(['service_type', 'stage'] as const).map(col => {
+                  const labels: Record<string, string> = { service_type: 'Service Type', stage: 'Stage' }
+                  const active = sortKey === col
                   return (
                     <th
-                      key={key}
+                      key={col}
                       scope="col"
-                      onClick={() => handleSort(key)}
+                      onClick={() => handleSort(col)}
                       className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
                     >
                       <span className="flex items-center gap-1">
-                        {labels[key]}
+                        {labels[col]}
                         {active ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
                       </span>
                     </th>
@@ -446,14 +463,13 @@ export default function LeadsContent({
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                   Proposal Sent
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 9 : 8) : (context.leadType === 'agency' ? 7 : 6)}
+                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 10 : 9) : (context.leadType === 'agency' ? 8 : 7)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
                     {stageFilter === 'archived'
@@ -475,6 +491,24 @@ export default function LeadsContent({
                       taskStatus[lead.id] === 'today'   ? 'shadow-[inset_4px_0_0_#facc15]' : ''
                     }`}
                   >
+                    <td className="w-10 px-2 py-3" onClick={e => e.stopPropagation()}>
+                      <RecordActionsMenu
+                        label={`Actions for ${displayName(lead)}`}
+                        actions={lead.status === 'archived' ? [
+                          {
+                            label: unarchivingId === lead.id ? 'Restoring…' : 'Unarchive',
+                            onClick: () => handleUnarchive(lead.id),
+                            hidden: unarchivingId === lead.id,
+                          },
+                        ] : [
+                          {
+                            label: archivingId === lead.id ? 'Archiving…' : 'Archive',
+                            onClick: () => handleArchive(lead.id),
+                            hidden: archivingId === lead.id,
+                          },
+                        ]}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
                       {displayName(lead)}
                       {lead.contact_email && (
@@ -563,50 +597,6 @@ export default function LeadsContent({
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
                       {formatDate(lead.proposal_sent_date)}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-right" onClick={e => e.stopPropagation()}>
-                      <div className="relative inline-flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); setInfoLeadId(lead.id) }}
-                          className="p-1 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                          aria-label="More details"
-                        >
-                          <Info className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === lead.id ? null : lead.id) }}
-                          className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                        {menuOpenId === lead.id && (
-                          <div className="absolute right-0 z-10 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-100 py-1">
-                            {lead.status === 'archived' ? (
-                              <button
-                                type="button"
-                                disabled={unarchivingId === lead.id}
-                                onClick={e => handleUnarchive(e, lead.id)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                              >
-                                <ArchiveRestore className="w-3.5 h-3.5" />
-                                {unarchivingId === lead.id ? 'Restoring…' : 'Unarchive'}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={archivingId === lead.id}
-                                onClick={e => handleArchive(e, lead.id)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                              >
-                                <Archive className="w-3.5 h-3.5" />
-                                {archivingId === lead.id ? 'Archiving…' : 'Archive'}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}
@@ -621,35 +611,6 @@ export default function LeadsContent({
           <LeadsKanbanBoard leads={leads} context={context} search={search} />
         </div>
       )}
-
-      {infoLeadId && (() => {
-        const lead = filtered.find(l => l.id === infoLeadId)
-        if (!lead) return null
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setInfoLeadId(null)}>
-            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-semibold text-gray-900">{displayName(lead)}</h3>
-                <button type="button" onClick={() => setInfoLeadId(null)} className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <dl className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Added</dt>
-                  <dd className="text-gray-900 font-medium">{formatDate(lead.created_at)}</dd>
-                </div>
-                {context.billingVisible && (
-                  <div className="flex justify-between">
-                    <dt className="text-gray-500">Signed</dt>
-                    <dd className="text-gray-900 font-medium">{formatDate(lead.signed_date)}</dd>
-                  </div>
-                )}
-              </dl>
-            </div>
-          </div>
-        )
-      })()}
 
       <AddLeadModal
         isOpen={modalOpen}

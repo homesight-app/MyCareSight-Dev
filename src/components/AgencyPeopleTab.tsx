@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Users, UserPlus, Loader2, KeyRound, Pencil, RefreshCw, Search,
-  ChevronDown,
+  Users, UserPlus, Loader2, RefreshCw, Search, ChevronDown, KeyRound,
 } from 'lucide-react'
 import Modal from './Modal'
 import ResetPasswordModal from './ResetPasswordModal'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
+import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
+import { useTableState } from '@/hooks/useTableState'
 import {
   updateAgencyAdminStatus,
   updateCareCoordinatorStatus,
@@ -16,7 +18,7 @@ import {
   addCareCoordinatorForAgency,
   promoteKeyStaffToUser,
 } from '@/app/actions/agency-users'
-import { saveKeyStaffAdmin, addMemberOwner, updateKeyStaffById } from '@/app/actions/agency-onboarding'
+import { updateKeyStaffById, addKeyStaffWithRoles } from '@/app/actions/agency-onboarding'
 import { getPeopleForAgency, type RawKeyStaff, type RawAdmin, type RawCoordinator } from '@/app/actions/agency-people'
 import { changePersonCredential } from '@/app/actions/agency-users'
 
@@ -52,7 +54,8 @@ interface PersonRow {
   firstName: string
   lastName: string
   fullName: string
-  officerRole: string | null
+  officerRole: string | null        // legacy primary role — kept for backward compat
+  officerRoles: string[]            // all roles (multi-role)
   ownershipPercentage: string | null
   phone: string | null
   email: string | null
@@ -85,6 +88,8 @@ function buildPeopleRows(
     const credential = admin ? 'company_owner' : coord ? 'care_coordinator' : null
     if (s.user_profile_id) linkedUserIds.add(s.user_profile_id)
     const { firstName, lastName } = splitName(s.full_legal_name)
+    // Prefer the array; fall back to single role for rows not yet backfilled
+    const officerRoles = s.officer_roles?.length ? s.officer_roles : (s.officer_role ? [s.officer_role] : [])
     return {
       rowKey: `ks-${s.id}`,
       keyStaffId: s.id,
@@ -92,6 +97,7 @@ function buildPeopleRows(
       lastName,
       fullName: s.full_legal_name ?? '',
       officerRole: s.officer_role,
+      officerRoles,
       ownershipPercentage: s.ownership_percentage,
       phone: s.telephone,
       email: s.email,
@@ -113,6 +119,7 @@ function buildPeopleRows(
       lastName,
       fullName: a.contact_name ?? '',
       officerRole: null,
+      officerRoles: [],
       ownershipPercentage: null,
       phone: a.contact_phone,
       email: a.contact_email,
@@ -133,6 +140,7 @@ function buildPeopleRows(
       lastName: c.last_name,
       fullName: `${c.first_name} ${c.last_name}`.trim(),
       officerRole: null,
+      officerRoles: [],
       ownershipPercentage: null,
       phone: null,
       email: c.email,
@@ -268,7 +276,7 @@ interface AddPersonModalProps {
 function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModalProps) {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName]   = useState('')
-  const [officerRole, setOfficerRole] = useState<OfficerRoleKey | ''>('')
+  const [officerRoles, setOfficerRoles] = useState<OfficerRoleKey[]>([])
   const [ownershipPct, setOwnershipPct] = useState('')
   const [phone, setPhone]         = useState('')
   const [email, setEmail]         = useState('')
@@ -280,10 +288,16 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
 
   useEffect(() => {
     if (!isOpen) return
-    setFirstName(''); setLastName(''); setOfficerRole(''); setOwnershipPct('')
+    setFirstName(''); setLastName(''); setOfficerRoles([]); setOwnershipPct('')
     setPhone(''); setEmail(''); setCreateLogin(false)
     setCredential('company_owner'); setTempPassword(''); setError(null)
   }, [isOpen])
+
+  const toggleRole = (key: OfficerRoleKey) => {
+    setOfficerRoles(prev =>
+      prev.includes(key) ? prev.filter(r => r !== key) : [...prev, key]
+    )
+  }
 
   const handleSubmit = async () => {
     if (!firstName.trim() || !lastName.trim()) { setError('First and last name are required.'); return }
@@ -295,23 +309,16 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
     const fullName = `${firstName.trim()} ${lastName.trim()}`
     let staffId: string | null = null
 
-    if (officerRole === 'member_owner') {
-      const res = await addMemberOwner(agencyId, {
-        full_legal_name: fullName,
-        email: email.trim() || undefined,
-        telephone: phone.trim() || undefined,
-        ownership_percentage: ownershipPct.trim() || undefined,
-      })
-      if (res.error) { setError(res.error); setSubmitting(false); return }
-      staffId = (res.data as { id?: string } | null)?.id ?? null
-    } else if (officerRole) {
-      const res = await saveKeyStaffAdmin(agencyId, officerRole, {
+    if (officerRoles.length > 0) {
+      const res = await addKeyStaffWithRoles(agencyId, {
+        officer_roles: officerRoles,
         full_legal_name: fullName,
         telephone: phone.trim() || undefined,
         email: email.trim() || undefined,
+        ownership_percentage: officerRoles.includes('member_owner') ? (ownershipPct.trim() || undefined) : undefined,
       })
       if (res.error) { setError(res.error); setSubmitting(false); return }
-      staffId = (res.data as { id?: string } | null)?.id ?? null
+      staffId = res.data?.id ?? null
     }
 
     if (createLogin) {
@@ -345,23 +352,26 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Officer Role</label>
-          <div className="relative">
-            <select
-              value={officerRole}
-              onChange={e => setOfficerRole(e.target.value as OfficerRoleKey | '')}
-              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none bg-white"
-            >
-              <option value="">— None (contact only) —</option>
-              {OFFICER_ROLES.map(r => (
-                <option key={r.key} value={r.key}>{r.label}</option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <label className="block text-xs font-medium text-gray-600 mb-1">Officer Role(s)</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            {OFFICER_ROLES.map(r => (
+              <label key={r.key} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors select-none">
+                <input
+                  type="checkbox"
+                  checked={officerRoles.includes(r.key)}
+                  onChange={() => toggleRole(r.key)}
+                  className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-xs text-gray-700">{r.label}</span>
+              </label>
+            ))}
           </div>
+          {officerRoles.length === 0 && (
+            <p className="mt-1 text-xs text-gray-400">No role selected — person will be added as a contact only.</p>
+          )}
         </div>
 
-        {officerRole === 'member_owner' && (
+        {officerRoles.includes('member_owner') && (
           <FieldInput label="Ownership %" value={ownershipPct} onChange={setOwnershipPct} placeholder="e.g. 25" />
         )}
 
@@ -444,7 +454,7 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
   const [lastName, setLastName]         = useState(person.lastName)
   const [phone, setPhone]               = useState(person.phone ?? '')
   const [email, setEmail]               = useState(person.email ?? '')
-  const [officerRole, setOfficerRole]   = useState(person.officerRole ?? '')
+  const [officerRoles, setOfficerRoles] = useState<string[]>(person.officerRoles)
   const [credential, setCredential]     = useState<'company_owner' | 'care_coordinator' | ''>(person.credential ?? '')
   const [submitting, setSubmitting]     = useState(false)
   const [error, setError]               = useState<string | null>(null)
@@ -456,11 +466,17 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
       setLastName(person.lastName)
       setPhone(person.phone ?? '')
       setEmail(person.email ?? '')
-      setOfficerRole(person.officerRole ?? '')
+      setOfficerRoles(person.officerRoles)
       setCredential(person.credential ?? '')
       setError(null)
     }
   }, [isOpen, person])
+
+  const toggleRole = (key: string) => {
+    setOfficerRoles(prev =>
+      prev.includes(key) ? prev.filter(r => r !== key) : [...prev, key]
+    )
+  }
 
   const handleSubmit = async () => {
     if (!firstName.trim() || !lastName.trim()) { setError('First and last name are required.'); return }
@@ -473,7 +489,8 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
         full_legal_name: fullName,
         telephone: phone.trim() || undefined,
         email: email.trim() || undefined,
-        officer_role: officerRole || undefined,
+        officer_roles: officerRoles,
+        officer_role: officerRoles[0] ?? null,
       })
       if (res.error) { setError(res.error); setSubmitting(false); return }
     }
@@ -526,20 +543,23 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
 
           {person.keyStaffId && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Officer Role</label>
-              <div className="relative">
-                <select
-                  value={officerRole}
-                  onChange={e => setOfficerRole(e.target.value)}
-                  className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 pr-8"
-                >
-                  <option value="">— None —</option>
-                  {OFFICER_ROLES.map(r => (
-                    <option key={r.key} value={r.key}>{r.label}</option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <label className="block text-xs font-medium text-gray-600 mb-1">Officer Role(s)</label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {OFFICER_ROLES.map(r => (
+                  <label key={r.key} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors select-none">
+                    <input
+                      type="checkbox"
+                      checked={officerRoles.includes(r.key)}
+                      onChange={() => toggleRole(r.key)}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-xs text-gray-700">{r.label}</span>
+                  </label>
+                ))}
               </div>
+              {officerRoles.length === 0 && (
+                <p className="mt-1 text-xs text-gray-400">No role selected — person is a contact only.</p>
+              )}
             </div>
           )}
 
@@ -654,37 +674,17 @@ function CredentialBadge({ credential }: { credential: string | null }) {
   )
 }
 
-function StatusToggle({
-  row,
-  toggling,
-  onToggle,
-}: {
-  row: PersonRow
-  toggling: boolean
-  onToggle: () => void
-}) {
+function StatusBadge({ row }: { row: PersonRow }) {
   if (!row.credential) {
     return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Contact</span>
   }
   const isActive = row.status === 'active'
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={toggling}
-      title={isActive ? 'Deactivate' : 'Activate'}
-      className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-50"
-      style={{ backgroundColor: isActive ? '#2460d6' : '#d1d5db' }}
-    >
-      {toggling ? (
-        <Loader2 className="w-3 h-3 animate-spin absolute left-0.5 text-white" />
-      ) : (
-        <span
-          className="pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform"
-          style={{ transform: isActive ? 'translateX(16px)' : 'translateX(0)' }}
-        />
-      )}
-    </button>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+      isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+    }`}>
+      {isActive ? 'Active' : 'Inactive'}
+    </span>
   )
 }
 
@@ -696,12 +696,13 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
 
-  // Filters
-  const [search, setSearch]     = useState('')
   const [roleFilter, setRoleFilter]           = useState('')
   const [credentialFilter, setCredentialFilter] = useState('')
 
-  // Modal state
+  const { search, setSearch, sort, setSort, applySortedData } = useTableState({
+    defaultSort: { key: 'name', dir: 'asc' },
+  })
+
   const [addOpen, setAddOpen]         = useState(false)
   const [editPerson, setEditPerson]   = useState<PersonRow | null>(null)
   const [accessPerson, setAccessPerson] = useState<PersonRow | null>(null)
@@ -733,23 +734,30 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
     fetchData()
   }
 
-  const filtered = rows.filter(r => {
+  const sortFn = useCallback(
+    (key: string, dir: 'asc' | 'desc') => (a: PersonRow, b: PersonRow): number => {
+      const mul = dir === 'asc' ? 1 : -1
+      if (key === 'name') return mul * a.fullName.localeCompare(b.fullName)
+      if (key === 'role') return mul * (a.officerRoles[0] ?? '').localeCompare(b.officerRoles[0] ?? '')
+      return 0
+    },
+    []
+  )
+
+  const filtered = useMemo(() => {
+    let result = rows
     if (search) {
       const q = search.toLowerCase()
-      if (!r.fullName.toLowerCase().includes(q) && !(r.email ?? '').toLowerCase().includes(q)) return false
+      result = result.filter(r =>
+        r.fullName.toLowerCase().includes(q) || (r.email ?? '').toLowerCase().includes(q)
+      )
     }
-    if (roleFilter === '__none__') {
-      if (r.officerRole) return false
-    } else if (roleFilter) {
-      if (r.officerRole !== roleFilter) return false
-    }
-    if (credentialFilter === '__none__') {
-      if (r.credential) return false
-    } else if (credentialFilter) {
-      if (r.credential !== credentialFilter) return false
-    }
-    return true
-  })
+    if (roleFilter === '__none__') result = result.filter(r => r.officerRoles.length === 0)
+    else if (roleFilter) result = result.filter(r => r.officerRoles.includes(roleFilter))
+    if (credentialFilter === '__none__') result = result.filter(r => !r.credential)
+    else if (credentialFilter) result = result.filter(r => r.credential === credentialFilter)
+    return applySortedData(result, sortFn)
+  }, [rows, search, roleFilter, credentialFilter, applySortedData, sortFn])
 
   if (loading) {
     return (
@@ -774,7 +782,11 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Users className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-600">{rows.length} {rows.length === 1 ? 'person' : 'people'}</span>
+          <span className="text-sm text-gray-500">
+            {filtered.length === rows.length
+              ? `${rows.length} ${rows.length === 1 ? 'person' : 'people'}`
+              : `${filtered.length} of ${rows.length} people`}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -846,63 +858,63 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/60">
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
+                  <th className="w-10 px-2 py-2.5" />
+                  <SortableColumnHeader label="Name" sortKey="name" currentSort={sort} onSort={setSort} />
+                  <SortableColumnHeader label="Role" sortKey="role" currentSort={sort} onSort={setSort} />
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Phone</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Email</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Credential</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(row => {
                   const isInactive = row.status !== 'active'
+                  const isToggling = togglingId === row.rowKey
                   return (
                     <tr key={row.rowKey} className={`hover:bg-gray-50/50 transition-colors ${isInactive ? 'opacity-60' : ''}`}>
-                      <td className="px-4 py-3">
-                        <div>
-                          <p className="font-medium text-gray-900">{row.fullName || '—'}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {row.officerRole
-                          ? <span className="text-gray-700">{OFFICER_ROLE_LABEL[row.officerRole] ?? row.officerRole}</span>
-                          : <span className="text-gray-400">—</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 hidden sm:table-cell text-gray-600">{row.phone || <span className="text-gray-400">—</span>}</td>
-                      <td className="px-4 py-3 hidden md:table-cell text-gray-600">{row.email || <span className="text-gray-400">—</span>}</td>
-                      <td className="px-4 py-3"><CredentialBadge credential={row.credential} /></td>
-                      <td className="px-4 py-3">
-                        <StatusToggle
-                          row={row}
-                          toggling={togglingId === row.rowKey}
-                          onToggle={() => handleToggle(row)}
+                      <td className="w-10 px-2 py-3">
+                        <RecordActionsMenu
+                          label={`Actions for ${row.fullName || 'person'}`}
+                          actions={[
+                            {
+                              label: 'Edit Person',
+                              onClick: () => setEditPerson(row),
+                            },
+                            {
+                              label: 'Give System Access',
+                              icon: KeyRound,
+                              onClick: () => setAccessPerson(row),
+                              hidden: !row.keyStaffId || !!row.credential,
+                            },
+                            {
+                              label: isToggling ? 'Updating…' : row.status === 'active' ? 'Deactivate' : 'Activate',
+                              onClick: () => handleToggle(row),
+                              destructive: row.status === 'active',
+                              hidden: !row.credential,
+                            },
+                          ]}
                         />
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setEditPerson(row)}
-                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          {row.keyStaffId && !row.credential && (
-                            <button
-                              type="button"
-                              onClick={() => setAccessPerson(row)}
-                              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Give system access"
-                            >
-                              <KeyRound className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                        <p className="font-medium text-gray-900">{row.fullName || '—'}</p>
                       </td>
+                      <td className="px-4 py-3">
+                        {row.officerRoles.length > 0
+                          ? <div className="flex flex-wrap gap-1">
+                              {row.officerRoles.map(role => (
+                                <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                                  {OFFICER_ROLE_LABEL[role] ?? role}
+                                </span>
+                              ))}
+                            </div>
+                          : <span className="text-gray-400 text-sm">—</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell text-sm text-gray-700">{row.phone || <span className="text-gray-400">—</span>}</td>
+                      <td className="px-4 py-3 hidden md:table-cell text-sm text-gray-700">{row.email || <span className="text-gray-400">—</span>}</td>
+                      <td className="px-4 py-3"><CredentialBadge credential={row.credential} /></td>
+                      <td className="px-4 py-3"><StatusBadge row={row} /></td>
                     </tr>
                   )
                 })}

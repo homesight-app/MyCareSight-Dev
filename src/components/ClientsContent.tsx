@@ -3,8 +3,9 @@
 import { useState, useEffect, useTransition, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Users, CheckCircle2, FileText, Plus, Search, Eye, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Users, CheckCircle2, FileText, Plus, Search, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import AddNewClientModal from './AddNewClientModal'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -212,31 +213,44 @@ export default function ClientsContent({
       </div>
 
       {/* Clients Table */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">CLIENT</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">GENDER</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">CLASS</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">PATIENT PHONE</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">EMERGENCY CONTACT</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">REPRESENTATIVE #1</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">REPRESENTATIVE #2</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ACTIONS</th>
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/60">
+                <th className="w-10 px-2" />
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Client</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Gender</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Class</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Patient Phone</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Emergency Contact</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Representative #1</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Representative #2</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-50">
               {clients.length > 0 ? (
                 clients.map((client) => (
                   <tr
                     key={client.id}
-                    className={`hover:bg-gray-50 cursor-pointer ${navigatingClientId ? 'opacity-70 pointer-events-none' : ''}`}
+                    className={`hover:bg-gray-50/50 cursor-pointer transition-colors ${navigatingClientId ? 'opacity-70 pointer-events-none' : ''}`}
                     onClick={() => handleOpenClientDetails(client.id)}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="w-10 px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                      <RecordActionsMenu
+                        label={`Actions for ${patientFullName(client)}`}
+                        actions={[
+                          { label: 'View Details', icon: Eye, href: `/pages/agency/clients/${client.id}` },
+                          {
+                            label: client.status === 'active' ? 'Deactivate' : 'Activate',
+                            onClick: () => toggleStatus(client.id, client.status),
+                            destructive: client.status === 'active',
+                          },
+                        ]}
+                      />
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
                           {getInitials(patientFullName(client))}
@@ -247,18 +261,18 @@ export default function ClientsContent({
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{client.gender || 'N/A'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{client.gender || 'N/A'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
                       {client.class ? (
                         <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">{client.class}</span>
                       ) : (
                         <span className="text-sm text-gray-500">N/A</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                       {client.phone_number?.trim() ? client.phone_number : <span className="text-gray-400">-</span>}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                       {client.emergency_contact_name?.trim() ? (
                         <div>
                           <div>{client.emergency_contact_name}</div>
@@ -268,7 +282,7 @@ export default function ClientsContent({
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                       {client.patients_representatives.length > 0 ? (
                         <div>
                           <div>{client.patients_representatives[0].name}</div>
@@ -281,7 +295,7 @@ export default function ClientsContent({
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                       {client.patients_representatives.length > 1 ? (
                         <div>
                           <div>{client.patients_representatives[1].name}</div>
@@ -294,34 +308,10 @@ export default function ClientsContent({
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={client.status === 'active'}
-                          onChange={() => toggleStatus(client.id, client.status)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                        <span className="ml-3 text-sm font-medium text-gray-700">
-                          {client.status === 'active' ? 'Active' : 'Inactive'}
-                        </span>
-                      </label>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenClientDetails(client.id)}
-                        disabled={navigatingClientId !== null}
-                        className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium disabled:opacity-70 disabled:cursor-not-allowed"
-                      >
-                        {navigatingClientId === client.id ? (
-                          <><Loader2 className="w-4 h-4 animate-spin" />Loading...</>
-                        ) : (
-                          <><Eye className="w-4 h-4" />View Details</>
-                        )}
-                      </button>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${client.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {client.status === 'active' ? 'Active' : 'Inactive'}
+                      </span>
                     </td>
                   </tr>
                 ))
@@ -339,7 +329,7 @@ export default function ClientsContent({
 
         {/* Pagination footer */}
         {totalCount > 0 && (
-          <div className="px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
+          <div className="px-6 py-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
             <p className="text-sm text-gray-600">
               Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
               <span className="font-medium">{totalCount}</span> clients

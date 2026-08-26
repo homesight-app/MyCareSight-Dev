@@ -2,9 +2,9 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { CheckCircle2, Clock, AlertCircle, Circle, Search, ChevronRight, ChevronLeft, BookOpen, Loader2, X, ChevronDown } from 'lucide-react'
+import { CheckCircle2, Clock, AlertCircle, Circle, Search, ChevronRight, ChevronLeft, BookOpen, Eye, Loader2, X, ChevronDown } from 'lucide-react'
 import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import { cancelProgramRequest } from '@/app/actions/applications'
 
 type Status = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
@@ -171,7 +171,7 @@ export default function AgencyProgramsContent({
       </div>
 
       {programs.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+        <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
           <BookOpen className="w-10 h-10 mx-auto mb-3 text-gray-300" />
           <p className="text-sm font-medium text-gray-700 mb-1">
             {search ? 'No programs match your search.' : 'No active programs yet'}
@@ -183,24 +183,36 @@ export default function AgencyProgramsContent({
           )}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Application</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">State</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Progress</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Items</th>
-                <th className="w-8" />
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/60">
+                <th className="w-10 px-2" />
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Application</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">State</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Progress</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Items</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-50">
               {programs.map(app => {
                 const prog = computeProgress(app.application_playbook_items)
                 return (
-                  <tr key={app.id} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={app.id}
+                    onClick={() => router.push(`/pages/agency/programs/${app.id}`)}
+                    className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                  >
+                    <td className="w-10 px-2 py-3" onClick={e => e.stopPropagation()}>
+                      <RecordActionsMenu
+                        label={`Actions for ${app.application_name}`}
+                        actions={[
+                          { label: 'View Program', icon: Eye, href: `/pages/agency/programs/${app.id}` },
+                        ]}
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{app.application_name}</td>
-                    <td className="px-4 py-3 text-gray-500">{app.state}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">{app.state}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden flex-shrink-0">
@@ -215,12 +227,7 @@ export default function AgencyProgramsContent({
                         {prog.notStarted > 0 && <span className="flex items-center gap-0.5 text-xs text-gray-500"><Circle className="w-3 h-3" /> {prog.notStarted} not started</span>}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{app.application_playbook_items.length} items</td>
-                    <td className="px-4 py-3">
-                      <Link href={`/pages/agency/programs/${app.id}`} className="text-gray-400 hover:text-blue-600 transition-colors">
-                        <ChevronRight className="w-4 h-4" />
-                      </Link>
-                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">{app.application_playbook_items.length} items</td>
                   </tr>
                 )
               })}
@@ -228,7 +235,7 @@ export default function AgencyProgramsContent({
           </table>
 
           {totalCount > 0 && (
-            <div className="px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
+            <div className="px-6 py-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
               <p className="text-sm text-gray-600">
                 Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
                 <span className="font-medium">{totalCount}</span> programs

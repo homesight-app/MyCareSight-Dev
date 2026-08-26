@@ -9,11 +9,12 @@ import {
   Search,
   Calendar,
   AlertCircle,
-  Loader2,
+  Eye,
   Building2,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 
 interface Application {
   id: string
@@ -57,7 +58,6 @@ export default function ExpertClientsContent({
 }: ExpertClientsContentProps) {
   const router = useRouter()
   const [search, setSearch] = useState(initialSearch)
-  const [loadingApplicationId, setLoadingApplicationId] = useState<string | null>(null)
 
   const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
   const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
@@ -170,29 +170,37 @@ export default function ExpertClientsContent({
         <div className="overflow-x-auto">
           {applications.length > 0 ? (
             <table className="w-full min-w-[800px]">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Application Name</th>
-                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Agency</th>
-                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">State</th>
-                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
-                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Progress</th>
-                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider hidden md:table-cell">Started</th>
-                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider hidden lg:table-cell">Last Updated</th>
-                  <th className="px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/60">
+                  <th className="w-10 px-2" />
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Application Name</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Agency</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">State</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Progress</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Started</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Last Updated</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-50">
                 {applications.map((application) => (
                   <tr
                     key={application.id}
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    className="hover:bg-gray-50/50 transition-colors cursor-pointer"
                     onClick={() => router.push(`/pages/expert/applications/${application.id}`)}
                   >
-                    <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                    <td className="w-10 px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                      <RecordActionsMenu
+                        label={`Actions for ${application.application_name}`}
+                        actions={[
+                          { label: 'View Details', icon: Eye, href: `/pages/expert/applications/${application.id}` },
+                        ]}
+                      />
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="text-sm font-semibold text-gray-900">{application.application_name}</div>
                     </td>
-                    <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
                         <span className="text-sm text-gray-900">
@@ -200,13 +208,13 @@ export default function ExpertClientsContent({
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <MapPin className="w-4 h-4 text-gray-400" />
                         <span className="text-sm text-gray-900">{application.state}</span>
                       </div>
                     </td>
-                    <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(application.status)}`}>
                         {getStatusDisplay(application.status)}
                       </span>
@@ -217,7 +225,7 @@ export default function ExpertClientsContent({
                         </div>
                       )}
                     </td>
-                    <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       {application.progress_percentage !== null ? (
                         <div className="w-32">
                           <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
@@ -232,7 +240,7 @@ export default function ExpertClientsContent({
                         <span className="text-sm text-gray-500">N/A</span>
                       )}
                     </td>
-                    <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-600 hidden md:table-cell">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 hidden md:table-cell">
                       {application.started_date ? (
                         <div className="flex items-center gap-1">
                           <Calendar className="w-4 h-4 text-gray-400" />
@@ -242,7 +250,7 @@ export default function ExpertClientsContent({
                         <span className="text-gray-400">N/A</span>
                       )}
                     </td>
-                    <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-600 hidden lg:table-cell">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 hidden lg:table-cell">
                       {application.last_updated_date ? (
                         <div className="flex items-center gap-1">
                           <Clock className="w-4 h-4 text-gray-400" />
@@ -251,26 +259,6 @@ export default function ExpertClientsContent({
                       ) : (
                         <span className="text-gray-400">N/A</span>
                       )}
-                    </td>
-                    <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setLoadingApplicationId(application.id)
-                          router.push(`/pages/expert/applications/${application.id}`)
-                        }}
-                        disabled={loadingApplicationId === application.id}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
-                      >
-                        {loadingApplicationId === application.id ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Loading...
-                          </>
-                        ) : (
-                          'View Details'
-                        )}
-                      </button>
                     </td>
                   </tr>
                 ))}
@@ -291,7 +279,7 @@ export default function ExpertClientsContent({
 
         {/* Pagination footer */}
         {totalCount > 0 && (
-          <div className="px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
+          <div className="px-6 py-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
             <p className="text-sm text-gray-600">
               Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
               <span className="font-medium">{totalCount}</span> applications

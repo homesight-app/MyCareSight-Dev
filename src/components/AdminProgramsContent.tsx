@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Search, Clock, FileText, CheckCircle2, AlertCircle,
@@ -8,6 +8,7 @@ import {
   Check, X,
 } from 'lucide-react'
 import { acceptApplicationRequest, rejectProgramRequest } from '@/app/actions/applications'
+import TablePagination from '@/components/ui/TablePagination'
 import { formatDateShort } from '@/lib/format-date'
 
 type ItemStatus = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
@@ -68,6 +69,10 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
   const [activeTab, setActiveTab] = useState<'requested' | 'all'>('requested')
   const [searchQuery, setSearchQuery] = useState('')
   const [loadingId, setLoadingId] = useState<string | null>(null)
+  const [allPage, setAllPage] = useState(0)
+  const ALL_PAGE_SIZE = 50
+
+  useEffect(() => { setAllPage(0) }, [searchQuery, activeTab])
 
   const filter = <T extends { application_name: string; state: string; agencies: { name: string } | null }>(
     list: T[]
@@ -83,6 +88,10 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
 
   const filteredRequested = filter(requestedPrograms)
   const filteredAll = filter(allPrograms)
+  const pagedAll = useMemo(
+    () => filteredAll.slice(allPage * ALL_PAGE_SIZE, (allPage + 1) * ALL_PAGE_SIZE),
+    [filteredAll, allPage]
+  )
 
   const handleApprove = async (programId: string) => {
     setLoadingId(programId)
@@ -225,7 +234,7 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
 
       {/* ── All Programs Tab ── */}
       {activeTab === 'all' && (
-        <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           {filteredAll.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -233,26 +242,27 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
               <p className="text-sm text-gray-500">Programs appear here once a request has been approved and launched.</p>
             </div>
           ) : (
+            <>
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Agency</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Program</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">State</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Progress</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Items</th>
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/60">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Agency</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Program</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">State</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Progress</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Items</th>
                   <th className="w-12" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredAll.map(program => {
+              <tbody className="divide-y divide-gray-50">
+                {pagedAll.map(program => {
                   const prog = computeProgress(program.application_playbook_items)
                   const badgeClass = STATUS_BADGE[program.status] ?? 'bg-gray-100 text-gray-600'
                   return (
                     <tr
                       key={program.id}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                      className="hover:bg-gray-50/50 transition-colors cursor-pointer"
                       onClick={() => router.push(`/pages/admin/programs/${program.id}`)}
                     >
                       <td className="px-4 py-3 font-medium text-gray-900">{program.agencies?.name ?? '—'}</td>
@@ -302,6 +312,14 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
                 })}
               </tbody>
             </table>
+            <TablePagination
+              page={allPage}
+              pageSize={ALL_PAGE_SIZE}
+              totalCount={filteredAll.length}
+              onPageChange={setAllPage}
+              entityLabel="programs"
+            />
+            </>
           )}
         </div>
       )}

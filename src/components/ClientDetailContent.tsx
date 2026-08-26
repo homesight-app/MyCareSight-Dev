@@ -66,6 +66,7 @@ import {
   patientServiceContractsSelectableForBillingVisit,
 } from '@/lib/patient-service-contract-effective'
 import Modal from '@/components/Modal'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import InternalNotesPanel from '@/components/InternalNotesPanel'
 import zipcodes from 'zipcodes'
 import { patientFullName } from '@/lib/patient-name'
@@ -4896,25 +4897,25 @@ export default function ClientDetailContent({ client, allClients, representative
                   )}
 
               {localIncidents.length > 0 ? (
-                <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                <div className="border border-gray-100 rounded-xl overflow-hidden bg-white">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead>
-                        <tr className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase tracking-wider text-gray-600">
-                          <th className="px-4 py-3">Incident Date</th>
-                          <th className="px-4 py-3">Reporting Date</th>
-                          <th className="px-4 py-3">Primary Contact</th>
-                          <th className="px-4 py-3">Description</th>
-                          <th className="px-4 py-3">File</th>
-                          <th className="px-4 py-3">Uploaded</th>
-                          <th className="px-4 py-3 text-right">Download</th>
+                        <tr className="border-b border-gray-100 bg-gray-50/60 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <th className="px-4 py-2.5">Incident Date</th>
+                          <th className="px-4 py-2.5">Reporting Date</th>
+                          <th className="px-4 py-2.5">Primary Contact</th>
+                          <th className="px-4 py-2.5">Description</th>
+                          <th className="px-4 py-2.5">File</th>
+                          <th className="px-4 py-2.5">Uploaded</th>
+                          <th className="px-4 py-2.5 text-right">Download</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200">
+                      <tbody className="divide-y divide-gray-50">
                         {localIncidents.map((incident) => {
                           const hasFile = !!incident.file_path
                           return (
-                            <tr key={incident.id} className="bg-white hover:bg-gray-50">
+                            <tr key={incident.id} className="hover:bg-gray-50/50 transition-colors">
                               <td className="px-4 py-3 text-gray-900">{formatIncidentDate(incident.incident_date)}</td>
                               <td className="px-4 py-3 text-gray-900">{formatIncidentDate(incident.reporting_date)}</td>
                               <td className="px-4 py-3 text-gray-900">{incident.primary_contact_person}</td>
@@ -7925,37 +7926,46 @@ export default function ClientDetailContent({ client, allClients, representative
             </div>
           </div>
 
-          <div className="rounded border border-gray-200 overflow-hidden">
+          <div className="rounded-xl border border-gray-100 overflow-hidden">
             {serviceContracts.length === 0 ? (
               <div className="p-10 text-center text-gray-500">No service contracts yet</div>
             ) : (
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left p-2 font-medium text-gray-700">Name</th>
-                    <th className="text-left p-2 font-medium text-gray-700">Service</th>
-                    <th className="text-left p-2 font-medium text-gray-700">Billing Rate</th>
-                    <th className="text-left p-2 font-medium text-gray-700">Weekly Hrs</th>
-                    <th className="text-left p-2 font-medium text-gray-700">Effective</th>
-                    <th className="text-left p-2 font-medium text-gray-700">Status</th>
-                    <th className="text-left p-2 font-medium text-gray-700">Actions</th>
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50/60">
+                    <th className="w-10 px-2" />
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Service</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Billing Rate</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Weekly Hrs</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Effective</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-gray-50">
                   {serviceContracts.map((row) => (
-                    <tr key={row.id} className="bg-white border-t border-gray-100">
-                      <td className="p-2">{row.contract_name || row.contract_type}</td>
-                      <td className="p-2">
+                    <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="w-10 px-2 py-3">
+                        <RecordActionsMenu
+                          label={`Actions for ${row.contract_name || row.contract_type}`}
+                          actions={[
+                            { label: 'Edit Contract', icon: Edit, onClick: () => openEditServiceContractModal(row) },
+                            { label: 'Delete Contract', icon: Trash2, onClick: () => void handleDeleteServiceContract(row), destructive: true },
+                          ]}
+                        />
+                      </td>
+                      <td className="px-4 py-3">{row.contract_name || row.contract_type}</td>
+                      <td className="px-4 py-3">
                         <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${row.service_type === 'skilled' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
                           {row.service_type === 'skilled' ? 'Skilled' : 'Non-Skilled'}
                         </span>
                       </td>
-                      <td className="p-2">
+                      <td className="px-4 py-3">
                         {row.bill_rate != null ? `${formatMoney(Number(row.bill_rate))}/${row.bill_unit_type}` : '—'}
                       </td>
-                      <td className="p-2">{row.weekly_hours_limit ?? '—'}</td>
-                      <td className="p-2">{formatShortDate(row.effective_date)}</td>
-                      <td className="p-2">
+                      <td className="px-4 py-3">{row.weekly_hours_limit ?? '—'}</td>
+                      <td className="px-4 py-3">{formatShortDate(row.effective_date)}</td>
+                      <td className="px-4 py-3">
                         <div className="space-y-1">
                           <div className="inline-flex rounded-md border border-gray-200 bg-gray-100/80 p-0.5">
                             <button
@@ -7999,26 +8009,6 @@ export default function ClientDetailContent({ client, allClients, representative
                                   : 'bg-gray-100 text-gray-600'
                             return <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${cls}`}>{label}</span>
                           })()}
-                        </div>
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-2 min-w-[88px]">
-                          <button
-                            type="button"
-                            onClick={() => openEditServiceContractModal(row)}
-                            className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white p-1.5 text-blue-700 hover:bg-blue-50"
-                            title="Edit contract"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteServiceContract(row)}
-                            className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white p-1.5 text-red-700 hover:bg-red-50"
-                            title="Delete contract"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
                         </div>
                       </td>
                     </tr>

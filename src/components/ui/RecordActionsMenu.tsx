@@ -10,6 +10,7 @@ export interface RecordAction {
   onClick?: () => void
   href?: string
   destructive?: boolean
+  positive?: boolean
   hidden?: boolean
 }
 
@@ -108,10 +109,11 @@ export default function RecordActionsMenu({ actions, label }: RecordActionsMenuP
         >
           {nonDestructive.map((action, i) => {
             const Icon = action.icon
+            const isPositive = action.positive
             const content = (
               <>
-                {Icon && <Icon className="w-4 h-4 text-gray-400 shrink-0" />}
-                <span className="text-sm font-medium text-gray-700">{action.label}</span>
+                {Icon && <Icon className={`w-4 h-4 shrink-0 ${isPositive ? 'text-green-500' : 'text-gray-400'}`} />}
+                <span className={`text-sm font-medium ${isPositive ? 'text-green-700' : 'text-gray-700'}`}>{action.label}</span>
               </>
             )
             if (action.href) {
@@ -121,7 +123,7 @@ export default function RecordActionsMenu({ actions, label }: RecordActionsMenuP
                   href={action.href}
                   role="menuitem"
                   onClick={e => e.stopPropagation()}
-                  className="w-full px-3 py-2.5 flex items-center gap-2.5 hover:bg-gray-50 transition-colors"
+                  className={`w-full px-3 py-2.5 flex items-center gap-2.5 transition-colors ${isPositive ? 'hover:bg-green-50' : 'hover:bg-gray-50'}`}
                 >
                   {content}
                 </Link>
@@ -132,7 +134,7 @@ export default function RecordActionsMenu({ actions, label }: RecordActionsMenuP
                 key={i}
                 role="menuitem"
                 onClick={e => handleAction(e, action.onClick)}
-                className="w-full px-3 py-2.5 text-left flex items-center gap-2.5 hover:bg-gray-50 transition-colors"
+                className={`w-full px-3 py-2.5 text-left flex items-center gap-2.5 transition-colors ${isPositive ? 'hover:bg-green-50' : 'hover:bg-gray-50'}`}
               >
                 {content}
               </button>

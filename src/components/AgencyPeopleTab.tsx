@@ -900,7 +900,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
                   const isInactive = row.status !== 'active'
                   const isToggling = togglingId === row.rowKey
                   return (
-                    <tr key={row.rowKey} className={`hover:bg-gray-50/50 transition-colors ${isInactive ? 'opacity-60' : ''}`}>
+                    <tr key={row.rowKey} className="hover:bg-gray-50/50 transition-colors">
                       <td className="w-10 px-2 py-3">
                         <RecordActionsMenu
                           label={`Actions for ${row.fullName || 'person'}`}
@@ -919,15 +919,16 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
                               label: isToggling ? 'Updating…' : row.status === 'active' ? 'Deactivate' : 'Activate',
                               onClick: () => handleToggle(row),
                               destructive: row.status === 'active',
+                              positive: row.status !== 'active',
                               hidden: !row.credential,
                             },
                           ]}
                         />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className={`px-4 py-3 ${isInactive ? 'opacity-60' : ''}`}>
                         <p className="font-medium text-gray-900">{row.fullName || '—'}</p>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className={`px-4 py-3 ${isInactive ? 'opacity-60' : ''}`}>
                         {row.officerRoles.length > 0
                           ? <div className="flex flex-wrap gap-1">
                               {row.officerRoles.map(role => (
@@ -939,9 +940,9 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
                           : <span className="text-gray-400 text-sm">—</span>
                         }
                       </td>
-                      <td className="px-4 py-3 hidden sm:table-cell text-sm text-gray-700">{row.phone || <span className="text-gray-400">—</span>}</td>
-                      <td className="px-4 py-3 hidden md:table-cell text-sm text-gray-700">{row.email || <span className="text-gray-400">—</span>}</td>
-                      <td className="px-4 py-3"><CredentialBadge credential={row.credential} /></td>
+                      <td className={`px-4 py-3 hidden sm:table-cell text-sm text-gray-700 ${isInactive ? 'opacity-60' : ''}`}>{row.phone || <span className="text-gray-400">—</span>}</td>
+                      <td className={`px-4 py-3 hidden md:table-cell text-sm text-gray-700 ${isInactive ? 'opacity-60' : ''}`}>{row.email || <span className="text-gray-400">—</span>}</td>
+                      <td className={`px-4 py-3 ${isInactive ? 'opacity-60' : ''}`}><CredentialBadge credential={row.credential} /></td>
                       <td className="px-4 py-3"><StatusBadge row={row} /></td>
                     </tr>
                   )

@@ -434,7 +434,7 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
             </thead>
             <tbody className="divide-y divide-gray-50">
               {rows.map(cg => (
-                <tr key={cg.id} className={`hover:bg-gray-50/50 transition-colors ${cg.status !== 'active' ? 'opacity-60' : ''}`}>
+                <tr key={cg.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="w-10 px-2 py-3">
                     <RecordActionsMenu
                       label={`Actions for ${cg.first_name} ${cg.last_name}`}
@@ -444,20 +444,21 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
                           label: cg.status === 'active' ? 'Deactivate' : 'Activate',
                           onClick: () => handleToggle(cg),
                           destructive: cg.status === 'active',
+                          positive: cg.status !== 'active',
                           hidden: togglingId === cg.id,
                         },
                       ]}
                     />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={`px-4 py-3 ${cg.status !== 'active' ? 'opacity-60' : ''}`}>
                     <div className="flex items-center gap-2.5">
                       <Avatar name={`${cg.first_name} ${cg.last_name}`} email={cg.email} />
                       <span className="text-sm font-medium text-gray-900">{cg.first_name} {cg.last_name}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{cg.job_title || cg.role}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{cg.phone || '—'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{cg.email}</td>
+                  <td className={`px-4 py-3 text-sm text-gray-700 ${cg.status !== 'active' ? 'opacity-60' : ''}`}>{cg.job_title || cg.role}</td>
+                  <td className={`px-4 py-3 text-sm text-gray-700 ${cg.status !== 'active' ? 'opacity-60' : ''}`}>{cg.phone || '—'}</td>
+                  <td className={`px-4 py-3 text-sm text-gray-700 ${cg.status !== 'active' ? 'opacity-60' : ''}`}>{cg.email}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                       cg.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'

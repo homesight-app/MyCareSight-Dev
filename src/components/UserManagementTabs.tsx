@@ -286,7 +286,7 @@ export default function UserManagementTabs({
     const originalIndex = userProfiles.indexOf(userProfile)
     const userID = `USR-${String(originalIndex + 1).padStart(3, '0')}`
     return (
-      <tr key={userProfile.id} className={`hover:bg-gray-50/50 transition-colors ${!isActive ? 'opacity-60' : ''}`}>
+      <tr key={userProfile.id} className="hover:bg-gray-50/50 transition-colors">
         <td className="w-10 px-2 py-3">
           <RecordActionsMenu
             label={`Actions for ${userProfile.full_name || userProfile.email}`}
@@ -303,23 +303,24 @@ export default function UserManagementTabs({
                 label: isActive ? 'Disable Account' : 'Enable Account',
                 onClick: () => handleToggleStatus(userProfile.id),
                 destructive: isActive,
+                positive: !isActive,
                 hidden: isTogglingStatus === userProfile.id,
               },
             ]}
           />
         </td>
-        <td className="px-4 py-3">
+        <td className={`px-4 py-3 ${!isActive ? 'opacity-60' : ''}`}>
           <div className="text-sm font-medium text-gray-900">{userProfile.full_name || 'N/A'}</div>
           <div className="text-xs text-gray-500">{userProfile.email}</div>
           <div className="text-xs text-blue-500 mt-0.5">{userID}</div>
         </td>
-        <td className="px-4 py-3 text-sm text-gray-700 hidden sm:table-cell">
+        <td className={`px-4 py-3 text-sm text-gray-700 hidden sm:table-cell ${!isActive ? 'opacity-60' : ''}`}>
           <div className="flex items-center gap-1.5">
             <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
             {getCompanyDisplay(userProfile)}
           </div>
         </td>
-        <td className="px-4 py-3">
+        <td className={`px-4 py-3 ${!isActive ? 'opacity-60' : ''}`}>
           <RoleBadge role={userProfile.role} />
         </td>
         <td className="px-4 py-3">

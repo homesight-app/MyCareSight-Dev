@@ -202,7 +202,7 @@ export default function LicenseTypesTable({ licenseTypes }: LicenseTypesTablePro
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {rows.map(lt => (
-                  <tr key={lt.id} className={`hover:bg-gray-50/50 transition-colors ${!lt.is_active ? 'opacity-60' : ''}`}>
+                  <tr key={lt.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="w-10 px-2 py-3">
                       <RecordActionsMenu
                         label={`Actions for ${lt.name}`}
@@ -212,42 +212,43 @@ export default function LicenseTypesTable({ licenseTypes }: LicenseTypesTablePro
                             label: lt.is_active ? 'Deactivate' : 'Activate',
                             onClick: () => handleToggleActive(lt),
                             destructive: lt.is_active,
+                            positive: !lt.is_active,
                           },
                         ]}
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className={`px-4 py-3 ${!lt.is_active ? 'opacity-60' : ''}`}>
                       <div className="text-sm font-medium text-gray-900">{lt.name}</div>
                       {lt.description && (
                         <div className="text-xs text-gray-500 line-clamp-1 mt-0.5">{lt.description}</div>
                       )}
                       <div className="text-xs text-blue-500 mt-0.5">LIC-{lt.id.substring(0, 8).toUpperCase()}</div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className={`px-4 py-3 text-sm text-gray-700 ${!lt.is_active ? 'opacity-60' : ''}`}>
                       <div className="flex items-center gap-1.5">
                         <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                         {lt.state}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className={`px-4 py-3 text-sm text-gray-700 ${!lt.is_active ? 'opacity-60' : ''}`}>
                       <div className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5 text-gray-400" />
                         {getAverageProcessingTime(lt)}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className={`px-4 py-3 text-sm text-gray-700 ${!lt.is_active ? 'opacity-60' : ''}`}>
                       <div className="flex items-center gap-1">
                         <DollarSign className="w-3.5 h-3.5 text-gray-400" />
                         {lt.cost_display || 'N/A'}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className={`px-4 py-3 text-sm text-gray-700 ${!lt.is_active ? 'opacity-60' : ''}`}>
                       <div className="flex items-center gap-1">
                         <DollarSign className="w-3.5 h-3.5 text-gray-400" />
                         {lt.service_fee_display || 'N/A'}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className={`px-4 py-3 text-sm text-gray-700 ${!lt.is_active ? 'opacity-60' : ''}`}>
                       <div className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5 text-gray-400" />
                         {lt.renewal_period_display || 'N/A'}

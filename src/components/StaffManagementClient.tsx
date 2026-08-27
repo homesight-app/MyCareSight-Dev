@@ -354,7 +354,7 @@ export default function StaffManagementClient({
                     return (
                       <tr
                         key={staff.id}
-                        className={`cursor-pointer border-b border-gray-50 last:border-b-0 hover:bg-gray-50/50 transition-colors ${isInactive ? 'opacity-60' : ''}`}
+                        className="cursor-pointer border-b border-gray-50 last:border-b-0 hover:bg-gray-50/50 transition-colors"
                         onClick={() => handleViewProfile(staff)}
                       >
                         <td className="w-10 px-2 py-3 align-middle" onClick={e => e.stopPropagation()}>
@@ -371,12 +371,13 @@ export default function StaffManagementClient({
                                 label: isActive ? 'Deactivate' : 'Activate',
                                 onClick: () => handleStatusToggle(staff, !isActive),
                                 destructive: isActive,
+                                positive: !isActive,
                                 hidden: statusUpdatingId === staff.id,
                               },
                             ]}
                           />
                         </td>
-                        <td className="px-4 py-3 align-middle">
+                        <td className={`px-4 py-3 align-middle ${isInactive ? 'opacity-60' : ''}`}>
                           <div className="flex items-center gap-3 min-w-0 max-w-[280px]">
                             <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 ${isInactive ? 'bg-gray-400' : 'bg-blue-500'}`}>
                               {getInitials(staff.first_name, staff.last_name)}
@@ -391,29 +392,29 @@ export default function StaffManagementClient({
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 align-middle min-w-0 max-w-[200px]">
+                        <td className={`px-4 py-3 align-middle min-w-0 max-w-[200px] ${isInactive ? 'opacity-60' : ''}`}>
                           <div className="text-sm font-medium text-gray-900 truncate">{rolePrimary}</div>
                           {roleSecondary && <div className="text-xs text-gray-500 truncate mt-0.5">{roleSecondary}</div>}
                         </td>
-                        <td className="px-4 py-3 align-middle min-w-0">
+                        <td className={`px-4 py-3 align-middle min-w-0 ${isInactive ? 'opacity-60' : ''}`}>
                           <div className="flex items-center gap-2 text-gray-600">
                             <Mail className="w-4 h-4 text-gray-400 shrink-0 stroke-[1.5]" />
                             <span className="truncate text-sm">{staff.email || '—'}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 align-middle whitespace-nowrap">
+                        <td className={`px-4 py-3 align-middle whitespace-nowrap ${isInactive ? 'opacity-60' : ''}`}>
                           <div className="flex items-center gap-2 text-gray-600">
                             <Phone className="w-4 h-4 text-gray-400 shrink-0 stroke-[1.5]" />
                             <span className="text-sm">{staff.phone?.trim() || '—'}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 align-middle">
+                        <td className={`px-4 py-3 align-middle ${isInactive ? 'opacity-60' : ''}`}>
                           <div className="flex items-center gap-2 text-gray-600">
                             <Medal className="w-4 h-4 text-gray-400 shrink-0 stroke-[1.5]" />
                             <span className="text-sm">{licenseCount}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 align-middle text-sm">
+                        <td className={`px-4 py-3 align-middle text-sm ${isInactive ? 'opacity-60' : ''}`}>
                           {expiring > 0
                             ? <span className="font-medium text-amber-700">{expiring}</span>
                             : <span className="text-gray-400">—</span>}

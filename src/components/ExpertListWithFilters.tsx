@@ -289,6 +289,7 @@ export default function ExpertListWithFilters({
                           label: expert.status === 'active' ? 'Deactivate' : 'Activate',
                           onClick: () => handleToggleStatus(expert),
                           destructive: expert.status === 'active',
+                          positive: expert.status !== 'active',
                         },
                       ]}
                     />

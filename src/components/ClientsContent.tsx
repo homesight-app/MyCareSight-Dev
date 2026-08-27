@@ -246,6 +246,7 @@ export default function ClientsContent({
                             label: client.status === 'active' ? 'Deactivate' : 'Activate',
                             onClick: () => toggleStatus(client.id, client.status),
                             destructive: client.status === 'active',
+                            positive: client.status !== 'active',
                           },
                         ]}
                       />

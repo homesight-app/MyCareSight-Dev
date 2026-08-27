@@ -494,6 +494,15 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
         officer_role: officerRoles[0] ?? null,
       })
       if (res.error) { setError(res.error); setSubmitting(false); return }
+    } else if (officerRoles.length > 0) {
+      const res = await addKeyStaffWithRoles(agencyId, {
+        officer_roles: officerRoles,
+        full_legal_name: fullName,
+        telephone: phone.trim() || undefined,
+        email: email.trim() || undefined,
+        user_profile_id: person.userProfileId ?? undefined,
+      })
+      if (res.error) { setError(res.error); setSubmitting(false); return }
     }
     if (person.adminRecordId && credential !== 'care_coordinator') {
       const res = await updateAgencyAdminProfile(agencyId, person.adminRecordId, {
@@ -542,27 +551,25 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
             <FieldInput label="Email" type="email" value={email} onChange={setEmail} />
           </div>
 
-          {person.keyStaffId && (
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Officer Role(s)</label>
-              <div className="grid grid-cols-2 gap-1.5">
-                {OFFICER_ROLES.map(r => (
-                  <label key={r.key} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors select-none">
-                    <input
-                      type="checkbox"
-                      checked={officerRoles.includes(r.key)}
-                      onChange={() => toggleRole(r.key)}
-                      className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-xs text-gray-700">{r.label}</span>
-                  </label>
-                ))}
-              </div>
-              {officerRoles.length === 0 && (
-                <p className="mt-1 text-xs text-gray-400">No role selected — person is a contact only.</p>
-              )}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Officer Role(s)</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {OFFICER_ROLES.map(r => (
+                <label key={r.key} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors select-none">
+                  <input
+                    type="checkbox"
+                    checked={officerRoles.includes(r.key)}
+                    onChange={() => toggleRole(r.key)}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-xs text-gray-700">{r.label}</span>
+                </label>
+              ))}
             </div>
-          )}
+            {officerRoles.length === 0 && (
+              <p className="mt-1 text-xs text-gray-400">No role selected — person is a contact only.</p>
+            )}
+          </div>
 
           {person.credential && (
             <div className="border-t border-gray-100 pt-3 space-y-3">

@@ -481,6 +481,7 @@ export async function addKeyStaffWithRoles(
     telephone?: string
     email?: string
     ownership_percentage?: string
+    user_profile_id?: string
   }
 ): Promise<{ error: string | null; data: { id: string } | null }> {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
@@ -501,6 +502,7 @@ export async function addKeyStaffWithRoles(
         telephone: payload.telephone?.trim() || null,
         email: payload.email?.trim() || null,
         ownership_percentage: payload.ownership_percentage?.trim() || null,
+        user_profile_id: payload.user_profile_id ?? null,
       })
       .select('id')
       .single()

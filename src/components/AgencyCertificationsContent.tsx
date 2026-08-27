@@ -108,7 +108,7 @@ export default function AgencyCertificationsContent({ certifications, agencyId }
               {certifications.length}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
               <input
@@ -119,18 +119,26 @@ export default function AgencyCertificationsContent({ certifications, agencyId }
                 className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none w-44"
               />
             </div>
-            <div className="relative">
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
-                className="appearance-none pl-3 pr-7 py-1.5 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-              >
-                <option value="all">All Statuses</option>
-                <option value="active">Active</option>
-                <option value="expiring">Expiring Soon</option>
-                <option value="expired">Expired</option>
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+            <div className="inline-flex bg-gray-100 rounded-xl p-1 gap-1">
+              {([
+                { value: 'all',      label: 'All' },
+                { value: 'active',   label: 'Active' },
+                { value: 'expiring', label: 'Expiring' },
+                { value: 'expired',  label: 'Expired' },
+              ] as const).map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setStatusFilter(value)}
+                  className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                    statusFilter === value
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         </div>

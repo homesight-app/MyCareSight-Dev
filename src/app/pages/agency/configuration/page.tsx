@@ -15,11 +15,25 @@ export default async function AgencyConfigurationPage() {
   const supabase = await createClient()
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
-  const config = agencyId
-    ? (await q.getAgencyConfiguration(supabase, agencyId)).data
-    : null
+  const userRole = (session!.profile as { role?: string } | null)?.role ?? null
+
+  const [configResult, stagesResult] = await Promise.all([
+    agencyId ? q.getAgencyConfiguration(supabase, agencyId) : Promise.resolve({ data: null }),
+    agencyId ? q.getAgencyLeadStages(supabase, agencyId) : Promise.resolve({ data: null }),
+  ])
+
+  let stages = stagesResult.data ?? []
+  if (stages.length === 0 && agencyId) {
+    const seeded = await q.seedDefaultAgencyLeadStages(supabase, agencyId)
+    stages = seeded.data ?? []
+  }
 
   return (
-    <AgencyConfigurationContent initialConfig={config} />
+    <AgencyConfigurationContent
+      initialConfig={configResult.data}
+      agencyId={agencyId}
+      userRole={userRole}
+      initialStages={stages}
+    />
   )
 }

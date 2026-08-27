@@ -45,6 +45,9 @@ export default function ExpertListWithFilters({
   const debouncedSearch = useDebouncedValue(searchInput, 300)
   const [selectedState, setSelectedState] = useState('All States')
   const [expertTab, setExpertTab] = useState<'active' | 'inactive'>('active')
+  const [localExperts, setLocalExperts] = useState(experts)
+
+  useEffect(() => { setLocalExperts(experts) }, [experts])
 
   // Only search + state trigger the server filter; tab is applied client-side
   // when no server filter is active, and passed along when it is.
@@ -80,12 +83,12 @@ export default function ExpertListWithFilters({
 
   const tabFilteredExperts = useMemo(() => {
     const status = expertTab === 'active' ? 'active' : 'inactive'
-    return experts.filter(e => e.status === status)
-  }, [experts, expertTab])
+    return localExperts.filter(e => e.status === status)
+  }, [localExperts, expertTab])
 
   const inactiveCount = useMemo(
-    () => experts.filter(e => e.status !== 'active').length,
-    [experts]
+    () => localExperts.filter(e => e.status !== 'active').length,
+    [localExperts]
   )
 
   const displayExperts = hasServerFilter
@@ -120,6 +123,8 @@ export default function ExpertListWithFilters({
       return
     }
 
+    setLocalExperts((prev) => prev.filter((e) => e.id !== expert.id))
+
     try {
       const supabase = createClient()
       const newStatus = isActive ? 'inactive' : 'active'
@@ -131,6 +136,7 @@ export default function ExpertListWithFilters({
 
       if (error) {
         alert(`Failed to ${actionText} expert: ${error.message}`)
+        router.refresh()
         return
       }
 

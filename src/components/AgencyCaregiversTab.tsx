@@ -270,6 +270,11 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
   const { slice: rows, totalCount } = useMemo(() => applyPageSlice(sorted), [sorted, applyPageSlice])
 
   const handleToggle = async (cg: CaregiverRecord) => {
+    if (tab === 'active') {
+      setActiveData((prev) => prev.filter((c) => c.id !== cg.id))
+    } else {
+      setInactiveData((prev) => (prev ?? []).filter((c) => c.id !== cg.id))
+    }
     setTogglingId(cg.id)
     await updateCaregiverStatus(agencyId, cg.id, cg.status === 'active' ? 'inactive' : 'active')
     setTogglingId(null)

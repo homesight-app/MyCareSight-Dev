@@ -2,10 +2,11 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Search, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
 import AddAgencyModal, { type AgencyAdminOption } from './AddAgencyModal'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import { setAgencyStatus } from '@/app/actions/agencies'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 
 interface Agency {
   id: string
@@ -67,6 +68,9 @@ export default function AgenciesContent({
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>(initialSortKey as SortKey)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSortDir)
+  const [localAgencies, setLocalAgencies] = useState(agencies)
+
+  useEffect(() => { setLocalAgencies(agencies) }, [agencies])
 
   const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
   const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
@@ -145,9 +149,11 @@ export default function AgenciesContent({
     }
   }
 
-  const handleToggleStatus = async (e: React.ChangeEvent<HTMLInputElement>, agency: Agency) => {
-    e.stopPropagation()
+  const handleToggleStatus = async (agency: Agency) => {
     const next = (agency.status ?? 'active') === 'active' ? 'inactive' : 'active'
+    if (statusFilter !== 'all') {
+      setLocalAgencies((prev) => prev.filter((a) => a.id !== agency.id))
+    }
     setTogglingId(agency.id)
     await setAgencyStatus(agency.id, next)
     setTogglingId(null)
@@ -216,6 +222,7 @@ export default function AgenciesContent({
           <table className="min-w-full divide-y divide-gray-200">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
+                <th className="w-10 px-2" />
                 <th scope="col" className={thCls} onClick={() => handleSort('name')}>
                   <span className="inline-flex items-center gap-1">Agency Name <SortIcon col="name" /></span>
                 </th>
@@ -231,16 +238,16 @@ export default function AgenciesContent({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {agencies.length === 0 ? (
+              {localAgencies.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-gray-500 text-sm">
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 text-sm">
                     {search || statusFilter !== 'all'
                       ? 'No agencies match your search or filter.'
                       : 'No agencies yet. Click "Add New Agency" to create one.'}
                   </td>
                 </tr>
               ) : (
-                agencies.map((agency) => {
+                localAgencies.map((agency) => {
                   const isActive = (agency.status ?? 'active') === 'active'
                   const isToggling = togglingId === agency.id
 
@@ -250,6 +257,20 @@ export default function AgenciesContent({
                       onClick={() => detailBasePath && router.push(`${detailBasePath}/${agency.id}`)}
                       className={`transition-colors ${detailBasePath ? 'cursor-pointer hover:bg-gray-50/50' : ''} ${!isActive ? 'opacity-60' : ''}`}
                     >
+                      <td className="w-10 px-2 py-3" onClick={e => e.stopPropagation()}>
+                        <RecordActionsMenu
+                          label={`Actions for ${agency.name}`}
+                          actions={[
+                            ...(detailBasePath ? [{ label: 'View Details', icon: Eye, href: `${detailBasePath}/${agency.id}` }] : []),
+                            {
+                              label: isToggling ? '…' : isActive ? 'Deactivate' : 'Activate',
+                              onClick: () => handleToggleStatus(agency),
+                              destructive: isActive,
+                              positive: !isActive,
+                            },
+                          ]}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
                         {agency.name}
                       </td>
@@ -259,19 +280,10 @@ export default function AgenciesContent({
                       <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
                         {formatDate(agency.created_at)}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <label className={`relative inline-flex items-center gap-3 ${isToggling ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
-                          <input
-                            type="checkbox"
-                            checked={isActive}
-                            onChange={(e) => handleToggleStatus(e, agency)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
-                          <span className="text-sm font-medium text-gray-700">
-                            {isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </label>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {isActive ? 'Active' : 'Inactive'}
+                        </span>
                       </td>
                     </tr>
                   )

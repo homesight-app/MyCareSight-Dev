@@ -4,10 +4,12 @@ import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, CheckSquare, Square, Trash2, ExternalLink, Pencil, Plus, ChevronDown } from 'lucide-react'
 import AddLeadModal from './AddLeadModal'
+import EditPatientLeadDetailsModal from './EditPatientLeadDetailsModal'
 import LeadSignedModal from './LeadSignedModal'
 import LeadCollectRetainerModal from './LeadCollectRetainerModal'
 import ConvertToAgencyPromptModal from './ConvertToAgencyPromptModal'
-import { type LeadContext, LEAD_STAGES, NOTE_TYPES } from '@/lib/constants/lead-configs'
+import { type LeadContext, LEAD_STAGES, NOTE_TYPES, type AgencyLeadStage } from '@/lib/constants/lead-configs'
+import type { PatientLeadDetails } from '@/lib/supabase/query/leads'
 import {
   updateLead,
   updateLeadStage,
@@ -89,6 +91,8 @@ interface LeadDetailContentProps {
   context: LeadContext
   currentUserRole?: string | null
   platformStaff?: { id: string; full_name: string | null }[]
+  stages?: AgencyLeadStage[]
+  patientDetails?: PatientLeadDetails | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -139,7 +143,7 @@ const noteTypeColorMap: Record<string, string> = {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserRole, platformStaff = [] }: LeadDetailContentProps) {
+export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserRole, platformStaff = [], stages, patientDetails }: LeadDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = (['overview', 'notes', 'tasks', 'documents'] as const).find(t => t === searchParams.get('tab')) ?? 'overview'
@@ -168,6 +172,9 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   const [showAgencyNamePrompt, setShowAgencyNamePrompt] = useState(false)
   const [agencyNameInput, setAgencyNameInput] = useState('')
 
+  // Patient details modal state
+  const [editPatientDetailsOpen, setEditPatientDetailsOpen] = useState(false)
+
   // Signed / retainer modal state
   const [signedPromptOpen, setSignedPromptOpen]         = useState(false)
   const [collectRetainerOpen, setCollectRetainerOpen]   = useState(false)
@@ -175,7 +182,8 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
 
   const owners = platformStaff
 
-  const stageColorMap = Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.color]))
+  const activeStages = stages && stages.length > 0 ? stages : (LEAD_STAGES as unknown as AgencyLeadStage[])
+  const stageColorMap = Object.fromEntries(activeStages.map(s => [s.key, s.color]))
   const serviceTypeLabel = (key: string | null) =>
     key ? context.serviceTypes.find(s => s.key === key)?.label ?? key : '—'
 
@@ -382,6 +390,168 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                 </dl>
               </div>
 
+              {/* Patient Details card — patient context only */}
+              {context.leadType === 'patient' && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-900">Patient Details</h3>
+                    <button
+                      type="button"
+                      onClick={() => setEditPatientDetailsOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Edit
+                    </button>
+                  </div>
+
+                  {/* Point of Contact */}
+                  {(patientDetails?.poc_name || patientDetails?.poc_phone || patientDetails?.poc_relationship || patientDetails?.poc_email) && (
+                    <div className="mb-3">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Point of Contact</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                        {patientDetails?.poc_name && (
+                          <>
+                            <dt className="text-gray-500">Name</dt>
+                            <dd className="text-gray-900">{patientDetails.poc_name}</dd>
+                          </>
+                        )}
+                        {patientDetails?.poc_phone && (
+                          <>
+                            <dt className="text-gray-500">Phone</dt>
+                            <dd className="text-gray-900">{patientDetails.poc_phone}</dd>
+                          </>
+                        )}
+                        {patientDetails?.poc_relationship && (
+                          <>
+                            <dt className="text-gray-500">Relationship</dt>
+                            <dd className="text-gray-900 capitalize">{patientDetails.poc_relationship.replace('_', ' ')}</dd>
+                          </>
+                        )}
+                        {patientDetails?.poc_email && (
+                          <>
+                            <dt className="text-gray-500">Email</dt>
+                            <dd className="text-gray-900">{patientDetails.poc_email}</dd>
+                          </>
+                        )}
+                      </dl>
+                    </div>
+                  )}
+
+                  {/* Demographics */}
+                  {(patientDetails?.gender || patientDetails?.date_of_birth) && (
+                    <div className="mb-3">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Demographics</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                        {patientDetails?.gender && (
+                          <>
+                            <dt className="text-gray-500">Gender</dt>
+                            <dd className="text-gray-900">{patientDetails.gender}</dd>
+                          </>
+                        )}
+                        {patientDetails?.date_of_birth && (
+                          <>
+                            <dt className="text-gray-500">Date of Birth</dt>
+                            <dd className="text-gray-900">{formatDate(patientDetails.date_of_birth)}</dd>
+                          </>
+                        )}
+                      </dl>
+                    </div>
+                  )}
+
+                  {/* Care & Medical */}
+                  {(patientDetails?.reason_for_care || patientDetails?.mobility_status || patientDetails?.cognitive_status || patientDetails?.medical_conditions) && (
+                    <div className="mb-3">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Care &amp; Medical</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                        {patientDetails?.reason_for_care && (
+                          <>
+                            <dt className="text-gray-500">Reason</dt>
+                            <dd className="text-gray-900">{patientDetails.reason_for_care}</dd>
+                          </>
+                        )}
+                        {patientDetails?.mobility_status && (
+                          <>
+                            <dt className="text-gray-500">Mobility</dt>
+                            <dd className="text-gray-900 capitalize">{patientDetails.mobility_status.replace('_', ' ')}</dd>
+                          </>
+                        )}
+                        {patientDetails?.cognitive_status && (
+                          <>
+                            <dt className="text-gray-500">Cognitive</dt>
+                            <dd className="text-gray-900 capitalize">{patientDetails.cognitive_status.replace('_', ' ')}</dd>
+                          </>
+                        )}
+                        {patientDetails?.medical_conditions && (
+                          <>
+                            <dt className="text-gray-500">Conditions</dt>
+                            <dd className="text-gray-900">{patientDetails.medical_conditions}</dd>
+                          </>
+                        )}
+                      </dl>
+                    </div>
+                  )}
+
+                  {/* Schedule & Living */}
+                  {(patientDetails?.start_date || patientDetails?.schedule_type || patientDetails?.living_situation) && (
+                    <div className="mb-3">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Schedule &amp; Living</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                        {patientDetails?.start_date && (
+                          <>
+                            <dt className="text-gray-500">Start Date</dt>
+                            <dd className="text-gray-900">{formatDate(patientDetails.start_date)}</dd>
+                          </>
+                        )}
+                        {patientDetails?.schedule_type && (
+                          <>
+                            <dt className="text-gray-500">Schedule</dt>
+                            <dd className="text-gray-900 capitalize">{patientDetails.schedule_type.replace('_', ' ')}</dd>
+                          </>
+                        )}
+                        {patientDetails?.living_situation && (
+                          <>
+                            <dt className="text-gray-500">Living</dt>
+                            <dd className="text-gray-900 capitalize">{patientDetails.living_situation.replace('_', ' ')}</dd>
+                          </>
+                        )}
+                      </dl>
+                    </div>
+                  )}
+
+                  {/* Financial & Insurance */}
+                  {(patientDetails?.payment_method || patientDetails?.insurance_carrier || patientDetails?.insurance_policy_number) && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Financial &amp; Insurance</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                        {patientDetails?.payment_method && (
+                          <>
+                            <dt className="text-gray-500">Payment</dt>
+                            <dd className="text-gray-900 capitalize">{patientDetails.payment_method.replace('_', ' ')}</dd>
+                          </>
+                        )}
+                        {patientDetails?.insurance_carrier && (
+                          <>
+                            <dt className="text-gray-500">Carrier</dt>
+                            <dd className="text-gray-900">{patientDetails.insurance_carrier}</dd>
+                          </>
+                        )}
+                        {patientDetails?.insurance_policy_number && (
+                          <>
+                            <dt className="text-gray-500">Policy #</dt>
+                            <dd className="text-gray-900">{patientDetails.insurance_policy_number}</dd>
+                          </>
+                        )}
+                      </dl>
+                    </div>
+                  )}
+
+                  {!patientDetails && (
+                    <p className="text-sm text-gray-400 italic">No patient details recorded yet.</p>
+                  )}
+                </div>
+              )}
+
               {/* Notes preview (general) */}
               {lead.notes && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -445,7 +615,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     disabled={isPending}
                     className="w-full appearance-none pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
                   >
-                    {LEAD_STAGES.map(s => (
+                    {activeStages.map(s => (
                       <option key={s.key} value={s.key}>{s.label}</option>
                     ))}
                   </select>
@@ -453,7 +623,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                 </div>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'}`}>
-                    {LEAD_STAGES.find(s => s.key === lead.stage)?.label ?? lead.stage}
+                    {activeStages.find(s => s.key === lead.stage)?.label ?? lead.stage}
                   </span>
                   {lead.stage === 'retainer' && (
                     <button
@@ -588,14 +758,22 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                           )}
                           {convertError && <p className="mt-2 text-xs text-red-600">{convertError}</p>}
                         </>
-                      ) : (
-                        <a
-                          href={`/pages/agency/clients?lead=${lead.id}&firstName=${encodeURIComponent(lead.contact_first_name ?? '')}&lastName=${encodeURIComponent(lead.contact_last_name ?? '')}&email=${encodeURIComponent(lead.contact_email ?? '')}&phone=${encodeURIComponent(lead.contact_phone ?? '')}`}
-                          className="block w-full px-3 py-2 text-sm font-medium text-center text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-                        >
-                          {context.conversionLabel}
-                        </a>
-                      )}
+                      ) : (() => {
+                        const wonStage = stages?.find(s => s.is_won)
+                        const atWonStage = !wonStage || lead.stage === wonStage.key
+                        return atWonStage ? (
+                          <a
+                            href={`/pages/agency/clients?lead=${lead.id}&firstName=${encodeURIComponent(lead.contact_first_name ?? '')}&lastName=${encodeURIComponent(lead.contact_last_name ?? '')}&email=${encodeURIComponent(lead.contact_email ?? '')}&phone=${encodeURIComponent(lead.contact_phone ?? '')}${patientDetails?.gender ? `&gender=${encodeURIComponent(patientDetails.gender)}` : ''}${patientDetails?.date_of_birth ? `&dateOfBirth=${encodeURIComponent(patientDetails.date_of_birth)}` : ''}`}
+                            className="block w-full px-3 py-2 text-sm font-medium text-center text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                          >
+                            {context.conversionLabel}
+                          </a>
+                        ) : (
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-500">
+                            Move this lead to <span className="font-semibold text-gray-700">{wonStage.label}</span> before converting to a client.
+                          </div>
+                        )
+                      })()}
                       <p className="mt-2 text-xs text-gray-400">
                         {context.conversionAction === 'agency'
                           ? 'Creates a shell agency record.'
@@ -894,6 +1072,16 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
         context={context}
         editLead={lead}
       />
+
+      {context.leadType === 'patient' && (
+        <EditPatientLeadDetailsModal
+          isOpen={editPatientDetailsOpen}
+          onClose={() => setEditPatientDetailsOpen(false)}
+          onSuccess={() => router.refresh()}
+          leadId={lead.id}
+          details={patientDetails}
+        />
+      )}
 
       <LeadSignedModal
         lead={lead}

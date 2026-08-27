@@ -1,16 +1,29 @@
 export const LEAD_STAGES = [
-  { key: 'new',           label: 'New',           color: 'bg-gray-100 text-gray-600' },
-  { key: 'contacted',     label: 'Contacted',     color: 'bg-blue-100 text-blue-700' },
-  { key: 'proposal_sent', label: 'Proposal Sent', color: 'bg-indigo-100 text-indigo-700' },
-  { key: 'verbal',        label: 'Verbal',        color: 'bg-yellow-100 text-yellow-700' },
-  { key: 'probable',      label: 'Probable',          color: 'bg-orange-100 text-orange-700' },
-  { key: 'retainer',      label: 'Signed - Retainer Pending',  color: 'bg-purple-100 text-purple-700' },
-  { key: 'signed',        label: 'Signed - Complete',            color: 'bg-green-100 text-green-700' },
-  { key: 'on_hold',       label: 'On Hold',       color: 'bg-gray-100 text-gray-500' },
-  { key: 'lost',          label: 'Lost',          color: 'bg-red-100 text-red-600' },
+  { key: 'new',           label: 'New',                       color: 'bg-gray-100 text-gray-600' },
+  { key: 'contacted',     label: 'Contacted',                 color: 'bg-blue-100 text-blue-700' },
+  { key: 'proposal_sent', label: 'Proposal Sent',             color: 'bg-indigo-100 text-indigo-700' },
+  { key: 'pricing_sent',  label: 'Pricing Sent',              color: 'bg-cyan-100 text-cyan-700' },
+  { key: 'verbal',        label: 'Verbal',                    color: 'bg-yellow-100 text-yellow-700' },
+  { key: 'probable',      label: 'Probable',                  color: 'bg-orange-100 text-orange-700' },
+  { key: 'retainer',      label: 'Signed - Retainer Pending', color: 'bg-purple-100 text-purple-700' },
+  { key: 'signed',        label: 'Signed - Complete',         color: 'bg-green-100 text-green-700' },
+  { key: 'on_hold',       label: 'On Hold',                   color: 'bg-gray-100 text-gray-500' },
+  { key: 'unresponsive',  label: 'Unresponsive',              color: 'bg-rose-100 text-rose-600' },
+  { key: 'lost',          label: 'Lost',                      color: 'bg-red-100 text-red-600' },
 ] as const
 
 export type LeadStageKey = typeof LEAD_STAGES[number]['key']
+
+export type AgencyLeadStage = {
+  id: string
+  key: string
+  label: string
+  color: string
+  sort_order: number
+  is_entry: boolean
+  is_won: boolean
+  is_lost: boolean
+}
 
 export const AGENCY_SERVICE_TYPES = [
   { key: 'non_skilled',           label: 'Non-Skilled' },

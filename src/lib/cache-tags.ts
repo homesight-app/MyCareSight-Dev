@@ -24,6 +24,9 @@ export const CACHE_TAG_LICENSE_TYPES_ACTIVE = 'license-types-active'
 /** Generic configuration_values dropdown data (admin configuration) */
 export const CACHE_TAG_CONFIGURATION_VALUES = 'configuration-values'
 
+/** Agency-configurable lead pipeline stages */
+export const CACHE_TAG_AGENCY_LEAD_STAGES = 'agency-lead-stages'
+
 export function caregiverVisitExecutionTag(visitId: string) {
   return `${CACHE_TAG_CAREGIVER_VISIT_EXECUTION}:${visitId}`
 }

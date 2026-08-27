@@ -342,6 +342,9 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
 
   if (agencyErr || !agency) return { error: agencyErr?.message ?? 'Failed to create agency' }
 
+  // Seed default patient-lead pipeline stages for the new agency
+  await q.seedDefaultAgencyLeadStages(supabase, agency.id)
+
   const { error: updateErr } = await supabase
     .from('leads')
     .update({
@@ -449,8 +452,129 @@ export async function fetchLeadNotesAction(leadId: string) {
   return { error: null, data: data ?? [] }
 }
 
-export async function linkLeadToPatient(leadId: string, patientId: string) {
+export async function updatePatientLeadDetailsAction(
+  leadId: string,
+  data: {
+    pocName?: string | null
+    pocPhone?: string | null
+    pocRelationship?: string | null
+    pocEmail?: string | null
+    reasonForCare?: string | null
+    mobilityStatus?: string | null
+    cognitiveStatus?: string | null
+    medicalConditions?: string | null
+    gender?: string | null
+    dateOfBirth?: string | null
+    startDate?: string | null
+    scheduleType?: string | null
+    livingSituation?: string | null
+    paymentMethod?: string | null
+    insuranceCarrier?: string | null
+    insurancePolicyNumber?: string | null
+  }
+): Promise<{ success: boolean; error?: string; fieldErrors?: Record<string, string[]> }> {
+  const { error: authErr, session } = await requireAgencyMember()
+  if (authErr || !session) return { success: false, error: authErr ?? 'Forbidden' }
+
   const supabase = await createClient()
+  const agencyId = session.profile?.agency_id
+
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('id, lead_type, agency_id')
+    .eq('id', leadId)
+    .single()
+
+  if (!lead) return { success: false, error: 'Lead not found' }
+  if (lead.lead_type !== 'patient') return { success: false, error: 'Not a patient lead' }
+  if (lead.agency_id !== agencyId) return { success: false, error: 'Forbidden' }
+
+  const { data: upserted, error } = await q.upsertPatientLeadDetails(supabase, leadId, {
+    poc_name: data.pocName ?? null,
+    poc_phone: data.pocPhone ?? null,
+    poc_relationship: data.pocRelationship ?? null,
+    poc_email: data.pocEmail ?? null,
+    reason_for_care: data.reasonForCare ?? null,
+    mobility_status: data.mobilityStatus ?? null,
+    cognitive_status: data.cognitiveStatus ?? null,
+    medical_conditions: data.medicalConditions ?? null,
+    gender: data.gender ?? null,
+    date_of_birth: data.dateOfBirth ?? null,
+    start_date: data.startDate ?? null,
+    schedule_type: data.scheduleType ?? null,
+    living_situation: data.livingSituation ?? null,
+    payment_method: data.paymentMethod ?? null,
+    insurance_carrier: data.insuranceCarrier ?? null,
+    insurance_policy_number: data.insurancePolicyNumber ?? null,
+  })
+  if (error) return { success: false, error: error.message }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    table_name: 'patient_lead_details',
+    record_id: upserted?.id ?? leadId,
+    action: 'UPSERT',
+    performed_by_user_id: session.user.id,
+    details: { lead_id: leadId, agency_id: agencyId },
+  })
+  if (auditErr) console.error('[leads/updatePatientLeadDetails] Audit log failed. leadId=%s err=%s', leadId, auditErr.message)
+
+  revalidateLeadDetail(leadId)
+  return { success: true }
+}
+
+export async function createRepresentativeFromLeadAction(leadId: string, patientId: string) {
+  const { error: authErr, session } = await requireAgencyMember()
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+
+  const supabase = await createClient()
+  const { data: details } = await q.getPatientLeadDetails(supabase, leadId)
+
+  if (!details?.poc_name?.trim()) return { error: null }
+
+  const { error } = await q.insertRepresentative(supabase, {
+    patient_id: patientId,
+    name: details.poc_name,
+    relationship: details.poc_relationship ?? null,
+    phone_number: details.poc_phone ?? null,
+    email_address: details.poc_email ?? null,
+    display_order: 0,
+  })
+
+  if (error) return { error: error.message }
+  return { error: null }
+}
+
+export async function linkLeadToPatient(leadId: string, patientId: string) {
+  const { error: authErr, session } = await requireAgencyMember()
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+
+  const supabase = await createClient()
+  const agencyId = session.profile?.agency_id
+  if (!agencyId) return { error: 'No agency found for this user' }
+
+  // Verify the lead belongs to this agency and is a patient lead
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('id, lead_type, agency_id, stage')
+    .eq('id', leadId)
+    .single()
+
+  if (!lead) return { error: 'Lead not found' }
+  if (lead.lead_type !== 'patient') return { error: 'Not a patient lead' }
+  if (lead.agency_id !== agencyId) return { error: 'Forbidden' }
+
+  // Verify the lead is at the Closed-Won stage
+  const { data: wonStage } = await supabase
+    .from('agency_lead_stages')
+    .select('key')
+    .eq('agency_id', agencyId)
+    .eq('is_won', true)
+    .single()
+
+  if (wonStage && lead.stage !== wonStage.key) {
+    return { error: `Lead must be at the "${wonStage.key}" stage before converting to a client` }
+  }
+
   const { error } = await supabase
     .from('leads')
     .update({

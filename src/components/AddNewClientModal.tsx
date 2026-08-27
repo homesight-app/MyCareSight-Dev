@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -20,6 +20,8 @@ interface AddNewClientModalProps {
   onSuccess?: (insertedPatient?: Record<string, unknown>) => void
   /** When 'agency_admin', form targets clients table (company/contact fields). When 'care_recipient', targets patients. */
   mode?: AddNewClientModalMode
+  /** Pre-fills contact fields when opening from a lead conversion. */
+  prefill?: { firstName?: string; lastName?: string; email?: string; phone?: string; gender?: string; dateOfBirth?: string }
 }
 
 const AGENCY_FORM_INITIAL = {
@@ -33,7 +35,7 @@ const AGENCY_FORM_INITIAL = {
   status: 'active' as 'active' | 'inactive' | 'pending',
 }
 
-export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = 'care_recipient' }: AddNewClientModalProps) {
+export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = 'care_recipient', prefill }: AddNewClientModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
 
@@ -57,6 +59,20 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
     gender: '',
     class: ''
   })
+
+  useEffect(() => {
+    if (!isOpen || !prefill) return
+    setFormData(prev => ({
+      ...prev,
+      first_name:    prefill.firstName   ?? prev.first_name,
+      last_name:     prefill.lastName    ?? prev.last_name,
+      email_address: prefill.email       ?? prev.email_address,
+      phone_number:  prefill.phone       ?? prev.phone_number,
+      gender:        prefill.gender      ?? prev.gender,
+      date_of_birth: prefill.dateOfBirth ?? prev.date_of_birth,
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -144,7 +160,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
         agency_id: up.agency_id,
         first_name: formData.first_name,
         last_name: formData.last_name,
-        date_of_birth: formData.date_of_birth,
+        date_of_birth: formData.date_of_birth || null,
         street_address: formData.street_address,
         city: formData.city,
         state: formData.state,
@@ -395,7 +411,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
             {/* Date of Birth */}
             <div>
               <label htmlFor="date_of_birth" className="block text-sm font-semibold text-gray-700 mb-2">
-                Date of Birth <span className="text-red-500">*</span>
+                Date of Birth
               </label>
               <input
                 type="date"
@@ -403,7 +419,6 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 name="date_of_birth"
                 value={formData.date_of_birth}
                 onChange={handleChange}
-                required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>

@@ -1,12 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { Award, AlertTriangle, DollarSign, FileText, Users, type LucideIcon } from 'lucide-react'
+import { Award, AlertTriangle, DollarSign, FileText, GitBranch, Users, type LucideIcon } from 'lucide-react'
 
-const ICONS: Record<'dollar-sign' | 'award' | 'alert-triangle' | 'users', LucideIcon> = {
+const ICONS: Record<'dollar-sign' | 'award' | 'alert-triangle' | 'git-branch' | 'users', LucideIcon> = {
   'dollar-sign': DollarSign,
   award: Award,
   'alert-triangle': AlertTriangle,
+  'git-branch': GitBranch,
   users: Users,
 }
 

@@ -185,9 +185,7 @@ export default function StaffManagementClient({
         alert(`Could not update status: ${error.message}`)
         return
       }
-      setLocalStaffList((prev) =>
-        prev.map((s) => (s.id === staff.id ? { ...s, status: nextStatus } : s))
-      )
+      setLocalStaffList((prev) => prev.filter((s) => s.id !== staff.id))
       setSelectedStaff((cur) =>
         cur?.id === staff.id ? { ...cur, status: nextStatus } : cur
       )

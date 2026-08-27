@@ -23,11 +23,13 @@ export default async function AgencyLeadDetailPage({
 
   const { id } = await params
 
-  const [{ data: lead }, { data: notes }, { data: tasks }, { data: documents }] = await Promise.all([
+  const [{ data: lead }, { data: notes }, { data: tasks }, { data: documents }, agencyStagesResult, patientDetailsResult] = await Promise.all([
     q.getLeadById(supabase, id),
     q.getLeadNotes(supabase, id),
     q.getLeadTasks(supabase, id),
     q.getLeadDocuments(supabase, id),
+    q.getAgencyLeadStages(supabase, agencyId),
+    q.getPatientLeadDetails(supabase, id),
   ])
 
   if (!lead || lead.agency_id !== agencyId) redirect('/pages/agency/leads')
@@ -43,6 +45,8 @@ export default async function AgencyLeadDetailPage({
   })
 
   const context: LeadContext = { ...AGENCY_LEAD_CONTEXT, agencyId }
+  const agencyStages = (agencyStagesResult.data ?? []) as import('@/lib/constants/lead-configs').AgencyLeadStage[]
+  const patientDetails = patientDetailsResult.data ?? null
 
   return (
     <LeadDetailContent
@@ -52,6 +56,8 @@ export default async function AgencyLeadDetailPage({
       documents={(documents ?? []) as unknown as LeadDetailProps['documents']}
       context={context}
       currentUserRole={session!.profile?.role}
+      stages={agencyStages}
+      patientDetails={patientDetails as unknown as LeadDetailProps['patientDetails']}
     />
   )
 }

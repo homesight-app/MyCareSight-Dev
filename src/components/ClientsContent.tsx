@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { mapInsertedPatientToListPatient, type ClientsListPatient } from '@/lib/map-inserted-patient-to-list-row'
 import { patientFullName } from '@/lib/patient-name'
+import { linkLeadToPatient, createRepresentativeFromLeadAction } from '@/app/actions/leads'
 
 interface ClientsContentProps {
   clients: ClientsListPatient[]
@@ -21,6 +22,8 @@ interface ClientsContentProps {
   pageSize: number
   search: string
   statusFilter: string
+  leadId?: string | null
+  prefill?: { firstName: string; lastName: string; email: string; phone: string; gender?: string; dateOfBirth?: string }
 }
 
 export default function ClientsContent({
@@ -32,9 +35,16 @@ export default function ClientsContent({
   pageSize,
   search: initialSearch,
   statusFilter: initialStatusFilter,
+  leadId,
+  prefill,
 }: ClientsContentProps) {
   const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [convertLeadId, setConvertLeadId] = useState(leadId ?? null)
+
+  useEffect(() => {
+    if (leadId) setIsModalOpen(true)
+  }, [leadId])
   const [searchQuery, setSearchQuery] = useState(initialSearch)
   const [statusFilter, setStatusFilter] = useState(initialStatusFilter)
   const [clients, setClients] = useState<ClientsListPatient[]>(initialClients)
@@ -44,13 +54,8 @@ export default function ClientsContent({
 
   useEffect(() => { setPortalMounted(true) }, [])
 
-  // Merge optimistic additions with server data (preserves newly added rows until server confirms)
   useEffect(() => {
-    setClients((prev) => {
-      const serverIds = new Set(initialClients.map((c) => c.id))
-      const pendingOnlyOnClient = prev.filter((p) => !serverIds.has(p.id))
-      return [...pendingOnlyOnClient, ...initialClients]
-    })
+    setClients(initialClients)
   }, [initialClients])
 
   // Sync filter state when URL params change (e.g. browser back/forward)
@@ -101,18 +106,19 @@ export default function ClientsContent({
 
   const toggleStatus = async (clientId: string, currentStatus: 'active' | 'inactive') => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active'
-    setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: newStatus } : c)))
+    if (statusFilter !== 'all') {
+      setClients((prev) => prev.filter((c) => c.id !== clientId))
+    } else {
+      setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: newStatus } : c)))
+    }
     try {
       const supabase = createClient()
       const { error } = await q.updatePatientStatus(supabase, clientId, newStatus)
-      if (error) {
-        setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: currentStatus } : c)))
-        console.error('Error updating status:', error)
-      }
+      if (error) console.error('Error updating status:', error)
     } catch (error) {
-      setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: currentStatus } : c)))
       console.error('Error updating status:', error)
     }
+    router.refresh()
   }
 
   const getInitials = (name: string) =>
@@ -200,15 +206,22 @@ export default function ClientsContent({
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => handleStatusChange(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
+          <div className="inline-flex bg-gray-100 rounded-xl p-1 gap-1">
+            {(['active', 'inactive', 'all'] as const).map(t => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => handleStatusChange(t)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                  statusFilter === t
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -363,11 +376,20 @@ export default function ClientsContent({
       {/* Add New Client Modal */}
       <AddNewClientModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={(insertedRow) => {
+        onClose={() => { setIsModalOpen(false); setConvertLeadId(null) }}
+        prefill={prefill}
+        onSuccess={async (insertedRow) => {
           if (!insertedRow) return
           const next = mapInsertedPatientToListPatient(insertedRow)
           setClients((prev) => [next, ...prev.filter((c) => c.id !== next.id)])
+          if (convertLeadId && insertedRow.id) {
+            const patientId = insertedRow.id as string
+            await Promise.all([
+              linkLeadToPatient(convertLeadId, patientId),
+              createRepresentativeFromLeadAction(convertLeadId, patientId),
+            ])
+            setConvertLeadId(null)
+          }
         }}
       />
     </div>

@@ -18,6 +18,13 @@ export const leadFormSchema = z.object({
   signedDate: z.string().optional(),
   notes: z.string().optional(),
   leadOwnerId: z.string().optional(),
+  // Patient-context fields (optional, only submitted when leadType === 'patient')
+  pocName: z.string().optional(),
+  pocPhone: phoneZodField,
+  pocRelationship: z.string().optional(),
+  startDate: z.string().optional(),
+  scheduleType: z.string().optional(),
+  paymentMethod: z.string().optional(),
 })
 
 export type LeadFormData = z.infer<typeof leadFormSchema>

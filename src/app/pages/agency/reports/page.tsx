@@ -60,6 +60,15 @@ export default async function ReportsPage() {
       iconColor: 'bg-blue-100',
       iconTextColor: 'text-blue-600',
     },
+    {
+      id: 'lead-pipeline',
+      title: 'Lead Pipeline Report',
+      description: 'Patient lead counts by pipeline stage with conversion percentages',
+      href: '/pages/agency/reports/lead-pipeline',
+      icon: 'git-branch',
+      iconColor: 'bg-indigo-50',
+      iconTextColor: 'text-indigo-600',
+    },
   ]
 
   return (

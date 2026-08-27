@@ -726,6 +726,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
   const handleToggle = async (row: PersonRow) => {
     if (!row.credential) return
     const next = row.status === 'active' ? 'inactive' : 'active'
+    setRows((prev) => prev.map((r) => r.rowKey === row.rowKey ? { ...r, status: next } : r))
     setTogglingId(row.rowKey)
     if (row.adminRecordId) {
       await updateAgencyAdminStatus(agencyId, row.adminRecordId, next)

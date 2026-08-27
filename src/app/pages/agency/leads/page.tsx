@@ -35,16 +35,18 @@ export default async function AgencyLeadsPage({
   const sortKey     = params.sortKey ?? 'created_at'
   const sortDir     = (params.sortDir === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc'
 
-  const [leadsResult, stageCounts, allSources] = await Promise.all([
+  const [leadsResult, stageCounts, allSources, agencyStagesResult] = await Promise.all([
     q.getLeadsPaginated(supabase, {
       leadType: 'patient', agencyId, page, pageSize: PAGE_SIZE,
       search, stageFilter, serviceType, source, sortKey, sortDir,
     }),
     q.getLeadStageCounts(supabase, { leadType: 'patient', agencyId, search, serviceType, source }),
     q.getLeadDistinctSources(supabase, { leadType: 'patient', agencyId }),
+    q.getAgencyLeadStages(supabase, agencyId),
   ])
 
   const leads = (leadsResult.data ?? []) as Parameters<typeof LeadsContent>[0]['leads']
+  const agencyStages = (agencyStagesResult.data ?? []) as import('@/lib/constants/lead-configs').AgencyLeadStage[]
 
   return (
     <FeatureGate feature="leads" agencyId={agencyId}>
@@ -62,6 +64,7 @@ export default async function AgencyLeadsPage({
         stageCounts={stageCounts}
         allSources={allSources}
         context={context}
+        stages={agencyStages}
       />
     </FeatureGate>
   )

@@ -13,7 +13,7 @@ import {
 } from '@dnd-kit/core'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
-import { LEAD_STAGES, type LeadContext } from '@/lib/constants/lead-configs'
+import { LEAD_STAGES, type LeadContext, type AgencyLeadStage } from '@/lib/constants/lead-configs'
 import { updateLeadStage } from '@/app/actions/leads'
 
 interface Lead {
@@ -33,20 +33,23 @@ interface Props {
   leads: Lead[]
   context: LeadContext
   search: string
+  stages?: AgencyLeadStage[]
 }
 
-const ACTIVE_STAGE_KEYS = ['new', 'contacted', 'proposal_sent', 'verbal', 'probable', 'retainer', 'signed']
-const TERMINAL_STAGE_KEYS = ['on_hold', 'lost']
+const ACTIVE_STAGE_KEYS = ['new', 'contacted', 'proposal_sent', 'pricing_sent', 'verbal', 'probable', 'retainer', 'signed']
+const TERMINAL_STAGE_KEYS = ['on_hold', 'unresponsive', 'lost']
 
 const STAGE_HEADER_BG: Record<string, string> = {
   new: 'bg-gray-100',
   contacted: 'bg-blue-50',
   proposal_sent: 'bg-indigo-50',
+  pricing_sent: 'bg-cyan-50',
   verbal: 'bg-yellow-50',
   probable: 'bg-orange-50',
   signed: 'bg-green-50',
   retainer: 'bg-purple-50',
   on_hold: 'bg-gray-100',
+  unresponsive: 'bg-rose-50',
   lost: 'bg-red-50',
 }
 
@@ -54,11 +57,13 @@ const STAGE_BORDER_COLOR: Record<string, string> = {
   new: 'border-l-gray-400',
   contacted: 'border-l-blue-500',
   proposal_sent: 'border-l-indigo-500',
+  pricing_sent: 'border-l-cyan-500',
   verbal: 'border-l-yellow-500',
   probable: 'border-l-orange-500',
   signed: 'border-l-green-500',
   retainer: 'border-l-purple-500',
   on_hold: 'border-l-gray-400',
+  unresponsive: 'border-l-rose-400',
   lost: 'border-l-red-500',
 }
 
@@ -120,12 +125,14 @@ interface ColumnProps {
   context: LeadContext
   activeId: string | null
   onNavigate: (id: string) => void
+  labelMap?: Record<string, string>
+  bgMap?: Record<string, string>
 }
 
-function KanbanColumn({ stageKey, leads, context, activeId, onNavigate }: ColumnProps) {
+function KanbanColumn({ stageKey, leads, context, activeId, onNavigate, labelMap, bgMap }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: stageKey })
-  const label = stageLabelMap[stageKey] ?? stageKey
-  const headerBg = STAGE_HEADER_BG[stageKey] ?? 'bg-gray-100'
+  const label = (labelMap ?? stageLabelMap)[stageKey] ?? stageKey
+  const headerBg = (bgMap ?? STAGE_HEADER_BG)[stageKey] ?? 'bg-gray-100'
 
   const totalValue = context.billingVisible
     ? leads.reduce((sum, l) => sum + (l.price ?? 0), 0)
@@ -172,7 +179,7 @@ function KanbanColumn({ stageKey, leads, context, activeId, onNavigate }: Column
 
 // ── Board ─────────────────────────────────────────────────────────────────────
 
-export default function LeadsKanbanBoard({ leads: initialLeads, context, search }: Props) {
+export default function LeadsKanbanBoard({ leads: initialLeads, context, search, stages }: Props) {
   const router = useRouter()
   const [leads, setLeads] = useState(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -188,6 +195,32 @@ export default function LeadsKanbanBoard({ leads: initialLeads, context, search 
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
 
+  // When agency stages are provided, derive columns dynamically
+  const activeStageKeys = useMemo(() =>
+    stages && stages.length > 0
+      ? stages.filter(s => !s.is_won && !s.is_lost).map(s => s.key)
+      : ACTIVE_STAGE_KEYS,
+    [stages]
+  )
+  const terminalStageKeys = useMemo(() =>
+    stages && stages.length > 0
+      ? stages.filter(s => s.is_won || s.is_lost).map(s => s.key)
+      : TERMINAL_STAGE_KEYS,
+    [stages]
+  )
+  const dynamicLabelMap = useMemo(() =>
+    stages && stages.length > 0
+      ? Object.fromEntries(stages.map(s => [s.key, s.label]))
+      : stageLabelMap,
+    [stages]
+  )
+  const dynamicBgMap = useMemo(() =>
+    stages && stages.length > 0
+      ? Object.fromEntries(stages.map(s => [s.key, `bg-${s.color.split(' ')[0].replace('bg-', '')}`]))
+      : STAGE_HEADER_BG,
+    [stages]
+  )
+
   const filteredLeads = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return leads
@@ -201,13 +234,13 @@ export default function LeadsKanbanBoard({ leads: initialLeads, context, search 
 
   const leadsPerStage = useMemo(() => {
     const map: Record<string, Lead[]> = {}
-    for (const key of [...ACTIVE_STAGE_KEYS, ...TERMINAL_STAGE_KEYS]) map[key] = []
+    for (const key of [...activeStageKeys, ...terminalStageKeys]) map[key] = []
     for (const lead of filteredLeads) {
       if (map[lead.stage]) map[lead.stage].push(lead)
       else map[lead.stage] = [lead]
     }
     return map
-  }, [filteredLeads])
+  }, [filteredLeads, activeStageKeys, terminalStageKeys])
 
   const activeLead = activeId ? leads.find(l => l.id === activeId) ?? null : null
 
@@ -255,7 +288,7 @@ export default function LeadsKanbanBoard({ leads: initialLeads, context, search 
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-3 w-max">
             {/* Active stage columns */}
-            {ACTIVE_STAGE_KEYS.map(key => (
+            {activeStageKeys.map(key => (
               <KanbanColumn
                 key={key}
                 stageKey={key}
@@ -263,13 +296,15 @@ export default function LeadsKanbanBoard({ leads: initialLeads, context, search 
                 context={context}
                 activeId={activeId}
                 onNavigate={handleNavigate}
+                labelMap={dynamicLabelMap}
+                bgMap={dynamicBgMap}
               />
             ))}
 
             {/* Terminal stages — collapsed strip or expanded columns */}
             {terminalExpanded ? (
               <>
-                {TERMINAL_STAGE_KEYS.map(key => (
+                {terminalStageKeys.map(key => (
                   <KanbanColumn
                     key={key}
                     stageKey={key}
@@ -277,6 +312,8 @@ export default function LeadsKanbanBoard({ leads: initialLeads, context, search 
                     context={context}
                     activeId={activeId}
                     onNavigate={handleNavigate}
+                    labelMap={dynamicLabelMap}
+                    bgMap={dynamicBgMap}
                   />
                 ))}
                 <div className="flex items-start pt-2 pl-1">
@@ -292,7 +329,7 @@ export default function LeadsKanbanBoard({ leads: initialLeads, context, search 
             ) : (
               <div className="flex flex-col min-w-[72px] w-[72px] h-[calc(100vh-220px)] bg-gray-50 rounded-xl border border-gray-200 border-dashed overflow-hidden">
                 <div className="flex-1 flex flex-col items-center justify-center gap-4 p-2">
-                  {TERMINAL_STAGE_KEYS.map(key => {
+                  {terminalStageKeys.map(key => {
                     const count = leadsPerStage[key]?.length ?? 0
                     return (
                       <div key={key} className="flex flex-col items-center gap-1.5">
@@ -300,7 +337,7 @@ export default function LeadsKanbanBoard({ leads: initialLeads, context, search 
                           className="text-xs font-semibold text-gray-400 uppercase tracking-wider"
                           style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
                         >
-                          {stageLabelMap[key]}
+                          {dynamicLabelMap[key] ?? key}
                         </span>
                         {count > 0 && (
                           <span className="text-xs font-medium text-gray-500 bg-white rounded-full w-6 h-6 flex items-center justify-center border border-gray-200">

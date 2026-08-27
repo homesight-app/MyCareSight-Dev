@@ -48,6 +48,12 @@ and auditors.
 - **Audit row:** Column on `user_profiles` — no separate log row needed; the value is an authoritative, server-written timestamp that cannot be set by the user.
 - **Why it matters:** Provides an auditable record of when each user last authenticated, enabling investigation of unauthorized access and session anomalies.
 
+### Patient Lead Details PHI Audit — `patient_lead_details` (2026-08-26)
+- **What:** `updatePatientLeadDetailsAction` in `src/app/actions/leads.ts` now writes an `audit_log` row on every upsert of patient lead detail records. This table stores ePHI: `reason_for_care`, `medical_conditions`, `mobility_status`, `cognitive_status`, `insurance_carrier`, and `insurance_policy_number`.
+- **Audit row:** `action='UPSERT'`, `table_name='patient_lead_details'`, `record_id=<row id>`, `details: { lead_id, agency_id }`
+- **Files changed:** `src/app/actions/leads.ts`, `supabase/migrations/phase_two/166_patient_lead_details.sql`
+- **Why it matters:** All mutations to ePHI must be auditable so investigators can reconstruct who changed what and when.
+
 ---
 
 ## § 164.312(a)(1) — Access Control
@@ -62,6 +68,12 @@ and auditors.
 - **Files changed:** `supabase/migrations/phase_two/162_user_agency_roles_phase_a.sql` (ADD COLUMN, update `has_agency_role()`), `supabase/migrations/phase_two/163_rls_functions_phase_b.sql` (update `is_platform_staff()`), `src/lib/permissions.ts` (application-layer check)
 - **Gap fixed:** Prior to this, deactivating a user required updating status in each of `agency_admins`, `care_coordinators`, and `caregiver_members` separately — none of which blocked login or prevented API access.
 - **Why it matters:** Satisfies the requirement to revoke ePHI access immediately when a workforce member's authorization changes or employment ends.
+
+### Patient Lead Details — Intentional Platform Staff Exclusion (2026-08-26)
+- **What:** The `patient_lead_details` table (ePHI) grants RLS access to agency members only via `is_agency_member()`. Platform staff (admin/expert roles) are intentionally excluded from all RLS policies on this table.
+- **Rationale:** Platform staff are licensing consultants with no clinical or care-coordination role. Granting them standing access to patient ePHI would violate the HIPAA Minimum Necessary Standard (§ 164.514(d)). Any legitimate break-glass access by a platform admin must go through a one-time manual operation with an explicit audit log entry.
+- **Files changed:** `supabase/migrations/phase_two/166_patient_lead_details.sql`
+- **Note:** Insurance policy numbers are stored as plain text. No UI masking applied — intentional design decision for internal agency use only.
 
 ### Agency People Self-Management (2026-08-19)
 - **What:** `requireAdminOrAgencyOwner(agencyId)` helper added to `agency-users.ts` and `agency-onboarding.ts`. All people-management server actions now enforce that callers are either platform staff (admin/expert) or the `company_owner` of that specific agency. Cross-agency access returns Forbidden.

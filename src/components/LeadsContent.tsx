@@ -9,7 +9,7 @@ import LeadsKanbanBoard from './LeadsKanbanBoard'
 import LeadSignedModal from './LeadSignedModal'
 import LeadCollectRetainerModal from './LeadCollectRetainerModal'
 import ConvertToAgencyPromptModal from './ConvertToAgencyPromptModal'
-import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
+import { type LeadContext, LEAD_STAGES, type AgencyLeadStage } from '@/lib/constants/lead-configs'
 import { archiveLead, unarchiveLead, updateLeadStage } from '@/app/actions/leads'
 
 interface Lead {
@@ -51,6 +51,7 @@ interface LeadsContentProps {
   allSources?: string[]
   context: LeadContext
   taskStatus?: Record<string, 'overdue' | 'today'>
+  stages?: AgencyLeadStage[]
 }
 
 export default function LeadsContent({
@@ -68,6 +69,7 @@ export default function LeadsContent({
   allSources: allSourcesProp,
   context,
   taskStatus = {},
+  stages,
 }: LeadsContentProps) {
   const router = useRouter()
   type SortKey = 'name' | 'company' | 'service_type' | 'stage' | 'price' | 'signed_date' | 'source' | 'created_at'
@@ -94,14 +96,20 @@ export default function LeadsContent({
     localStorage.setItem(`leads-view-${context.leadType}`, viewMode)
   }, [viewMode, context.leadType])
 
+  // Use agency-configured stages when available (agency context), fall back to admin hardcoded stages
+  const activeStages = useMemo(() =>
+    stages && stages.length > 0 ? stages : LEAD_STAGES as unknown as AgencyLeadStage[],
+    [stages]
+  )
+
   const stageColorMap = useMemo(() =>
-    Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.color])),
-    []
+    Object.fromEntries(activeStages.map(s => [s.key, s.color])),
+    [activeStages]
   )
 
   const stageLabelMap = useMemo(() =>
-    Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.label])),
-    []
+    Object.fromEntries(activeStages.map(s => [s.key, s.label])),
+    [activeStages]
   )
 
   const serviceTypeLabel = (key: string | null) => {
@@ -170,7 +178,7 @@ export default function LeadsContent({
     // Fallback: compute from current page (less accurate but backward-compatible)
     const nonArchived = leads.filter(l => l.status !== 'archived')
     const counts: Record<string, number> = { all: nonArchived.length }
-    counts.active = nonArchived.filter(l => !['on_hold', 'lost', 'signed'].includes(l.stage)).length
+    counts.active = nonArchived.filter(l => !['on_hold', 'unresponsive', 'lost', 'signed'].includes(l.stage)).length
     counts.archived = leads.filter(l => l.status === 'archived').length
     for (const s of LEAD_STAGES) {
       counts[s.key] = nonArchived.filter(l => l.stage === s.key).length
@@ -283,7 +291,7 @@ export default function LeadsContent({
                 {stageCounts.all}
               </span>
             </button>
-            {LEAD_STAGES.map(stage => (
+            {activeStages.map(stage => (
               <button
                 key={stage.key}
                 type="button"
@@ -434,19 +442,23 @@ export default function LeadsContent({
                     </th>
                   )
                 })}
-                <th
-                  scope="col"
-                  onClick={() => handleSort('price')}
-                  className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
-                >
-                  <span className="flex items-center gap-1">
-                    Price
-                    {sortKey === 'price' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
-                  </span>
-                </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
-                  State
-                </th>
+                {context.billingVisible && (
+                  <th
+                    scope="col"
+                    onClick={() => handleSort('price')}
+                    className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                  >
+                    <span className="flex items-center gap-1">
+                      Price
+                      {sortKey === 'price' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
+                    </span>
+                  </th>
+                )}
+                {context.leadType === 'agency' && (
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                    State
+                  </th>
+                )}
                 <th
                   scope="col"
                   onClick={() => handleSort('source')}
@@ -457,19 +469,23 @@ export default function LeadsContent({
                     {sortKey === 'source' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
                   </span>
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
-                  Owner
-                </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
-                  Proposal Sent
-                </th>
+                {context.billingVisible && (
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                    Owner
+                  </th>
+                )}
+                {context.billingVisible && (
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                    Proposal Sent
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 10 : 9) : (context.leadType === 'agency' ? 8 : 7)}
+                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 10 : 9) : (context.leadType === 'agency' ? 6 : 5)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
                     {stageFilter === 'archived'
@@ -556,31 +572,35 @@ export default function LeadsContent({
                             }}
                             className="absolute inset-0 w-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                           >
-                            {LEAD_STAGES.map(s => (
+                            {activeStages.map(s => (
                               <option key={s.key} value={s.key}>{s.label}</option>
                             ))}
                           </select>
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-                      {formatCurrency(lead.price)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-                      {(() => {
-                        const states = lead.service_states
-                        if (!states || states.length === 0) return <span className="text-gray-400">—</span>
-                        if (states.length === 1) return states[0]
-                        return (
-                          <span
-                            title={states.slice().sort().join(', ')}
-                            className="cursor-default underline decoration-dotted decoration-gray-400"
-                          >
-                            Multiple
-                          </span>
-                        )
-                      })()}
-                    </td>
+                    {context.billingVisible && (
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {formatCurrency(lead.price)}
+                      </td>
+                    )}
+                    {context.leadType === 'agency' && (
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {(() => {
+                          const states = lead.service_states
+                          if (!states || states.length === 0) return <span className="text-gray-400">—</span>
+                          if (states.length === 1) return states[0]
+                          return (
+                            <span
+                              title={states.slice().sort().join(', ')}
+                              className="cursor-default underline decoration-dotted decoration-gray-400"
+                            >
+                              Multiple
+                            </span>
+                          )
+                        })()}
+                      </td>
+                    )}
                     <td className="hidden xl:table-cell px-4 py-3 whitespace-nowrap">
                       {lead.source && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
@@ -588,15 +608,19 @@ export default function LeadsContent({
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-                      {(() => {
-                        const o = Array.isArray(lead.lead_owner) ? lead.lead_owner[0] ?? null : lead.lead_owner
-                        return o?.full_name?.trim() || '—'
-                      })()}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                      {formatDate(lead.proposal_sent_date)}
-                    </td>
+                    {context.billingVisible && (
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {(() => {
+                          const o = Array.isArray(lead.lead_owner) ? lead.lead_owner[0] ?? null : lead.lead_owner
+                          return o?.full_name?.trim() || '—'
+                        })()}
+                      </td>
+                    )}
+                    {context.billingVisible && (
+                      <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                        {formatDate(lead.proposal_sent_date)}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -608,7 +632,7 @@ export default function LeadsContent({
       {/* Kanban board — rendered outside the card container to allow full-width layout */}
       {viewMode === 'kanban' && (
         <div className="mt-4">
-          <LeadsKanbanBoard leads={leads} context={context} search={search} />
+          <LeadsKanbanBoard leads={leads} context={context} search={search} stages={stages} />
         </div>
       )}
 

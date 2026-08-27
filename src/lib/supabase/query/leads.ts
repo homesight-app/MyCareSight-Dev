@@ -105,7 +105,7 @@ function applyLeadFilters(query: any, opts: GetLeadsPaginatedOpts): any {
   if (opts.stageFilter === 'archived') {
     q = q.eq('status', 'archived')
   } else if (opts.stageFilter === 'active') {
-    q = q.eq('status', 'active').not('stage', 'in', '("on_hold","lost","signed")')
+    q = q.eq('status', 'active').not('stage', 'in', '("on_hold","unresponsive","lost","signed")')
   } else if (opts.stageFilter && opts.stageFilter !== 'all') {
     q = q.eq('status', 'active').eq('stage', opts.stageFilter)
   }
@@ -161,7 +161,7 @@ export async function getLeadStageCounts(
   const { data } = await q
   const rows = (data ?? []) as { stage: string; status: string }[]
   const nonArchived = rows.filter(r => r.status !== 'archived')
-  const TERMINAL = ['on_hold', 'lost', 'signed']
+  const TERMINAL = ['on_hold', 'unresponsive', 'lost', 'signed']
   const counts: Record<string, number> = {
     all:      nonArchived.length,
     active:   nonArchived.filter(r => !TERMINAL.includes(r.stage)).length,
@@ -364,3 +364,146 @@ export async function getLeadNotesByLeadIds(supabase: SupabaseClient, leadIds: s
     .in('lead_id', leadIds)
     .order('created_at', { ascending: false })
 }
+
+// ─── Agency lead stages ────────────────────────────────────────────────────
+
+export async function getAgencyLeadStages(supabase: SupabaseClient, agencyId: string) {
+  return supabase
+    .from('agency_lead_stages')
+    .select('id, agency_id, key, label, color, sort_order, is_entry, is_won, is_lost, created_at')
+    .eq('agency_id', agencyId)
+    .order('sort_order', { ascending: true })
+}
+
+const DEFAULT_AGENCY_STAGES = [
+  { key: 'new',         label: 'New',           color: 'bg-gray-100 text-gray-600',      sort_order: 0,  is_entry: true,  is_won: false, is_lost: false },
+  { key: 'contacted',   label: 'Contacted',     color: 'bg-blue-100 text-blue-700',      sort_order: 10, is_entry: false, is_won: false, is_lost: false },
+  { key: 'quoted',      label: 'Quoted',        color: 'bg-indigo-100 text-indigo-700',  sort_order: 20, is_entry: false, is_won: false, is_lost: false },
+  { key: 'closed_won',  label: 'Closed - Won',  color: 'bg-green-100 text-green-700',   sort_order: 90, is_entry: false, is_won: true,  is_lost: false },
+  { key: 'closed_lost', label: 'Closed - Lost', color: 'bg-red-100 text-red-600',       sort_order: 91, is_entry: false, is_won: false, is_lost: true  },
+]
+
+export async function seedDefaultAgencyLeadStages(supabase: SupabaseClient, agencyId: string) {
+  const rows = DEFAULT_AGENCY_STAGES.map(s => ({ ...s, agency_id: agencyId }))
+  await supabase
+    .from('agency_lead_stages')
+    .upsert(rows, { onConflict: 'agency_id,key', ignoreDuplicates: true })
+  return getAgencyLeadStages(supabase, agencyId)
+}
+
+function slugify(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'stage'
+}
+
+export async function createAgencyLeadStage(
+  supabase: SupabaseClient,
+  agencyId: string,
+  data: { label: string; color: string }
+) {
+  // Place new custom stage before the won/lost stages (sort_order 89)
+  const { data: existing } = await supabase
+    .from('agency_lead_stages')
+    .select('sort_order')
+    .eq('agency_id', agencyId)
+    .eq('is_won', false)
+    .eq('is_lost', false)
+    .eq('is_entry', false)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .single()
+
+  const maxCustomOrder = existing?.sort_order ?? 20
+  const sortOrder = Math.min(maxCustomOrder + 10, 88)
+  const key = slugify(data.label) + '_' + Date.now().toString(36)
+
+  return supabase
+    .from('agency_lead_stages')
+    .insert({ agency_id: agencyId, key, label: data.label, color: data.color, sort_order: sortOrder })
+    .select('id, key, label, color, sort_order, is_entry, is_won, is_lost')
+    .single()
+}
+
+export async function updateAgencyLeadStage(
+  supabase: SupabaseClient,
+  stageId: string,
+  data: { label?: string; color?: string; sort_order?: number }
+) {
+  return supabase
+    .from('agency_lead_stages')
+    .update(data)
+    .eq('id', stageId)
+    .select('id, key, label, color, sort_order, is_entry, is_won, is_lost')
+    .single()
+}
+
+export async function deleteAgencyLeadStage(supabase: SupabaseClient, stageId: string) {
+  return supabase
+    .from('agency_lead_stages')
+    .delete()
+    .eq('id', stageId)
+    .eq('is_entry', false)
+    .eq('is_won', false)
+    .eq('is_lost', false)
+}
+
+export async function reorderAgencyLeadStages(
+  supabase: SupabaseClient,
+  agencyId: string,
+  orderedIds: string[]
+) {
+  const updates = orderedIds.map((id, idx) =>
+    supabase.from('agency_lead_stages').update({ sort_order: idx * 10 }).eq('id', id).eq('agency_id', agencyId)
+  )
+  const results = await Promise.all(updates)
+  const err = results.find(r => (r as { error: unknown }).error)
+  return err ?? { error: null }
+}
+
+// ─── Patient lead details ──────────────────────────────────────────────────
+
+export interface PatientLeadDetails {
+  id?: string
+  lead_id: string
+  poc_name?: string | null
+  poc_phone?: string | null
+  poc_relationship?: string | null
+  poc_email?: string | null
+  reason_for_care?: string | null
+  mobility_status?: string | null
+  cognitive_status?: string | null
+  medical_conditions?: string | null
+  gender?: string | null
+  date_of_birth?: string | null
+  start_date?: string | null
+  schedule_type?: string | null
+  living_situation?: string | null
+  payment_method?: string | null
+  insurance_carrier?: string | null
+  insurance_policy_number?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export async function getPatientLeadDetails(supabase: SupabaseClient, leadId: string) {
+  return supabase
+    .from('patient_lead_details')
+    .select('id, lead_id, poc_name, poc_phone, poc_relationship, poc_email, reason_for_care, mobility_status, cognitive_status, medical_conditions, gender, date_of_birth, start_date, schedule_type, living_situation, payment_method, insurance_carrier, insurance_policy_number, created_at, updated_at')
+    .eq('lead_id', leadId)
+    .maybeSingle()
+}
+
+export async function upsertPatientLeadDetails(
+  supabase: SupabaseClient,
+  leadId: string,
+  data: Partial<Omit<PatientLeadDetails, 'id' | 'lead_id' | 'created_at' | 'updated_at'>>
+) {
+  return supabase
+    .from('patient_lead_details')
+    .upsert(
+      { ...data, lead_id: leadId, updated_at: new Date().toISOString() },
+      { onConflict: 'lead_id' }
+    )
+    .select('id')
+    .single()
+}
+

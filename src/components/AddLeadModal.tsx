@@ -5,8 +5,8 @@ import Modal from './Modal'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { leadFormSchema, type LeadFormData } from '@/lib/schemas/lead'
-import { type LeadContext, LEAD_STAGES } from '@/lib/constants/lead-configs'
-import { createLead, updateLead } from '@/app/actions/leads'
+import { type LeadContext, LEAD_STAGES, type AgencyLeadStage } from '@/lib/constants/lead-configs'
+import { createLead, updateLead, updatePatientLeadDetailsAction } from '@/app/actions/leads'
 import { createClient } from '@/lib/supabase/client'
 import { formatUSPhone } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
@@ -51,17 +51,21 @@ interface AddLeadModalProps {
   editLead?: Lead | null
 }
 
-const SOURCE_OPTIONS = [
-  { key: 'Other',              label: 'Other' },
-  { key: 'Website',            label: 'Website' },
-  { key: 'Phone',              label: 'Phone' },
-  { key: 'Referral',           label: 'Referral' },
-  { key: 'Trade Show',         label: 'Trade Show' },
-  { key: 'Event',              label: 'Event' },
-  { key: '21st Century Client',label: '21st Century Client' },
-  { key: 'Current Client',     label: 'Current Client' },
-  { key: 'Former Client',      label: 'Former Client' },
-  { key: 'Social Media',       label: 'Social Media' },
+const PATIENT_SOURCE_OPTIONS = [
+  { key: 'Other',        label: 'Other' },
+  { key: 'Website',      label: 'Website' },
+  { key: 'Phone',        label: 'Phone' },
+  { key: 'Referral',     label: 'Referral' },
+  { key: 'Trade Show',   label: 'Trade Show' },
+  { key: 'Event',        label: 'Event' },
+  { key: 'Social Media', label: 'Social Media' },
+]
+
+const AGENCY_SOURCE_OPTIONS = [
+  ...PATIENT_SOURCE_OPTIONS,
+  { key: '21st Century Client', label: '21st Century Client' },
+  { key: 'Current Client',      label: 'Current Client' },
+  { key: 'Former Client',       label: 'Former Client' },
 ]
 
 const defaultValues: LeadFormData = {
@@ -81,6 +85,12 @@ const defaultValues: LeadFormData = {
   signedDate: '',
   notes: '',
   leadOwnerId: '',
+  pocName: '',
+  pocPhone: '',
+  pocRelationship: '',
+  startDate: '',
+  scheduleType: '',
+  paymentMethod: '',
 }
 
 function splitFullName(full: string | null): { first: string; last: string } {
@@ -106,6 +116,7 @@ export default function AddLeadModal({
   const [keyStaff, setKeyStaff] = useState<{ id: string; full_legal_name: string | null; email: string | null; telephone: string | null; officer_role: string }[]>([])
   const [loadingKeyStaff, setLoadingKeyStaff] = useState(false)
   const [owners, setOwners] = useState<{ id: string; full_name: string | null }[]>([])
+  const [patientStages, setPatientStages] = useState<AgencyLeadStage[]>([])
 
   const isEdit = !!editLead
 
@@ -147,6 +158,12 @@ export default function AddLeadModal({
         signedDate: editLead.signed_date ?? '',
         notes: editLead.notes ?? '',
         leadOwnerId: editLead.lead_owner_id ?? '',
+        pocName: '',
+        pocPhone: '',
+        pocRelationship: '',
+        startDate: '',
+        scheduleType: '',
+        paymentMethod: '',
       })
     } else {
       setContactMode('new')
@@ -168,6 +185,17 @@ export default function AddLeadModal({
       .order('full_name')
       .then(({ data }) => setOwners(data ?? []))
   }, [isOpen, context.billingVisible, owners.length])
+
+  useEffect(() => {
+    if (!isOpen || context.leadType !== 'patient' || !context.agencyId) return
+    const supabase = createClient()
+    supabase
+      .from('agency_lead_stages')
+      .select('id, key, label, color, sort_order, is_entry, is_won, is_lost')
+      .eq('agency_id', context.agencyId)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => setPatientStages(data ?? []))
+  }, [isOpen, context.leadType, context.agencyId])
 
   useEffect(() => {
     if (contactMode !== 'existing' || agencies.length > 0) return
@@ -300,6 +328,23 @@ export default function AddLeadModal({
         serviceStates: serviceStates.length > 0 ? serviceStates : null,
       })
       if (result.error) { showValidationToast({ error: result.error }); return }
+
+      // Save patient details if any were provided
+      if (context.leadType === 'patient' && result.leadId) {
+        const hasPatientData = data.pocName || data.pocPhone || data.pocRelationship
+          || data.startDate || data.scheduleType || data.paymentMethod
+        if (hasPatientData) {
+          await updatePatientLeadDetailsAction(result.leadId, {
+            pocName: data.pocName || null,
+            pocPhone: data.pocPhone || null,
+            pocRelationship: data.pocRelationship || null,
+            startDate: data.startDate || null,
+            scheduleType: data.scheduleType || null,
+            paymentMethod: data.paymentMethod || null,
+          })
+        }
+      }
+
       showSuccessToast('Lead created successfully')
       onSuccess(result.leadId)
     }
@@ -421,14 +466,48 @@ export default function AddLeadModal({
           </div>
         </div>
 
+        {/* Point of Contact — patient context only */}
+        {context.leadType === 'patient' && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Point of Contact</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className={labelCls}>Name</label>
+                <input className={inputCls} {...register('pocName')} placeholder="Family member or representative" />
+              </div>
+              <div>
+                <label className={labelCls}>Phone</label>
+                <PhoneInput
+                  className={inputCls}
+                  {...register('pocPhone')}
+                  error={errors.pocPhone?.message}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Relationship</label>
+                <select className={inputCls} {...register('pocRelationship')}>
+                  <option value="">— Select —</option>
+                  <option value="spouse">Spouse</option>
+                  <option value="child">Child</option>
+                  <option value="sibling">Sibling</option>
+                  <option value="parent">Parent</option>
+                  <option value="friend">Friend</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Stage & Service Type */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>Stage</label>
             <select className={inputCls} {...register('stage')}>
-              {LEAD_STAGES.map(s => (
-                <option key={s.key} value={s.key}>{s.label}</option>
-              ))}
+              {context.leadType === 'patient'
+                ? patientStages.map(s => <option key={s.key} value={s.key}>{s.label}</option>)
+                : LEAD_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)
+              }
             </select>
           </div>
           <div>
@@ -467,7 +546,7 @@ export default function AddLeadModal({
           <div>
             <label className={labelCls}>Source</label>
             <select className={inputCls} {...register('source')}>
-              {SOURCE_OPTIONS.map(s => (
+              {(context.leadType === 'patient' ? PATIENT_SOURCE_OPTIONS : AGENCY_SOURCE_OPTIONS).map(s => (
                 <option key={s.key} value={s.key}>{s.label}</option>
               ))}
             </select>
@@ -484,6 +563,34 @@ export default function AddLeadModal({
             </div>
           )}
         </div>
+
+        {/* Schedule & Payment — patient context only */}
+        {context.leadType === 'patient' && (
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className={labelCls}>Start Date</label>
+              <input type="date" className={inputCls} {...register('startDate')} />
+            </div>
+            <div>
+              <label className={labelCls}>Schedule Type</label>
+              <select className={inputCls} {...register('scheduleType')}>
+                <option value="">— Select —</option>
+                <option value="hourly">Hourly</option>
+                <option value="24_7">24/7</option>
+                <option value="live_in">Live-In</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Payment Method</label>
+              <select className={inputCls} {...register('paymentMethod')}>
+                <option value="">— Select —</option>
+                <option value="private_pay">Private Pay</option>
+                <option value="ltc_insurance">LTC Insurance</option>
+                <option value="medicaid">Medicaid</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* Billing (admin agency leads only) */}
         {context.billingVisible && (

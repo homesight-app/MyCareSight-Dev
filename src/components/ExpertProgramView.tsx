@@ -15,7 +15,7 @@ import {
   getProgramItemNoteCounts,
   updateProgramItem,
 } from '@/app/actions/playbooks'
-import { approveProgramComplete, renameApplication, closeApplicationManually, completeApplicationManually, reopenApplication } from '@/app/actions/applications'
+import { approveProgramComplete, renameApplication, closeApplicationManually, completeApplicationManually, reopenApplication, updateApplicationProgressAction } from '@/app/actions/applications'
 import { linkProgramToCertification } from '@/app/actions/licenses'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
 import AddProgramItemModal from './AddProgramItemModal'
@@ -279,8 +279,8 @@ export default function ExpertProgramView({
   // Persist pct to the applications table so the client view always shows the same value
   useEffect(() => {
     if (isFirstPctWrite.current) { isFirstPctWrite.current = false; return }
-    supabase.from('applications').update({ progress_percentage: pct }).eq('id', applicationId).then(() => {})
-  }, [pct])
+    updateApplicationProgressAction(applicationId, pct).then(() => {})
+  }, [pct, applicationId])
 
   // ── Filtered visible step items ───────────────────────────────────────────────
   const visible = stepItems.filter(i => {

@@ -28,6 +28,56 @@ export async function getCaregiverAvailabilitySlots(
     .order('created_at', { ascending: true })
 }
 
+export type CaregiverAvailabilitySlotInput = {
+  caregiver_member_id: string
+  agency_id?: string | null
+  label?: string | null
+  is_recurring: boolean
+  start_time: string
+  end_time: string
+  repeat_frequency?: string | null
+  days_of_week?: number[] | null
+  repeat_start?: string | null
+  repeat_end?: string | null
+  specific_date?: string | null
+}
+
+export async function insertCaregiverAvailabilitySlot(
+  supabase: Supabase,
+  payload: CaregiverAvailabilitySlotInput
+) {
+  return supabase
+    .from('caregiver_availability_slots')
+    .insert(payload)
+    .select('id')
+    .single()
+}
+
+export async function updateCaregiverAvailabilitySlot(
+  supabase: Supabase,
+  slotId: string,
+  caregiverMemberId: string,
+  payload: Omit<CaregiverAvailabilitySlotInput, 'caregiver_member_id' | 'agency_id'>
+) {
+  return supabase
+    .from('caregiver_availability_slots')
+    .update(payload)
+    .eq('id', slotId)
+    .eq('caregiver_member_id', caregiverMemberId)
+}
+
+export async function deleteCaregiverAvailabilitySlot(
+  supabase: Supabase,
+  slotId: string,
+  caregiverMemberId: string
+) {
+  return supabase
+    .from('caregiver_availability_slots')
+    .delete()
+    .eq('id', slotId)
+    .eq('caregiver_member_id', caregiverMemberId)
+}
+
 export async function getCaregiverAvailabilitySlotsByCaregiverIds(
   supabase: Supabase,
   caregiverMemberIds: string[]

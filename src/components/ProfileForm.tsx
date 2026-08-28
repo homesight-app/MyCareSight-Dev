@@ -4,20 +4,13 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
+import { profileSchema, type ProfileFormData } from '@/lib/schemas/profile'
 import { User, Mail, Save, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { UserRole } from '@/types/auth'
 
-const profileSchema = z.object({
-  fullName: z.string().min(2, 'Full name must be at least 2 characters'),
-  email: z.string().email('Please enter a valid email address'),
-  role: z.enum(['company_owner', 'staff_member', 'care_coordinator', 'admin', 'expert']),
-})
-
-type ProfileFormData = z.infer<typeof profileSchema>
 
 interface ProfileFormProps {
   user: {

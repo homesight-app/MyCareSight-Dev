@@ -3,6 +3,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
+import * as q from '@/lib/supabase/query'
+import type { BillingCode } from '@/lib/supabase/query/billing'
+
+export type { BillingCode }
+
+export async function getActiveBillingCodesAction(): Promise<{ data: BillingCode[] | null; error: string | null }> {
+  const supabase = await createClient()
+  const { data, error } = await q.getActiveBillingCodes(supabase)
+  return { data, error: error?.message ?? null }
+}
 
 export interface CreateBillingData {
   clientId: string
@@ -46,7 +56,14 @@ export async function createBilling(data: CreateBillingData) {
       return { error: error.message, data: null }
     }
 
+    const { data: adminRow } = await supabase
+      .from('agency_admins')
+      .select('agency_id')
+      .eq('id', data.clientId)
+      .maybeSingle()
+
     const { error: auditErr } = await supabase.from('audit_log').insert({
+      agency_id: adminRow?.agency_id ?? null,
       table_name: 'billing',
       record_id: billing.id,
       action: 'INSERT',

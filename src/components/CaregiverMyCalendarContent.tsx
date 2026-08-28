@@ -13,6 +13,11 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { CaregiverAvailabilitySlotRow } from '@/lib/supabase/query/caregiver-availability'
+import {
+  insertAvailabilitySlotAction,
+  updateAvailabilitySlotAction,
+  deleteAvailabilitySlotAction,
+} from '@/app/actions/caregiver-availability'
 
 function toYmd(d: Date): string {
   const y = d.getFullYear()
@@ -259,11 +264,21 @@ export default function CaregiverMyCalendarContent({
     }
     setSaving(true)
     setError(null)
-    const supabase = createClient()
-    const { error: e } = await supabase.from('caregiver_availability_slots').insert(buildPayload())
+    const payload = buildPayload()
+    const { error: e } = await insertAvailabilitySlotAction(caregiverMemberId, {
+      label: payload.label as string | null,
+      is_recurring: payload.is_recurring as boolean,
+      start_time: payload.start_time as string,
+      end_time: payload.end_time as string,
+      repeat_frequency: payload.repeat_frequency as string | null,
+      days_of_week: payload.days_of_week as number[] | null,
+      repeat_start: payload.repeat_start as string | null,
+      repeat_end: payload.repeat_end as string | null,
+      specific_date: payload.specific_date as string | null,
+    })
     setSaving(false)
     if (e) {
-      setError(e.message)
+      setError(e)
       return
     }
     closeAdd()
@@ -279,14 +294,21 @@ export default function CaregiverMyCalendarContent({
     }
     setSaving(true)
     setError(null)
-    const supabase = createClient()
-    const { error: e } = await supabase
-      .from('caregiver_availability_slots')
-      .update(buildPayload())
-      .eq('id', editingId)
+    const payload = buildPayload()
+    const { error: e } = await updateAvailabilitySlotAction(caregiverMemberId, editingId, {
+      label: payload.label as string | null,
+      is_recurring: payload.is_recurring as boolean,
+      start_time: payload.start_time as string,
+      end_time: payload.end_time as string,
+      repeat_frequency: payload.repeat_frequency as string | null,
+      days_of_week: payload.days_of_week as number[] | null,
+      repeat_start: payload.repeat_start as string | null,
+      repeat_end: payload.repeat_end as string | null,
+      specific_date: payload.specific_date as string | null,
+    })
     setSaving(false)
     if (e) {
-      setError(e.message)
+      setError(e)
       return
     }
     closeEdit()
@@ -301,11 +323,10 @@ export default function CaregiverMyCalendarContent({
   const handleDelete = async () => {
     if (!deletingId) return
     setSaving(true)
-    const supabase = createClient()
-    const { error: e } = await supabase.from('caregiver_availability_slots').delete().eq('id', deletingId)
+    const { error: e } = await deleteAvailabilitySlotAction(caregiverMemberId, deletingId)
     setSaving(false)
     if (e) {
-      setError(e.message)
+      setError(e)
       setDeleteOpen(false)
       return
     }

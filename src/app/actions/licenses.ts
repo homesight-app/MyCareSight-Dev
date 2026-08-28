@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
+import { removeFiles } from '@/lib/storage/client'
 
 function assertCanManageCert(role: string | null | undefined): string | null {
   const allowed = ['admin', 'expert', 'company_owner', 'care_coordinator']
@@ -243,7 +244,7 @@ export async function deleteLicenseDocument(
   const { data: doc, error: fetchErr } = await q.getLicenseDocumentUrlById(supabaseAdmin, documentId)
   if (fetchErr || !doc) return { error: fetchErr?.message ?? 'Document not found' }
 
-  const { error: storageErr } = await supabaseAdmin.storage.from('application-documents').remove([doc.document_url])
+  const { error: storageErr } = await removeFiles(supabaseAdmin, 'application-documents', [doc.document_url])
   if (storageErr) console.error('[licenses/deleteLicenseDocument] Storage delete failed. docId=%s err=%s', documentId, storageErr.message)
   const { error } = await q.deleteLicenseDocumentById(supabaseAdmin, documentId)
   if (error) return { error: error.message }

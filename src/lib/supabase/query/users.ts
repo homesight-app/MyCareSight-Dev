@@ -2,6 +2,8 @@ import type { PostgrestError } from '@supabase/supabase-js'
 import type { Supabase } from '../types'
 import type { PatientDocument } from './patients'
 
+const USER_PROFILE_COLS = 'id, email, full_name, role, created_at, updated_at, phone, job_title, department, work_location, start_date, agency_id, is_active, last_login_at'
+
 function caregiverMemberUpdateBlockedError(): PostgrestError {
   return {
     name: 'PostgrestError',
@@ -310,12 +312,12 @@ export async function getUserProfilesByIds(
 
 /** Get all user profiles ordered by full_name. */
 export async function getUserProfilesOrdered(supabase: Supabase) {
-  return supabase.from('user_profiles').select('*').order('full_name', { ascending: true })
+  return supabase.from('user_profiles').select(USER_PROFILE_COLS).order('full_name', { ascending: true })
 }
 
 /** Get all user profiles ordered by created_at desc. */
 export async function getUserProfilesOrderedByCreatedAt(supabase: Supabase) {
-  return supabase.from('user_profiles').select('*').order('created_at', { ascending: false })
+  return supabase.from('user_profiles').select(USER_PROFILE_COLS).order('created_at', { ascending: false })
 }
 
 /** Get user profiles by role, ordered by created_at desc. */

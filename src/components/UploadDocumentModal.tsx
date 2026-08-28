@@ -3,8 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Modal from './Modal'
 import { Upload, X, Loader2, FileText } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import { uploadApplicationDocumentsAction } from '@/app/actions/application-documents'
 
 interface UploadDocumentModalProps {
   isOpen: boolean
@@ -87,119 +86,30 @@ export default function UploadDocumentModal({
     setError(null)
 
     try {
-      const supabase = createClient()
+      const formData = new FormData()
+      for (const fileItem of selectedFiles) formData.append('file', fileItem.file)
+      if (documentType) formData.set('document_type', documentType)
+      if (description.trim()) formData.set('description', description.trim())
 
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setError('You must be logged in to upload documents')
-        setIsUploading(false)
+      const result = await uploadApplicationDocumentsAction(applicationId, formData, {
+        status: autoApprove ? 'approved' : 'draft',
+        licenseRequirementDocumentId: licenseRequirementDocumentId ?? null,
+        applicationPlaybookItemId: applicationPlaybookItemId ?? null,
+      })
+
+      if (result.error) {
+        setError(result.error)
         return
       }
 
-      // Upload sequentially and insert records
-      const uploadedPaths: string[] = []
-      for (const fileItem of selectedFiles) {
-        const fileExt = fileItem.file.name.split('.').pop()
-        const filePath = `${applicationId}/${Date.now()}-${fileItem.id}.${fileExt}`
-
-        const { error: uploadError } = await supabase.storage
-          .from('application-documents')
-          .upload(filePath, fileItem.file)
-
-        if (uploadError) {
-          if (uploadedPaths.length > 0) {
-            await supabase.storage.from('application-documents').remove(uploadedPaths)
-          }
-          throw uploadError
-        }
-
-        uploadedPaths.push(filePath)
-
-        const insertPayload: Record<string, unknown> = {
-          application_id: applicationId,
-          document_name: fileItem.name || documentName,
-          document_url: filePath,
-          document_type: documentType || null,
-          description: description.trim() || null,
-          status: autoApprove ? 'approved' : 'draft'
-        }
-        if (licenseRequirementDocumentId) {
-          insertPayload.license_requirement_document_id = licenseRequirementDocumentId
-        }
-        if (applicationPlaybookItemId) {
-          insertPayload.application_playbook_item_id = applicationPlaybookItemId
-        }
-        const { error: insertError } = await q.insertApplicationDocument(supabase, insertPayload)
-
-        if (insertError) {
-          if (uploadedPaths.length > 0) {
-            await supabase.storage.from('application-documents').remove(uploadedPaths)
-          }
-          throw insertError
-        }
-      }
-
-      // Send email notification to expert if assigned
-      try {
-        // Get application details to find assigned expert
-        const { data: application } = await q.getApplicationExpertAndOwner(supabase, applicationId)
-
-        if (application?.assigned_expert_id) {
-          const { data: expertProfile } = await q.getUserProfileById(supabase, application.assigned_expert_id)
-          const { data: ownerProfile } = application.company_owner_id
-            ? await q.getUserProfileById(supabase, application.company_owner_id)
-            : { data: null }
-          // if (expertProfile?.email) {
-          //   // Trim email to remove any whitespace/newline characters
-          //   const trimmedEmail = expertProfile.email.trim()
-            
-          //   fetch('/api/send-email-notification', {
-          //     method: 'POST',
-          //     headers: {
-          //       'Content-Type': 'application/json',
-          //     },
-          //     body: JSON.stringify({
-          //       expertEmail: trimmedEmail,
-          //       expertName: expertProfile.full_name || undefined,
-          //       ownerName: ownerProfile?.full_name || undefined,
-          //       applicationName: application.application_name,
-          //       documentName: documentName,
-          //       applicationId: applicationId
-          //     })
-          //   }).then(async response => {
-          //     const result = await response.json()
-          //     if (!response.ok && result.warning) {
-          //       // Testing mode warning - log but don't show error to user
-          //       console.warn('Email notification:', result.warning)
-          //     } else if (!response.ok) {
-          //       console.error('Failed to send email notification:', result)
-          //     }
-          //   }).catch(err => {
-          //     console.error('Failed to send email notification:', err)
-          //     // Don't throw - email failure shouldn't break upload
-          //   })
-          // }
-        }
-      } catch (emailError) {
-        console.error('Error sending email notification:', emailError)
-        // Don't throw - email failure shouldn't break upload
-      }
-
-      // Reset form
       setSelectedFiles([])
       setDocumentName('')
       setDocumentType('')
       setDescription('')
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ''
 
-      // Close modal and notify parent
       onClose()
-      if (onSuccess) {
-        onSuccess()
-      }
+      onSuccess?.()
     } catch (err: any) {
       setError(err.message || 'Failed to upload document. Please try again.')
     } finally {

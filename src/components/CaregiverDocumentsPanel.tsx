@@ -4,8 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl } from '@/lib/supabase/storage'
-import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
+import { uploadCaregiverDocumentsAction, deleteCaregiverDocumentAction } from '@/app/actions/caregiver-documents'
 import { FileText, Upload, Download, Trash2, Loader2 } from 'lucide-react'
 import { sanitizeDownloadFilename } from '@/lib/download-filename'
 
@@ -96,51 +96,6 @@ export function CaregiverDocumentsPanel({
     setError(null)
   }, [active, staffMemberId, initialDocuments])
 
-  const persist = async (next: PatientDocument[]) => {
-    logCaregiverDocs('persist:start', {
-      staffMemberId,
-      documentCount: next.length,
-      supabaseUrlHost: (() => {
-        try {
-          return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').host || '(unset)'
-        } catch {
-          return '(invalid NEXT_PUBLIC_SUPABASE_URL)'
-        }
-      })(),
-    })
-    const supabase = createClient()
-    const { data, error: updateError } = await q.updateStaffMemberDocuments(supabase, staffMemberId, next)
-    if (updateError) {
-      const ue = updateError as {
-        code?: string
-        message?: string
-        details?: string
-        hint?: string
-      }
-      logCaregiverDocsError('persist:updateStaffMemberDocuments error', updateError, {
-        code: ue.code,
-        message: ue.message,
-        details: ue.details,
-        hint: ue.hint,
-        staffMemberId,
-      })
-      const code = ue.code
-      const msg = ue.message || 'Update failed'
-      const rlsHint =
-        code === 'PGRST116' || /0 rows|no rows|contains 0 rows/i.test(msg)
-          ? ' Your user is not allowed to update this caregiver row (Row Level Security on caregiver_members), or the row id is wrong. Sign in as the client owner who manages this caregiver, or ask an admin to adjust RLS.'
-          : ''
-      throw new Error(msg + rlsHint)
-    }
-    if (!data) {
-      logCaregiverDocsError('persist:no data returned', new Error('data is null'), { staffMemberId })
-      throw new Error('Update returned no row — documents were not saved. Check caregiver_members RLS UPDATE policies.')
-    }
-    logCaregiverDocs('persist:ok', { staffMemberId, returnedId: data.id })
-    setDocs(next)
-    router.refresh()
-  }
-
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files
     if (!list?.length) return
@@ -148,94 +103,15 @@ export function CaregiverDocumentsPanel({
     e.target.value = ''
     setError(null)
     setIsUploading(true)
-    const supabase = createClient()
-    logCaregiverDocs('handleFileChange:start', {
-      fileCount: filesArray.length,
-      names: filesArray.map((f) => f.name),
-      sizes: filesArray.map((f) => f.size),
-      staffMemberId,
-      caregiverName,
-      existingDocCount: docs.length,
-      bucket: BUCKET,
-    })
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) {
-      logCaregiverDocs('handleFileChange:no auth user', {})
-      setError('You must be logged in.')
-      setIsUploading(false)
-      return
-    }
-    logCaregiverDocs('handleFileChange:auth ok', { userId: user.id, email: user.email })
-    const uploadedPaths: string[] = []
     try {
-      const newDocs: PatientDocument[] = [...docs]
-      for (let i = 0; i < filesArray.length; i++) {
-        const file = filesArray[i]
-        const docId = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-        const path = `${staffMemberId}/${docId}_${safeName}`
-        logCaregiverDocs('storage.upload:attempt', {
-          bucket: BUCKET,
-          path,
-          fileName: file.name,
-          fileSize: file.size,
-          mimeType: file.type || '(empty)',
-        })
-        const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
-          cacheControl: '3600',
-          upsert: false,
-        })
-        if (upErr) {
-          logCaregiverDocsError('storage.upload:failed', upErr, {
-            bucket: BUCKET,
-            path,
-            statusCode: (upErr as { statusCode?: string }).statusCode,
-          })
-          if (uploadedPaths.length > 0) await supabase.storage.from(BUCKET).remove(uploadedPaths)
-          const upMsg = getErrorMessage(upErr)
-          const hint =
-            upMsg.toLowerCase().includes('bucket') || upMsg.toLowerCase().includes('not found')
-              ? ' Ensure the bucket id is exactly `staff-member-documents` (not a typo) and exists — run migration phase_two/018_add_documents_column_on_staff_members_table.sql (table is now caregiver_members) on this Supabase project.'
-              : ''
-          throw new Error(`Upload failed: ${upMsg}${hint}`)
-        }
-        uploadedPaths.push(path)
-        logCaregiverDocs('storage.upload:ok', { path, uploadedSoFar: uploadedPaths.length })
-        newDocs.push({
-          id: docId,
-          name: file.name,
-          path,
-          uploaded_at: new Date().toISOString(),
-          size: file.size,
-        })
-      }
-      try {
-        logCaregiverDocs('handleFileChange:calling persist', {
-          newDocCount: newDocs.length,
-          uploadedPaths,
-        })
-        await persist(newDocs)
-        logCaregiverDocs('handleFileChange:complete success', { newDocCount: newDocs.length })
-      } catch (persistErr: unknown) {
-        logCaregiverDocsError('handleFileChange:persist threw (files left in Storage)', persistErr, {
-          uploadedPaths,
-          staffMemberId,
-        })
-        const p = getErrorMessage(persistErr)
-        setError(
-          `${p} Files were uploaded to the bucket "${BUCKET}" under folder "${staffMemberId}/" but were not saved on the caregiver record. Check Storage in the dashboard, confirm migration 018 is applied, and RLS allows UPDATE on caregiver_members for your role.`
-        )
-        return
-      }
+      const formData = new FormData()
+      for (const file of filesArray) formData.append('file', file)
+      const { error, data: nextDocs } = await uploadCaregiverDocumentsAction(staffMemberId, formData, docs)
+      if (error) throw new Error(error)
+      setDocs(nextDocs ?? docs)
+      router.refresh()
     } catch (err: unknown) {
-      logCaregiverDocsError('handleFileChange:outer catch (upload or unexpected)', err, {
-        uploadedPathsBeforeCleanup: uploadedPaths,
-        willRemoveFromStorage: uploadedPaths.length > 0,
-      })
       setError(getErrorMessage(err))
-      if (uploadedPaths.length > 0) await supabase.storage.from(BUCKET).remove(uploadedPaths)
     } finally {
       setIsUploading(false)
     }
@@ -246,14 +122,12 @@ export function CaregiverDocumentsPanel({
     setDeletingId(doc.id)
     setError(null)
     try {
-      logCaregiverDocs('handleDelete:start', { docId: doc.id, path: doc.path, staffMemberId })
-      const supabase = createClient()
-      await supabase.storage.from(BUCKET).remove([doc.path])
       const next = docs.filter((d) => d.id !== doc.id)
-      await persist(next)
-      logCaregiverDocs('handleDelete:ok', { staffMemberId, remaining: next.length })
+      const { error } = await deleteCaregiverDocumentAction(staffMemberId, doc.path, next)
+      if (error) throw new Error(error)
+      setDocs(next)
+      router.refresh()
     } catch (err: unknown) {
-      logCaregiverDocsError('handleDelete:failed', err, { docId: doc.id, path: doc.path })
       setError(getErrorMessage(err))
     } finally {
       setDeletingId(null)

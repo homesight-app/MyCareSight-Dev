@@ -4,19 +4,13 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
+import { applicationSchema, type ApplicationFormData } from '@/lib/schemas/application'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 import { US_STATES } from '@/lib/constants'
 
-const applicationSchema = z.object({
-  application_name: z.string().min(1, 'Application name is required').min(3, 'Application name must be at least 3 characters'),
-  state: z.string().min(1, 'State is required'),
-})
-
-type ApplicationFormData = z.infer<typeof applicationSchema>
 
 interface NewApplicationModalProps {
   isOpen: boolean

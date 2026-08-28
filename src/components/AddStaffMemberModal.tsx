@@ -4,8 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
-import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
+import { staffMemberSchema, type StaffMemberFormData } from '@/lib/schemas/staff-member'
 import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -14,19 +13,6 @@ import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
-const staffMemberSchema = z.object({
-  first_name: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
-  last_name: z.string().min(1, 'Last name is required').min(2, 'Last name must be at least 2 characters'),
-  email: z.string().email('Please enter a valid email address'),
-  phone: z.string().optional().refine(val => !val || US_PHONE_REGEX.test(val.trim()), PHONE_ERROR),
-  role: z.string().min(1, 'Role is required'),
-  job_title: z.string().optional(),
-  status: z.enum(['active', 'inactive', 'pending']),
-  employee_id: z.string().optional(),
-  start_date: z.string().optional(),
-})
-
-type StaffMemberFormData = z.infer<typeof staffMemberSchema>
 
 
 interface AddStaffMemberModalProps {

@@ -5,31 +5,11 @@ import { X, Plus, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
 import { createUserAccount, type CreateUserRole } from '@/app/actions/users'
-import { emailZodField } from '@/lib/validation'
+import { addUserSchema, type AddUserFormData, AGENCY_ROLES } from '@/lib/schemas/user'
 import EmailInput from '@/components/ui/EmailInput'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
-const AGENCY_ROLES = ['company_owner', 'staff_member', 'care_coordinator']
-
-const addUserSchema = z.object({
-  full_name: z.string().min(1, 'Full name is required').min(2, 'Full name must be at least 2 characters'),
-  email: emailZodField,
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  confirmPassword: z.string().min(1, 'Please confirm your password'),
-  role: z.string(),
-  agency_id: z.string().optional(),
-}).refine(data => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
-}).superRefine((data, ctx) => {
-  if (AGENCY_ROLES.includes(data.role) && !data.agency_id?.trim()) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please select an agency', path: ['agency_id'] })
-  }
-})
-
-type AddUserFormData = z.infer<typeof addUserSchema>
 
 interface AddUserModalProps {
   isOpen: boolean

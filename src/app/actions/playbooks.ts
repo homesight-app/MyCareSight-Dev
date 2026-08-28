@@ -6,6 +6,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbooks'
+import { removeFiles } from '@/lib/storage/client'
+import { STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 export type OtherPlaybook = {
   id: string
@@ -234,8 +236,8 @@ export async function addPlaybookItem(
     requirement_type: 'required' | 'optional'
   }
 ) {
-  const { error: authErr } = await requireStaff()
-  if (authErr) return { error: authErr, item: null }
+  const { error: authErr, session } = await requireStaff()
+  if (authErr || !session) return { error: authErr ?? 'Forbidden', item: null }
 
   const supabase = await createClient()
 
@@ -252,6 +254,17 @@ export async function addPlaybookItem(
   })
 
   if (error) return { error: error.message, item: null }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: null,
+    table_name: 'playbook_items',
+    record_id: (data as { id: string } | null)?.id ?? playbookId,
+    action: 'CREATE',
+    performed_by_user_id: session.user.id,
+    details: { playbook_id: playbookId, item_type: payload.item_type, name: payload.name },
+  })
+  if (auditErr) console.error('[playbooks/addPlaybookItem] Audit log failed. playbookId=%s err=%s', playbookId, auditErr.message)
+
   return { error: null, item: data }
 }
 
@@ -269,23 +282,45 @@ export async function updatePlaybookItem(
     requirement_type: 'required' | 'optional'
   }>
 ) {
-  const { error: authErr } = await requireStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requireStaff()
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = await createClient()
   const { error } = await q.updatePlaybookItem(supabase, itemId, payload)
   if (error) return { error: error.message }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: null,
+    table_name: 'playbook_items',
+    record_id: itemId,
+    action: 'UPDATE',
+    performed_by_user_id: session.user.id,
+    details: { fields_updated: Object.keys(payload) },
+  })
+  if (auditErr) console.error('[playbooks/updatePlaybookItem] Audit log failed. itemId=%s err=%s', itemId, auditErr.message)
+
   return { error: null }
 }
 
 /** Delete a playbook item. */
 export async function deletePlaybookItem(itemId: string) {
-  const { error: authErr } = await requireStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requireStaff()
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = await createClient()
   const { error } = await q.deletePlaybookItem(supabase, itemId)
   if (error) return { error: error.message }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: null,
+    table_name: 'playbook_items',
+    record_id: itemId,
+    action: 'DELETE',
+    performed_by_user_id: session.user.id,
+    details: {},
+  })
+  if (auditErr) console.error('[playbooks/deletePlaybookItem] Audit log failed. itemId=%s err=%s', itemId, auditErr.message)
+
   return { error: null }
 }
 
@@ -474,13 +509,20 @@ export async function addProgramItem(
 
   const supabase = await createClient()
 
-  const { data: maxRow } = await supabase
-    .from('application_playbook_items')
-    .select('item_order')
-    .eq('application_id', applicationId)
-    .order('item_order', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const [{ data: maxRow }, { data: appRow }] = await Promise.all([
+    supabase
+      .from('application_playbook_items')
+      .select('item_order')
+      .eq('application_id', applicationId)
+      .order('item_order', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('applications')
+      .select('agency_id')
+      .eq('id', applicationId)
+      .maybeSingle(),
+  ])
 
   const nextOrder = (maxRow?.item_order ?? 0) + 1
 
@@ -504,6 +546,16 @@ export async function addProgramItem(
     .single()
 
   if (error) return { error: error.message, data: null }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: appRow?.agency_id ?? null,
+    table_name: 'application_playbook_items',
+    record_id: (data as { id: string } | null)?.id ?? applicationId,
+    action: 'CREATE',
+    performed_by_user_id: session.user.id,
+    details: { application_id: applicationId, item_type: item.item_type, name: item.name.trim() },
+  })
+  if (auditErr) console.error('[playbooks/addProgramItem] Audit log failed. applicationId=%s err=%s', applicationId, auditErr.message)
 
   revalidatePath(`/pages/admin/programs/${applicationId}`)
   revalidatePath(`/pages/expert/programs/${applicationId}`)
@@ -1343,8 +1395,7 @@ export async function deleteApplicationDocument(documentId: string): Promise<{ e
   }
 
   if (doc.document_url) {
-    const { STORAGE_BUCKET } = await import('@/lib/supabase/storage')
-    await supabase.storage.from(STORAGE_BUCKET.APPLICATION).remove([doc.document_url])
+    await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, [doc.document_url])
   }
 
   const { error } = await supabase.from('application_documents').delete().eq('id', documentId)

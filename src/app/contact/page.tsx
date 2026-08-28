@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
+import PhoneInput from '@/components/ui/PhoneInput'
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
@@ -153,7 +154,7 @@ export default function ContactPage() {
           </div>
           <div>
             <label className={labelCls} htmlFor="phone">Phone</label>
-            <input id="phone" type="tel" className={inputCls} value={form.phone} onChange={set('phone')} />
+            <PhoneInput id="phone" className={inputCls} value={form.phone} onChange={set('phone')} />
           </div>
         </div>
 

@@ -3,27 +3,17 @@
 import { useState, useRef, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
+import { licenseSchema, type CreateLicenseFormData } from '@/lib/schemas/license'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertification, createCertificationAndLink } from '@/app/actions/licenses'
+import { uploadLicenseDocumentAction, uploadLicenseDocumentsForCreationAction, removeUploadedLicenseFilesAction } from '@/app/actions/license-documents'
 import { Loader2, Upload, X, FileText, Plus } from 'lucide-react'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
-const licenseSchema = z.object({
-  license_name: z.string().min(1, 'License name is required').min(3, 'License name must be at least 3 characters'),
-  license_number: z.string().optional(),
-  state: z.string().optional(),
-  expiry_date: z.string().min(1, 'Expiry date is required'),
-  activated_date: z.string().min(1, 'Activated date is required'),
-  renewal_due_date: z.string().optional(),
-  issuing_body: z.string().optional(),
-})
-
-export type CreateLicenseFormData = z.infer<typeof licenseSchema>
 
 interface PendingDoc {
   id: string
@@ -163,23 +153,12 @@ export default function CreateLicenseModal({
         if (updateError) throw updateError
 
         for (const doc of docsWithFiles) {
-          const fileExt = doc.file!.name.split('.').pop()
-          const fileName = `license-${licenseToEdit.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
-          const { error: uploadErr } = await supabase.storage
-            .from('application-documents')
-            .upload(fileName, doc.file!, { upsert: false, contentType: doc.file!.type || `application/${fileExt}` })
-          if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
-
-          const { error: docErr } = await q.insertLicenseDocument(supabase, {
-            license_id: licenseToEdit.id,
-            document_name: doc.name.trim() || doc.file!.name,
-            document_url: fileName,
-            document_type: doc.type || null,
-          })
-          if (docErr) {
-            await supabase.storage.from('application-documents').remove([fileName])
-            throw new Error(`Document record failed: ${docErr.message}`)
-          }
+          const fd = new FormData()
+          fd.append('file', doc.file!)
+          if (doc.name.trim()) fd.set('document_name', doc.name.trim())
+          if (doc.type) fd.set('document_type', doc.type)
+          const { error: docErr } = await uploadLicenseDocumentAction(licenseToEdit.id, null, fd)
+          if (docErr) throw new Error(docErr)
         }
 
         showSuccessToast('License updated successfully')
@@ -193,16 +172,18 @@ export default function CreateLicenseModal({
 
       // ── Agency mode ────────────────────────────────────────────────────────
       if (agencyId) {
-        const uploadedDocs: { url: string; name: string; type: string | null }[] = []
+        let uploadedDocs: { url: string; name: string; type: string | null }[] = []
 
-        for (const doc of docsWithFiles) {
-          const fileExt = doc.file!.name.split('.').pop()
-          const fileName = `agency-${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
-          const { error: uploadErr } = await supabase.storage
-            .from('application-documents')
-            .upload(fileName, doc.file!, { upsert: false, contentType: doc.file!.type || `application/${fileExt}`, cacheControl: '3600' })
-          if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
-          uploadedDocs.push({ url: fileName, name: doc.name.trim() || doc.file!.name, type: doc.type || null })
+        if (docsWithFiles.length > 0) {
+          const fd = new FormData()
+          for (const doc of docsWithFiles) {
+            fd.append('file', doc.file!)
+            fd.append('name', doc.name.trim() || doc.file!.name)
+            fd.append('type', doc.type || '')
+          }
+          const { error: uploadErr, data: uploaded } = await uploadLicenseDocumentsForCreationAction(agencyId, fd)
+          if (uploadErr) throw new Error(uploadErr)
+          uploadedDocs = uploaded ?? []
         }
 
         const certPayload = {
@@ -217,20 +198,15 @@ export default function CreateLicenseModal({
         }
 
         if (lockedProgramId) {
-          // Program context: create + link atomically (also inherits category/subcategory)
           const { error: certErr } = await createCertificationAndLink(agencyId, lockedProgramId, certPayload)
           if (certErr) {
-            for (const d of uploadedDocs) {
-              await supabase.storage.from('application-documents').remove([d.url])
-            }
+            await removeUploadedLicenseFilesAction(uploadedDocs.map(d => d.url))
             throw new Error(certErr)
           }
         } else {
           const result = await createLicenseForAgency({ agencyId, ...certPayload })
           if (result.error) {
-            for (const d of uploadedDocs) {
-              await supabase.storage.from('application-documents').remove([d.url])
-            }
+            await removeUploadedLicenseFilesAction(uploadedDocs.map(d => d.url))
             throw new Error(result.error)
           }
           if (result.data?.id && linkedProgramId) {
@@ -267,23 +243,12 @@ export default function CreateLicenseModal({
       if (!newLicense?.id) throw new Error('License was created but no ID returned')
 
       for (const doc of docsWithFiles) {
-        const fileExt = doc.file!.name.split('.').pop()
-        const fileName = `${newLicense.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
-        const { error: uploadErr } = await supabase.storage
-          .from('application-documents')
-          .upload(fileName, doc.file!, { upsert: false, contentType: doc.file!.type || `application/${fileExt}`, cacheControl: '3600' })
-        if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
-
-        const { error: docErr } = await q.insertLicenseDocument(supabase, {
-          license_id: newLicense.id,
-          document_name: doc.name.trim() || doc.file!.name,
-          document_url: fileName,
-          document_type: doc.type || null,
-        })
-        if (docErr) {
-          await supabase.storage.from('application-documents').remove([fileName])
-          throw new Error(`Document record failed: ${docErr.message}`)
-        }
+        const fd = new FormData()
+        fd.append('file', doc.file!)
+        if (doc.name.trim()) fd.set('document_name', doc.name.trim())
+        if (doc.type) fd.set('document_type', doc.type)
+        const { error: docErr } = await uploadLicenseDocumentAction(newLicense.id, null, fd)
+        if (docErr) throw new Error(docErr)
       }
 
       showSuccessToast('License created successfully')

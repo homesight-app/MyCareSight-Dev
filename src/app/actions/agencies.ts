@@ -7,6 +7,7 @@ import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { uploadFile, removeFiles } from '@/lib/storage/client'
 import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
   CACHE_TAG_AGENCIES_ID_NAME,
@@ -397,22 +398,45 @@ export async function addAgencyNote(
   if (!session) return { error: 'Not authenticated' }
 
   const supabase = await createClient()
-  const { error } = await supabase.from('agency_notes').insert({
+  const { data: note, error } = await supabase.from('agency_notes').insert({
     agency_id: agencyId,
     author_id: session.user.id,
     content: payload.content,
     note_type: payload.noteType,
-  })
+  }).select('id').single()
 
   if (error) return { error: error.message }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'agency_notes',
+    record_id: note.id,
+    action: 'CREATE',
+    performed_by_user_id: session.user.id,
+    details: { note_type: payload.noteType },
+  })
+  if (auditErr) console.error('[agencies/addAgencyNote] Audit log failed. noteId=%s err=%s', note.id, auditErr.message)
+
   revalidateAgencyDetailPages()
   return { error: null }
 }
 
 export async function deleteAgencyNote(agencyId: string, noteId: string) {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
   const { error } = await supabase.from('agency_notes').delete().eq('id', noteId)
   if (error) return { error: error.message }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'agency_notes',
+    record_id: noteId,
+    action: 'DELETE',
+    performed_by_user_id: user?.id ?? null,
+    details: {},
+  })
+  if (auditErr) console.error('[agencies/deleteAgencyNote] Audit log failed. noteId=%s err=%s', noteId, auditErr.message)
+
   revalidateAgencyDetailPages()
   return { error: null }
 }
@@ -436,7 +460,7 @@ export async function uploadAgencyDocument(
   const ext = file.name.split('.').pop()
   const filePath = `${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
-  const { error: uploadErr } = await supabase.storage.from(STORAGE_BUCKET.AGENCY).upload(filePath, file)
+  const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.AGENCY, filePath, file)
   if (uploadErr) return { error: uploadErr.message }
 
   const { data, error: insertErr } = await q.insertAgencyDocument(supabase, {
@@ -449,10 +473,20 @@ export async function uploadAgencyDocument(
   })
 
   if (insertErr) {
-    const { error: cleanupErr } = await supabase.storage.from(STORAGE_BUCKET.AGENCY).remove([filePath])
+    const { error: cleanupErr } = await removeFiles(supabase, STORAGE_BUCKET.AGENCY, [filePath])
     if (cleanupErr) console.error('[agencies/uploadAgencyDocument] Storage cleanup failed. path=%s err=%s', filePath, cleanupErr.message)
     return { error: insertErr.message }
   }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'agency_documents',
+    record_id: data!.id,
+    action: 'CREATE',
+    performed_by_user_id: session.user.id,
+    details: { document_name: documentName.trim(), document_type: documentType ?? null, file_name: file.name },
+  })
+  if (auditErr) console.error('[agencies/uploadAgencyDocument] Audit log failed. docId=%s err=%s', data!.id, auditErr.message)
 
   revalidateAgencyDetailPages()
   return { error: null, doc: { id: data!.id, document_name: documentName.trim(), file_url: filePath } }
@@ -460,10 +494,22 @@ export async function uploadAgencyDocument(
 
 export async function deleteAgencyDocumentAction(agencyId: string, docId: string, filePath: string) {
   const supabase = await createClient()
-  const { error: storageErr } = await supabase.storage.from(STORAGE_BUCKET.AGENCY).remove([filePath])
+  const { data: { user } } = await supabase.auth.getUser()
+  const { error: storageErr } = await removeFiles(supabase, STORAGE_BUCKET.AGENCY, [filePath])
   if (storageErr) console.error('[agencies/deleteAgencyDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
   const { error } = await q.deleteAgencyDocument(supabase, docId)
   if (error) return { error: error.message }
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: agencyId,
+    table_name: 'agency_documents',
+    record_id: docId,
+    action: 'DELETE',
+    performed_by_user_id: user?.id ?? null,
+    details: { file_path: filePath },
+  })
+  if (auditErr) console.error('[agencies/deleteAgencyDocument] Audit log failed. docId=%s err=%s', docId, auditErr.message)
+
   revalidateAgencyDetailPages()
   return { error: null }
 }

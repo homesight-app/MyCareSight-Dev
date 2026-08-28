@@ -44,10 +44,12 @@ import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
 import { expandSeriesOccurrences } from '@/lib/recurrence-dates'
 import * as q from '@/lib/supabase/query'
 import type { PatientAddress } from '@/lib/supabase/query/patient-addresses'
-import { updatePatientDocumentsAction, upsertPatientCaregiverRequirementsAction } from '@/app/actions/patients'
+import { upsertPatientCaregiverRequirementsAction } from '@/app/actions/patients'
+import { uploadPatientDocumentsAction, deletePatientDocumentAction } from '@/app/actions/patient-documents'
 import { markScheduleMissedAction, markScheduleCancelledAction, markScheduleOnHoldAction, reinstateScheduleAction } from '@/app/actions/schedule-assignment-requests'
 import { addPatientAddressAction, updatePatientAddressAction, deletePatientAddressAction, setPrimaryPatientAddressAction } from '@/app/actions/patient-addresses'
 import { updatePatientServiceContractBillRateAction } from '@/app/actions/payroll-billing-report'
+import { getActiveBillingCodesAction } from '@/app/actions/billing'
 import type { PatientRepresentative } from '@/lib/supabase/query/patients-representatives'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import type { CaregiverRequirement } from '@/lib/supabase/query/caregiver-requirements'
@@ -67,6 +69,7 @@ import {
 } from '@/lib/patient-service-contract-effective'
 import Modal from '@/components/Modal'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
+import PhoneInput from '@/components/ui/PhoneInput'
 import InternalNotesPanel from '@/components/InternalNotesPanel'
 import zipcodes from 'zipcodes'
 import { patientFullName } from '@/lib/patient-name'
@@ -1122,56 +1125,13 @@ export default function ClientDetailContent({ client, allClients, representative
     setDocumentUploadError(null)
     setIsUploadingDocument(true)
     try {
-      const supabase = createClient()
-
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setDocumentUploadError('You must be logged in to upload documents')
-        setIsUploadingDocument(false)
-        return
-      }
-
-      const uploadedPaths: string[] = []
-      const newDocs: PatientDocument[] = []
-
-      for (let i = 0; i < filesArray.length; i++) {
-        const file = filesArray[i]
-        const docId = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-        const path = `${localClient.id}/${docId}_${safeName}`
-
-        const { error: uploadError } = await supabase.storage
-          .from('patient-documents')
-          .upload(path, file)
-
-        if (uploadError) {
-          if (uploadedPaths.length > 0) {
-            await supabase.storage.from('patient-documents').remove(uploadedPaths)
-          }
-          throw uploadError
-        }
-        uploadedPaths.push(path)
-
-        newDocs.push({
-          id: docId,
-          name: file.name,
-          path,
-          uploaded_at: new Date().toISOString(),
-          size: file.size,
-        })
-      }
-
-      const nextDocs = [...patientDocuments, ...newDocs]
-      const { error: updateError } = await updatePatientDocumentsAction(localClient.id, nextDocs)
-      if (updateError) {
-        if (uploadedPaths.length > 0) {
-          await supabase.storage.from('patient-documents').remove(uploadedPaths)
-        }
-        throw new Error(updateError)
-      }
-      setLocalClient((c) => ({ ...c, documents: nextDocs }))
+      const formData = new FormData()
+      for (const file of filesArray) formData.append('file', file)
+      const { error, data: nextDocs } = await uploadPatientDocumentsAction(localClient.id, formData, patientDocuments)
+      if (error) throw new Error(error)
+      setLocalClient((c) => ({ ...c, documents: nextDocs ?? c.documents }))
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : typeof err === 'object' && err !== null && 'message' in err ? String((err as { message: unknown }).message) : 'Upload failed'
+      const message = err instanceof Error ? err.message : 'Upload failed'
       setDocumentUploadError(message)
     } finally {
       setIsUploadingDocument(false)
@@ -1183,10 +1143,8 @@ export default function ClientDetailContent({ client, allClients, representative
     setIsDeletingDocId(doc.id)
     setDocumentUploadError(null)
     try {
-      const supabase = createClient()
-      await supabase.storage.from('patient-documents').remove([doc.path])
       const nextDocs = patientDocuments.filter((d) => d.id !== doc.id)
-      const { error } = await updatePatientDocumentsAction(localClient.id, nextDocs)
+      const { error } = await deletePatientDocumentAction(localClient.id, doc.path, nextDocs)
       if (error) throw new Error(error)
       setLocalClient((c) => ({ ...c, documents: nextDocs }))
       setDocToDelete(null)
@@ -2730,13 +2688,13 @@ export default function ClientDetailContent({ client, allClients, representative
       setBillingCodesLoadError(null)
       const supabase = createClient()
       const [{ data: codes, error: codesError }, { data: contracts, error: contractsError }] = await Promise.all([
-        supabase.from('billing_codes').select('id, code, name, unit_type').eq('is_active', true).order('code', { ascending: true }),
+        getActiveBillingCodesAction(),
         q.getPatientServiceContractsByPatientId(supabase, localClient.id),
       ])
       if (!isMounted) return
       if (codesError) {
         setBillingCodeOptions([])
-        setBillingCodesLoadError(codesError.message || 'Could not load billing codes.')
+        setBillingCodesLoadError(codesError || 'Could not load billing codes.')
       } else {
         const rows = (codes ?? []) as BillingCodeOption[]
         setBillingCodeOptions(rows)
@@ -6023,14 +5981,12 @@ export default function ClientDetailContent({ client, allClients, representative
             <label htmlFor="rep-phone" className="block text-sm font-medium text-gray-700 mb-1">
               Phone Number
             </label>
-            <input
+            <PhoneInput
               id="rep-phone"
-              type="tel"
               value={repForm.phone_number}
               onChange={(e) => setRepForm((p) => ({ ...p, phone_number: e.target.value }))}
               className="block w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isSavingRep}
-              placeholder="e.g. (713) 555-0235"
             />
           </div>
           <div>

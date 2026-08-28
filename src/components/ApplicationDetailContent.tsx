@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { replaceApplicationDocumentAction } from '@/app/actions/application-documents'
 import * as q from '@/lib/supabase/query'
 import {
   copyExpertStepsFromRequirementToApplication,
@@ -306,20 +307,14 @@ export default function ApplicationDetailContent({
     if (!file) return
     setReplacingAdHocDocId(doc.id)
     try {
-      const fileExt = file.name.split('.').pop()
-      const filePath = `${application.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
-      const { error: uploadError } = await supabase.storage.from('application-documents').upload(filePath, file)
-      if (uploadError) throw uploadError
-      const { error: updateError } = await q.updateApplicationDocumentFile(supabase, doc.id, application.id, {
-        document_url: filePath,
+      const formData = new FormData()
+      formData.append('file', file)
+      const { error } = await replaceApplicationDocumentAction(doc.id, application.id, formData, {
         document_name: doc.document_name,
-        document_type: doc.document_type,
+        document_type: doc.document_type ?? null,
         description: doc.description ?? null,
       })
-      if (updateError) {
-        await supabase.storage.from('application-documents').remove([filePath])
-        throw updateError
-      }
+      if (error) throw new Error(error)
       await refreshDocuments()
     } catch (err: unknown) {
       alert('Failed to replace document: ' + (err instanceof Error ? err.message : 'Unknown error'))

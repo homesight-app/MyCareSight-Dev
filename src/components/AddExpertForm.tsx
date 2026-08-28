@@ -4,27 +4,12 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
+import { expertSchema, type ExpertFormData } from '@/lib/schemas/expert'
 import { createExpert, CreateExpertData } from '@/app/actions/experts'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import Link from 'next/link'
+import PhoneInput from '@/components/ui/PhoneInput'
 
-const expertSchema = z.object({
-  firstName: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
-  lastName: z.string().min(1, 'Last name is required').min(2, 'Last name must be at least 2 characters'),
-  email: z.string().email('Please enter a valid email address'),
-  phone: z.string().optional(),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  confirmPassword: z.string().min(8, 'Please confirm your password'),
-  expertise: z.string().optional(),
-  role: z.string().optional(),
-  status: z.enum(['active', 'inactive']),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
-})
-
-type ExpertFormData = z.infer<typeof expertSchema>
 
 export default function AddExpertForm() {
   const router = useRouter()
@@ -155,16 +140,12 @@ export default function AddExpertForm() {
             <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
               Phone
             </label>
-            <input
+            <PhoneInput
               {...register('phone')}
-              type="tel"
               id="phone"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="(555) 123-4567"
+              error={errors.phone?.message}
             />
-            {errors.phone && (
-              <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>
-            )}
           </div>
 
           {/* Password Fields */}

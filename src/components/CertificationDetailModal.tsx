@@ -18,7 +18,6 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import {
   updateCertificationDetails,
@@ -28,6 +27,7 @@ import {
   getAvailableProgramsForCert,
   getCertificationVersionHistory,
 } from '@/app/actions/licenses'
+import { uploadLicenseDocumentAction } from '@/app/actions/license-documents'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
 import { formatDate, formatDateShort } from '@/lib/format-date'
@@ -324,23 +324,12 @@ function DocumentsSection({
     setIsUploading(true)
     setUploadError(null)
     try {
-      const supabase = createClient()
-      const fileExt = uploadFile.name.split('.').pop()
-      const filePath = `license-${license.id}/${Date.now()}.${fileExt}`
-      const { error: storageErr } = await supabase.storage
-        .from('application-documents')
-        .upload(filePath, uploadFile, { upsert: false, contentType: uploadFile.type || `application/${fileExt}` })
-      if (storageErr) throw storageErr
-      const { error: docErr } = await q.insertLicenseDocument(supabase, {
-        license_id: license.id,
-        document_name: uploadDocName.trim() || uploadFile.name,
-        document_url: filePath,
-        document_type: uploadDocType || null,
-      })
-      if (docErr) {
-        await supabase.storage.from('application-documents').remove([filePath])
-        throw docErr
-      }
+      const formData = new FormData()
+      formData.append('file', uploadFile)
+      if (uploadDocName.trim()) formData.set('document_name', uploadDocName.trim())
+      if (uploadDocType) formData.set('document_type', uploadDocType)
+      const { error } = await uploadLicenseDocumentAction(license.id, agencyId ?? null, formData)
+      if (error) throw new Error(error)
       setUploadFile(null)
       setUploadDocName('')
       setUploadDocType('')

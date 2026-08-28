@@ -4,30 +4,13 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
-import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
+import { expertSchema, type ExpertFormData } from '@/lib/schemas/expert'
 import PhoneInput from '@/components/ui/PhoneInput'
 import { createExpert, CreateExpertData } from '@/app/actions/experts'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
-const expertSchema = z.object({
-  firstName: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
-  lastName: z.string().min(1, 'Last name is required').min(2, 'Last name must be at least 2 characters'),
-  email: z.string().email('Please enter a valid email address'),
-  phone: z.string().optional().refine(val => !val || US_PHONE_REGEX.test(val.trim()), PHONE_ERROR),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  confirmPassword: z.string().min(8, 'Please confirm your password'),
-  expertise: z.string().optional(),
-  role: z.string().optional(),
-  status: z.enum(['active', 'inactive']),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
-})
-
-type ExpertFormData = z.infer<typeof expertSchema>
 
 interface AddExpertModalProps {
   isOpen: boolean

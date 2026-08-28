@@ -617,3 +617,41 @@ export async function cancelProgramRequest(applicationId: string): Promise<{ err
   revalidatePath('/pages/admin/programs')
   return { error: null }
 }
+
+export async function updateApplicationProgressAction(
+  applicationId: string,
+  progressPercentage: number
+): Promise<{ error: string | null }> {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('applications')
+    .update({ progress_percentage: progressPercentage, last_updated_date: new Date().toISOString().split('T')[0] })
+    .eq('id', applicationId)
+  if (error) return { error: error.message }
+
+  const { data: app } = await supabase
+    .from('applications')
+    .select('agency_id')
+    .eq('id', applicationId)
+    .maybeSingle()
+
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    agency_id: app?.agency_id ?? null,
+    table_name: 'applications',
+    record_id: applicationId,
+    action: 'UPDATE',
+    performed_by_user_id: session.user.id,
+    details: { field: 'progress_percentage', value: progressPercentage },
+  })
+  if (auditErr) console.error('[applications/updateProgress] Audit log failed. applicationId=%s err=%s', applicationId, auditErr.message)
+
+  revalidatePath(`/pages/admin/programs/${applicationId}`)
+  revalidatePath(`/pages/expert/programs/${applicationId}`)
+  revalidatePath(`/pages/agency/programs/${applicationId}`)
+  return { error: null }
+}

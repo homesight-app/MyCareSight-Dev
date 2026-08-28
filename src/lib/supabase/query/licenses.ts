@@ -1,11 +1,14 @@
 import type { Supabase } from '../types'
 
+const LICENSE_COLS = 'id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id'
+const LICENSE_DOC_COLS = 'id, license_id, document_name, document_url, document_type, created_at, expiry_date'
+
 /** Insert a license and return the created row. */
 export async function insertLicenseReturning(
   supabase: Supabase,
   data: Record<string, unknown>
 ) {
-  return supabase.from('licenses').insert(data).select().single()
+  return supabase.from('licenses').insert(data).select(LICENSE_COLS).single()
 }
 
 /** Insert a license_document. */
@@ -41,14 +44,14 @@ export async function getLatestLicenseDocumentByLicenseId(
 
 /** Get licenses by company_owner_id. */
 export async function getLicensesByCompanyOwnerId(supabase: Supabase, companyOwnerId: string) {
-  return supabase.from('licenses').select('*').eq('company_owner_id', companyOwnerId)
+  return supabase.from('licenses').select(LICENSE_COLS).eq('company_owner_id', companyOwnerId)
 }
 
 /** Get licenses by company_owner_id ordered by expiry_date asc. */
 export async function getLicensesByCompanyOwnerIdOrdered(supabase: Supabase, companyOwnerId: string) {
   return supabase
     .from('licenses')
-    .select('*')
+    .select(LICENSE_COLS)
     .eq('company_owner_id', companyOwnerId)
     .order('expiry_date', { ascending: true })
 }
@@ -66,14 +69,14 @@ export async function getLicenseDocumentsByLicenseIds(supabase: Supabase, licens
 
 /** Get license by id. */
 export async function getLicenseById(supabase: Supabase, licenseId: string) {
-  return supabase.from('licenses').select('*').eq('id', licenseId).single()
+  return supabase.from('licenses').select(LICENSE_COLS).eq('id', licenseId).single()
 }
 
 /** Get license by id and company_owner_id (for dashboard detail). */
 export async function getLicenseByIdAndOwner(supabase: Supabase, licenseId: string, companyOwnerId: string) {
   return supabase
     .from('licenses')
-    .select('*')
+    .select(LICENSE_COLS)
     .eq('id', licenseId)
     .eq('company_owner_id', companyOwnerId)
     .single()
@@ -83,7 +86,7 @@ export async function getLicenseByIdAndOwner(supabase: Supabase, licenseId: stri
 export async function getLicensesByAgencyId(supabase: Supabase, agencyId: string) {
   return supabase
     .from('licenses')
-    .select('*')
+    .select(LICENSE_COLS)
     .eq('agency_id', agencyId)
     .order('created_at', { ascending: false })
 }
@@ -92,7 +95,7 @@ export async function getLicensesByAgencyId(supabase: Supabase, agencyId: string
 export async function getLicensesByAgencyIdOrdered(supabase: Supabase, agencyId: string) {
   return supabase
     .from('licenses')
-    .select('*')
+    .select(LICENSE_COLS)
     .eq('agency_id', agencyId)
     .order('expiry_date', { ascending: true })
 }
@@ -101,7 +104,7 @@ export async function getLicensesByAgencyIdOrdered(supabase: Supabase, agencyId:
 export async function getLicenseByIdAndAgencyId(supabase: Supabase, licenseId: string, agencyId: string) {
   return supabase
     .from('licenses')
-    .select('*')
+    .select(LICENSE_COLS)
     .eq('id', licenseId)
     .eq('agency_id', agencyId)
     .single()
@@ -111,7 +114,7 @@ export async function getLicenseByIdAndAgencyId(supabase: Supabase, licenseId: s
 export async function getLicenseDocumentsByLicenseId(supabase: Supabase, licenseId: string) {
   return supabase
     .from('license_documents')
-    .select('*')
+    .select(LICENSE_DOC_COLS)
     .eq('license_id', licenseId)
     .order('created_at', { ascending: false })
 }

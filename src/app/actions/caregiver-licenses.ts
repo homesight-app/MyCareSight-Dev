@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -126,6 +127,8 @@ export async function insertCaregiverLicenseApplicationAction(
     })
     if (auditErr) console.error('[caregiver-licenses/insert] Audit log failed. credentialId=%s err=%s', data.id, auditErr.message)
 
+    revalidatePath(`/pages/agency/caregiver/${input.staffMemberId}`)
+    revalidatePath('/pages/agency/caregiver')
     return { ok: true, id: data.id }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -148,6 +151,8 @@ export async function insertCaregiverLicenseApplicationAction(
             'License was not saved. Set SUPABASE_SERVICE_ROLE_KEY on the server or apply caregiver_credentials RLS migration.',
         }
       }
+      revalidatePath(`/pages/agency/caregiver/${input.staffMemberId}`)
+      revalidatePath('/pages/agency/caregiver')
       return { ok: true, id: data.id }
     }
     return { ok: false, error: msg || 'Failed to save license.' }

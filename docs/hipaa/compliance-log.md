@@ -54,6 +54,47 @@ and auditors.
 - **Files changed:** `src/app/actions/leads.ts`, `supabase/migrations/phase_two/166_patient_lead_details.sql`
 - **Why it matters:** All mutations to ePHI must be auditable so investigators can reconstruct who changed what and when.
 
+### Agency Notes and Documents Audit (2026-08-27)
+- **What:** Four functions in `src/app/actions/agencies.ts` that were missing audit log entries now write `audit_log` rows on every mutation.
+- **Covered operations:**
+  - `addAgencyNote` → `action: 'CREATE'`, `table_name: 'agency_notes'`
+  - `deleteAgencyNote` → `action: 'DELETE'`, `table_name: 'agency_notes'`
+  - `uploadAgencyDocument` → `action: 'CREATE'`, `table_name: 'agency_documents'`, `details: { document_name, document_type, file_name }`
+  - `deleteAgencyDocumentAction` → `action: 'DELETE'`, `table_name: 'agency_documents'`, `details: { file_path }`
+- **Files changed:** `src/app/actions/agencies.ts`
+
+### Playbook Item Mutations Audit (2026-08-27)
+- **What:** Three core playbook item mutations and one program item mutation previously had zero audit coverage. All now write `audit_log` rows.
+- **Covered operations:**
+  - `addPlaybookItem` → `action: 'CREATE'`, `table_name: 'playbook_items'`, `details: { playbook_id, item_type, name }`
+  - `updatePlaybookItem` → `action: 'UPDATE'`, `table_name: 'playbook_items'`, `details: { fields_updated }`
+  - `deletePlaybookItem` → `action: 'DELETE'`, `table_name: 'playbook_items'`
+  - `addProgramItem` → `action: 'CREATE'`, `table_name: 'application_playbook_items'`, `details: { application_id, item_type, name }` (agency_id resolved from applications table)
+- **Files changed:** `src/app/actions/playbooks.ts`
+
+### Caregiver Availability — Server Action Migration (2026-08-27)
+- **What:** `CaregiverMyCalendarContent.tsx` was calling `supabase.from('caregiver_availability_slots')` INSERT/UPDATE/DELETE directly from the browser client component. These mutations had no audit trail and no RLS enforcement on the mutation path. Moved all three mutations to a new server action file with authentication, authorization, audit logging, and cache revalidation.
+- **Files changed:** `src/components/CaregiverMyCalendarContent.tsx` (removed direct mutations), `src/app/actions/caregiver-availability.ts` (new), `src/lib/supabase/query/caregiver-availability.ts` (added mutation query functions)
+- **Audit row:** `action: 'CREATE'/'UPDATE'/'DELETE'`, `table_name: 'caregiver_availability_slots'`, `agency_id` resolved from `caregiver_members`, `details: { is_recurring, specific_date }`
+- **Authorization gate:** Server action verifies `caregiver_members.user_id = session.user.id` — caregivers can only manage their own availability slots.
+
+### Application Progress — Server Action Migration (2026-08-27)
+- **What:** `ExpertProgramView.tsx` was calling `supabase.from('applications').update({ progress_percentage })` directly from a browser `useEffect` with no audit trail. Moved to `updateApplicationProgressAction` in `src/app/actions/applications.ts`.
+- **Files changed:** `src/components/ExpertProgramView.tsx`, `src/app/actions/applications.ts`
+- **Audit row:** `action: 'UPDATE'`, `table_name: 'applications'`, `details: { field: 'progress_percentage', value }`, `agency_id` resolved from applications table.
+
+### Document Storage — Server Action Migration (2026-08-27)
+- **What:** Five client components were calling `supabase.storage.*` directly from the browser. These mutations had no audit trail, bypassed the `src/lib/storage/` wrapper, and were exposed to browser-level network interception. Moved all upload and delete operations to three new server action files. Also updated four existing server actions (`agencies.ts`, `leads.ts`, `licenses.ts`, `playbooks.ts`) to route storage calls through the wrapper rather than calling the SDK directly.
+- **Covered client violations fixed:**
+  - `UploadDocumentModal.tsx` + `UploadDocumentButton.tsx` → `uploadApplicationDocumentsAction` in `application-documents.ts`
+  - `ApplicationDetailContent.tsx` `handleReplaceAdHocDocument` → `replaceApplicationDocumentAction` in `application-documents.ts`
+  - `ClientDetailContent.tsx` `handleDocumentFileChange` / `handleDeleteDocument` → `uploadPatientDocumentsAction` / `deletePatientDocumentAction` in `patient-documents.ts`
+  - `CaregiverDocumentsPanel.tsx` `handleFileChange` / `handleDelete` → `uploadCaregiverDocumentsAction` / `deleteCaregiverDocumentAction` in `caregiver-documents.ts`; also removed direct `q.updateStaffMemberDocuments()` client-side DB call
+- **Files changed (new):** `src/app/actions/application-documents.ts`, `src/app/actions/patient-documents.ts`, `src/app/actions/caregiver-documents.ts`, `src/lib/storage/client.ts` (added `removeFiles`, `getSignedUrl`)
+- **Files changed (modified):** `src/components/UploadDocumentModal.tsx`, `src/components/UploadDocumentButton.tsx`, `src/components/ApplicationDetailContent.tsx`, `src/components/ClientDetailContent.tsx`, `src/components/CaregiverDocumentsPanel.tsx`, `src/app/actions/agencies.ts`, `src/app/actions/leads.ts`, `src/app/actions/licenses.ts`, `src/app/actions/playbooks.ts`
+- **Audit rows:** Each upload/delete server action writes an `audit_log` row with `action: 'CREATE'/'UPDATE'`, `table_name: 'application_documents'/'patients'/'caregiver_members'`, `agency_id` resolved per domain.
+- **Why it matters:** Storage mutations on ePHI-related documents (patient records, caregiver records, application documents) were previously unauditable because they bypassed the server entirely. Any browser session could construct a storage request without it appearing in the audit trail.
+
 ---
 
 ## § 164.312(a)(1) — Access Control
@@ -74,6 +115,12 @@ and auditors.
 - **Rationale:** Platform staff are licensing consultants with no clinical or care-coordination role. Granting them standing access to patient ePHI would violate the HIPAA Minimum Necessary Standard (§ 164.514(d)). Any legitimate break-glass access by a platform admin must go through a one-time manual operation with an explicit audit log entry.
 - **Files changed:** `supabase/migrations/phase_two/166_patient_lead_details.sql`
 - **Note:** Insurance policy numbers are stored as plain text. No UI masking applied — intentional design decision for internal agency use only.
+
+### Storage Boundary — Server-Side Auth Enforcement for Document Operations (2026-08-27)
+- **What:** All document upload and delete operations for patient records (`patient-documents` bucket), caregiver records (`staff-member-documents` bucket), and application documents (`application-documents` bucket) now require server-side authentication before any storage SDK call is made. Browser clients can no longer reach the storage buckets without a valid server-authenticated session.
+- **Mechanism:** Three new server action files enforce `supabase.auth.getUser()` on every mutation. The `src/lib/storage/client.ts` wrapper is the sole point of contact with the Supabase Storage SDK — all upload, remove, and signed URL generation goes through it.
+- **Platform migration note:** When Azure Blob Storage replaces Supabase Storage, only `src/lib/storage/client.ts` changes; no components or server actions need modification.
+- **Files changed:** `src/app/actions/application-documents.ts`, `src/app/actions/patient-documents.ts`, `src/app/actions/caregiver-documents.ts`, `src/lib/storage/client.ts`
 
 ### Agency People Self-Management (2026-08-19)
 - **What:** `requireAdminOrAgencyOwner(agencyId)` helper added to `agency-users.ts` and `agency-onboarding.ts`. All people-management server actions now enforce that callers are either platform staff (admin/expert) or the `company_owner` of that specific agency. Cross-agency access returns Forbidden.

@@ -43,12 +43,14 @@ export default async function ClientDetailPage({
     redirect('/pages/admin/clients')
   }
 
-  const { data: applications } = client.agency_id
-    ? await q.getApplicationsByAgencyId(supabase, client.agency_id)
-    : { data: [] }
-  const { data: expertData } = client.expert_id
-    ? await q.getLicensingExpertByUserId(supabase, client.expert_id)
-    : { data: null }
+  const [{ data: applications }, { data: expertData }] = await Promise.all([
+    client.agency_id
+      ? q.getApplicationsByAgencyId(supabase, client.agency_id)
+      : Promise.resolve({ data: [] as NonNullable<Awaited<ReturnType<typeof q.getApplicationsByAgencyId>>['data']> }),
+    client.expert_id
+      ? q.getLicensingExpertByUserId(supabase, client.expert_id)
+      : Promise.resolve({ data: null }),
+  ])
   const expert = (expertData ?? null) as { first_name?: string; last_name?: string } | null
 
   const conversationIds = conversations?.map((c: { id: string }) => c.id) || []

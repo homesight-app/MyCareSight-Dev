@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { uploadFile, removeFiles } from '@/lib/storage/client'
 
 function revalidateLeadPaths() {
   revalidatePath('/pages/admin/leads')
@@ -401,7 +402,7 @@ export async function uploadLeadDocument(
   const ext = file.name.split('.').pop()
   const filePath = `${leadId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
-  const { error: uploadErr } = await supabase.storage.from(STORAGE_BUCKET.LEAD).upload(filePath, file)
+  const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.LEAD, filePath, file)
   if (uploadErr) return { error: uploadErr.message }
 
   const { data, error: insertErr } = await q.insertLeadDocument(supabase, {
@@ -414,7 +415,7 @@ export async function uploadLeadDocument(
   })
 
   if (insertErr) {
-    const { error: cleanupErr } = await supabase.storage.from(STORAGE_BUCKET.LEAD).remove([filePath])
+    const { error: cleanupErr } = await removeFiles(supabase, STORAGE_BUCKET.LEAD, [filePath])
     if (cleanupErr) console.error('[leads/uploadLeadDocument] Storage cleanup failed. path=%s err=%s', filePath, cleanupErr.message)
     return { error: insertErr.message }
   }
@@ -428,7 +429,7 @@ export async function deleteLeadDocumentAction(leadId: string, docId: string, fi
   if (authErr) return { error: authErr }
 
   const supabase = await createClient()
-  const { error: storageErr } = await supabase.storage.from(STORAGE_BUCKET.LEAD).remove([filePath])
+  const { error: storageErr } = await removeFiles(supabase, STORAGE_BUCKET.LEAD, [filePath])
   if (storageErr) console.error('[leads/deleteLeadDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
   const { error } = await q.deleteLeadDocument(supabase, docId)
   if (error) return { error: error.message }

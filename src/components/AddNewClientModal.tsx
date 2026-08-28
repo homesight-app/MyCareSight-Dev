@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { X, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -9,7 +11,9 @@ import { createAgencyAdminAccount } from '@/app/actions/users'
 import { US_STATES } from '@/lib/constants'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
+import EmailInput from '@/components/ui/EmailInput'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
+import { agencyAdminFormSchema, type AgencyAdminFormData } from '@/lib/schemas/client'
 
 type AddNewClientModalMode = 'agency_admin' | 'care_recipient'
 
@@ -24,23 +28,63 @@ interface AddNewClientModalProps {
   prefill?: { firstName?: string; lastName?: string; email?: string; phone?: string; gender?: string; dateOfBirth?: string }
 }
 
-const AGENCY_FORM_INITIAL = {
-  first_name: '',
-  last_name: '',
-  contact_email: '',
-  contact_phone: '',
-  job_title: '',
-  department: '',
-  work_location: '',
-  status: 'active' as 'active' | 'inactive' | 'pending',
-}
-
 export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = 'care_recipient', prefill }: AddNewClientModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
 
-  const [agencyFormData, setAgencyFormData] = useState(AGENCY_FORM_INITIAL)
+  // ─── Agency admin form (RHF + Zod) ───────────────────────────────────────
+  const {
+    register: agencyRegister,
+    handleSubmit: agencyHandleSubmit,
+    formState: { errors: agencyErrors },
+    reset: resetAgencyForm,
+  } = useForm<AgencyAdminFormData>({
+    resolver: zodResolver(agencyAdminFormSchema),
+    mode: 'onBlur',
+    defaultValues: {
+      first_name: '',
+      last_name: '',
+      contact_email: '',
+      contact_phone: '',
+      job_title: '',
+      department: '',
+      work_location: '',
+      status: 'active',
+    },
+  })
 
+  useEffect(() => {
+    if (!isOpen) resetAgencyForm()
+  }, [isOpen, resetAgencyForm])
+
+  const onAgencySubmit = async (data: AgencyAdminFormData) => {
+    setIsLoading(true)
+    try {
+      const result = await createAgencyAdminAccount(
+        data.first_name.trim(),
+        data.last_name.trim(),
+        data.contact_email.trim(),
+        data.contact_phone?.trim() ?? '',
+        data.job_title?.trim() || undefined,
+        data.department?.trim() || undefined,
+        data.work_location.trim(),
+        data.status
+      )
+      if (result.error) {
+        showValidationToast({ error: result.error })
+        return
+      }
+      showSuccessToast('Agency admin added successfully')
+      resetAgencyForm()
+      onSuccess?.()
+      await router.refresh()
+      onClose()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // ─── Care recipient form (existing controlled state) ─────────────────────
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -81,66 +125,25 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
-  const handleAgencyChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target
-    setAgencyFormData(prev => ({ ...prev, [name]: value }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleCareRecipientSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (mode === 'agency_admin') {
-      if (agencyFormData.contact_phone && !isValidUSPhone(agencyFormData.contact_phone)) {
-        showValidationToast({ error: PHONE_ERROR })
-        return
-      }
+    if (formData.phone_number && !isValidUSPhone(formData.phone_number)) {
+      showValidationToast({ error: `Phone number: ${PHONE_ERROR}` })
+      return
     }
-
-    if (mode === 'care_recipient') {
-      if (formData.phone_number && !isValidUSPhone(formData.phone_number)) {
-        showValidationToast({ error: `Phone number: ${PHONE_ERROR}` })
-        return
-      }
-      if (formData.emergency_phone && !isValidUSPhone(formData.emergency_phone)) {
-        showValidationToast({ error: `Emergency phone: ${PHONE_ERROR}` })
-        return
-      }
-      if (formData.email_address && !isValidEmail(formData.email_address)) {
-        showValidationToast({ error: EMAIL_ERROR })
-        return
-      }
+    if (formData.emergency_phone && !isValidUSPhone(formData.emergency_phone)) {
+      showValidationToast({ error: `Emergency phone: ${PHONE_ERROR}` })
+      return
+    }
+    if (formData.email_address && !isValidEmail(formData.email_address)) {
+      showValidationToast({ error: EMAIL_ERROR })
+      return
     }
 
     setIsLoading(true)
 
     try {
-      if (mode === 'agency_admin') {
-        const result = await createAgencyAdminAccount(
-          agencyFormData.first_name.trim(),
-          agencyFormData.last_name.trim(),
-          agencyFormData.contact_email.trim(),
-          agencyFormData.contact_phone.trim(),
-          agencyFormData.job_title.trim() || undefined,
-          agencyFormData.department.trim() || undefined,
-          agencyFormData.work_location.trim(),
-          agencyFormData.status
-        )
-
-        if (result.error) {
-          showValidationToast({ error: result.error })
-          setIsLoading(false)
-          return
-        }
-
-        showSuccessToast('Agency admin added successfully')
-        setAgencyFormData(AGENCY_FORM_INITIAL)
-        onSuccess?.()
-        await router.refresh()
-        onClose()
-        return
-      }
-
-      // care_recipient: patients
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -251,53 +254,45 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} noValidate className="p-6">
-          {mode === 'agency_admin' ? (
+        {mode === 'agency_admin' ? (
+          <form onSubmit={agencyHandleSubmit(onAgencySubmit)} noValidate className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="first_name" className="block text-sm font-semibold text-gray-700 mb-2">
                   First Name <span className="text-red-500">*</span>
                 </label>
                 <input
+                  {...agencyRegister('first_name')}
                   type="text"
                   id="first_name"
-                  name="first_name"
-                  value={agencyFormData.first_name}
-                  onChange={handleAgencyChange}
                   placeholder="Jane"
-                  required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+                {agencyErrors.first_name && <p className="mt-1 text-sm text-red-600">{agencyErrors.first_name.message}</p>}
               </div>
               <div>
                 <label htmlFor="last_name" className="block text-sm font-semibold text-gray-700 mb-2">
                   Last Name <span className="text-red-500">*</span>
                 </label>
                 <input
+                  {...agencyRegister('last_name')}
                   type="text"
                   id="last_name"
-                  name="last_name"
-                  value={agencyFormData.last_name}
-                  onChange={handleAgencyChange}
                   placeholder="Smith"
-                  required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+                {agencyErrors.last_name && <p className="mt-1 text-sm text-red-600">{agencyErrors.last_name.message}</p>}
               </div>
               <div>
                 <label htmlFor="contact_email" className="block text-sm font-semibold text-gray-700 mb-2">
                   Contact Email <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="email"
+                <EmailInput
+                  {...agencyRegister('contact_email')}
                   id="contact_email"
-                  name="contact_email"
-                  value={agencyFormData.contact_email}
-                  onChange={handleAgencyChange}
                   placeholder="contact@company.com"
-                  required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  error={agencyErrors.contact_email?.message}
                 />
               </div>
               <div>
@@ -305,11 +300,10 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                   Contact Phone
                 </label>
                 <PhoneInput
+                  {...agencyRegister('contact_phone')}
                   id="contact_phone"
-                  name="contact_phone"
-                  value={agencyFormData.contact_phone}
-                  onChange={handleAgencyChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  error={agencyErrors.contact_phone?.message}
                 />
               </div>
               <div>
@@ -317,11 +311,9 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                   Job Title
                 </label>
                 <input
+                  {...agencyRegister('job_title')}
                   type="text"
                   id="job_title"
-                  name="job_title"
-                  value={agencyFormData.job_title}
-                  onChange={handleAgencyChange}
                   placeholder="Operations Manager"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -331,11 +323,9 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                   Department
                 </label>
                 <input
+                  {...agencyRegister('department')}
                   type="text"
                   id="department"
-                  name="department"
-                  value={agencyFormData.department}
-                  onChange={handleAgencyChange}
                   placeholder="Licensing"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -345,25 +335,21 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                   Work Location <span className="text-red-500">*</span>
                 </label>
                 <input
+                  {...agencyRegister('work_location')}
                   type="text"
                   id="work_location"
-                  name="work_location"
-                  value={agencyFormData.work_location}
-                  onChange={handleAgencyChange}
                   placeholder="Austin, TX"
-                  required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+                {agencyErrors.work_location && <p className="mt-1 text-sm text-red-600">{agencyErrors.work_location.message}</p>}
               </div>
               <div>
                 <label htmlFor="agency_status" className="block text-sm font-semibold text-gray-700 mb-2">
                   Status <span className="text-red-500">*</span>
                 </label>
                 <select
+                  {...agencyRegister('status')}
                   id="agency_status"
-                  name="status"
-                  value={agencyFormData.status}
-                  onChange={handleAgencyChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="active">Active</option>
@@ -372,7 +358,26 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 </select>
               </div>
             </div>
-          ) : (
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-6 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isLoading ? 'Adding...' : <><Plus className="w-4 h-4" />Add Client</>}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleCareRecipientSubmit} noValidate className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* First Name */}
             <div>
@@ -646,7 +651,6 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
               />
             </div>
           </div>
-          )}
 
           {/* Action Buttons */}
           <div className="mt-6 flex items-center justify-end gap-3">
@@ -672,7 +676,8 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
               )}
             </button>
           </div>
-        </form>
+          </form>
+        )}
       </div>
     </div>
   )

@@ -4,24 +4,13 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
-import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
+import { clientSchema, type ClientFormData } from '@/lib/schemas/client'
 import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 
-const clientSchema = z.object({
-  company_name: z.string().min(1, 'Company name is required'),
-  contact_name: z.string().min(1, 'Contact name is required'),
-  contact_email: z.string().email('Please enter a valid email address'),
-  contact_phone: z.string().optional().refine(val => !val || US_PHONE_REGEX.test(val.trim()), PHONE_ERROR),
-  status: z.enum(['active', 'inactive', 'pending']),
-  start_date: z.string().optional(),
-})
-
-type ClientFormData = z.infer<typeof clientSchema>
 
 interface Client {
   id: string

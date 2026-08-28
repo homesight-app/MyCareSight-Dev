@@ -70,15 +70,16 @@ async function createUserForAgency(
       return { error: `Failed to create coordinator record: ${roleErr.message}` }
     }
   } else if (role === 'staff_member') {
-    const { data: agency } = await supabaseAdmin
-      .from('agencies')
-      .select('agency_admin_ids')
-      .eq('id', agencyId)
-      .single()
-    const adminIds = (agency?.agency_admin_ids as string[] | null) ?? []
+    const { data: adminRow } = await supabaseAdmin
+      .from('agency_admins')
+      .select('id')
+      .eq('agency_id', agencyId)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle()
     const { error: roleErr } = await supabaseAdmin.from('caregiver_members').insert({
       user_id: userId,
-      company_owner_id: adminIds[0] ?? null,
+      company_owner_id: adminRow?.id ?? null,
       agency_id: agencyId,
       first_name: opts.firstName,
       last_name: opts.lastName,
@@ -399,7 +400,7 @@ export async function updateAgencyAdminProfile(
   if (authErr) return { error: authErr }
 
   const supabaseAdmin = createAdminClient()
-  const { error } = await supabaseAdmin
+  const { data: admin, error } = await supabaseAdmin
     .from('agency_admins')
     .update({
       contact_name: updates.contact_name,
@@ -408,8 +409,18 @@ export async function updateAgencyAdminProfile(
     })
     .eq('id', adminId)
     .eq('agency_id', agencyId)
+    .select('user_id')
+    .single()
 
   if (error) return { error: error.message }
+
+  if (admin?.user_id) {
+    await supabaseAdmin
+      .from('user_profiles')
+      .update({ full_name: updates.contact_name, updated_at: new Date().toISOString() })
+      .eq('id', admin.user_id)
+  }
+
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
 }
@@ -520,93 +531,30 @@ export async function changePersonCredential(
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
   const supabase = createAdminClient()
-  const fullName = `${opts.firstName} ${opts.lastName}`.trim()
-  const { userProfileId, toCredential } = opts
 
-  if (toCredential === 'care_coordinator') {
-    // Deactivate any existing admin record
-    if (opts.adminRecordId) {
-      await supabase
-        .from('agency_admins')
-        .update({ status: 'inactive', updated_at: new Date().toISOString() })
-        .eq('id', opts.adminRecordId)
-        .eq('agency_id', agencyId)
+  const { data: fnError, error: rpcErr } = await supabase.rpc('change_person_credential', {
+    p_agency_id: agencyId,
+    p_user_profile_id: opts.userProfileId,
+    p_admin_record_id: opts.adminRecordId,
+    p_coordinator_record_id: opts.coordinatorRecordId,
+    p_to_credential: opts.toCredential,
+    p_first_name: opts.firstName,
+    p_last_name: opts.lastName,
+    p_email: opts.email,
+  })
 
-      // Remove from agencies.agency_admin_ids
-      const { data: agency } = await supabase.from('agencies').select('agency_admin_ids').eq('id', agencyId).single()
-      const adminIds = ((agency?.agency_admin_ids as string[] | null) ?? []).filter((id: string) => id !== userProfileId)
-      await supabase.from('agencies').update({ agency_admin_ids: adminIds, updated_at: new Date().toISOString() }).eq('id', agencyId)
-    }
-
-    // Reactivate existing coordinator record or create one
-    if (opts.coordinatorRecordId) {
-      await supabase
-        .from('care_coordinators')
-        .update({ status: 'active', updated_at: new Date().toISOString() })
-        .eq('id', opts.coordinatorRecordId)
-        .eq('agency_id', agencyId)
-    } else {
-      const { error: insErr } = await supabase.from('care_coordinators').insert({
-        user_id: userProfileId,
-        agency_id: agencyId,
-        first_name: opts.firstName,
-        last_name: opts.lastName,
-        email: opts.email,
-        status: 'active',
-      })
-      if (insErr) return { error: insErr.message }
-    }
-  } else {
-    // Deactivate existing coordinator record
-    if (opts.coordinatorRecordId) {
-      await supabase
-        .from('care_coordinators')
-        .update({ status: 'inactive', updated_at: new Date().toISOString() })
-        .eq('id', opts.coordinatorRecordId)
-        .eq('agency_id', agencyId)
-    }
-
-    // Reactivate existing admin record or create one
-    if (opts.adminRecordId) {
-      await supabase
-        .from('agency_admins')
-        .update({ status: 'active', updated_at: new Date().toISOString() })
-        .eq('id', opts.adminRecordId)
-        .eq('agency_id', agencyId)
-    } else {
-      const { error: insErr } = await supabase.from('agency_admins').insert({
-        user_id: userProfileId,
-        company_owner_id: userProfileId,
-        contact_name: fullName,
-        contact_email: opts.email,
-        status: 'active',
-        agency_id: agencyId,
-      })
-      if (insErr) return { error: insErr.message }
-    }
-
-    // Add to agencies.agency_admin_ids if not already present
-    const { data: agency } = await supabase.from('agencies').select('agency_admin_ids').eq('id', agencyId).single()
-    const adminIds = (agency?.agency_admin_ids as string[] | null) ?? []
-    if (!adminIds.includes(userProfileId)) {
-      await supabase.from('agencies').update({ agency_admin_ids: [...adminIds, userProfileId], updated_at: new Date().toISOString() }).eq('id', agencyId)
-    }
-  }
-
-  await supabase
-    .from('user_profiles')
-    .update({ role: toCredential, updated_at: new Date().toISOString() })
-    .eq('id', userProfileId)
+  if (rpcErr) return { error: rpcErr.message }
+  if (fnError) return { error: fnError as string }
 
   await supabase.from('audit_log').insert({
     agency_id: agencyId,
-    table_name: toCredential === 'company_owner' ? 'agency_admins' : 'care_coordinators',
-    record_id: userProfileId,
+    table_name: opts.toCredential === 'company_owner' ? 'agency_admins' : 'care_coordinators',
+    record_id: opts.userProfileId,
     action: 'CHANGE_CREDENTIAL',
     performed_by_user_id: session.user.id,
     details: {
-      to_credential: toCredential,
-      from_credential: toCredential === 'company_owner' ? 'care_coordinator' : 'company_owner',
+      to_credential: opts.toCredential,
+      from_credential: opts.toCredential === 'company_owner' ? 'care_coordinator' : 'company_owner',
     },
   })
 

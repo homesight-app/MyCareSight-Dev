@@ -1,7 +1,8 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
+import { getAgencyKeyStaff, getAgencyAdmins, getAgencyCareCoordinators } from '@/lib/supabase/query/agency-people'
 
 // ——— Shared types (imported by AgencyPeopleTab) ————————————————————————————
 
@@ -49,25 +50,12 @@ export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> 
   const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { keyStaff: [], admins: [], coordinators: [], error: authErr }
 
-  const supabase = createAdminClient()
+  const supabase = await createClient()
 
   const [staffRes, adminsRes, coordsRes] = await Promise.all([
-    supabase
-      .from('agency_key_staff')
-      .select('id, agency_id, officer_role, officer_roles, full_legal_name, telephone, email, ownership_percentage, user_profile_id, status')
-      .eq('agency_id', agencyId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: true }),
-    supabase
-      .from('agency_admins')
-      .select('id, user_id, contact_name, contact_email, contact_phone, status')
-      .eq('agency_id', agencyId)
-      .order('contact_name', { ascending: true }),
-    supabase
-      .from('care_coordinators')
-      .select('id, user_id, first_name, last_name, email, status')
-      .eq('agency_id', agencyId)
-      .order('first_name', { ascending: true }),
+    getAgencyKeyStaff(supabase, agencyId),
+    getAgencyAdmins(supabase, agencyId),
+    getAgencyCareCoordinators(supabase, agencyId),
   ])
 
   const err = staffRes.error || adminsRes.error || coordsRes.error

@@ -23,7 +23,7 @@ export async function rpcCreateLicensingExpert(
   return supabase.rpc('create_licensing_expert', params)
 }
 
-const LICENSING_EXPERTS_COLUMNS = 'id, user_id, first_name, last_name, email, phone, role, status, expertise, created_at, updated_at'
+const LICENSING_EXPERTS_COLUMNS = 'id, user_id, user_profile_id, first_name, last_name, email, phone, role, status, expertise, created_at, updated_at'
 const AGENCY_ADMINS_COLUMNS = 'id, user_id, agency_id, expert_id, company_owner_id, company_name, contact_name, contact_email, contact_phone, status, start_date, business_type, tax_id, primary_license_number, website, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code, created_at, updated_at'
 
 /** Get licensing_expert by id. */

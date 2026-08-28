@@ -77,11 +77,25 @@ export async function updateClientById(supabase: Supabase, adminId: string, data
 }
 
 export async function getAgencyByAdminId(supabase: Supabase, adminId: string) {
-  return supabase.from('agencies').select('id').contains('agency_admin_ids', [adminId]).maybeSingle()
+  const { data: aa, error } = await supabase
+    .from('agency_admins')
+    .select('agency_id')
+    .eq('id', adminId)
+    .eq('status', 'active')
+    .maybeSingle()
+  if (error || !aa?.agency_id) return { data: null, error }
+  return supabase.from('agencies').select('id').eq('id', aa.agency_id).maybeSingle()
 }
 
 export async function getAgencyByAdminIdFull(supabase: Supabase, adminId: string) {
-  return supabase.from('agencies').select('*').contains('agency_admin_ids', [adminId]).maybeSingle()
+  const { data: aa, error } = await supabase
+    .from('agency_admins')
+    .select('agency_id')
+    .eq('id', adminId)
+    .eq('status', 'active')
+    .maybeSingle()
+  if (error || !aa?.agency_id) return { data: null, error }
+  return supabase.from('agencies').select('*').eq('id', aa.agency_id).maybeSingle()
 }
 
 export async function updateClientAgencyId(supabase: Supabase, adminId: string, agencyId: string) {

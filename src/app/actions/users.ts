@@ -396,6 +396,7 @@ export async function createUserAccount(
         .from('licensing_experts')
         .insert({
           user_id: userId,
+          user_profile_id: userId,
           first_name: firstName,
           last_name: lastName,
           email: normalizedEmail,

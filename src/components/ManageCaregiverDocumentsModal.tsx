@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Modal from './Modal'
+import Button from '@/components/ui/PrimaryButton'
 import { CaregiverDocumentsPanel } from './CaregiverDocumentsPanel'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 
@@ -45,14 +46,9 @@ export default function ManageCaregiverDocumentsModal({
         />
 
         <div className="flex justify-end pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={documentsBusy}
-            className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <Button variant="secondary" type="button" onClick={handleClose} disabled={documentsBusy}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

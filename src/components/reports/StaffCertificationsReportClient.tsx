@@ -84,7 +84,7 @@ export default function StaffCertificationsReportClient({
         <DownloadCSVButton
           data={csvData}
           filename="staff-certifications-report"
-          className="px-4 py-2 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
+          className="px-4 py-2 bg-black text-white font-semibold rounded-lg hover:bg-brand-hover transition-colors flex items-center gap-2"
         >
           <Download className="w-4 h-4" />
           Download CSV

@@ -6,6 +6,7 @@ export const STORAGE_BUCKET = {
   STAFF_MEMBER: 'staff-member-documents',
   LEAD: 'lead-documents',
   AGENCY: 'agency-documents',
+  AGENCY_PUBLIC: 'agency-public',
 } as const
 
 /**

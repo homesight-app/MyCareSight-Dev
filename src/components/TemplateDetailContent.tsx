@@ -243,7 +243,7 @@ export default function TemplateDetailContent({
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50"
             >
               {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Template'}
             </button>

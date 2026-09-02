@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import Modal from './Modal'
 import { Globe, MapPin } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { US_STATES } from '@/lib/constants'
 
 const stateSchema = z.object({
@@ -143,21 +144,23 @@ export default function NewLicenseApplicationModal({
                     </svg>
                   </div>
                 </div>
-                <button
+                <Button
+                  variant="primary"
+                  type="button"
                   onClick={handleStatePrograms}
                   disabled={!programStateVal}
-                  className="w-full px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full"
                 >
                   Continue
-                </button>
+                </Button>
               </div>
             </div>
           </div>
 
           <div className="pt-2 border-t border-gray-100 flex justify-start">
-            <button onClick={handleClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+            <Button variant="secondary" type="button" onClick={handleClose}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
@@ -218,21 +221,12 @@ export default function NewLicenseApplicationModal({
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={handleClose}
-              disabled={isLoading}
-              className="px-6 py-2.5 text-gray-700 font-medium rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            <Button variant="secondary" type="button" onClick={handleClose} disabled={isLoading}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? 'Loading...' : 'Continue'}
-            </button>
+            </Button>
+            <Button variant="primary" type="submit" disabled={isLoading} loading={isLoading}>
+              Continue
+            </Button>
           </div>
         </form>
       </div>

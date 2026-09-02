@@ -16,6 +16,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { useState } from 'react'
+import Button from '@/components/ui/PrimaryButton'
 
 interface License {
   id: string
@@ -226,14 +227,15 @@ export default function StaffLicenseDetailContent({
               </span>
             </div>
           </div>
-          <button
+          <Button
+            variant="primary"
             onClick={handleUploadDocument}
             disabled={isUploading}
-            className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            loading={isUploading}
+            icon={isUploading ? undefined : Upload}
           >
-            <Upload className="w-4 h-4" />
             {isUploading ? 'Uploading...' : 'Upload Document'}
-          </button>
+          </Button>
         </div>
 
         {/* License Information */}
@@ -358,14 +360,16 @@ export default function StaffLicenseDetailContent({
             <div className="text-center py-8">
               <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-sm text-gray-500 mb-4">No documents uploaded yet</p>
-              <button
+              <Button
+                variant="primary"
                 onClick={handleUploadDocument}
                 disabled={isUploading}
-                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                loading={isUploading}
+                icon={isUploading ? undefined : Upload}
+                className="mx-auto"
               >
-                <Upload className="w-4 h-4" />
                 {isUploading ? 'Uploading...' : 'Upload First Document'}
-              </button>
+              </Button>
             </div>
           )}
         </div>

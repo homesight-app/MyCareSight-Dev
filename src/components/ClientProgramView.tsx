@@ -7,6 +7,8 @@ import {
   ChevronRight, ChevronDown, CalendarDays,
   Download, Send, Info, MessageSquare, FolderOpen,
 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import UploadDocumentModal from './UploadDocumentModal'
@@ -455,29 +457,13 @@ export default function ClientProgramView({
       </div>
 
       {/* ── Tab navigation — matches ApplicationDetailContent tabNavigation ── */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 -mt-2">
-        <div className="border-b border-gray-200">
-          <nav className="flex space-x-4 px-6 overflow-x-auto" aria-label="Tabs">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-                {tab.badge && tab.badge > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-xs font-semibold leading-none">
-                    {tab.badge > 99 ? '99+' : tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 -mt-2 px-6">
+        <Tabs
+          variant="underline"
+          active={activeTab}
+          onChange={(k) => setActiveTab(k as Tab)}
+          items={tabs.map(t => ({ key: t.id, label: t.label, count: t.badge }))}
+        />
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════════════
@@ -521,22 +507,16 @@ export default function ClientProgramView({
 
           {/* Filter bar — identical to ApplicationRequirementsTab */}
           <div className="flex flex-wrap items-center gap-3 mb-3">
-            <div className="flex border border-gray-200 rounded-lg overflow-hidden text-sm">
-              {(['all', 'required', 'optional'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setFilterType(t)}
-                  className={`px-3 py-1.5 capitalize transition-colors ${
-                    filterType === t ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {t === 'all'
-                    ? `All (${clientStepItems.length})`
-                    : `${t.charAt(0).toUpperCase() + t.slice(1)} (${clientStepItems.filter(i => i.requirement_type === t).length})`
-                  }
-                </button>
-              ))}
-            </div>
+            <Tabs
+              variant="pill"
+              active={filterType}
+              onChange={(k) => setFilterType(k as typeof filterType)}
+              items={[
+                { key: 'all', label: `All (${clientStepItems.length})` },
+                { key: 'required', label: `Required (${clientStepItems.filter(i => i.requirement_type === 'required').length})` },
+                { key: 'optional', label: `Optional (${clientStepItems.filter(i => i.requirement_type === 'optional').length})` },
+              ]}
+            />
           </div>
 
           {/* Step items table */}
@@ -644,17 +624,19 @@ export default function ClientProgramView({
                               </div>
                             ) : canSubmit && (
                               <div className="space-y-1">
-                                <button
+                                <Button
+                                  variant="primary"
+                                  type="button"
+                                  size="sm"
                                   onClick={() => handleSubmit(item)}
                                   disabled={
                                     submittingId === item.id ||
                                     (isDocument && docs.length === 0 && loadingDocsFor !== item.id)
                                   }
-                                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                  loading={submittingId === item.id}
                                 >
-                                  {submittingId === item.id && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                                   {item.status === 'review_needed' ? 'Resubmit for Review' : 'Submit for Review'}
-                                </button>
+                                </Button>
                                 {isDocument && docs.length === 0 && loadingDocsFor !== item.id && (
                                   <p className="text-xs text-gray-400">Upload a document above before submitting.</p>
                                 )}
@@ -745,7 +727,7 @@ export default function ClientProgramView({
                                     submittingId === item.id ||
                                     (isDocument && docs.length === 0 && loadingDocsFor !== item.id)
                                   }
-                                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                 >
                                   {submittingId === item.id && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                                   {item.status === 'review_needed' ? 'Resubmit for Review' : 'Submit for Review'}
@@ -857,19 +839,19 @@ export default function ClientProgramView({
                   )}
                   <p className="text-sm text-gray-500 mt-1">{tpl.file_name}</p>
                 </div>
-                <button
+                <Button
+                  variant="primary"
                   type="button"
+                  icon={Download}
                   onClick={async () => {
                     if (tpl.file_url.startsWith('http')) { window.open(tpl.file_url, '_blank'); return }
                     const s = createClient()
                     const { data } = await s.storage.from('license-templates').createSignedUrl(tpl.file_url, 3600)
                     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
                   }}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors flex-shrink-0"
                 >
-                  <Download className="w-4 h-4" />
                   Download
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -911,7 +893,7 @@ export default function ClientProgramView({
                         </span>
                         <span className="text-xs text-gray-500">{formatMessageTime(msg.created_at)}</span>
                       </div>
-                      <div className={`rounded-lg p-3 ${msg.is_own ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200'}`}>
+                      <div className={`rounded-lg p-3 ${msg.is_own ? 'bg-brand text-white' : 'bg-white border border-gray-200'}`}>
                         <p className={`text-sm whitespace-pre-wrap ${msg.is_own ? 'text-white' : 'text-gray-900'}`}>
                           {msg.content}
                         </p>
@@ -936,16 +918,13 @@ export default function ClientProgramView({
               rows={2}
               className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
             />
-            <button
+            <Button
+              variant="primary"
               onClick={handleSendMessage}
               disabled={!messageContent.trim() || isSendingMessage || !conversationId}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              {isSendingMessage
-                ? <Loader2 className="w-5 h-5 animate-spin" />
-                : <Send className="w-5 h-5" />
-              }
-            </button>
+              loading={isSendingMessage}
+              icon={isSendingMessage ? undefined : Send}
+            />
           </div>
           <p className="text-xs text-gray-500 mt-2">Press Enter to send, Shift+Enter for new line</p>
         </div>

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { ChevronDown, ChevronRight, Plus, Pencil, Trash2, Check, X, Loader2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import {
   createConfigurationValue,
   updateConfigurationValue,
@@ -337,22 +338,22 @@ export default function ConfigurableListSection({ typeCode, initialValues }: Pro
           />
           {addError && <p className="text-xs text-red-600">{addError}</p>}
           <div className="flex gap-2">
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={handleAdd}
               disabled={isPending}
-              className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+              loading={isPending}
             >
-              {isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
               Add Category
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => { setShowAdd(false); setNewName(''); setNewDesc(''); setAddError(null) }}
-              className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : (

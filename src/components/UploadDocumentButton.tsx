@@ -2,7 +2,8 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, CheckCircle2 } from 'lucide-react'
+import { Upload, CheckCircle2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { uploadApplicationDocumentsAction } from '@/app/actions/application-documents'
 
 interface UploadDocumentButtonProps {
@@ -79,28 +80,17 @@ export default function UploadDocumentButton({
         accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
         disabled={isUploading}
       />
-      <button
+      <Button
+        variant="primary"
+        type="button"
         onClick={handleClick}
         disabled={isUploading}
-        className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
+        loading={isUploading}
+        icon={uploadStatus === 'success' ? CheckCircle2 : Upload}
+        className={className}
       >
-        {isUploading ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Uploading...
-          </>
-        ) : uploadStatus === 'success' ? (
-          <>
-            <CheckCircle2 className="w-4 h-4" />
-            Uploaded!
-          </>
-        ) : (
-          <>
-            <Upload className="w-4 h-4" />
-            Upload
-          </>
-        )}
-      </button>
+        {isUploading ? 'Uploading...' : uploadStatus === 'success' ? 'Uploaded!' : 'Upload'}
+      </Button>
       {uploadStatus === 'error' && errorMessage && (
         <div className="absolute top-full left-0 mt-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs max-w-xs z-10 shadow-lg">
           {errorMessage}

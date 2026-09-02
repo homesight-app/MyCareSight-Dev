@@ -3,12 +3,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { 
-  FileText, 
-  Calendar, 
-  CheckCircle2, 
-  AlertCircle, 
+  FileText,
+  Calendar,
+  CheckCircle2,
+  AlertCircle,
   XCircle,
-  Search,
   ArrowRight,
   Upload,
   Clock,
@@ -26,6 +25,10 @@ import SelectLicenseTypeModal from './SelectLicenseTypeModal'
 import ReviewLicenseRequestModal from './ReviewLicenseRequestModal'
 import ReviewPlaybookRequestModal from './ReviewPlaybookRequestModal'
 import CreateLicenseModal from './CreateLicenseModal'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
+import StatusBadge from '@/components/ui/StatusBadge'
+import SearchInput from '@/components/ui/SearchInput'
 import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createClient } from '@/lib/supabase/client'
@@ -89,7 +92,8 @@ export default function LicensesContent({
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set())
   const [downloadingApplicationId, setDownloadingApplicationId] = useState<string | null>(null)
   const [downloadingLicenseId, setDownloadingLicenseId] = useState<string | null>(null)
-  
+  const [searchQuery, setSearchQuery] = useState('')
+
   // Filter states for each tab
   const [requestFilter, setRequestFilter] = useState<'pending' | 'cancelled' | 'all'>('pending')
   const [applicationFilter, setApplicationFilter] = useState<'active' | 'approved' | 'denied' | 'all'>('active')
@@ -448,84 +452,33 @@ export default function LicensesContent({
             </p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => setIsCreateLicenseModalOpen(true)}
-              className="px-4 sm:px-5 py-2.5 sm:py-3 bg-white border border-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-all flex items-center justify-center gap-2 shadow-sm text-sm sm:text-base"
-            >
-              <FileCheck className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="whitespace-nowrap">Create License Record</span>
-            </button>
-            <button
-              onClick={() => setIsStateModalOpen(true)}
-              className="px-4 sm:px-6 py-2.5 sm:py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all flex items-center justify-center gap-2 shadow-lg text-sm sm:text-base"
-            >
-              <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="whitespace-nowrap">New Application Request</span>
-            </button>
+            <Button variant="secondary" type="button" icon={FileCheck} onClick={() => setIsCreateLicenseModalOpen(true)}>
+              Create License Record
+            </Button>
+            <Button variant="primary" type="button" icon={Plus} onClick={() => setIsStateModalOpen(true)}>
+              New Application Request
+            </Button>
           </div>
         </div>
 
         {/* Search Bar */}
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder={activeTab === 'applications' ? 'Search by state...' : 'Search by state...'}
-            className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
-          />
-        </div>
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search by state..."
+        />
 
         {/* Tabs */}
-        <div className="flex gap-4 border-b border-gray-200 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('requested')}
-            className={`flex items-center gap-2 px-4 py-3 font-semibold transition-colors border-b-2 whitespace-nowrap ${
-              activeTab === 'requested'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <FileText className="w-5 h-5" />
-            Requested
-            {requestedCount > 0 && (
-              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-                {requestedCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('applications')}
-            className={`flex items-center gap-2 px-4 py-3 font-semibold transition-colors border-b-2 whitespace-nowrap ${
-              activeTab === 'applications'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Clock className="w-5 h-5" />
-            Applications
-            {(inProgressCount + underReviewCount + needsRevisionCount) > 0 && (
-              <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-                {inProgressCount + underReviewCount + needsRevisionCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('licenses')}
-            className={`flex items-center gap-2 px-4 py-3 font-semibold transition-colors border-b-2 whitespace-nowrap ${
-              activeTab === 'licenses'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <CheckCircle2 className="w-5 h-5" />
-            Current Licenses
-            {totalDisplayedLicenses > 0 && (
-              <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-                {totalDisplayedLicenses}
-              </span>
-            )}
-          </button>
-        </div>
+        <Tabs
+          variant="underline"
+          items={[
+            { key: 'requested',    label: 'Requested',        count: requestedCount > 0 ? requestedCount : undefined },
+            { key: 'applications', label: 'Applications',     count: (inProgressCount + underReviewCount + needsRevisionCount) > 0 ? (inProgressCount + underReviewCount + needsRevisionCount) : undefined },
+            { key: 'licenses',     label: 'Current Licenses', count: totalDisplayedLicenses > 0 ? totalDisplayedLicenses : undefined },
+          ]}
+          active={activeTab}
+          onChange={(key) => setActiveTab(key as 'requested' | 'applications' | 'licenses')}
+        />
 
         {/* Summary Cards */}
         {activeTab === 'requested' ? (
@@ -623,9 +576,7 @@ export default function LicensesContent({
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <h3 className="font-semibold text-gray-900">{application.application_name}</h3>
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(application.status)}`}>
-                              {getStatusDisplay(application.status)}
-                            </span>
+                            <StatusBadge status={application.status} label={getStatusDisplay(application.status)} size="sm" />
                           </div>
                           <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-3">
                             <span>Submitted {formatDate(application.created_at ?? application.submitted_date ?? null)}</span>
@@ -642,28 +593,20 @@ export default function LicensesContent({
                             <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-semibold">
                               Pending Review
                             </span>
-                            <button
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              type="button"
+                              icon={X}
                               onClick={() => handleCancelRequest(application.id)}
                               disabled={cancellingId === application.id}
-                              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                              loading={cancellingId === application.id}
                             >
-                              {cancellingId === application.id ? (
-                                <>
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                  Cancelling...
-                                </>
-                              ) : (
-                                <>
-                                  <X className="w-3 h-3" />
-                                  Cancel
-                                </>
-                              )}
-                            </button>
+                              Cancel
+                            </Button>
                           </>
                         ) : (
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(application.status)}`}>
-                            {getStatusDisplay(application.status)}
-                          </span>
+                          <StatusBadge status={application.status} label={getStatusDisplay(application.status)} size="sm" />
                         )}
                       </div>
                     </div>
@@ -730,9 +673,7 @@ export default function LicensesContent({
                             <div className="text-sm font-semibold text-gray-900">{application.application_name}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(application.status)}`}>
-                              {getStatusDisplay(application.status)}
-                            </span>
+                            <StatusBadge status={application.status} label={getStatusDisplay(application.status)} size="sm" />
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="w-32">
@@ -802,23 +743,17 @@ export default function LicensesContent({
                                 )}
                               </button>
                               {application.status === 'needs_revision' && (
-                                <button
+                                <Button
+                                  variant="primary"
+                                  type="button"
+                                  size="sm"
+                                  icon={RefreshCw}
                                   onClick={() => handleResubmit(application.id)}
                                   disabled={resubmittingId === application.id}
-                                  className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                  loading={resubmittingId === application.id}
                                 >
-                                  {resubmittingId === application.id ? (
-                                    <>
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                      Resubmitting...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <RefreshCw className="w-3 h-3" />
-                                      Resubmit
-                                    </>
-                                  )}
-                                </button>
+                                  Resubmit
+                                </Button>
                               )}
                             </div>
                           </td>
@@ -844,13 +779,9 @@ export default function LicensesContent({
                     : "You don't have any applications yet"}
                 </p>
                 {applicationFilter === 'active' && (
-                  <button
-                    onClick={() => setIsStateModalOpen(true)}
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all"
-                  >
-                    <Plus className="w-5 h-5" />
+                  <Button variant="primary" type="button" icon={Plus} onClick={() => setIsStateModalOpen(true)}>
                     New Application Request
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
@@ -925,19 +856,10 @@ export default function LicensesContent({
                               <div className="text-sm font-semibold text-gray-900">{license.license_name}</div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              {isExpired ? (
-                                <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold">
-                                  Expired
-                                </span>
-                              ) : isExpiringSoon ? (
-                                <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-semibold">
-                                  Expiring Soon
-                                </span>
-                              ) : (
-                                <span className="px-3 py-1 bg-black text-white rounded-full text-xs font-semibold">
-                                  Active
-                                </span>
-                              )}
+                              <StatusBadge
+                                status={isExpired ? 'expired' : isExpiringSoon ? 'expiring_soon' : 'active'}
+                                size="sm"
+                              />
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                               {license.activated_date ? (
@@ -998,10 +920,9 @@ export default function LicensesContent({
                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                               {isExpiringSoon && !isExpired ? (
                                 <div className="flex items-center gap-3 justify-end">
-                                  <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm font-medium">
-                                    <Upload className="w-4 h-4" />
+                                  <Button variant="primary" type="button" size="sm" icon={Upload}>
                                     Upload
-                                  </button>
+                                  </Button>
                                   <button
                                     onClick={() => handleViewLicenseDetails(license.id)}
                                     disabled={loadingLicenseId === license.id}
@@ -1062,13 +983,9 @@ export default function LicensesContent({
                     : "You don't have any licenses yet"}
                 </p>
                 {licenseFilter === 'active' && (
-                  <button
-                    onClick={() => setIsStateModalOpen(true)}
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all"
-                  >
-                    <FileText className="w-5 h-5" />
+                  <Button variant="primary" type="button" icon={Plus} onClick={() => setIsStateModalOpen(true)}>
                     New Application Request
-                  </button>
+                  </Button>
                 )}
               </div>
             )}

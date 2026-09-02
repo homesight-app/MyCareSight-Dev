@@ -13,6 +13,8 @@ import {
   Calendar,
   ChevronRight
 } from 'lucide-react'
+import PageHeader from '@/components/ui/PageHeader'
+import StatusBadge from '@/components/ui/StatusBadge'
 
 export default async function StaffDashboardPage() {
   const session = await getSession()
@@ -196,11 +198,10 @@ export default async function StaffDashboardPage() {
 
   return (
     <div className="space-y-5 mt-20">
-        {/* Title and Subtitle — match My Care Visits typography */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">My License Dashboard</h1>
-          <p className="text-sm text-gray-600">Track and manage your professional licenses and certifications.</p>
-        </div>
+        <PageHeader
+          title="My License Dashboard"
+          subtitle="Track and manage your professional licenses and certifications."
+        />
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -274,7 +275,7 @@ export default async function StaffDashboardPage() {
             <h2 className="text-lg font-bold text-gray-900">All Licenses & Certifications</h2>
             <Link
               href="/pages/caregiver/my-certifications?action=add"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition-colors text-sm"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand text-white font-semibold rounded-lg hover:bg-brand-hover transition-colors duration-150 text-sm"
             >
               <Plus className="w-4 h-4" />
               Add License
@@ -325,15 +326,7 @@ export default async function StaffDashboardPage() {
 
                         {/* STATUS */}
                         <td className="px-4 py-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-black text-white">
-                            {status === 'active'
-                              ? 'Active'
-                              : status === 'expiring'
-                                ? 'Expiring Soon'
-                                : status === 'pending'
-                                  ? 'Pending'
-                                  : 'Expired'}
-                          </span>
+                          <StatusBadge status={status === 'expiring' ? 'expiring_soon' : status} />
                         </td>
 
                         {/* ACTIVATED DATE */}
@@ -382,7 +375,7 @@ export default async function StaffDashboardPage() {
                           
                           <Link
                             href={`/pages/caregiver/my-certifications/${license.id}`}
-                            className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                            className="px-4 py-2 bg-brand text-white font-semibold rounded-lg hover:bg-brand-hover transition-colors duration-150 text-sm whitespace-nowrap"
                           >
                             Renew
                           </Link>
@@ -400,7 +393,7 @@ export default async function StaffDashboardPage() {
               <p className="text-sm text-gray-600 mb-4">Get started by adding your first license or certification</p>
               <Link
                 href="/pages/caregiver/my-certifications?action=add"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand text-white text-sm font-semibold rounded-lg hover:bg-brand-hover transition-colors duration-150"
               >
                 <Plus className="w-4 h-4" />
                 Add License

@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { CheckCircle2, Clock, DollarSign, Calendar, Loader2, Plus, Save, X, FileText, UserCog, Edit2, Trash2, GripVertical, Users2, Copy, Search, ChevronDown, Upload } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { 
@@ -1290,71 +1292,20 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
   return (
     <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 md:p-6">
       
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex space-x-4" aria-label="Tabs">
-          <button
-            onClick={() => setActiveTab('general')}
-            className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'general'
-                ? 'border-blue-600 text-blue-600 bg-gray-50'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            General Info
-          </button>
-          <button
-            onClick={() => setActiveTab('steps')}
-            className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'steps'
-                ? 'border-blue-600 text-blue-600 bg-gray-50'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Steps {stepsCount > 0 && `(${stepsCount})`}
-          </button>
-          <button
-            onClick={() => setActiveTab('documents')}
-            className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'documents'
-                ? 'border-blue-600 text-blue-600 bg-gray-50'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Documents {documentsCount > 0 && `(${documentsCount})`}
-          </button>
-          <button
-            onClick={() => setActiveTab('templates')}
-            className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'templates'
-                ? 'border-blue-600 text-blue-600 bg-gray-50'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Templates {templatesCount > 0 && `(${templatesCount})`}
-          </button>
-          <button
-            onClick={() => setActiveTab('expert')}
-            className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
-              activeTab === 'expert'
-                ? 'border-blue-600 text-blue-600 bg-gray-50'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <Users2 className="w-4 h-4" />
-            Expert Process
-          </button>
-          <button
-            onClick={() => setActiveTab('playbook')}
-            className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
-              activeTab === 'playbook'
-                ? 'border-blue-600 text-blue-600 bg-gray-50'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            Playbook {playbookItems.length > 0 && `(${playbookItems.length})`}
-          </button>
-        </nav>
+      <div className="mb-6">
+        <Tabs
+          variant="underline"
+          items={[
+            { key: 'general',    label: 'General Info' },
+            { key: 'steps',      label: 'Steps',         count: stepsCount > 0 ? stepsCount : undefined },
+            { key: 'documents',  label: 'Documents',     count: documentsCount > 0 ? documentsCount : undefined },
+            { key: 'templates',  label: 'Templates',     count: templatesCount > 0 ? templatesCount : undefined },
+            { key: 'expert',     label: 'Expert Process' },
+            { key: 'playbook',   label: 'Playbook',      count: playbookItems.length > 0 ? playbookItems.length : undefined },
+          ]}
+          active={activeTab}
+          onChange={(key) => setActiveTab(key as TabType)}
+        />
       </div>
 
       {/* Error Message */}
@@ -1515,13 +1466,9 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
           <div>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Licensing Steps</h3>
-              <button
-                onClick={openAddStepModal}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
+              <Button variant="primary" type="button" icon={Plus} onClick={openAddStepModal}>
                 Add Step
-              </button>
+              </Button>
             </div>
 
             {/* Add Step modal with 3 tabs: New, Copy from Another License, Browse All Steps */}
@@ -1642,21 +1589,12 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                         </label>
                       </div>
                       <div className="flex gap-3 pt-2">
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                        >
-                          <Save className="w-4 h-4" />
+                        <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting} icon={Save}>
                           Save Step
-                        </button>
-                        <button
-                          type="button"
-                          onClick={closeAddStepModal}
-                          className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                        >
+                        </Button>
+                        <Button variant="secondary" type="button" onClick={closeAddStepModal}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </form>
                   </div>
@@ -1721,21 +1659,12 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                       </div>
                     )}
                     <div className="flex gap-3 pt-2 border-t border-gray-200">
-                      <button
-                        onClick={handleCopySteps}
-                        disabled={isSubmitting || selectedStepIds.size === 0 || isLoadingCopyData}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Copy className="w-4 h-4" />
+                      <Button variant="primary" type="button" icon={Copy} onClick={handleCopySteps} disabled={isSubmitting || selectedStepIds.size === 0 || isLoadingCopyData} loading={isSubmitting}>
                         Copy {selectedStepIds.size} {selectedStepIds.size === 1 ? 'Step' : 'Steps'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={closeAddStepModal}
-                        className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
+                      </Button>
+                      <Button variant="secondary" type="button" onClick={closeAddStepModal}>
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -1808,21 +1737,12 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                       )}
                     </div>
                     <div className="flex gap-3 pt-2 border-t border-gray-200">
-                      <button
-                        onClick={handleAddBrowseSteps}
-                        disabled={isSubmitting || selectedBrowseStepIds.size === 0 || isLoadingBrowseSteps}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Copy className="w-4 h-4" />
+                      <Button variant="primary" type="button" icon={Copy} onClick={handleAddBrowseSteps} disabled={isSubmitting || selectedBrowseStepIds.size === 0 || isLoadingBrowseSteps} loading={isSubmitting}>
                         Copy {selectedBrowseStepIds.size} {selectedBrowseStepIds.size === 1 ? 'Step' : 'Steps'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={closeAddStepModal}
-                        className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
+                      </Button>
+                      <Button variant="secondary" type="button" onClick={closeAddStepModal}>
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -1886,25 +1806,20 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                     </label>
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                    >
-                      <Save className="w-4 h-4" />
+                    <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting} icon={Save}>
                       Save Step
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="secondary"
                       type="button"
                       onClick={() => {
                         setEditingStep(null)
                         setStepFormData({ stepName: '', description: '', instructions: '', estimatedDays: '', isRequired: true })
                         setError(null)
                       }}
-                      className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </form>
               </Modal>
@@ -1994,13 +1909,9 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
           <div>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Required Documents</h3>
-              <button
-                onClick={openAddDocumentModal}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
+              <Button variant="primary" type="button" icon={Plus} onClick={openAddDocumentModal}>
                 Add Document
-              </button>
+              </Button>
             </div>
 
             {/* Add Document modal with 3 tabs */}
@@ -2095,21 +2006,12 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                         </label>
                       </div>
                       <div className="flex gap-3 pt-2">
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                        >
-                          <FileText className="w-4 h-4" />
+                        <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting} icon={FileText}>
                           Save Document
-                        </button>
-                        <button
-                          type="button"
-                          onClick={closeAddDocumentModal}
-                          className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                        >
+                        </Button>
+                        <Button variant="secondary" type="button" onClick={closeAddDocumentModal}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </form>
                   </div>
@@ -2177,21 +2079,19 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                       </div>
                     )}
                     <div className="flex gap-3 pt-2 border-t border-gray-200">
-                      <button
+                      <Button
+                        variant="primary"
+                        type="button"
+                        icon={Copy}
                         onClick={handleCopyDocuments}
                         disabled={isSubmitting || selectedDocumentIds.size === 0 || isLoadingCopyData}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        loading={isSubmitting}
                       >
-                        <Copy className="w-4 h-4" />
                         Copy {selectedDocumentIds.size} {selectedDocumentIds.size === 1 ? 'Document' : 'Documents'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={closeAddDocumentModal}
-                        className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
+                      </Button>
+                      <Button variant="secondary" type="button" onClick={closeAddDocumentModal}>
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -2264,21 +2164,19 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                       )}
                     </div>
                     <div className="flex gap-3 pt-2 border-t border-gray-200">
-                      <button
+                      <Button
+                        variant="primary"
+                        type="button"
+                        icon={Copy}
                         onClick={handleAddBrowseDocuments}
                         disabled={isSubmitting || selectedBrowseDocumentIds.size === 0 || isLoadingBrowseDocuments}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        loading={isSubmitting}
                       >
-                        <Copy className="w-4 h-4" />
                         Copy {selectedBrowseDocumentIds.size} {selectedBrowseDocumentIds.size === 1 ? 'Document' : 'Documents'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={closeAddDocumentModal}
-                        className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
+                      </Button>
+                      <Button variant="secondary" type="button" onClick={closeAddDocumentModal}>
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -2332,25 +2230,20 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                     </label>
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                    >
-                      <FileText className="w-4 h-4" />
+                    <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting} icon={FileText}>
                       Save Document
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="secondary"
                       type="button"
                       onClick={() => {
                         setEditingDocument(null)
                         setDocumentFormData({ documentName: '', description: '', isRequired: true })
                         setError(null)
                       }}
-                      className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </form>
               </Modal>
@@ -2420,18 +2313,19 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                 <h3 className="text-lg font-semibold text-gray-900">Document Templates</h3>
                 <p className="text-sm text-gray-600 mt-1">Upload sample documents and templates that Agency Admins can download when their application is approved.</p>
               </div>
-              <button
+              <Button
+                variant="primary"
+                type="button"
+                icon={Upload}
                 onClick={() => {
                   setShowUploadTemplateModal(true)
                   setTemplateFormData({ templateName: '', description: '', category: '' })
                   setTemplateFile(null)
                   setError(null)
                 }}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
               >
-                <Upload className="w-4 h-4" />
                 Upload Template
-              </button>
+              </Button>
             </div>
 
             {showUploadTemplateModal && (
@@ -2484,15 +2378,11 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                     <p className="text-xs text-gray-500 mt-1">Accepted formats: PDF, DOC, DOCX, XLS, XLSX.</p>
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <button
-                      type="submit"
-                      disabled={isSubmitting || !templateFile}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Upload className="w-4 h-4" />
+                    <Button variant="primary" type="submit" disabled={isSubmitting || !templateFile} loading={isSubmitting} icon={Upload}>
                       Upload
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="secondary"
                       type="button"
                       onClick={() => {
                         setShowUploadTemplateModal(false)
@@ -2500,10 +2390,9 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                         setTemplateFile(null)
                         setError(null)
                       }}
-                      className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </form>
               </Modal>
@@ -2543,24 +2432,20 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                     />
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                    >
+                    <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting} icon={Save}>
                       Save
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="secondary"
                       type="button"
                       onClick={() => {
                         setEditingTemplate(null)
                         setTemplateEditData({ templateName: '', description: '' })
                         setError(null)
                       }}
-                      className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </form>
               </Modal>
@@ -2634,13 +2519,9 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
           <div>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Expert Process Steps</h3>
-              <button
-                onClick={openAddExpertStepModal}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
+              <Button variant="primary" type="button" icon={Plus} onClick={openAddExpertStepModal}>
                 Add Step
-              </button>
+              </Button>
             </div>
 
             {/* Add Expert Step modal with 3 tabs */}
@@ -2736,21 +2617,12 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                         />
                       </div>
                       <div className="flex gap-3 pt-2">
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                        >
-                          <Save className="w-4 h-4" />
+                        <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting} icon={Save}>
                           Save Step
-                        </button>
-                        <button
-                          type="button"
-                          onClick={closeAddExpertStepModal}
-                          className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                        >
+                        </Button>
+                        <Button variant="secondary" type="button" onClick={closeAddExpertStepModal}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </form>
                   </div>
@@ -2820,21 +2692,19 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                       </div>
                     )}
                     <div className="flex gap-3 pt-2 border-t border-gray-200">
-                      <button
+                      <Button
+                        variant="primary"
+                        type="button"
+                        icon={Copy}
                         onClick={handleCopyExpertSteps}
                         disabled={isSubmitting || selectedExpertStepIds.size === 0 || isLoadingCopyData}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        loading={isSubmitting}
                       >
-                        <Copy className="w-4 h-4" />
                         Copy {selectedExpertStepIds.size} {selectedExpertStepIds.size === 1 ? 'Step' : 'Steps'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={closeAddExpertStepModal}
-                        className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
+                      </Button>
+                      <Button variant="secondary" type="button" onClick={closeAddExpertStepModal}>
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -2907,21 +2777,19 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                       )}
                     </div>
                     <div className="flex gap-3 pt-2 border-t border-gray-200">
-                      <button
+                      <Button
+                        variant="primary"
+                        type="button"
+                        icon={Copy}
                         onClick={handleAddBrowseExpertSteps}
                         disabled={isSubmitting || selectedBrowseExpertStepIds.size === 0 || isLoadingBrowseExpertSteps}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        loading={isSubmitting}
                       >
-                        <Copy className="w-4 h-4" />
                         Copy {selectedBrowseExpertStepIds.size} {selectedBrowseExpertStepIds.size === 1 ? 'Step' : 'Steps'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={closeAddExpertStepModal}
-                        className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
+                      </Button>
+                      <Button variant="secondary" type="button" onClick={closeAddExpertStepModal}>
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -2976,25 +2844,20 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                     />
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                    >
-                      <Save className="w-4 h-4" />
+                    <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting} icon={Save}>
                       Save Step
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="secondary"
                       type="button"
                       onClick={() => {
                         setEditingExpertStep(null)
                         setExpertFormData({ phase: DEFAULT_EXPERT_STEP_PHASE, stepTitle: '', description: '' })
                         setError(null)
                       }}
-                      className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </form>
               </Modal>

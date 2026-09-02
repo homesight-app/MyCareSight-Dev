@@ -17,6 +17,8 @@ interface StaffLayoutProps {
     full_name?: string | null
     role?: string | null
   } | null
+  logoSrc?: string
+  logoIconSrc?: string
 }
 
 const MENU_ITEMS = [
@@ -30,6 +32,8 @@ export default function StaffLayout({
   children,
   user,
   profile,
+  logoSrc,
+  logoIconSrc,
 }: StaffLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -64,6 +68,8 @@ export default function StaffLayout({
           onCollapse={setCollapsed}
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
+          logoSrc={logoSrc}
+          logoIconSrc={logoIconSrc}
         />
 
         <main

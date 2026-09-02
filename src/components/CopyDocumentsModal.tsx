@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { X, Copy, Loader2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { getAllLicenseRequirements, getDocumentsFromRequirement, copyDocuments } from '@/app/actions/license-requirements'
 import { useRouter } from 'next/navigation'
 interface Document {
@@ -221,30 +222,19 @@ export default function CopyDocumentsModal({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            disabled={isCopying}
-          >
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isCopying}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            type="button"
             onClick={handleCopy}
             disabled={isCopying || selectedDocumentIds.size === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            loading={isCopying}
+            icon={Copy}
           >
-            {isCopying ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Copying...
-              </>
-            ) : (
-              <>
-                <Copy className="w-4 h-4" />
-                Copy {selectedDocumentIds.size} {selectedDocumentIds.size === 1 ? 'Document' : 'Documents'}
-              </>
-            )}
-          </button>
+            Copy {selectedDocumentIds.size} {selectedDocumentIds.size === 1 ? 'Document' : 'Documents'}
+          </Button>
         </div>
       </div>
     </div>

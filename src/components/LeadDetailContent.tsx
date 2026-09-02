@@ -3,6 +3,9 @@
 import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, CheckSquare, Square, Trash2, ExternalLink, Pencil, Plus, ChevronDown } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
+import Badge, { type BadgeColor } from '@/components/ui/Badge'
 import AddLeadModal from './AddLeadModal'
 import EditPatientLeadDetailsModal from './EditPatientLeadDetailsModal'
 import LeadSignedModal from './LeadSignedModal'
@@ -134,11 +137,11 @@ function isDueToday(task: LeadTask) {
   return parseDate(task.due_date).toDateString() === new Date().toDateString()
 }
 
-const noteTypeColorMap: Record<string, string> = {
-  call:    'bg-blue-100 text-blue-700',
-  email:   'bg-indigo-100 text-indigo-700',
-  meeting: 'bg-blue-100 text-blue-700',
-  general: 'bg-gray-100 text-gray-600',
+const NOTE_TYPE_COLOR: Record<string, BadgeColor> = {
+  call:    'blue',
+  email:   'purple',
+  meeting: 'teal',
+  general: 'gray',
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -316,33 +319,17 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200">
-          <nav className="flex gap-1">
-            {(['overview', 'notes', 'tasks', 'documents'] as const).map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors capitalize ${
-                  tab === t
-                    ? 'border-blue-600 text-blue-700'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {t}
-                {t === 'notes' && notes.length > 0 && (
-                  <span className="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{notes.length}</span>
-                )}
-                {t === 'tasks' && pendingTasks.length > 0 && (
-                  <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5">{pendingTasks.length}</span>
-                )}
-                {t === 'documents' && documents.length > 0 && (
-                  <span className="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{documents.length}</span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
+        <Tabs
+          variant="underline"
+          items={[
+            { key: 'overview',   label: 'Overview' },
+            { key: 'notes',      label: 'Notes',     count: notes.length > 0 ? notes.length : undefined },
+            { key: 'tasks',      label: 'Tasks',     count: pendingTasks.length > 0 ? pendingTasks.length : undefined },
+            { key: 'documents',  label: 'Documents', count: documents.length > 0 ? documents.length : undefined },
+          ]}
+          active={tab}
+          onChange={(key) => setTab(key as typeof tab)}
+        />
 
         {/* ─── Overview Tab ──────────────────────────────────────────── */}
         {tab === 'overview' && (
@@ -838,7 +825,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                       onClick={() => setNewNoteType(nt.key)}
                       className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
                         newNoteType === nt.key
-                          ? (noteTypeColorMap[nt.key] ?? 'bg-gray-200 text-gray-700')
+                          ? 'bg-gray-200 text-gray-700'
                           : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                       }`}
                     >
@@ -856,13 +843,14 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                 />
                 {noteError && <p className="text-xs text-red-600">{noteError}</p>}
                 <div className="flex justify-end">
-                  <button
+                  <Button
+                    variant="primary"
                     type="submit"
                     disabled={addingNote || !newNoteContent.trim()}
-                    className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+                    loading={addingNote}
                   >
                     {addingNote ? 'Saving…' : 'Save Note'}
-                  </button>
+                  </Button>
                 </div>
               </form>
             </div>
@@ -885,7 +873,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     onClick={() => setNoteTypeFilter(nt.key)}
                     className={`px-2.5 py-1 text-xs rounded-full font-medium ${
                       noteTypeFilter === nt.key
-                        ? (noteTypeColorMap[nt.key] ?? 'bg-gray-200 text-gray-700')
+                        ? 'bg-gray-200 text-gray-700'
                         : 'text-gray-500 hover:bg-gray-100'
                     }`}
                   >
@@ -903,9 +891,10 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${noteTypeColorMap[note.note_type] ?? 'bg-gray-100 text-gray-600'}`}>
-                              {NOTE_TYPES.find(nt => nt.key === note.note_type)?.label ?? note.note_type}
-                            </span>
+                            <Badge
+                              label={NOTE_TYPES.find(nt => nt.key === note.note_type)?.label ?? note.note_type}
+                              color={NOTE_TYPE_COLOR[note.note_type] ?? 'gray'}
+                            />
                             <span className="text-xs text-gray-400">{note.author?.full_name ?? 'Unknown'}</span>
                             <span className="text-xs text-gray-400">·</span>
                             <span className="text-xs text-gray-400">{relativeTime(note.created_at)}</span>
@@ -949,13 +938,14 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   className="flex-shrink-0 w-100 px-0 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none cursor-pointer"
                   title="Due date"
                 />
-                <button
+                <Button
+                  variant="primary"
                   type="submit"
+                  icon={Plus}
                   disabled={addingTask || !newTaskTitle.trim()}
-                  className="flex-shrink-0 px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+                  loading={addingTask}
+                  className="flex-shrink-0"
+                />
               </form>
               {taskError && <p className="mt-2 text-xs text-red-600">{taskError}</p>}
             </div>

@@ -120,7 +120,7 @@ export default function ManageLicensesModal({
             <button
               type="button"
               onClick={handleMainModalClose}
-              className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all"
+              className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-brand-hover transition-all"
             >
               Close
             </button>

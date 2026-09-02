@@ -129,7 +129,7 @@ export default function TemplatesContent({ templates, isAdmin, agencyId, basePat
         <button
           type="button"
           onClick={() => router.push(`${basePath}/new`)}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-sm"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors font-medium text-sm"
         >
           <Plus className="w-4 h-4" />
           New Template

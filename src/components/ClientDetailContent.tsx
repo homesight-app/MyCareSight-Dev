@@ -38,6 +38,7 @@ import {
   Lock,
 } from 'lucide-react'
 import UpgradePromptModal from './UpgradePromptModal'
+import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
@@ -4070,15 +4071,16 @@ export default function ClientDetailContent({ client, allClients, representative
                       >
                         Cancel
                       </button>
-                      <button
+                      <Button
+                        variant="primary"
                         type="submit"
                         form="form-personal"
                         disabled={isSavingPersonal}
-                        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
+                        loading={isSavingPersonal}
+                        size="sm"
                       >
-                        {isSavingPersonal ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                         Save
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <button
@@ -4234,28 +4236,28 @@ export default function ClientDetailContent({ client, allClients, representative
                     <Timer className="w-5 h-5 text-blue-600" aria-hidden />
                     <h3 className="text-lg font-bold text-gray-900">Contracted Weekly Hours</h3>
                   </div>
-                  <button
+                  <Button
+                    variant="secondary"
                     type="button"
                     onClick={openManageLimitModal}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50"
+                    icon={Plus}
                   >
-                    <Plus className="w-4 h-4" />
                     Set Limit
-                  </button>
+                  </Button>
                 </div>
                 {!overviewHasWeeklyContractLimits ? (
                   <div className="p-6">
                     <div className="rounded-lg border-2 border-dashed border-gray-200 p-8 flex flex-col items-center justify-center min-h-[140px]">
                       <Timer className="w-12 h-12 text-gray-300 mb-3" aria-hidden />
                       <p className="text-sm font-medium text-gray-500 mb-4">No weekly hours limit set</p>
-                      <button
+                      <Button
+                        variant="primary"
                         type="button"
                         onClick={openManageLimitModal}
-                        className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-bold text-white hover:bg-gray-800"
+                        icon={Plus}
                       >
-                        <Plus className="w-4 h-4" />
                         Set Hours Limit
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ) : (
@@ -4466,15 +4468,16 @@ export default function ClientDetailContent({ client, allClients, representative
                       >
                         Cancel
                       </button>
-                      <button
+                      <Button
+                        variant="primary"
                         type="submit"
                         form="form-medical"
                         disabled={isSavingMedical}
-                        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
+                        loading={isSavingMedical}
+                        size="sm"
                       >
-                        {isSavingMedical ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                         Save
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <button
@@ -4637,14 +4640,14 @@ export default function ClientDetailContent({ client, allClients, representative
                 <div className="flex flex-col items-center justify-center py-8">
                   <Users className="w-12 h-12 text-gray-300 mb-3" />
                   <p className="text-sm text-gray-500 mb-4">No representative added</p>
-                  <button
+                  <Button
+                    variant="secondary"
                     type="button"
                     onClick={() => openAddRep(nextRepDisplayOrder)}
-                    className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                    icon={Plus}
                   >
-                    <Plus className="w-4 h-4" />
                     Add Representative
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -4669,19 +4672,16 @@ export default function ClientDetailContent({ client, allClients, representative
                   multiple
                   onChange={handleDocumentFileChange}
                 />
-                <button
+                <Button
+                  variant="primary"
                   type="button"
                   onClick={() => documentFileInputRef.current?.click()}
                   disabled={isUploadingDocument}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  loading={isUploadingDocument}
+                  icon={Plus}
                 >
-                  {isUploadingDocument ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Plus className="w-4 h-4" />
-                  )}
                   Upload Documents
-                </button>
+                </Button>
                       </div>
               {patientDocuments.length > 0 ? (
                 <ul className="border border-gray-200 rounded-lg divide-y divide-gray-200">
@@ -4753,14 +4753,14 @@ export default function ClientDetailContent({ client, allClients, representative
                       </p>
                     </div>
                   </div>
-                  <button
+                  <Button
+                    variant="secondary"
                     type="button"
                     onClick={openCaregiverReqsModal}
-                    className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                    icon={Edit}
                   >
-                    <Edit className="w-4 h-4" />
                     Edit Requirements
-                  </button>
+                  </Button>
                 </div>
                 <div className="p-6">
                   <div className={`border-2 border-dashed border-gray-200 rounded-lg min-h-[200px] flex flex-col py-12 px-4 ${caregiverRequirements.length > 0 ? 'items-start justify-start' : 'items-center justify-center'}`}>
@@ -4799,14 +4799,14 @@ export default function ClientDetailContent({ client, allClients, representative
                       <>
                         <Sparkles className="w-12 h-12 text-gray-300 mb-3" />
                         <p className="text-sm text-gray-500 mb-4">No caregiver skills required yet.</p>
-                        <button
+                        <Button
+                          variant="primary"
                           type="button"
                           onClick={openCaregiverReqsModal}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                          icon={Plus}
                         >
-                          <Plus className="w-4 h-4" />
                           Add Requirements
-                        </button>
+                        </Button>
                       </>
                     )}
                   </div>
@@ -4838,14 +4838,14 @@ export default function ClientDetailContent({ client, allClients, representative
                       : `${localIncidents.length} report${localIncidents.length === 1 ? '' : 's'} on file.`}
                   </p>
                 </div>
-                <button
+                <Button
+                  variant="primary"
                   type="button"
                   onClick={openReportIncidentModal}
-                  className="inline-flex items-center gap-2 px-4 py-2 border-2 border-gray-900 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                  icon={Plus}
                 >
-                  <Plus className="w-4 h-4" />
                   Report Incident
-                </button>
+                </Button>
               </div>
 
               {incidentListError && (
@@ -4924,14 +4924,14 @@ export default function ClientDetailContent({ client, allClients, representative
                 <div className="border-2 border-dashed border-gray-300 rounded-lg bg-white p-12 flex flex-col items-center justify-center text-center">
                   <AlertTriangle className="w-12 h-12 text-gray-300 mb-4" aria-hidden />
                   <p className="text-gray-500 mb-6">No incident reports have been filed for this client.</p>
-                  <button
+                  <Button
+                    variant="secondary"
                     type="button"
                     onClick={openReportIncidentModal}
-                    className="inline-flex items-center gap-2 px-6 py-3 border border-gray-300 bg-white text-gray-900 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                    icon={Plus}
                   >
-                    <Plus className="w-4 h-4" />
                     File First Report
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -4974,14 +4974,14 @@ export default function ClientDetailContent({ client, allClients, representative
                       <h3 className="text-base font-bold text-gray-900">Weekly Contracted Hours</h3>
                     </div>
                   </div>
-                  <button
+                  <Button
+                    variant="secondary"
                     type="button"
                     onClick={openManageLimitModal}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                    icon={Edit}
                   >
-                    <Edit className="h-3.5 w-3.5" />
                     Manage Limit
-                  </button>
+                  </Button>
                 </div>
                 {hasAnyAppliedLimit ? (
                   <>
@@ -5101,14 +5101,14 @@ export default function ClientDetailContent({ client, allClients, representative
                     <p className="text-sm text-gray-500">Client tasks (ADLs, skilled) and appointments</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
+                    <Button
+                      variant="primary"
                       type="button"
                       onClick={openAddVisitModal}
-                      className="inline-flex items-center rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                      icon={Plus}
                     >
-                      <Plus className="w-4 h-4 mr-1" />
                       Add Visit
-                    </button>
+                    </Button>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
@@ -5391,14 +5391,14 @@ export default function ClientDetailContent({ client, allClients, representative
                     changes, trashed tasks, and the weekly grid to the database (same idea as the Skilled Tasks tab).
                   </p>
                 </div>
-                <button
+                <Button
+                  variant="primary"
                   type="button"
                   onClick={openAddAdlModal}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                  icon={Plus}
                 >
-                  <Plus className="w-4 h-4" />
                   ADD NON-SKILLED TASK
-                </button>
+                </Button>
               </div>
 
               {adlPlanError && (
@@ -5586,7 +5586,8 @@ export default function ClientDetailContent({ client, allClients, representative
               </div> */}
 
               <div className="flex justify-end gap-2">
-                <button
+                <Button
+                  variant="secondary"
                   type="button"
                   onClick={() => {
                     setLocalAdls(initialAdls ?? [])
@@ -5595,19 +5596,18 @@ export default function ClientDetailContent({ client, allClients, representative
                     setAdlPlanError(null)
                     router.refresh()
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="primary"
                   type="button"
                   onClick={handleSaveAdlPlan}
                   disabled={isSavingAdlPlan || !hasAdlPlanChanges}
-                  className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
+                  loading={isSavingAdlPlan}
                 >
-                  {isSavingAdlPlan && <Loader2 className="w-4 h-4 animate-spin" />}
                   Save NON-SKILLED Plan
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -5623,14 +5623,14 @@ export default function ClientDetailContent({ client, allClients, representative
                     Manage skilled care tasks and weekly schedule. Scheduled visits use a <strong>Skilled</strong> service contract.
                   </p>
                 </div>
-                <button
+                <Button
+                  variant="primary"
                   type="button"
                   onClick={openSkilledTaskModal}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                  icon={Plus}
                 >
-                  <Plus className="w-4 h-4" />
                   ADD SKILLED TASK
-                </button>
+                </Button>
               </div>
 
               {skilledTasksError && (
@@ -5806,7 +5806,8 @@ export default function ClientDetailContent({ client, allClients, representative
               </div>
 
               <div className="flex justify-end gap-2">
-                <button
+                <Button
+                  variant="secondary"
                   type="button"
                   onClick={() => {
                     setLocalSkilledCarePlanTasks(initialSkilledCarePlanTasks ?? [])
@@ -5815,19 +5816,18 @@ export default function ClientDetailContent({ client, allClients, representative
                     setSkilledTasksError(null)
                     router.refresh()
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="primary"
                   type="button"
                   onClick={handleSaveSkilledCarePlan}
                   disabled={isSavingSkilledTasks || !hasSkilledPlanChanges}
-                  className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
+                  loading={isSavingSkilledTasks}
                 >
-                  {isSavingSkilledTasks && <Loader2 className="w-4 h-4 animate-spin" />}
                   Save Skilled Plan
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -5919,20 +5919,16 @@ export default function ClientDetailContent({ client, allClients, representative
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={() => setSkilledTaskModalOpen(false)}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Cancel
-            </button>
-            <button
-              type="button"
-              onClick={applySkilledTaskSelection}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
+            </Button>
+            <Button variant="primary" type="button" onClick={applySkilledTaskSelection}>
               Apply
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
@@ -6004,28 +6000,22 @@ export default function ClientDetailContent({ client, allClients, representative
             />
           </div>
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={closeRepModal}
               disabled={isSavingRep}
-              className="px-4 py-2 text-gray-700 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-50"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="submit"
               disabled={isSavingRep}
-              className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              loading={isSavingRep}
             >
-              {isSavingRep ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                'Save'
-              )}
-            </button>
+              Save
+            </Button>
           </div>
         </form>
       </Modal>
@@ -6067,18 +6057,19 @@ export default function ClientDetailContent({ client, allClients, representative
             </p>
           ) : null}
           <div className="flex justify-end gap-2">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={() => {
                 setRepToDelete(null)
                 setAdlToDelete(null)
                 setDocToDelete(null)
               }}
-              className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="danger"
               type="button"
               onClick={() => {
                 if (repToDelete) {
@@ -6090,17 +6081,10 @@ export default function ClientDetailContent({ client, allClients, representative
                 }
               }}
               disabled={(!!repToDelete && deletingRepId === repToDelete.id) || (!!adlToDelete && deletingAdlCode === adlToDelete) || (!!docToDelete && isDeletingDocId === docToDelete.id)}
-              className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+              loading={(!!repToDelete && deletingRepId === repToDelete.id) || (!!adlToDelete && deletingAdlCode === adlToDelete) || (!!docToDelete && isDeletingDocId === docToDelete.id)}
             >
-              {(repToDelete && deletingRepId === repToDelete.id) || (adlToDelete && deletingAdlCode === adlToDelete) || (docToDelete && isDeletingDocId === docToDelete.id) ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                'Delete'
-              )}
-            </button>
+              Delete
+            </Button>
           </div>
         </div>
       </Modal>
@@ -6268,27 +6252,24 @@ export default function ClientDetailContent({ client, allClients, representative
               {caregiverReqsSelection.length} skill{caregiverReqsSelection.length !== 1 ? 's' : ''} selected
             </p>
             <div className="flex items-center gap-3">
-              <button
+              <Button
+                variant="secondary"
                 type="button"
                 onClick={closeCaregiverReqsModal}
                 disabled={isSavingCaregiverReqs}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 type="button"
                 onClick={handleSaveCaregiverReqs}
                 disabled={isSavingCaregiverReqs}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+                loading={isSavingCaregiverReqs}
+                icon={Save}
               >
-                {isSavingCaregiverReqs ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
                 Save Requirements
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -6430,14 +6411,14 @@ export default function ClientDetailContent({ client, allClients, representative
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={closeIncidentModal}
               disabled={isSavingIncident}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
             >
               Cancel
-            </button>
+            </Button>
             <button
               type="submit"
               disabled={isSavingIncident}
@@ -6551,20 +6532,16 @@ export default function ClientDetailContent({ client, allClients, representative
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={closeAddAdlModal}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Cancel
-            </button>
-            <button
-              type="button"
-              onClick={applyAdlTaskSelection}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
+            </Button>
+            <Button variant="primary" type="button" onClick={applyAdlTaskSelection}>
               Apply
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
@@ -6668,7 +6645,7 @@ export default function ClientDetailContent({ client, allClients, representative
                     }}
                     onClick={(e) => e.stopPropagation()}
                     disabled={canCheck === false}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 pointer-events-none"
+                    className="rounded border-gray-300 text-brand focus:ring-brand disabled:opacity-50 pointer-events-none"
                   />
                   <div className="flex-1 pointer-events-none">
                     <span className="font-medium text-gray-900">{label}</span>
@@ -6690,12 +6667,9 @@ export default function ClientDetailContent({ client, allClients, representative
             </div>
           </div>
           <div className="flex justify-end pt-2">
-            <button
-              type="submit"
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 flex items-center gap-2"
-            >
+            <Button variant="primary" type="submit">
               Done
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
@@ -6716,13 +6690,13 @@ export default function ClientDetailContent({ client, allClients, representative
             placeholder="Add note for caregivers..."
           />
           <div className="flex items-center justify-end gap-2">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={closeAdlNoteModal}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Cancel
-            </button>
+            </Button>
             <button
               type="button"
               onClick={handleRemoveAdlNote}
@@ -6730,12 +6704,9 @@ export default function ClientDetailContent({ client, allClients, representative
             >
               Remove
             </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800"
-            >
+            <Button variant="primary" type="submit">
               Save Note
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
@@ -6756,13 +6727,13 @@ export default function ClientDetailContent({ client, allClients, representative
             placeholder="Add note for caregivers..."
           />
           <div className="flex items-center justify-end gap-2">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={closeSkilledNoteModal}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Cancel
-            </button>
+            </Button>
             <button
               type="button"
               onClick={handleRemoveSkilledNote}
@@ -6770,12 +6741,9 @@ export default function ClientDetailContent({ client, allClients, representative
             >
               Remove
             </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800"
-            >
+            <Button variant="primary" type="submit">
               Save Note
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
@@ -7214,23 +7182,23 @@ export default function ClientDetailContent({ client, allClients, representative
           <p className="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded">{scheduleLimitWarning}</p>
         )}
         <div className="flex justify-end gap-2 mt-6">
-          <button
+          <Button
+            variant="secondary"
             type="button"
             onClick={closeAddVisitModal}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             disabled={isSavingVisit}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="button"
             onClick={handleAddVisitSubmit}
             disabled={isSavingVisit}
-            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
+            loading={isSavingVisit}
           >
-            {isSavingVisit && <Loader2 className="w-4 h-4 animate-spin" />}
             Add Visit
-          </button>
+          </Button>
         </div>
       </Modal>
 
@@ -7672,32 +7640,32 @@ export default function ClientDetailContent({ client, allClients, representative
               </button>
             </>
           )}
-          <button
+          <Button
+            variant="danger"
             type="button"
             onClick={handleDeleteVisit}
             disabled={isSavingVisit}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+            icon={Trash2}
           >
-            <Trash2 className="w-4 h-4" />
             Delete Visit
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
             type="button"
             onClick={closeEditVisitModal}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             disabled={isSavingVisit}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="button"
             onClick={handleUpdateVisitSubmit}
             disabled={isSavingVisit}
-            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
+            loading={isSavingVisit}
           >
-            {isSavingVisit && <Loader2 className="w-4 h-4 animate-spin" />}
             {editingSchedule?.is_recurring && editRecurringApplyScope !== 'this_visit' ? 'Update Visits' : 'Update Visit'}
-          </button>
+          </Button>
         </div>
       </Modal>
 
@@ -7744,13 +7712,13 @@ export default function ClientDetailContent({ client, allClients, representative
             </div>
             <p className="text-xs text-gray-500">This will be logged in the audit trail with your name, timestamp, and reason, and will be traceable to this visit and client.</p>
             <div className="flex justify-end gap-2">
-              <button
+              <Button
+                variant="secondary"
                 type="button"
                 onClick={() => { setVisitStatusModal(null); setVisitStatusReason('') }}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium"
               >
                 Back
-              </button>
+              </Button>
               <button
                 type="button"
                 disabled={isSavingVisit || (visitStatusModal !== 'missed' && !visitStatusReason.trim())}
@@ -7875,10 +7843,9 @@ export default function ClientDetailContent({ client, allClients, representative
             </div>
             {serviceContractError ? <p className="text-sm text-red-600">{serviceContractError}</p> : null}
             <div className="flex justify-end">
-              <button type="button" onClick={handleSaveServiceContract} disabled={isSavingServiceContract} className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50">
-                {isSavingServiceContract ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              <Button variant="primary" type="button" onClick={handleSaveServiceContract} disabled={isSavingServiceContract} loading={isSavingServiceContract}>
                 Save Contract
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -7974,15 +7941,15 @@ export default function ClientDetailContent({ client, allClients, representative
             )}
           </div>
           <div className="flex justify-end">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={handleDoneServiceContracts}
               disabled={isSavingServiceContract || isSavingServiceContractRowAction || isSavingServiceContractEdit}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-60"
+              loading={isSavingServiceContractRowAction}
             >
-              {isSavingServiceContractRowAction ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Done
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
@@ -8072,23 +8039,23 @@ export default function ClientDetailContent({ client, allClients, representative
           </div>
           {serviceContractEditError ? <p className="text-sm text-red-600">{serviceContractEditError}</p> : null}
           <div className="flex justify-end gap-2">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={closeEditServiceContractModal}
               disabled={isSavingServiceContractEdit}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-60"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="button"
               onClick={handleSaveServiceContractEdit}
               disabled={isSavingServiceContractEdit}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
+              loading={isSavingServiceContractEdit}
             >
-              {isSavingServiceContractEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Save Changes
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
@@ -8176,14 +8143,18 @@ export default function ClientDetailContent({ client, allClients, representative
               </div>
             </div>
             <div className="px-6 pb-6 flex justify-end gap-3">
-              <button
+              <Button
+                variant="secondary"
+                type="button"
                 onClick={() => setAddressModalOpen(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                type="button"
                 disabled={isSavingAddress}
+                loading={isSavingAddress}
                 onClick={async () => {
                   if (!addressForm.street_address.trim() || !addressForm.city.trim() || !addressForm.state || !addressForm.zip_code.trim()) {
                     setAddressError('Street address, city, state, and ZIP code are required.')
@@ -8226,11 +8197,9 @@ export default function ClientDetailContent({ client, allClients, representative
                   }
                   setIsSavingAddress(false)
                 }}
-                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
               >
-                {isSavingAddress && <Loader2 className="w-4 h-4 animate-spin" />}
                 {editingAddress ? 'Save Changes' : 'Add Address'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

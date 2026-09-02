@@ -13,6 +13,8 @@ import { createClient } from '@/lib/supabase/client'
 import { CAREGIVER_SKILL_POINTS } from '@/lib/constants'
 import { normalizeCaregiverSkillsList } from '@/lib/caregiver-skills'
 import { Plus, Edit, Eye, Award, Loader2, Sparkles } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import PageHeader from '@/components/ui/PageHeader'
 
 interface Certification {
   id: string
@@ -288,12 +290,10 @@ function MyCertificationsContent() {
   return (
     <>
     <div className="space-y-5 mt-20">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">My Skills & Certifications</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Showcase your skills and manage your professional licenses
-          </p>
-        </div>
+        <PageHeader
+          title="My Skills & Certifications"
+          subtitle="Showcase your skills and manage your professional licenses"
+        />
 
         {/* Tabs */}
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -353,15 +353,16 @@ function MyCertificationsContent() {
                       </p>
                     </div>
                   </div>
-                  <button
+                  <Button
                     type="button"
+                    variant="secondary"
+                    icon={Edit}
                     onClick={() => caregiverSelf && setSkillsModalOpen(true)}
                     disabled={!caregiverSelf}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-800 bg-white hover:bg-gray-50 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="shrink-0"
                   >
-                    <Edit className="w-4 h-4" />
                     Edit Skills
-                  </button>
+                  </Button>
                 </div>
 
                 {!hasStaffProfile || !caregiverSelf ? (
@@ -411,13 +412,13 @@ function MyCertificationsContent() {
                 )}
 
                 <div className="flex justify-end">
-                  <button
+                  <Button
+                    variant="primary"
+                    icon={Plus}
                     onClick={() => setIsModalOpen(true)}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors"
                   >
-                    <Plus className="w-4 h-4" />
                     Add New Certification
-                  </button>
+                  </Button>
                 </div>
 
                 {certifications.length > 0 ? (
@@ -497,30 +498,24 @@ function MyCertificationsContent() {
                             </td>
                             <td className="px-4 py-3 align-top">
                               <div className="flex items-center gap-2">
-                                <button
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  icon={Edit}
                                   onClick={() => handleEditClick(cert)}
-                                  className="px-3 py-1 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors text-sm flex items-center gap-2"
                                 >
-                                  <Edit className="w-4 h-4" />
                                   Edit
-                                </button>
-                                <button
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  icon={loadingCertificationId === cert.id ? Loader2 : Eye}
                                   onClick={() => handleViewDetails(cert.id)}
                                   disabled={loadingCertificationId === cert.id}
-                                  className="px-3 py-1 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  loading={loadingCertificationId === cert.id}
                                 >
-                                  {loadingCertificationId === cert.id ? (
-                                    <>
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                      Loading...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Eye className="w-4 h-4" />
-                                      View
-                                    </>
-                                  )}
-                                </button>
+                                  {loadingCertificationId === cert.id ? 'Loading...' : 'View'}
+                                </Button>
                               </div>
                             </td>
                           </tr>
@@ -533,13 +528,13 @@ function MyCertificationsContent() {
                     <Award className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                     <h3 className="text-base font-semibold text-gray-900 mb-2">No certifications yet</h3>
                     <p className="text-sm text-gray-600 mb-6">Get started by adding your first certification</p>
-                    <button
+                    <Button
+                      variant="primary"
+                      icon={Plus}
                       onClick={() => setIsModalOpen(true)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors"
                     >
-                      <Plus className="w-4 h-4" />
                       Add New Certification
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>

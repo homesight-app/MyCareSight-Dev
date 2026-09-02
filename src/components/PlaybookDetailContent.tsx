@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Plus, Minus, Loader2, Upload, FileText, Edit2, Trash2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
 import PlaybookTab from './PlaybookTab'
 import Modal from './Modal'
 import { createClient } from '@/lib/supabase/client'
@@ -84,13 +86,6 @@ function formatRenewalPeriod(value: string): string {
   return n === 1 ? '1 year' : `${n} years`
 }
 
-function tabCls(active: boolean) {
-  return `py-3 px-4 border-b-2 font-medium text-sm transition-colors ${
-    active
-      ? 'border-blue-600 text-blue-600 bg-gray-50'
-      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-  }`
-}
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -268,18 +263,17 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
   return (
     <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 md:p-6">
       {/* Tab nav */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex space-x-4" aria-label="Tabs">
-          <button onClick={() => setActiveTab('general')} className={tabCls(activeTab === 'general')}>
-            General Info
-          </button>
-          <button onClick={() => setActiveTab('items')} className={tabCls(activeTab === 'items')}>
-            Items {itemCount > 0 && `(${itemCount})`}
-          </button>
-          <button onClick={() => setActiveTab('templates')} className={tabCls(activeTab === 'templates')}>
-            Templates {templates.length > 0 && `(${templates.length})`}
-          </button>
-        </nav>
+      <div className="mb-6">
+        <Tabs
+          variant="underline"
+          items={[
+            { key: 'general',   label: 'General Info' },
+            { key: 'items',     label: 'Items',     count: itemCount > 0 ? itemCount : undefined },
+            { key: 'templates', label: 'Templates', count: templates.length > 0 ? templates.length : undefined },
+          ]}
+          active={activeTab}
+          onChange={(key) => setActiveTab(key as TabType)}
+        />
       </div>
 
       {error && (
@@ -449,9 +443,7 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
                   placeholder="Add a key requirement…"
                   className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <button onClick={addRequirement} className="flex items-center gap-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                  <Plus className="w-4 h-4" /> Add
-                </button>
+                <Button variant="primary" type="button" icon={Plus} onClick={addRequirement}>Add</Button>
               </div>
             </div>
 
@@ -476,13 +468,14 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
                 <h3 className="text-lg font-semibold text-gray-900">Document Templates</h3>
                 <p className="text-sm text-gray-600 mt-1">Upload sample documents that agencies can download when their program is active.</p>
               </div>
-              <button
+              <Button
+                variant="primary"
+                type="button"
+                icon={Upload}
                 onClick={() => { setShowUploadModal(true); setTemplateForm({ templateName: '', description: '' }); setTemplateFile(null); setError(null) }}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
               >
-                <Upload className="w-4 h-4" />
                 Upload Template
-              </button>
+              </Button>
             </div>
 
             {/* Upload modal */}
@@ -519,12 +512,8 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
                 </div>
                 {error && <p className="text-sm text-red-600">{error}</p>}
                 <div className="flex gap-3 pt-2">
-                  <button type="submit" disabled={isSubmitting || !templateFile} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                    <Upload className="w-4 h-4" /> Upload
-                  </button>
-                  <button type="button" onClick={() => { setShowUploadModal(false); setTemplateFile(null); setError(null) }} className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                    Cancel
-                  </button>
+                  <Button variant="primary" type="submit" disabled={isSubmitting || !templateFile} loading={isSubmitting} icon={Upload}>Upload</Button>
+                  <Button variant="secondary" type="button" onClick={() => { setShowUploadModal(false); setTemplateFile(null); setError(null) }}>Cancel</Button>
                 </div>
               </form>
             </Modal>
@@ -554,8 +543,8 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
                   </div>
                   {error && <p className="text-sm text-red-600">{error}</p>}
                   <div className="flex gap-3 pt-2">
-                    <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50">Save</button>
-                    <button type="button" onClick={() => { setEditingTemplate(null); setError(null) }} className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                    <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting}>Save</Button>
+                    <Button variant="secondary" type="button" onClick={() => { setEditingTemplate(null); setError(null) }}>Cancel</Button>
                   </div>
                 </form>
               </Modal>

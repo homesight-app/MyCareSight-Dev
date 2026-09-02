@@ -4,10 +4,13 @@ import { useState } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Trash2, Calendar, Clock, DollarSign, Car, GitBranch } from 'lucide-react'
+import { Plus, Trash2, Calendar, Clock, DollarSign, Car, GitBranch, Palette } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { saveAgencyConfiguration, type HolidayEntry } from '@/app/actions/agency-configuration'
 import AgencyLeadStageSettings from '@/components/AgencyLeadStageSettings'
+import AgencyBrandingSection from '@/components/AgencyBrandingSection'
 import type { AgencyLeadStage } from '@/lib/constants/lead-configs'
+import type { BrandingValues } from '@/components/ui/BrandingForm'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -50,18 +53,20 @@ interface Props {
   agencyId: string | null
   userRole: string | null
   initialStages: AgencyLeadStage[]
+  initialBranding?: BrandingValues
 }
 
-type Category = 'schedule' | 'pay_rules' | 'mileage' | 'pipeline'
+type Category = 'schedule' | 'pay_rules' | 'mileage' | 'pipeline' | 'branding'
 
 const CATEGORIES: { key: Category; label: string; icon: typeof Calendar; ownerOnly?: boolean }[] = [
   { key: 'schedule',   label: 'Work Schedule',     icon: Calendar },
   { key: 'pay_rules',  label: 'Pay Rules',         icon: DollarSign },
   { key: 'mileage',    label: 'Mileage',            icon: Car },
   { key: 'pipeline',   label: 'Lead Pipeline',      icon: GitBranch, ownerOnly: true },
+  { key: 'branding',   label: 'Branding',           icon: Palette,   ownerOnly: true },
 ]
 
-export default function AgencyConfigurationContent({ initialConfig, agencyId, userRole, initialStages }: Props) {
+export default function AgencyConfigurationContent({ initialConfig, agencyId, userRole, initialStages, initialBranding }: Props) {
   const [activeCategory, setActiveCategory] = useState<Category>('schedule')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -337,6 +342,14 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
             </div>
           </div>
         )}
+
+        {/* Branding — not inside the form, uses its own actions */}
+        {activeCategory === 'branding' && agencyId && userRole === 'company_owner' && (
+          <AgencyBrandingSection
+            agencyId={agencyId}
+            initialValues={initialBranding ?? {}}
+          />
+        )}
       </div>
     </div>
   )
@@ -345,13 +358,14 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
 function SaveRow({ isSaving, saveSuccess, saveError }: { isSaving: boolean; saveSuccess: boolean; saveError: string | null }) {
   return (
     <div className="flex items-center gap-4">
-      <button
+      <Button
+        variant="primary"
         type="submit"
-        disabled={isSaving}
-        className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        size="lg"
+        loading={isSaving}
       >
         {isSaving ? 'Saving…' : 'Save'}
-      </button>
+      </Button>
       {saveSuccess && <span className="text-green-600 text-sm font-medium">Saved.</span>}
       {saveError && <span className="text-red-600 text-sm">{saveError}</span>}
     </div>

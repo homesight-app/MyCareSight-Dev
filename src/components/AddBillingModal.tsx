@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { createBilling, CreateBillingData } from '@/app/actions/billing'
 import Modal from './Modal'
-import { Loader2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 
 const billingSchema = z.object({
   clientId: z.string().min(1, 'Client is required'),
@@ -297,28 +297,22 @@ export default function AddBillingModal({ isOpen, onClose, clients }: AddBilling
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-          <button
+          <Button
+            variant="secondary"
             type="button"
             onClick={handleClose}
             disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-white bg-black rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center gap-2"
+            loading={isLoading}
           >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              'Create Billing Record'
-            )}
-          </button>
+            Create Billing Record
+          </Button>
         </div>
       </form>
     </Modal>

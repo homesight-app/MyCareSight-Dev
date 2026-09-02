@@ -1,5 +1,7 @@
 'use client'
 
+import Button from '@/components/ui/PrimaryButton'
+
 export default function AgencyError({
   error,
   reset,
@@ -14,12 +16,9 @@ export default function AgencyError({
         <p className="text-sm text-gray-500 mb-6">
           An unexpected error occurred. If this keeps happening, please contact support.
         </p>
-        <button
-          onClick={reset}
-          className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
-        >
+        <Button variant="primary" onClick={reset}>
           Try again
-        </button>
+        </Button>
       </div>
     </div>
   )

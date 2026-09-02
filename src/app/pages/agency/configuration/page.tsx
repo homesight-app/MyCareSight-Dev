@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
 import AgencyConfigurationContent from '@/components/AgencyConfigurationContent'
+import { getAgencyBrandingAction } from '@/app/actions/agencies'
 
 export default async function AgencyConfigurationPage() {
   const session = await getSession()
@@ -17,9 +18,10 @@ export default async function AgencyConfigurationPage() {
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   const userRole = (session!.profile as { role?: string } | null)?.role ?? null
 
-  const [configResult, stagesResult] = await Promise.all([
+  const [configResult, stagesResult, branding] = await Promise.all([
     agencyId ? q.getAgencyConfiguration(supabase, agencyId) : Promise.resolve({ data: null }),
     agencyId ? q.getAgencyLeadStages(supabase, agencyId) : Promise.resolve({ data: null }),
+    agencyId ? getAgencyBrandingAction(agencyId) : Promise.resolve({ logoUrl: null, logoIconUrl: null, primaryColor: null, sidebarColor: null }),
   ])
 
   let stages = stagesResult.data ?? []
@@ -34,6 +36,12 @@ export default async function AgencyConfigurationPage() {
       agencyId={agencyId}
       userRole={userRole}
       initialStages={stages}
+      initialBranding={{
+        logoUrl: branding.logoUrl,
+        logoIconUrl: branding.logoIconUrl,
+        primaryColor: branding.primaryColor,
+        sidebarColor: branding.sidebarColor,
+      }}
     />
   )
 }

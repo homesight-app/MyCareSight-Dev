@@ -155,7 +155,7 @@ function UserSettingsModal({
                 type="button"
                 onClick={onSave}
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50"
               >
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                 {saving ? 'Saving…' : 'Save Changes'}
@@ -219,7 +219,7 @@ function AddPanel({ title, children, onSave, onCancel, submitting, error, saveLa
           type="button"
           onClick={onSave}
           disabled={submitting}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand text-white text-xs font-medium rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50"
         >
           {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
           {submitting ? 'Creating…' : saveLabel}
@@ -474,7 +474,7 @@ function AdminsSection({ agencyId, admins, available, onRefresh }: {
               type="button"
               onClick={handleLink}
               disabled={!selectedId || linking}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 flex-shrink-0"
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50 flex-shrink-0"
             >
               {linking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
               Add

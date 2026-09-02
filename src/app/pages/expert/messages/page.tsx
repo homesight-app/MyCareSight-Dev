@@ -5,13 +5,15 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 
-import { 
-  MessageSquare, 
-  Search, 
+import {
+  MessageSquare,
+  Search,
   Send,
   Users,
   Clock
 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import PageHeader from '@/components/ui/PageHeader'
 
 interface Client {
   id: string
@@ -508,12 +510,10 @@ function ExpertMessagesContent() {
   return (
     <div className="space-y-4 sm:space-y-6 mt-20">
         {/* Page Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Messages</h1>
-          <p className="text-gray-600 text-sm sm:text-base">
-            Communicate with your assigned clients
-          </p>
-        </div>
+        <PageHeader
+          title="Messages"
+          subtitle="Communicate with your assigned clients"
+        />
 
         {/* Message Statistics */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
@@ -767,13 +767,15 @@ function ExpertMessagesContent() {
                       rows={4}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                     />
-                    <button
+                    <Button
+                      variant="primary"
                       onClick={handleSendMessage}
                       disabled={!messageContent.trim() || sending}
-                      className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                      loading={sending}
+                      className="w-full"
                     >
                       {sending ? 'Sending...' : 'Send Message'}
-                    </button>
+                    </Button>
                   </div>
                 </>
               )}

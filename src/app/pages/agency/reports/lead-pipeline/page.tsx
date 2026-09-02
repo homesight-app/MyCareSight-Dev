@@ -3,8 +3,7 @@ import { getSession } from '@/lib/auth'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import PageHeader from '@/components/ui/PageHeader'
 
 export default async function LeadPipelineReportPage() {
   const session = await getSession()
@@ -44,18 +43,11 @@ export default async function LeadPipelineReportPage() {
 
   return (
     <div className="space-y-6">
-      <Link
-        href="/pages/agency/reports"
-        className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Reports
-      </Link>
-
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Lead Pipeline Report</h1>
-        <p className="text-gray-500 text-sm">Active patient leads by pipeline stage</p>
-      </div>
+      <PageHeader
+        title="Lead Pipeline Report"
+        subtitle="Active patient leads by pipeline stage"
+        back={{ href: '/pages/agency/reports', label: 'Back to Reports' }}
+      />
 
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-5 text-center">

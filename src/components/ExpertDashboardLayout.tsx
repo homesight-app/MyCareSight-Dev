@@ -17,6 +17,8 @@ interface ExpertDashboardLayoutProps {
     full_name?: string | null
     role?: string | null
   } | null
+  logoSrc?: string
+  logoIconSrc?: string
 }
 
 const MENU_ITEMS: MenuItemDef[] = [
@@ -28,6 +30,8 @@ export default function ExpertDashboardLayout({
   children,
   user,
   profile,
+  logoSrc,
+  logoIconSrc,
 }: ExpertDashboardLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -69,6 +73,8 @@ export default function ExpertDashboardLayout({
           onCollapse={setCollapsed}
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
+          logoSrc={logoSrc}
+          logoIconSrc={logoIconSrc}
         />
 
         <main

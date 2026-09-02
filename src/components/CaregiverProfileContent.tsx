@@ -10,6 +10,8 @@ import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { CaregiverDocumentsPanel } from './CaregiverDocumentsPanel'
 import InternalNotesPanel from './InternalNotesPanel'
 import { patientFullName } from '@/lib/patient-name'
+import Tabs from '@/components/ui/Tabs'
+import Badge, { type BadgeColor } from '@/components/ui/Badge'
 
 interface StaffMember {
   id: string
@@ -123,13 +125,13 @@ export default function CaregiverProfileContent({
     return map
   }, [skillCatalog])
 
-  const skillTypeToPillClass: Record<string, string> = {
-    'Clinical Care': 'bg-red-100 text-red-700 border border-red-200',
-    'Specialty Conditions': 'bg-blue-100 text-blue-700 border border-blue-200',
-    'Physical Support': 'bg-amber-100 text-amber-700 border border-amber-200',
-    'Daily Living': 'bg-green-100 text-green-700 border border-green-200',
-    Certifications: 'bg-blue-100 text-blue-700 border border-blue-200',
-    Language: 'bg-teal-100 text-teal-700 border border-teal-200',
+  const SKILL_TYPE_COLOR: Record<string, BadgeColor> = {
+    'Clinical Care': 'red',
+    'Specialty Conditions': 'blue',
+    'Physical Support': 'amber',
+    'Daily Living': 'green',
+    Certifications: 'blue',
+    Language: 'teal',
   }
 
   useEffect(() => {
@@ -290,21 +292,12 @@ export default function CaregiverProfileContent({
       </div>
 
       {/* Tab navigation */}
-      <div className="flex overflow-x-auto border-b border-gray-200 -mx-6 px-6 gap-1 scrollbar-none">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === tab.id
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        variant="underline"
+        items={tabs.map((tab) => ({ key: tab.id, label: tab.label }))}
+        active={activeTab}
+        onChange={(k) => setActiveTab(k as typeof activeTab)}
+      />
 
       {/* ── Overview tab ── */}
       {activeTab === 'overview' && (
@@ -390,12 +383,8 @@ export default function CaregiverProfileContent({
               {skills.length > 0 ? (
                 skills.map((s) => {
                   const type = skillTypeByName.get(s)
-                  const pillClass =
-                    skillTypeToPillClass[type ?? ''] ?? 'bg-gray-100 text-gray-700 border border-gray-200'
                   return (
-                    <span key={s} className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${pillClass}`}>
-                      {s}
-                    </span>
+                    <Badge key={s} label={s} color={SKILL_TYPE_COLOR[type ?? ''] ?? 'gray'} />
                   )
                 })
               ) : (

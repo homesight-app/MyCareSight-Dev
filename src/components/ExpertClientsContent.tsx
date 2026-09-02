@@ -6,7 +6,6 @@ import {
   Clock,
   MapPin,
   FileText,
-  Search,
   Calendar,
   AlertCircle,
   Eye,
@@ -14,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
+import SearchInput from '@/components/ui/SearchInput'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 
 interface Application {
@@ -120,17 +120,11 @@ export default function ExpertClientsContent({
       </div>
 
       {/* Search Bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-        <input
-          type="text"
-          placeholder="Search applications by name or state..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          suppressHydrationWarning
-        />
-      </div>
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search applications by name or state..."
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">

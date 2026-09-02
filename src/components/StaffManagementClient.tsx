@@ -270,7 +270,7 @@ export default function StaffManagementClient({
           </div>
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all flex items-center gap-2 shadow-lg"
+            className="px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-brand-hover transition-all flex items-center gap-2 shadow-lg"
           >
             <Plus className="w-5 h-5" />
             Add Caregiver
@@ -443,7 +443,7 @@ export default function StaffManagementClient({
             <p className="text-gray-600 mb-6">Get started by adding your first caregiver</p>
             <button
               onClick={() => setIsAddModalOpen(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-brand-hover transition-all"
             >
               <Plus className="w-5 h-5" />
               Add Caregiver

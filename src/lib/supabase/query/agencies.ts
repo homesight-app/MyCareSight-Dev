@@ -333,3 +333,37 @@ export async function insertAgencyDocument(
 export async function deleteAgencyDocument(supabase: Supabase, docId: string) {
   return supabase.from('agency_documents').delete().eq('id', docId)
 }
+
+const BRANDING_COLS = 'logo_path, logo_icon_path, primary_color, sidebar_color'
+
+export interface AgencyBrandingRow {
+  logo_path: string | null
+  logo_icon_path: string | null
+  primary_color: string | null
+  sidebar_color: string | null
+}
+
+export async function getAgencyBranding(supabase: Supabase, agencyId: string) {
+  return supabase
+    .from('agencies')
+    .select(BRANDING_COLS)
+    .eq('id', agencyId)
+    .single()
+}
+
+export async function updateAgencyBrandingColors(
+  supabase: Supabase,
+  agencyId: string,
+  payload: { primary_color: string; sidebar_color: string }
+) {
+  return supabase.from('agencies').update(payload).eq('id', agencyId)
+}
+
+export async function clearAgencyBranding(supabase: Supabase, agencyId: string) {
+  return supabase.from('agencies').update({
+    logo_path: null,
+    logo_icon_path: null,
+    primary_color: null,
+    sidebar_color: null,
+  }).eq('id', agencyId)
+}

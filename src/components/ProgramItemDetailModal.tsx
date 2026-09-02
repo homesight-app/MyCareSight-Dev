@@ -25,6 +25,8 @@ import {
   Trash2,
   CornerDownLeft,
 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
 import {
   getProgramItemDocuments,
   getProgramItemRuleChecks,
@@ -517,14 +519,16 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
               Send Back
             </button>
           )}
-          <button
+          <Button
+            variant="secondary"
+            type="button"
+            size="sm"
             onClick={handleSave}
             disabled={isSaving || pendingStatus === item.status}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            loading={isSaving}
           >
-            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             Save
-          </button>
+          </Button>
           {pendingStatus !== 'approved' && (
             <button
               onClick={handleApprove}
@@ -546,15 +550,17 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
               Submitted — awaiting expert review
             </span>
           ) : clientCanSubmit && (
-            <button
+            <Button
+              variant="primary"
+              type="button"
+              size="sm"
               onClick={handleClientSubmit}
               disabled={isSubmitting || (isDocument && documents.length === 0)}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              title={isDocument && documents.length === 0 ? 'Upload a document first' : undefined}
+              loading={isSubmitting}
+              icon={Check}
             >
-              {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
               {item.status === 'review_needed' ? 'Resubmit for Review' : 'Submit for Review'}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -564,29 +570,13 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
   const body = (
     <>
         {/* Tabs */}
-        <div className="border-b border-gray-200 -mx-6 px-6 mb-6">
-          <nav className="flex gap-1">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab.label}
-                {tab.badge != null && tab.badge > 0 && (
-                  <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-xs font-semibold leading-none ${
-                    tab.id === 'validation' ? 'bg-red-500 text-white' : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
+        <div className="-mx-6 px-6 mb-6">
+          <Tabs
+            variant="underline"
+            active={activeTab}
+            onChange={(k) => setActiveTab(k as TabId)}
+            items={tabs.map(t => ({ key: t.id, label: t.label, count: t.badge }))}
+          />
         </div>
 
         {/* ── Send Back form ── */}
@@ -793,13 +783,14 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm text-gray-500">{documents.length} document{documents.length !== 1 ? 's' : ''} uploaded</p>
               {(isStaff || canReplace) && (
-                <button
+                <Button
+                  variant="primary"
+                  type="button"
+                  icon={Upload}
                   onClick={() => setIsUploadOpen(true)}
-                  className="inline-flex items-center gap-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors"
                 >
-                  <Upload className="w-4 h-4" />
                   {canReplace && documents.length > 0 ? 'Replace Document' : 'Upload Document'}
-                </button>
+                </Button>
               )}
             </div>
 
@@ -914,7 +905,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
                           key={i}
                           onClick={() => setPreviewIdx(i)}
                           className={`px-2.5 py-1 text-xs rounded-md whitespace-nowrap transition-colors ${
-                            previewIdx === i ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
+                            previewIdx === i ? 'bg-brand text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
                           }`}
                         >
                           {d.name}
@@ -964,7 +955,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
                             href={doc.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors"
                           >
                             <Download className="w-4 h-4" /> Download to view
                           </a>
@@ -1078,21 +1069,24 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
 
                   {/* Actions pinned to bottom */}
                   <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-auto flex-shrink-0">
-                    <button
+                    <Button
+                      variant="secondary"
+                      type="button"
                       onClick={() => setRunPhase('idle')}
                       disabled={isSavingRun}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors"
                     >
-                      <X className="w-3.5 h-3.5" /> Cancel
-                    </button>
-                    <button
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="primary"
+                      type="button"
                       onClick={handleSaveRun}
                       disabled={isSavingRun}
-                      className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                      loading={isSavingRun}
+                      icon={Check}
                     >
-                      {isSavingRun ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                       Save Run #{validationRuns.length + 1}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -1126,7 +1120,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
                           onClick={handleRunValidation}
                           disabled={isLoadingDocs || isLoadingRules || documents.length === 0 || ruleChecks.length === 0}
                           title={documents.length === 0 ? 'Upload a document first' : ruleChecks.length === 0 ? 'Add validation rules first' : undefined}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           <Play className="w-3 h-3" />
                           {validationRuns.length > 0 ? 'New Run' : 'Run Validation'}

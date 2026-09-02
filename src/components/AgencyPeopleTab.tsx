@@ -270,7 +270,7 @@ function GiveAccessModal({ isOpen, onClose, agencyId, person, onSuccess }: GiveA
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand text-white text-sm font-semibold rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50"
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
             {submitting ? 'Creating…' : 'Create Login'}
@@ -390,7 +390,7 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
                   type="checkbox"
                   checked={officerRoles.includes(r.key)}
                   onChange={() => toggleRole(r.key)}
-                  className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="w-3.5 h-3.5 rounded border-gray-300 text-brand focus:ring-brand"
                 />
                 <span className="text-xs text-gray-700">{r.label}</span>
               </label>
@@ -432,7 +432,7 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
               type="checkbox"
               checked={createLogin}
               onChange={e => setCreateLogin(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-brand focus:ring-brand"
             />
             <span className="text-sm font-medium text-gray-700">Create system login for this person</span>
           </label>
@@ -471,7 +471,7 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand text-white text-sm font-semibold rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50"
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
             {submitting ? 'Adding…' : 'Add Person'}
@@ -632,7 +632,7 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
                     type="checkbox"
                     checked={officerRoles.includes(r.key)}
                     onChange={() => toggleRole(r.key)}
-                    className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-brand focus:ring-brand"
                   />
                   <span className="text-xs text-gray-700">{r.label}</span>
                 </label>
@@ -693,7 +693,7 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
               type="button"
               onClick={handleSubmit}
               disabled={submitting}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand text-white text-sm font-semibold rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               {submitting ? 'Saving…' : 'Save Changes'}
@@ -908,7 +908,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
           <button
             type="button"
             onClick={() => setAddOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand text-white text-sm font-semibold rounded-lg hover:bg-brand-hover transition-colors"
           >
             <UserPlus className="w-4 h-4" />
             Add Person

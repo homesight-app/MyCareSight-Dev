@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { FileText, Download, Image as ImageIcon, Loader2, ExternalLink } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
@@ -133,29 +134,21 @@ export default function CertificationDocumentViewer({
             href={signedUrl ?? undefined}
             target="_blank"
             rel="noopener noreferrer"
-            className={`inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors ${!signedUrl ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`inline-flex items-center gap-2 px-4 py-2 bg-brand text-white font-medium rounded-lg hover:bg-brand-hover transition-colors ${!signedUrl ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <ExternalLink className="w-4 h-4" />
             {isImage ? 'View Full Image' : 'View Document'}
           </a>
 
-          <button
+          <Button
+            variant="secondary"
             onClick={handleDownload}
             disabled={isDownloading || !signedUrl}
-            className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            loading={isDownloading}
+            icon={isDownloading ? undefined : Download}
           >
-            {isDownloading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Downloading...
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4" />
-                Download
-              </>
-            )}
-          </button>
+            {isDownloading ? 'Downloading...' : 'Download'}
+          </Button>
         </div>
       </div>
     </div>

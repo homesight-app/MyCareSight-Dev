@@ -11,6 +11,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
 import type { CaregiverAvailabilitySlotRow } from '@/lib/supabase/query/caregiver-availability'
 import {
@@ -524,22 +525,23 @@ export default function CaregiverMyCalendarContent({
             )}
           </div>
           <div className="flex items-center gap-2 ml-auto">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={opts.onClose}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="button"
               onClick={opts.onSubmit}
               disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50"
+              loading={saving}
+              icon={opts.variant === 'add' ? Plus : Pencil}
             >
-              {opts.variant === 'add' ? <Plus className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
               {opts.submitLabel}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -555,14 +557,14 @@ export default function CaregiverMyCalendarContent({
             Set your available time slots so you can be matched with visits.
           </p>
         </div>
-        <button
+        <Button
+          variant="primary"
           type="button"
           onClick={() => openAdd()}
-          className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 shrink-0 shadow-sm"
+          icon={Plus}
         >
-          <Plus className="w-4 h-4" />
           Add Time Slot
-        </button>
+        </Button>
       </div>
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-6">
@@ -571,14 +573,14 @@ export default function CaregiverMyCalendarContent({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <h2 className="text-base sm:text-lg font-semibold text-gray-900">{formatMonthYear(viewMonth)}</h2>
           <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto">
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={() => openAdd()}
-              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 order-first sm:order-none w-full sm:w-auto"
+              icon={Plus}
             >
-              <Plus className="w-4 h-4" />
               Add Time Slot
-            </button>
+            </Button>
             <button
               type="button"
               onClick={goToday}
@@ -815,25 +817,26 @@ export default function CaregiverMyCalendarContent({
               Are you sure you want to remove this availability slot? This cannot be undone.
             </p>
             <div className="flex justify-end gap-2 mt-6">
-              <button
+              <Button
+                variant="secondary"
                 type="button"
                 onClick={() => {
                   setDeleteOpen(false)
                   setDeletingId(null)
                 }}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-800 bg-white hover:bg-gray-50"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="danger"
                 type="button"
                 onClick={handleDelete}
                 disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
+                loading={saving}
+                icon={Trash2}
               >
-                <Trash2 className="w-4 h-4" />
                 Remove
-              </button>
+              </Button>
             </div>
           </div>
         </div>

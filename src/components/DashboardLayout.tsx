@@ -38,6 +38,8 @@ interface DashboardLayoutProps {
   timeBillingPendingCount?: number
   /** null = unrestricted (no plan assigned). Array = the allowed feature keys for this agency. */
   allowedFeatures?: string[] | null
+  logoSrc?: string
+  logoIconSrc?: string
 }
 
 export default function DashboardLayout({
@@ -47,6 +49,8 @@ export default function DashboardLayout({
   careVisitsPendingCount,
   timeBillingPendingCount,
   allowedFeatures,
+  logoSrc,
+  logoIconSrc,
 }: DashboardLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -196,6 +200,8 @@ export default function DashboardLayout({
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
           extraContent={sidebarExtra}
+          logoSrc={logoSrc}
+          logoIconSrc={logoIconSrc}
         />
 
         <main

@@ -439,7 +439,7 @@ export default function ProfileTabs({ user, profile, initialAgency }: ProfileTab
               <button
                 type="submit"
                 disabled={isLoading}
-                className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-6 py-3 bg-brand text-white font-semibold rounded-xl hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 <Save className="w-5 h-5" />
                 {isLoading ? 'Saving...' : 'Save Changes'}
@@ -711,7 +711,7 @@ export default function ProfileTabs({ user, profile, initialAgency }: ProfileTab
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    className="px-6 py-3 bg-brand text-white font-semibold rounded-xl hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     <Save className="w-5 h-5" />
                     {isLoading ? 'Saving...' : 'Save Changes'}

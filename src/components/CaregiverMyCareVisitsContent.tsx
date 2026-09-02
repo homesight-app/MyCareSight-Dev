@@ -5,7 +5,6 @@ import Link from 'next/link'
 import {
   AlertTriangle,
   Calendar,
-  CalendarDays,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -20,10 +19,12 @@ import {
   Loader2,
   MapPin,
   Play,
-  Search,
   Send,
   UserMinus,
 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
+import SearchInput from '@/components/ui/SearchInput'
 import { useRouter } from 'next/navigation'
 import { getCaregiverPastVisitSummaryAction } from '@/app/actions/caregiver-visit-execution'
 import {
@@ -619,23 +620,23 @@ export default function CaregiverMyCareVisitsContent({
                 </>
               ) : (
                 <>
-                  <button
+                  <Button
+                    variant="secondary"
                     type="button"
                     onClick={closeRequestModal}
                     disabled={pendingActionKey === `request:${requestModalVisit.id}`}
-                    className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-60"
                   >
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="primary"
                     type="button"
                     onClick={() => void submitRequestFromModal()}
                     disabled={pendingActionKey === `request:${requestModalVisit.id}`}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                    icon={Send}
                   >
-                    <Send className="h-4 w-4" aria-hidden />
                     Submit Request
-                  </button>
+                  </Button>
                 </>
               )}
             </div>
@@ -661,23 +662,23 @@ export default function CaregiverMyCareVisitsContent({
               <div>{unassignModalVisit.timeLabel.replace(' - ', ' – ')}</div>
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
-              <button
+              <Button
+                variant="secondary"
                 type="button"
                 onClick={closeUnassignModal}
                 disabled={pendingActionKey === `unassign:${unassignModalVisit.id}`}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-60"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="danger"
                 type="button"
                 onClick={submitUnassignFromModal}
                 disabled={pendingActionKey === `unassign:${unassignModalVisit.id}`}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                icon={UserMinus}
               >
-                <UserMinus className="h-4 w-4" aria-hidden />
                 Send Request
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -829,77 +830,39 @@ export default function CaregiverMyCareVisitsContent({
         ) : null}
       </Modal>
 
-      <div className="inline-flex rounded-full border border-gray-300 bg-white p-1">
-        <button
-          type="button"
-          onClick={() => setMainTab('my_visits')}
-          className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium ${mainTab === 'my_visits' ? 'bg-white ring-1 ring-gray-300' : 'text-gray-600'}`}
-        >
-          My Visits
-          <span className="rounded-full bg-green-600 px-2 py-0.5 text-xs text-white">{mineCount}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMainTab('scheduling')}
-          className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium ${mainTab === 'scheduling' ? 'bg-white ring-1 ring-gray-300' : 'text-gray-600'}`}
-        >
-          <CalendarDays className="h-4 w-4" />
-          Scheduling
-          <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs text-white">{openCount + mineCount}</span>
-        </button>
-      </div>
+      <Tabs
+        variant="pill"
+        active={mainTab}
+        onChange={(k) => setMainTab(k as MainTab)}
+        items={[
+          { key: 'my_visits', label: 'My Visits', count: mineCount },
+          { key: 'scheduling', label: 'Scheduling', count: openCount + mineCount },
+        ]}
+      />
 
       {mainTab === 'my_visits' ? (
         <>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
-              <button
-                type="button"
-                onClick={() => setMyVisitsTab('upcoming')}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${myVisitsTab === 'upcoming' ? 'bg-gray-900 text-white' : 'text-gray-700'}`}
-              >
-                Upcoming{' '}
-                <span className="ml-1 rounded-full bg-green-600 px-1.5 py-0.5 text-[11px] text-white">
-                  {upcomingMineVisits.length}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMyVisitsTab('in_progress')}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${myVisitsTab === 'in_progress' ? 'bg-gray-900 text-white' : 'text-gray-700'}`}
-              >
-                In Progress{' '}
-                <span className="ml-1 rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] text-white">
-                  {inProgressMineVisits.length}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMyVisitsTab('past')}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${myVisitsTab === 'past' ? 'bg-gray-900 text-white' : 'text-gray-700'}`}
-              >
-                Past Visits <span className="ml-1 rounded-full bg-slate-500 px-1.5 py-0.5 text-[11px] text-white">{pastMineVisits.length}</span>
-              </button>
-            </div>
+            <Tabs
+              variant="pill"
+              active={myVisitsTab}
+              onChange={(k) => setMyVisitsTab(k as MyVisitsTab)}
+              items={[
+                { key: 'upcoming', label: 'Upcoming', count: upcomingMineVisits.length },
+                { key: 'in_progress', label: 'In Progress', count: inProgressMineVisits.length },
+                { key: 'past', label: 'Past Visits', count: pastMineVisits.length },
+              ]}
+            />
             {myVisitsTab === 'upcoming' ? (
-              <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
-                <button
-                  type="button"
-                  onClick={() => setMyVisitsUpcomingView('list')}
-                  className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm ${myVisitsUpcomingView === 'list' ? 'bg-gray-900 text-white' : 'text-gray-700'}`}
-                >
-                  <List className="h-4 w-4" aria-hidden />
-                  List
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMyVisitsUpcomingView('calendar')}
-                  className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm ${myVisitsUpcomingView === 'calendar' ? 'bg-gray-900 text-white' : 'text-gray-700'}`}
-                >
-                  <Calendar className="h-4 w-4" aria-hidden />
-                  Calendar
-                </button>
-              </div>
+              <Tabs
+                variant="pill"
+                active={myVisitsUpcomingView}
+                onChange={(k) => setMyVisitsUpcomingView(k as MyVisitsUpcomingView)}
+                items={[
+                  { key: 'list', label: 'List' },
+                  { key: 'calendar', label: 'Calendar' },
+                ]}
+              />
             ) : null}
           </div>
 
@@ -932,13 +895,11 @@ export default function CaregiverMyCareVisitsContent({
         <>
           <p className="text-sm text-gray-700">Browse open visits and assign or unassign yourself.</p>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[250px] grow">
-              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-              <input
+            <div className="min-w-[250px] grow">
+              <SearchInput
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={setSearch}
                 placeholder="Search by client, service type, or location..."
-                className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm"
               />
             </div>
 
@@ -955,29 +916,28 @@ export default function CaregiverMyCareVisitsContent({
               ) : null}
             </div>
 
-            <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
-              <button type="button" onClick={() => setSchedulingView('list')} className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm ${schedulingView === 'list' ? 'bg-gray-900 text-white' : 'text-gray-700'}`}><List className="h-4 w-4" />List</button>
-              <button type="button" onClick={() => setSchedulingView('calendar')} className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm ${schedulingView === 'calendar' ? 'bg-gray-900 text-white' : 'text-gray-700'}`}><Calendar className="h-4 w-4" />Calendar</button>
-            </div>
+            <Tabs
+              variant="pill"
+              active={schedulingView}
+              onChange={(k) => setSchedulingView(k as SchedulingView)}
+              items={[
+                { key: 'list', label: 'List' },
+                { key: 'calendar', label: 'Calendar' },
+              ]}
+            />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {([
-              ['all', `All (${openCount + mineCount})`],
-              ['open', `Open (${openCount})`],
-              ['mine', `Mine (${mineCount})`],
-              ['requests', `My Requests (${myRequestsTabCount})`],
-            ] as Array<[SchedulingTab, string]>).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setSchedulingTab(id)}
-                className={`rounded-full border px-3 py-1.5 text-sm ${schedulingTab === id ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-300 bg-white text-gray-700'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            variant="pill"
+            active={schedulingTab}
+            onChange={(k) => setSchedulingTab(k as SchedulingTab)}
+            items={[
+              { key: 'all', label: 'All', count: openCount + mineCount },
+              { key: 'open', label: 'Open', count: openCount },
+              { key: 'mine', label: 'Mine', count: mineCount },
+              { key: 'requests', label: 'My Requests', count: myRequestsTabCount },
+            ]}
+          />
         </>
       )}
 
@@ -1277,19 +1237,16 @@ export default function CaregiverMyCareVisitsContent({
                       {visit.status !== 'completed' &&
                       visit.status !== 'missed' &&
                       !visit.hasPendingUnassignmentRequest ? (
-                        <button
+                        <Button
+                          variant="primary"
                           type="button"
                           onClick={() => handleViewDetailsNavigate(visit.id)}
                           disabled={visitPageNavId === visit.id}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-70"
+                          loading={!!(visitPageNavPending && visitPageNavId === visit.id)}
+                          icon={Play}
                         >
-                          {visitPageNavPending && visitPageNavId === visit.id ? (
-                            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                          ) : (
-                            <Play className="h-4 w-4" aria-hidden />
-                          )}
                           Start Visit
-                        </button>
+                        </Button>
                       ) : null}
                       {visit.status !== 'completed' &&
                       visit.status !== 'missed' &&
@@ -1327,19 +1284,16 @@ export default function CaregiverMyCareVisitsContent({
                     </div>
                   ) : mainTab === 'my_visits' && myVisitsTab === 'in_progress' ? (
                     <div className="flex w-full flex-col gap-2 sm:w-auto lg:min-w-[11rem]">
-                      <button
+                      <Button
+                        variant="primary"
                         type="button"
                         onClick={() => handleViewDetailsNavigate(visit.id)}
                         disabled={visitPageNavId === visit.id}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-70"
+                        loading={!!(visitPageNavPending && visitPageNavId === visit.id)}
+                        icon={Eye}
                       >
-                        {visitPageNavPending && visitPageNavId === visit.id ? (
-                          <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                        ) : (
-                          <Eye className="h-4 w-4" aria-hidden />
-                        )}
                         View Details
-                      </button>
+                      </Button>
                     </div>
                   ) : mainTab === 'scheduling' ? (
                     <div className="flex flex-col items-end gap-2 sm:min-w-[11rem]">
@@ -1356,14 +1310,14 @@ export default function CaregiverMyCareVisitsContent({
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         {visit.status === 'open' && !visit.hasMyPendingRequest ? (
-                          <button
+                          <Button
+                            variant="primary"
                             type="button"
                             onClick={() => openRequestModal(visit)}
                             disabled={pendingActionKey === `request:${visit.id}`}
-                            className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
                           >
                             Request Assignment
-                          </button>
+                          </Button>
                         ) : null}
                         {visit.hasMyPendingRequest && visit.myPendingRequestId ? (
                           <button

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { CheckCircle2, FileText, Activity } from 'lucide-react'
+import Tabs from '@/components/ui/Tabs'
 
 interface ChecklistItem {
   id: string
@@ -93,50 +94,17 @@ export default function CaseTabs({ caseId, checklistItems, documents, activityLo
   return (
     <div className="bg-white rounded-xl shadow-md border border-gray-100">
       {/* Tabs Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="flex -mb-px">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`px-6 py-4 text-sm font-medium transition-colors ${
-              activeTab === 'overview'
-                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Overview
-          </button>
-          <button
-            onClick={() => setActiveTab('checklist')}
-            className={`px-6 py-4 text-sm font-medium transition-colors ${
-              activeTab === 'checklist'
-                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Checklist
-          </button>
-          <button
-            onClick={() => setActiveTab('documents')}
-            className={`px-6 py-4 text-sm font-medium transition-colors ${
-              activeTab === 'documents'
-                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Documents
-          </button>
-          <button
-            onClick={() => setActiveTab('activity')}
-            className={`px-6 py-4 text-sm font-medium transition-colors ${
-              activeTab === 'activity'
-                ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Activity Log
-          </button>
-        </nav>
-      </div>
+      <Tabs
+        variant="underline"
+        items={[
+          { key: 'overview', label: 'Overview' },
+          { key: 'checklist', label: 'Checklist' },
+          { key: 'documents', label: 'Documents' },
+          { key: 'activity', label: 'Activity Log' },
+        ]}
+        active={activeTab}
+        onChange={(key) => setActiveTab(key as 'overview' | 'checklist' | 'documents' | 'activity')}
+      />
 
       {/* Tab Content */}
       <div className="p-6">

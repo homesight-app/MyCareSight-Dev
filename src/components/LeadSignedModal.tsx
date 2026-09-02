@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useTransition } from 'react'
 import { updateLead, updateLeadStage } from '@/app/actions/leads'
+import Button from '@/components/ui/PrimaryButton'
 
 interface Props {
   lead: { id: string; retainer_amount: number | null; price: number | null }
@@ -141,22 +142,19 @@ export default function LeadSignedModal({ lead, open, onClose, onSuccess }: Prop
         </div>
 
         <div className="flex gap-3 mt-6">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isPending}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isPending} className="flex-1">
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="button"
             onClick={handleConfirm}
             disabled={!canConfirm}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            loading={isPending}
+            className="flex-1"
           >
             {isPending ? 'Saving…' : retainerCollected ? 'Mark Signed - Complete' : 'Move to Retainer Pending'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

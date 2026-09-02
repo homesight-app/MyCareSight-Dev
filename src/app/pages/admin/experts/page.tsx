@@ -58,7 +58,7 @@ export default async function ExpertsPage() {
           </div>
           <Link
             href="/pages/admin/experts/new"
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-sm md:text-base whitespace-nowrap"
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-brand-hover transition-colors font-medium text-sm md:text-base whitespace-nowrap"
           >
             <Plus className="w-4 h-4 md:w-5 md:h-5" />
             Add Expert

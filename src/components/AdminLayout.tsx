@@ -29,6 +29,8 @@ interface AdminLayoutProps {
     full_name?: string | null
     role?: string | null
   } | null
+  logoSrc?: string
+  logoIconSrc?: string
 }
 
 const MENU_ITEMS = [
@@ -49,6 +51,8 @@ export default function AdminLayout({
   children,
   user,
   profile,
+  logoSrc,
+  logoIconSrc,
 }: AdminLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -90,6 +94,8 @@ export default function AdminLayout({
           onCollapse={setCollapsed}
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
+          logoSrc={logoSrc}
+          logoIconSrc={logoIconSrc}
         />
 
         <main

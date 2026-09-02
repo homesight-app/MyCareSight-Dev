@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
 import AgencyReportCardLink, { type AgencyReportCardIconKey } from '@/components/reports/AgencyReportCardLink'
+import PageHeader from '@/components/ui/PageHeader'
 
 type ReportDef = {
   id: string
@@ -73,12 +74,10 @@ export default async function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Reports</h1>
-        <p className="text-gray-600 text-base md:text-lg">
-          Generate and download reports based on your organization&apos;s data
-        </p>
-      </div>
+      <PageHeader
+        title="Reports"
+        subtitle="Generate and download reports based on your organization's data"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         {reports.map((report) => (

@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { FileText, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import NewLicenseApplicationModal from './NewLicenseApplicationModal'
 import SelectLicenseTypeModal from './SelectLicenseTypeModal'
 import ReviewLicenseRequestModal from './ReviewLicenseRequestModal'
 import ReviewPlaybookRequestModal from './ReviewPlaybookRequestModal'
 import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
+import PrimaryButton from '@/components/ui/PrimaryButton'
 
 interface ApplyForNewLicenseButtonProps {
   agencyId?: string
@@ -15,9 +16,11 @@ interface ApplyForNewLicenseButtonProps {
   label?: string
   /** When true, the type-selection modal shows only programs (standalone playbooks), not license types. */
   programsOnly?: boolean
+  size?: 'sm' | 'md' | 'lg'
+  className?: string
 }
 
-export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, programsOnly = false }: ApplyForNewLicenseButtonProps = {}) {
+export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, programsOnly = false, size = 'md', className }: ApplyForNewLicenseButtonProps = {}) {
   const [isStateModalOpen, setIsStateModalOpen] = useState(false)
   const [isLicenseTypeModalOpen, setIsLicenseTypeModalOpen] = useState(false)
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false)
@@ -71,13 +74,15 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, 
 
   return (
     <>
-      <button
+      <PrimaryButton
+        variant="primary"
+        size={size}
+        icon={Plus}
         onClick={() => setIsStateModalOpen(true)}
-        className="w-full text-center py-2 px-4 bg-black hover:bg-gray-800 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+        className={className}
       >
-        <Plus className="w-4 h-4" />
         {label ?? 'Apply for New License'}
-      </button>
+      </PrimaryButton>
 
       {/* State Selection Modal */}
       <NewLicenseApplicationModal

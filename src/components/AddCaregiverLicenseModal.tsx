@@ -210,7 +210,7 @@ export default function AddCaregiverLicenseModal({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-brand-hover transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <>
@@ -241,7 +241,7 @@ export default function AddCaregiverLicenseModal({
             type="button"
             onClick={handleClose}
             disabled={isSubmitting}
-            className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50"
+            className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-brand-hover transition-all disabled:opacity-50"
           >
             Close
           </button>

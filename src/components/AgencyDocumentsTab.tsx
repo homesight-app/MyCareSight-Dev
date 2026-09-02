@@ -200,7 +200,7 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
         </div>
         <button
           onClick={() => setShowForm(v => !v)}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors sm:ml-auto"
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors sm:ml-auto"
         >
           <Upload className="w-4 h-4" />
           Upload Document
@@ -255,7 +255,7 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
             <button
               type="submit"
               disabled={uploading || !selectedFile || !docName.trim()}
-              className="px-3 py-1.5 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 flex items-center gap-1.5"
             >
               {uploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               {uploading ? 'Uploading…' : 'Upload'}

@@ -3,11 +3,12 @@
 @tailwind utilities;
 
 :root {
-  --brand-navy:       #0F172A;
-  --brand-green:      #22C55E;
-  --brand-green-dark: #16A34A;
-  --brand-blue:       #2563EB;
-  --content-bg:       #F8FAFC;
+  /* Branding CSS variables — overridden at runtime by platform/agency branding */
+  --brand:        #4F66E8;
+  --brand-hover:  #4054CC;
+  --brand-subtle: #EEF2FF;
+  --sidebar-bg:   #0F172A;
+  --content-bg:   #F8FAFC;
 }
 
 body {

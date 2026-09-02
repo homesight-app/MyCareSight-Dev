@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { CheckCircle2, Clock, AlertCircle, Circle, ChevronRight } from 'lucide-react'
+import PageHeader from '@/components/ui/PageHeader'
 
 type Status = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
 
@@ -40,12 +41,11 @@ export default async function ExpertProgramsPage() {
   return (
     <>
       <div className="p-6 max-w-6xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Programs</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Your assigned license application programs.
-          </p>
-        </div>
+        <PageHeader
+          title="Programs"
+          subtitle="Your assigned license application programs."
+          className="mb-6"
+        />
 
         {programs.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">

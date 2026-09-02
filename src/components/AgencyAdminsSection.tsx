@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Users, UserPlus, X, Loader2, Mail } from 'lucide-react'
 import { addAdminToAgency, removeAdminFromAgency } from '@/app/actions/agencies'
+import Button from '@/components/ui/PrimaryButton'
 
 interface AdminRecord {
   id: string
@@ -110,15 +111,17 @@ export default function AgencyAdminsSection({
                 </option>
               ))}
             </select>
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={handleAdd}
-              disabled={!selectedAdminId || isAdding}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 flex-shrink-0"
+              disabled={!selectedAdminId}
+              loading={isAdding}
+              icon={UserPlus}
+              className="flex-shrink-0"
             >
-              {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
               Add Admin
-            </button>
+            </Button>
           </div>
         )}
 

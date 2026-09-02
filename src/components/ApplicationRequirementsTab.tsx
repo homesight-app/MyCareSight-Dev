@@ -17,6 +17,8 @@ import {
   updateProgramItem,
 } from '@/app/actions/playbooks'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -190,14 +192,9 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
         ) : isStaff ? (
           <>
             <p className="text-sm text-gray-500 mb-4">Apply the playbook template for this license type to get started.</p>
-            <button
-              onClick={handleApplyPlaybook}
-              disabled={isApplying}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isApplying ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />}
+            <Button variant="primary" type="button" icon={ClipboardList} onClick={handleApplyPlaybook} disabled={isApplying} loading={isApplying}>
               Apply Playbook
-            </button>
+            </Button>
           </>
         ) : (
           <p className="text-sm text-gray-500">Your expert will set up the requirements checklist for this application.</p>
@@ -264,19 +261,16 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3 mb-3">
         {/* Type filter tabs */}
-        <div className="flex border border-gray-200 rounded-lg overflow-hidden text-sm">
-          {(['all', 'required', 'optional'] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => setFilterType(t)}
-              className={`px-3 py-1.5 capitalize transition-colors ${
-                filterType === t ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {t === 'all' ? `All (${items.length})` : `${t.charAt(0).toUpperCase() + t.slice(1)} (${items.filter(i => i.requirement_type === t).length})`}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          variant="pill"
+          items={[
+            { key: 'all', label: `All (${items.length})` },
+            { key: 'required', label: `Required (${items.filter(i => i.requirement_type === 'required').length})` },
+            { key: 'optional', label: `Optional (${items.filter(i => i.requirement_type === 'optional').length})` },
+          ]}
+          active={filterType}
+          onChange={(key) => setFilterType(key as typeof filterType)}
+        />
         {/* Assignment filter */}
         <select
           value={filterAssignment}

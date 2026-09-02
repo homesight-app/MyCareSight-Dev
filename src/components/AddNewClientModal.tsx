@@ -370,7 +370,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
               <button
                 type="submit"
                 disabled={isLoading}
-                className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-6 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isLoading ? 'Adding...' : <><Plus className="w-4 h-4" />Add Client</>}
               </button>
@@ -664,7 +664,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
             <button
               type="submit"
               disabled={isLoading}
-              className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {isLoading ? (
                 'Adding...'

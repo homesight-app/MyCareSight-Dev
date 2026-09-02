@@ -7,6 +7,8 @@ import { NOTE_TYPES } from '@/lib/constants/lead-configs'
 import { addAgencyNote, deleteAgencyNote } from '@/app/actions/agencies'
 import { deleteLeadNote } from '@/app/actions/leads'
 import * as q from '@/lib/supabase/query'
+import Button from '@/components/ui/PrimaryButton'
+import Badge, { type BadgeColor } from '@/components/ui/Badge'
 
 interface Note {
   id: string
@@ -24,11 +26,11 @@ interface AgencyNotesTabProps {
   leadNameMap: Record<string, string>
 }
 
-const noteTypeColorMap: Record<string, string> = {
-  call:    'bg-blue-100 text-blue-700',
-  email:   'bg-indigo-100 text-indigo-700',
-  meeting: 'bg-blue-100 text-blue-700',
-  general: 'bg-gray-100 text-gray-600',
+const NOTE_TYPE_COLOR: Record<string, BadgeColor> = {
+  call:    'blue',
+  email:   'purple',
+  meeting: 'teal',
+  general: 'gray',
 }
 
 function relativeTime(iso: string) {
@@ -143,7 +145,7 @@ export default function AgencyNotesTab({ agencyId, leadIds, leadNameMap }: Agenc
                 onClick={() => setNewNoteType(nt.key)}
                 className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
                   newNoteType === nt.key
-                    ? (noteTypeColorMap[nt.key] ?? 'bg-gray-200 text-gray-700')
+                    ? 'bg-gray-200 text-gray-700'
                     : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                 }`}
               >
@@ -161,13 +163,14 @@ export default function AgencyNotesTab({ agencyId, leadIds, leadNameMap }: Agenc
           />
           {noteError && <p className="text-xs text-red-600">{noteError}</p>}
           <div className="flex justify-end">
-            <button
+            <Button
+              variant="primary"
               type="submit"
-              disabled={addingNote || !newNoteContent.trim()}
-              className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+              disabled={!newNoteContent.trim()}
+              loading={addingNote}
             >
               {addingNote ? 'Saving…' : 'Save Note'}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
@@ -190,7 +193,7 @@ export default function AgencyNotesTab({ agencyId, leadIds, leadNameMap }: Agenc
               onClick={() => setNoteTypeFilter(nt.key)}
               className={`px-2.5 py-1 text-xs rounded-full font-medium ${
                 noteTypeFilter === nt.key
-                  ? (noteTypeColorMap[nt.key] ?? 'bg-gray-200 text-gray-700')
+                  ? 'bg-gray-200 text-gray-700'
                   : 'text-gray-500 hover:bg-gray-100'
               }`}
             >
@@ -221,9 +224,10 @@ export default function AgencyNotesTab({ agencyId, leadIds, leadNameMap }: Agenc
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${noteTypeColorMap[note.note_type] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {NOTE_TYPES.find(nt => nt.key === note.note_type)?.label ?? note.note_type}
-                      </span>
+                      <Badge
+                        label={NOTE_TYPES.find(nt => nt.key === note.note_type)?.label ?? note.note_type}
+                        color={NOTE_TYPE_COLOR[note.note_type] ?? 'gray'}
+                      />
                       <span className="text-xs text-gray-400">{note.author?.full_name ?? 'Unknown'}</span>
                       <span className="text-xs text-gray-400">·</span>
                       <span className="text-xs text-gray-400">{relativeTime(note.created_at)}</span>

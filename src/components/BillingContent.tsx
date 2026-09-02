@@ -3,8 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { 
-  Search,
+import {
   Download,
   ChevronLeft,
   ChevronRight,
@@ -18,6 +17,8 @@ import {
   Eye,
   Loader2
 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import SearchInput from '@/components/ui/SearchInput'
 
 interface Agency {
   id: string
@@ -368,13 +369,9 @@ export default function BillingContent({
     <div className="space-y-6">
       {/* Export */}
       <div className="flex justify-end">
-        <button
-          onClick={handleExportCSV}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
-        >
-          <Download className="w-4 h-4" />
+        <Button variant="primary" type="button" icon={Download} onClick={handleExportCSV}>
           Export CSV
-        </button>
+        </Button>
       </div>
 
       {/* Date Selector */}
@@ -482,16 +479,12 @@ export default function BillingContent({
 
       {/* Search Bar */}
       <div className="bg-white rounded-xl p-4 shadow-md border border-gray-100">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Search by agency name or agency ID..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white"
-          />
-        </div>
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search by agency name or agency ID..."
+          className="w-full"
+        />
       </div>
 
       {/* Agency List */}

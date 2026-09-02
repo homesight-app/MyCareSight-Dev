@@ -2,11 +2,14 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
+import { Plus, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
 import AddAgencyModal, { type AgencyAdminOption } from './AddAgencyModal'
-import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import { setAgencyStatus } from '@/app/actions/agencies'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
+import SearchInput from '@/components/ui/SearchInput'
+import StatusBadge from '@/components/ui/StatusBadge'
 
 interface Agency {
   id: string
@@ -122,21 +125,6 @@ export default function AgenciesContent({
     return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
   }
 
-  const getAdminsDisplay = (agencyAdminIds: string[]) => {
-    if (!agencyAdminIds?.length) return '—'
-    const labels = agencyAdminIds
-      .map((rawId) => {
-        const id = String(rawId)
-        const admin = agencyAdmins.find((a) => String(a.id) === id)
-        if (!admin) return null
-        const name = admin.contact_name?.trim()
-        const email = admin.contact_email?.trim()
-        return name || email || 'Agency admin'
-      })
-      .filter(Boolean) as string[]
-    return labels.length ? labels.join(', ') : '—'
-  }
-
   const formatDate = (dateStr: string) => {
     try {
       return new Date(dateStr).toLocaleDateString('en-US', {
@@ -169,52 +157,28 @@ export default function AgenciesContent({
         <div className="px-4 py-4 sm:px-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h2 className="text-lg font-semibold text-gray-900"></h2>
           {agencyAdminsForSelect.length >= 0 && (
-            <button
-              type="button"
-              onClick={() => setModalOpen(true)}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-sm"
-            >
-              <Plus className="w-4 h-4" />
+            <Button variant="primary" icon={Plus} onClick={() => setModalOpen(true)}>
               Add New Agency
-            </button>
+            </Button>
           )}
         </div>
 
         {/* Search + Filter toolbar */}
         <div className="px-4 sm:px-6 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center gap-3">
           {/* Status filter */}
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            {([
+          <Tabs
+            variant="pill"
+            items={[
               { key: 'active', label: 'Active' },
               { key: 'inactive', label: 'Inactive' },
               { key: 'all', label: 'All' },
-            ] as const).map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => handleStatusChange(key)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  statusFilter === key
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+            ]}
+            active={statusFilter}
+            onChange={handleStatusChange}
+          />
 
           {/* Search */}
-          <div className="relative flex-1 sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-            <input
-              type="search"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by name…"
-              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-            />
-          </div>
+          <SearchInput value={search} onChange={setSearch} placeholder="Search by name…" className="flex-1 sm:max-w-xs" />
         </div>
 
         {/* Table */}
@@ -281,9 +245,7 @@ export default function AgenciesContent({
                         {formatDate(agency.created_at)}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                          {isActive ? 'Active' : 'Inactive'}
-                        </span>
+                        <StatusBadge status={isActive ? 'active' : 'inactive'} />
                       </td>
                     </tr>
                   )

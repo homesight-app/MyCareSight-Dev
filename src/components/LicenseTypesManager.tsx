@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Save, X, FileText } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { createLicenseType, deleteLicenseType, type CreateLicenseTypeData } from '@/app/actions/license-types'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
@@ -152,17 +153,19 @@ export default function LicenseTypesManager({
       {/* Header with Add Button */}
       <div className="flex items-center justify-between">
         <h2 className="text-base md:text-lg font-bold text-gray-900">License Types</h2>
-        <button
+        <Button
+          variant="primary"
+          type="button"
+          icon={Plus}
+          size="sm"
           onClick={() => {
             setShowForm(!showForm)
             setError(null)
           }}
-          className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1.5 bg-blue-600 text-white text-xs md:text-sm rounded-lg hover:bg-blue-700 transition-colors"
         >
-          <Plus className="w-3 h-3 md:w-4 md:h-4" />
           <span className="hidden sm:inline">Add Type</span>
           <span className="sm:hidden">Add</span>
-        </button>
+        </Button>
       </div>
 
       {/* Error Message */}
@@ -260,24 +263,19 @@ export default function LicenseTypesManager({
             </div>
 
             <div className="flex gap-3 pt-2">
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Save className="w-4 h-4" />
+              <Button variant="primary" type="submit" disabled={isLoading} loading={isLoading} icon={Save}>
                 Save
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
                 type="button"
                 onClick={() => {
                   setShowForm(false)
                   setError(null)
                 }}
-                className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </div>

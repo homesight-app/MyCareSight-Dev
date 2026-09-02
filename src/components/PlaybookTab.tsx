@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { GripVertical, Plus, Copy, Edit2, Trash2, Download, FileText, Loader2 } from 'lucide-react'
 import PlaybookItemModal from '@/components/PlaybookItemModal'
+import Button from '@/components/ui/PrimaryButton'
 import AddPlaybookItemModal from '@/components/AddPlaybookItemModal'
 import CopyPlaybookItemModal from '@/components/CopyPlaybookItemModal'
 import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbooks'
@@ -259,20 +260,12 @@ export default function PlaybookTab({ playbookId, licenseRequirementId, initialI
               Import from existing tabs
             </button>
           )}
-          <button
-            onClick={() => setShowCopyModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-          >
-            <Copy className="w-4 h-4" />
+          <Button variant="secondary" type="button" icon={Copy} onClick={() => setShowCopyModal(true)}>
             Copy from Playbook
-          </button>
-          <button
-            onClick={openAdd}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-          >
-            <Plus className="w-4 h-4" />
+          </Button>
+          <Button variant="primary" type="button" icon={Plus} onClick={openAdd}>
             Add New Item
-          </button>
+          </Button>
         </div>
       </div>
 

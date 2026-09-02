@@ -854,7 +854,7 @@ export default function AgencyOnboardingForm({ tokenValue, agency, keyStaff }: A
           <button
             type="submit"
             disabled={isSubmitting}
-            className="inline-flex items-center gap-2 px-8 py-3 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-8 py-3 bg-brand text-white text-sm font-semibold rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50"
           >
             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
             {isSubmitting ? 'Submitting…' : 'Submit Agency Information'}

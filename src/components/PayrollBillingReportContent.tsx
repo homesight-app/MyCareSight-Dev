@@ -11,9 +11,11 @@ import {
   Pencil,
   RotateCcw,
   Save,
-  Search,
   Users,
 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
+import SearchInput from '@/components/ui/SearchInput'
 import type { PayrollBillingDetailRow } from '@/lib/payroll-billing-report'
 import {
   getPayrollBillingReportRowsAction,
@@ -329,28 +331,25 @@ export default function PayrollBillingReportContent({
                 className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
               />
             </div>
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={() => reload()}
               disabled={isPending}
-              className="mt-5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              loading={isPending}
+              className="mt-5"
             >
               Apply
-            </button>
+            </Button>
           </div>
         </div>
         <div className="w-full sm:w-80">
           <label className="block text-xs text-gray-500 mb-1">Search report</label>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Client, caregiver, service type"
-              className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900"
-            />
-          </div>
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Client, caregiver, service type"
+          />
         </div>
         {/* <button
           type="button"
@@ -362,26 +361,16 @@ export default function PayrollBillingReportContent({
         </button> */}
       </div>
 
-      <div className="inline-flex rounded-lg border border-gray-200 bg-gray-100/80 p-1">
-        {(
-          [
-            ['detail', 'Detail Report'],
-            ['payroll', 'Payroll Summary'],
-            ['billing', 'Client Billing'],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-              tab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        variant="pill"
+        active={tab}
+        onChange={(k) => setTab(k as TabKey)}
+        items={[
+          { key: 'detail', label: 'Detail Report' },
+          { key: 'payroll', label: 'Payroll Summary' },
+          { key: 'billing', label: 'Client Billing' },
+        ]}
+      />
 
       {error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
@@ -396,14 +385,14 @@ export default function PayrollBillingReportContent({
                 Approved and pending visits — {formatRangeLabel(dateFrom, dateTo)}
               </p>
             </div>
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={exportDetailCsv}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+              icon={Download}
             >
-              <Download className="h-4 w-4" />
               Export CSV
-            </button>
+            </Button>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-[1600px] w-full text-sm">
@@ -494,14 +483,14 @@ export default function PayrollBillingReportContent({
               <h2 className="text-lg font-semibold text-gray-900">Payroll Summary by Caregiver</h2>
               <p className="text-sm text-gray-500">{formatRangeLabel(dateFrom, dateTo)}</p>
             </div>
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={exportPayrollCsv}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+              icon={Download}
             >
-              <Download className="h-4 w-4" />
               Export CSV
-            </button>
+            </Button>
           </div>
           <div className="overflow-x-auto">
           <table className="min-w-[900px] w-full text-sm">
@@ -606,14 +595,14 @@ export default function PayrollBillingReportContent({
               <h2 className="text-lg font-semibold text-gray-900">Client Billing Summary</h2>
               <p className="text-sm text-gray-500">{formatRangeLabel(dateFrom, dateTo)}</p>
             </div>
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={exportBillingCsv}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+              icon={Download}
             >
-              <Download className="h-4 w-4" />
               Export CSV
-            </button>
+            </Button>
           </div>
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-600">
@@ -829,13 +818,11 @@ function RateManagerModal({
     >
       <div className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative flex-1 min-w-0">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
+          <div className="flex-1 min-w-0">
+            <SearchInput
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={setSearch}
               placeholder="Search caregiver or client..."
-              className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400"
             />
           </div>
           <div className="flex flex-wrap gap-2">
@@ -847,15 +834,16 @@ function RateManagerModal({
               <RotateCcw className="h-4 w-4" />
               Reset
             </button>
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={save}
               disabled={pending || !anyDirty}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              loading={pending}
+              icon={Save}
             >
-              <Save className="h-4 w-4" />
               Save Changes
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -867,28 +855,15 @@ function RateManagerModal({
         </div>
 
         <div className="flex justify-center">
-          <div className="inline-flex rounded-lg border border-gray-200 bg-gray-100 p-1">
-            <button
-              type="button"
-              onClick={() => setSubTab('pay')}
-              className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${
-                subTab === 'pay' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'
-              }`}
-            >
-              <Users className="h-4 w-4" />
-              Caregiver Pay Rates
-            </button>
-            <button
-              type="button"
-              onClick={() => setSubTab('bill')}
-              className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${
-                subTab === 'bill' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'
-              }`}
-            >
-              <Building2 className="h-4 w-4" />
-              Client Bill Rates
-            </button>
-          </div>
+          <Tabs
+            variant="pill"
+            active={subTab}
+            onChange={(k) => setSubTab(k as 'pay' | 'bill')}
+            items={[
+              { key: 'pay', label: 'Caregiver Pay Rates' },
+              { key: 'bill', label: 'Client Bill Rates' },
+            ]}
+          />
         </div>
 
         {loadErr ? <p className="text-sm text-red-600">{loadErr}</p> : null}
@@ -990,15 +965,16 @@ function RateManagerModal({
             >
               Close
             </button>
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={save}
               disabled={pending || !anyDirty}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              loading={pending}
+              icon={Save}
             >
-              <Save className="h-4 w-4" />
               Save Changes
-            </button>
+            </Button>
           </div>
         </div>
       </div>

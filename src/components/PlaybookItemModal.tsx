@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Modal from '@/components/Modal'
+import Button from '@/components/ui/PrimaryButton'
 import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbooks'
 import { EXPERT_STEP_PHASES } from '@/lib/constants'
 
@@ -249,7 +250,7 @@ export default function PlaybookItemModal({
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggleRule(rule.id)}
-                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand flex-shrink-0"
                     />
                     <div className="min-w-0">
                       <p className={`text-sm font-medium ${checked ? 'text-blue-800' : 'text-gray-800'}`}>
@@ -270,20 +271,10 @@ export default function PlaybookItemModal({
         )}
 
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSaving || !form.name.trim()}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isSaving ? 'Saving...' : isEdit ? 'Save Changes' : 'Add Item'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={isSaving || !form.name.trim()} loading={isSaving}>
+            {isEdit ? 'Save Changes' : 'Add Item'}
+          </Button>
         </div>
       </form>
     </Modal>

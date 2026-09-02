@@ -54,13 +54,14 @@ export default function AppSidebar({
 
       <aside
         className={`
-          bg-slate-900 transition-all duration-300
+          transition-all duration-300
           fixed top-0 left-0 bottom-0 z-50
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
           ${collapsed ? 'w-16' : 'w-64'}
           overflow-y-auto overflow-x-hidden
           flex flex-col
         `}
+        style={{ backgroundColor: 'var(--sidebar-bg, #0F172A)' }}
       >
         {/* Logo area */}
         <div className={`h-[90px] flex-shrink-0 border-b border-slate-700/50 flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'}`}>
@@ -111,7 +112,7 @@ export default function AppSidebar({
                   className={`
                     flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm
                     ${isActive
-                      ? 'bg-white/10 text-white font-semibold border-l-2 border-[#3c65b0] pl-[10px]'
+                      ? 'bg-white/10 text-white font-semibold border-l-2 border-brand pl-[10px]'
                       : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border-l-2 border-transparent pl-[10px]'
                     }
                   `}
@@ -159,7 +160,7 @@ export default function AppSidebar({
                       className={`
                         flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm
                         ${isActive
-                          ? 'bg-white/10 text-white font-semibold border-l-2 border-[#3c65b0] pl-[10px]'
+                          ? 'bg-white/10 text-white font-semibold border-l-2 border-brand pl-[10px]'
                           : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border-l-2 border-transparent pl-[10px]'
                         }
                       `}

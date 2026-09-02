@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Award, BookOpen, ClipboardList, DollarSign, Shield, Users } from 'lucide-react'
+import { Award, BookOpen, ClipboardList, DollarSign, Palette, Shield, Users } from 'lucide-react'
 
 const NAV_ITEMS = [
   {
@@ -37,6 +37,12 @@ const NAV_ITEMS = [
     label: 'Playbook Categories',
     description: 'Categories for playbooks and programs',
     icon: BookOpen,
+  },
+  {
+    key: 'branding',
+    label: 'Platform Branding',
+    description: 'Logo, colors, and sidebar appearance',
+    icon: Palette,
   },
 ]
 

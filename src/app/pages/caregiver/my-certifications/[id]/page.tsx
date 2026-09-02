@@ -2,10 +2,8 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
-import Link from 'next/link'
 import { getUnifiedCaregiverCertificationDetail } from '@/app/actions/staff-member-certifications'
-import { 
-  ArrowLeft,
+import {
   Award,
   Calendar,
   MapPin,
@@ -15,6 +13,7 @@ import {
   XCircle
 } from 'lucide-react'
 import CertificationDocumentViewer from '@/components/CertificationDocumentViewer'
+import PageHeader from '@/components/ui/PageHeader'
 
 export default async function CertificationDetailPage({
   params
@@ -121,23 +120,15 @@ export default async function CertificationDetailPage({
 
   return (
     <div className="space-y-5 mt-20">
-        {/* Back Button */}
-        <Link
-          href={isApplication ? "/pages/caregiver" : "/pages/caregiver/my-certifications"}
-          className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          {isApplication ? "Back to Dashboard" : "Back to Certifications"}
-        </Link>
-
-        {/* Header — match My Care Visits page title scale */}
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{certification.type}</h1>
-            <p className="text-sm text-gray-600">Certification Details</p>
-          </div>
-          {getStatusBadge(certification.status, certification.expiration_date)}
-        </div>
+        <PageHeader
+          title={certification.type}
+          subtitle="Certification Details"
+          back={{
+            href: isApplication ? '/pages/caregiver' : '/pages/caregiver/my-certifications',
+            label: isApplication ? 'Back to Dashboard' : 'Back to Certifications',
+          }}
+          actions={getStatusBadge(certification.status, certification.expiration_date)}
+        />
 
         {/* Main Content Card */}
         <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6">

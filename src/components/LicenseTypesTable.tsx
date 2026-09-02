@@ -1,8 +1,12 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Search, Filter, MapPin, DollarSign, Clock, Calendar, Plus, FileText } from 'lucide-react'
+import { Filter, MapPin, DollarSign, Clock, Calendar, Plus, FileText } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
+import SearchInput from '@/components/ui/SearchInput'
+import StatusBadge from '@/components/ui/StatusBadge'
 import AddLicenseTypeModal from './AddLicenseTypeModal'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
@@ -129,32 +133,20 @@ export default function LicenseTypesTable({ licenseTypes }: LicenseTypesTablePro
       <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           {/* Active/Inactive tabs */}
-          <div className="flex gap-1 bg-gray-100 p-1 rounded-lg self-start">
-            <button
-              type="button"
-              onClick={() => handleTabChange('active')}
-              aria-pressed={licenseTab === 'active'}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${licenseTab === 'active' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Active
-            </button>
-            <button
-              type="button"
-              onClick={() => handleTabChange('inactive')}
-              aria-pressed={licenseTab === 'inactive'}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${licenseTab === 'inactive' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Inactive{inactiveCount > 0 ? ` (${inactiveCount})` : ''}
-            </button>
-          </div>
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search by name, state, or description…"
+          <Tabs
+            variant="pill"
+            items={[
+              { key: 'active', label: 'Active' },
+              { key: 'inactive', label: 'Inactive', count: inactiveCount > 0 ? inactiveCount : undefined },
+            ]}
+            active={licenseTab}
+            onChange={(key) => handleTabChange(key as LicenseTabKey)}
+          />
+          <div className="flex-1">
+            <SearchInput
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white"
+              onChange={setSearchQuery}
+              placeholder="Search by name, state, or description…"
             />
           </div>
           <button className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-center">
@@ -168,13 +160,9 @@ export default function LicenseTypesTable({ licenseTypes }: LicenseTypesTablePro
             <option>All States</option>
             {allStates.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm font-medium whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
+          <Button variant="primary" type="button" icon={Plus} onClick={() => setShowAddModal(true)}>
             Add Type
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -255,9 +243,7 @@ export default function LicenseTypesTable({ licenseTypes }: LicenseTypesTablePro
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${lt.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {lt.is_active ? 'Active' : 'Inactive'}
-                      </span>
+                      <StatusBadge status={lt.is_active ? 'active' : 'inactive'} />
                     </td>
                   </tr>
                 ))}

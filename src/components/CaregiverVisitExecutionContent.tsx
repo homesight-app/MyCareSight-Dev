@@ -5,9 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft,
   Calendar,
-  CheckSquare,
   Clock3,
-  FileText,
   Loader2,
   LogIn,
   MapPin,
@@ -18,6 +16,8 @@ import {
 import type { CaregiverVisitExecutionDTO } from '@/lib/caregiver-visit-execution'
 import { MY_CARE_VISITS_TAB_STORAGE_KEY } from '@/lib/caregiver-care-visits'
 import Modal from '@/components/Modal'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
 import {
   caregiverClockInAction,
   caregiverClockOutAction,
@@ -282,23 +282,23 @@ export default function CaregiverVisitExecutionContent({ initial }: Props) {
             </div>
           )}
           <div className="flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={() => setClockModalOpen(false)}
               disabled={clockPending}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-60"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="button"
               onClick={runClockConfirm}
               disabled={clockPending}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+              icon={LogIn}
             >
-              <LogIn className="h-4 w-4" aria-hidden />
               {clockModalMode === 'in' ? 'Confirm Clock In' : 'Confirm Clock Out'}
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
@@ -332,25 +332,25 @@ export default function CaregiverVisitExecutionContent({ initial }: Props) {
           <Signal className="h-5 w-5 text-emerald-600" aria-label="Connected" />
           {!visitDone && initial.canExecute ? (
             clockedIn ? (
-              <button
+              <Button
+                variant="primary"
                 type="button"
                 onClick={openClockOutModal}
                 disabled={clockPending}
-                className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                icon={LogIn}
               >
-                <LogIn className="h-4 w-4" aria-hidden />
                 Clock Out
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
+                variant="primary"
                 type="button"
                 onClick={openClockInModal}
                 disabled={clockPending}
-                className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                icon={LogIn}
               >
-                <LogIn className="h-4 w-4" aria-hidden />
                 Clock In
-              </button>
+              </Button>
             )
           ) : null}
         </div>
@@ -416,30 +416,15 @@ export default function CaregiverVisitExecutionContent({ initial }: Props) {
         </div>
       </div>
 
-      <div className="border-b border-gray-200">
-        <div className="flex gap-6">
-          <button
-            type="button"
-            onClick={() => setTab('tasks')}
-            className={`flex items-center gap-2 border-b-2 px-1 pb-3 text-sm font-medium ${
-              tab === 'tasks' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <CheckSquare className="h-4 w-4" aria-hidden />
-            Tasks ({completedCount}/{totalCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('notes')}
-            className={`flex items-center gap-2 border-b-2 px-1 pb-3 text-sm font-medium ${
-              tab === 'notes' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <FileText className="h-4 w-4" aria-hidden />
-            Notes
-          </button>
-        </div>
-      </div>
+      <Tabs
+        variant="underline"
+        items={[
+          { key: 'tasks', label: `Tasks (${completedCount}/${totalCount})` },
+          { key: 'notes', label: 'Notes' },
+        ]}
+        active={tab}
+        onChange={(k) => setTab(k as typeof tab)}
+      />
 
       {tab === 'tasks' ? (
         <div className="space-y-3">
@@ -454,7 +439,7 @@ export default function CaregiverVisitExecutionContent({ initial }: Props) {
                     checked={task.completed}
                     disabled={!clockedIn || visitDone || !initial.canExecute}
                     onChange={(e) => toggleTask(task.id, e.target.checked)}
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold text-gray-900">{task.name}</div>
@@ -500,14 +485,14 @@ export default function CaregiverVisitExecutionContent({ initial }: Props) {
             {!clockInAt ? <p className="mt-2 text-sm text-gray-500">Clock in to add visit notes.</p> : null}
           </div>
           <div className="flex justify-end">
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={saveNotes}
               disabled={notesSavePending || !clockInAt || !notesDirty}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
               Save notes
-            </button>
+            </Button>
           </div>
         </div>
       )}

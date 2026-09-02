@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import ClientCardMenu from './ClientCardMenu'
 import { fetchFilteredAgencyAdminsAction } from '@/app/actions/admin-list-filters'
 import {
-  Search,
   Filter,
   Mail,
   User,
@@ -15,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
+import SearchInput from '@/components/ui/SearchInput'
 
 interface Client {
   id: string
@@ -176,14 +176,11 @@ export default function ClientListWithFilters({
     <>
       <div className="bg-white rounded-xl p-4 shadow-md border border-gray-100">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search Agency Admins by name,or email..."
+          <div className="flex-1">
+            <SearchInput
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white"
+              onChange={setSearchInput}
+              placeholder="Search Agency Admins by name, or email..."
             />
           </div>
           <button className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-center">

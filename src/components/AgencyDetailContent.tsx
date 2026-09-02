@@ -26,7 +26,6 @@ import {
   ChevronsUpDown,
   TrendingUp,
   ExternalLink,
-  Search,
   MessageSquare,
   StickyNote,
   Eye,
@@ -54,6 +53,10 @@ import Modal from './Modal'
 import type { OnboardingToken, AgencyKeyStaff } from '@/lib/supabase/query'
 import { formatDateShort } from '@/lib/format-date'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
+import Button from '@/components/ui/PrimaryButton'
+import StatusBadge from '@/components/ui/StatusBadge'
+import Tabs from '@/components/ui/Tabs'
+import SearchInput from '@/components/ui/SearchInput'
 
 interface Agency {
   id: string
@@ -281,12 +284,6 @@ type OrgFormState = {
   licensedSameAsPhysical: boolean
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  active: 'bg-green-100 text-green-700',
-  expiring: 'bg-orange-100 text-orange-700',
-  expired: 'bg-red-100 text-red-700',
-}
-
 type AgencySection = 'business' | 'addresses' | 'tax' | 'contacts' | 'additional' | 'plan_access'
 
 const US_STATES = [
@@ -334,7 +331,7 @@ function Field({ label, value, isEditing, onChange, className }: FieldProps) {
           type="text"
           value={value}
           onChange={e => onChange(e.target.value)}
-          className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+          className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus-visible:ring-brand focus:border-transparent outline-none"
         />
       ) : (
         <p className="text-sm text-gray-900">{value || '—'}</p>
@@ -715,7 +712,7 @@ export default function AgencyDetailContent({
                   href={agency.website.startsWith('http') ? agency.website : `https://${agency.website}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
+                  className="text-brand hover:underline"
                 >
                   {agency.website}
                 </a>
@@ -749,8 +746,9 @@ export default function AgencyDetailContent({
 
       {/* Tab bar */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
-        <div className="flex border-b border-gray-200">
-          {([
+        <Tabs
+          variant="underline"
+          items={[
             { key: 'licenses', label: 'Certifications' },
             { key: 'leads', label: `Leads${agencyLeads.length > 0 ? ` (${agencyLeads.length})` : ''}` },
             { key: 'organization', label: 'Organization' },
@@ -758,27 +756,17 @@ export default function AgencyDetailContent({
             { key: 'caregivers', label: 'Caregivers' },
             { key: 'notes', label: 'Notes' },
             { key: 'documents', label: 'Documents' },
-          ] as const).map(({ key: tab, label }) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => {
-                setActiveTab(tab)
-                if (tab === 'people') setPeopleTabActivated(true)
-                if (tab === 'caregivers') setCaregiversTabActivated(true)
-                if (tab === 'notes') setNotesTabActivated(true)
-                if (tab === 'documents') setDocumentsTabActivated(true)
-              }}
-              className={`px-6 py-3 text-sm font-medium transition-colors ${
-                activeTab === tab
-                  ? 'border-b-2 border-blue-600 text-blue-700'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+          ]}
+          active={activeTab}
+          onChange={(key) => {
+            const tab = key as typeof activeTab
+            setActiveTab(tab)
+            if (tab === 'people') setPeopleTabActivated(true)
+            if (tab === 'caregivers') setCaregiversTabActivated(true)
+            if (tab === 'notes') setNotesTabActivated(true)
+            if (tab === 'documents') setDocumentsTabActivated(true)
+          }}
+        />
       </div>
 
       {/* Licenses tab */}
@@ -817,21 +805,16 @@ export default function AgencyDetailContent({
                 <h2 className="text-base font-semibold text-gray-900">Certifications</h2>
               </div>
               <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-                  <input
-                    type="search"
-                    value={licSearch}
-                    onChange={e => setLicSearch(e.target.value)}
-                    placeholder="Search…"
-                    className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none w-44"
-                  />
-                </div>
+                <SearchInput
+                  value={licSearch}
+                  onChange={setLicSearch}
+                  placeholder="Search…"
+                />
                 <div className="relative">
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-                    className="appearance-none pl-3 pr-7 py-1.5 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+                    className="appearance-none pl-3 pr-7 py-1.5 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 focus:ring-2 focus-visible:ring-brand outline-none cursor-pointer"
                   >
                     <option value="all">All Statuses</option>
                     <option value="active">Active</option>
@@ -840,33 +823,26 @@ export default function AgencyDetailContent({
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
                 </div>
-                <button
+                <Button
+                  variant="primary"
                   type="button"
+                  icon={Plus}
+                  size="sm"
                   onClick={() => setAddLicenseOpen(true)}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
                 >
-                  <Plus className="w-4 h-4" />
                   Add Certification
-                </button>
+                </Button>
               </div>
             </div>
 
             {/* Category filter pills */}
-            <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap gap-1.5">
-              {certCategories.map(cat => (
-                <button
-                  key={cat.value}
-                  type="button"
-                  onClick={() => setCertCatFilter(cat.value)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                    certCatFilter === cat.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {cat.label}
-                </button>
-              ))}
+            <div className="px-6 py-3 border-b border-gray-100">
+              <Tabs
+                variant="pill"
+                items={certCategories.map(cat => ({ key: cat.value, label: cat.label }))}
+                active={certCatFilter}
+                onChange={(key) => setCertCatFilter(key)}
+              />
             </div>
 
             {licenses.length === 0 ? (
@@ -931,15 +907,9 @@ export default function AgencyDetailContent({
                           {formatDateShort(license.expiry_date)}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
-                              STATUS_COLORS[license.status] ?? 'bg-gray-100 text-gray-600'
-                            }`}
-                          >
-                            {isExpiringSoon(license.expiry_date) && license.status === 'active'
-                              ? 'Expiring Soon'
-                              : license.status}
-                          </span>
+                          <StatusBadge
+                            status={isExpiringSoon(license.expiry_date) && license.status === 'active' ? 'expiring_soon' : license.status}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -957,21 +927,16 @@ export default function AgencyDetailContent({
                 <h2 className="text-base font-semibold text-gray-900">Programs</h2>
               </div>
               <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-                  <input
-                    type="search"
-                    value={programSearch}
-                    onChange={e => setProgramSearch(e.target.value)}
-                    placeholder="Search…"
-                    className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none w-44"
-                  />
-                </div>
+                <SearchInput
+                  value={programSearch}
+                  onChange={setProgramSearch}
+                  placeholder="Search…"
+                />
                 <div className="relative">
                   <select
                     value={programStatusFilter}
                     onChange={e => setProgramStatusFilter(e.target.value)}
-                    className="appearance-none pl-3 pr-7 py-1.5 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+                    className="appearance-none pl-3 pr-7 py-1.5 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 focus:ring-2 focus-visible:ring-brand outline-none cursor-pointer"
                   >
                     <option value="all">All Statuses</option>
                     {programStatuses.map(s => (
@@ -985,6 +950,7 @@ export default function AgencyDetailContent({
                   agencyName={agency.name}
                   label="New Program"
                   programsOnly
+                  size="sm"
                 />
               </div>
             </div>
@@ -1066,7 +1032,7 @@ export default function AgencyDetailContent({
                             <div className="flex items-center gap-2 min-w-[120px]">
                               <div className="flex-1 bg-gray-200 rounded-full h-1.5">
                                 <div
-                                  className="bg-blue-600 h-1.5 rounded-full transition-all"
+                                  className="bg-brand h-1.5 rounded-full transition-all"
                                   style={{ width: `${pct}%` }}
                                 />
                               </div>
@@ -1111,7 +1077,7 @@ export default function AgencyDetailContent({
                   }}
                   className={`flex items-center w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     activeSection === s.id
-                      ? 'bg-blue-50 text-blue-700'
+                      ? 'bg-brand-subtle text-brand'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   }`}
                 >
@@ -1132,16 +1098,12 @@ export default function AgencyDetailContent({
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-base font-semibold text-gray-900">Business Information</h3>
                     {canEdit && editingSection !== 'business' && (
-                      <button type="button" onClick={() => setEditingSection('business')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                        <Pencil className="w-3.5 h-3.5" />Edit
-                      </button>
+                      <Button variant="secondary" size="sm" type="button" icon={Pencil} onClick={() => setEditingSection('business')}>Edit</Button>
                     )}
                     {canEdit && editingSection === 'business' && (
                       <div className="flex items-center gap-3">
-                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
-                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
-                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
-                        </button>
+                        <Button variant="secondary" type="button" size="sm" onClick={handleCancel}>Cancel</Button>
+                        <Button variant="primary" type="button" size="sm" onClick={handleSave} loading={isSaving}>Save</Button>
                       </div>
                     )}
                   </div>
@@ -1152,7 +1114,7 @@ export default function AgencyDetailContent({
                     {editingSection === 'business' ? (
                       <div>
                         <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Entity Type</label>
-                        <select value={orgForm.entityType} onChange={e => setOrgForm(f => ({ ...f, entityType: e.target.value }))} className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
+                        <select value={orgForm.entityType} onChange={e => setOrgForm(f => ({ ...f, entityType: e.target.value }))} className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus-visible:ring-brand focus:border-transparent outline-none">
                           <option value="">— Select —</option>
                           {ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
@@ -1169,7 +1131,7 @@ export default function AgencyDetailContent({
                     {editingSection === 'business' ? (
                       <div>
                         <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">State of Incorporation</label>
-                        <select value={orgForm.stateOfIncorporation} onChange={e => setOrgForm(f => ({ ...f, stateOfIncorporation: e.target.value }))} className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
+                        <select value={orgForm.stateOfIncorporation} onChange={e => setOrgForm(f => ({ ...f, stateOfIncorporation: e.target.value }))} className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus-visible:ring-brand focus:border-transparent outline-none">
                           <option value="">— Select State —</option>
                           {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
@@ -1190,16 +1152,12 @@ export default function AgencyDetailContent({
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-base font-semibold text-gray-900">Addresses</h3>
                     {canEdit && editingSection !== 'addresses' && (
-                      <button type="button" onClick={() => setEditingSection('addresses')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                        <Pencil className="w-3.5 h-3.5" />Edit
-                      </button>
+                      <Button variant="secondary" size="sm" type="button" icon={Pencil} onClick={() => setEditingSection('addresses')}>Edit</Button>
                     )}
                     {canEdit && editingSection === 'addresses' && (
                       <div className="flex items-center gap-3">
-                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
-                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
-                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
-                        </button>
+                        <Button variant="secondary" type="button" size="sm" onClick={handleCancel}>Cancel</Button>
+                        <Button variant="primary" type="button" size="sm" onClick={handleSave} loading={isSaving}>Save</Button>
                       </div>
                     )}
                   </div>
@@ -1219,7 +1177,7 @@ export default function AgencyDetailContent({
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Office Address (Licensed)</p>
                       {editingSection === 'addresses' && (
                         <label className="flex items-center gap-2 mb-3 text-sm text-gray-700 cursor-pointer select-none">
-                          <input type="checkbox" checked={orgForm.licensedSameAsPhysical} onChange={e => setOrgForm(f => ({ ...f, licensedSameAsPhysical: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                          <input type="checkbox" checked={orgForm.licensedSameAsPhysical} onChange={e => setOrgForm(f => ({ ...f, licensedSameAsPhysical: e.target.checked }))} className="rounded border-gray-300 text-brand focus:ring-brand" />
                           Same as corporate address
                         </label>
                       )}
@@ -1239,7 +1197,7 @@ export default function AgencyDetailContent({
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Mailing Address</p>
                       {editingSection === 'addresses' && (
                         <label className="flex items-center gap-2 mb-3 text-sm text-gray-700 cursor-pointer select-none">
-                          <input type="checkbox" checked={orgForm.sameAsPhysical} onChange={e => setOrgForm(f => ({ ...f, sameAsPhysical: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                          <input type="checkbox" checked={orgForm.sameAsPhysical} onChange={e => setOrgForm(f => ({ ...f, sameAsPhysical: e.target.checked }))} className="rounded border-gray-300 text-brand focus:ring-brand" />
                           Same as corporate address
                         </label>
                       )}
@@ -1264,16 +1222,12 @@ export default function AgencyDetailContent({
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-base font-semibold text-gray-900">Tax Information</h3>
                     {canEdit && editingSection !== 'tax' && (
-                      <button type="button" onClick={() => setEditingSection('tax')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                        <Pencil className="w-3.5 h-3.5" />Edit
-                      </button>
+                      <Button variant="secondary" size="sm" type="button" icon={Pencil} onClick={() => setEditingSection('tax')}>Edit</Button>
                     )}
                     {canEdit && editingSection === 'tax' && (
                       <div className="flex items-center gap-3">
-                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
-                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
-                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
-                        </button>
+                        <Button variant="secondary" type="button" size="sm" onClick={handleCancel}>Cancel</Button>
+                        <Button variant="primary" type="button" size="sm" onClick={handleSave} loading={isSaving}>Save</Button>
                       </div>
                     )}
                   </div>
@@ -1298,7 +1252,7 @@ export default function AgencyDetailContent({
                     {editingSection === 'tax' ? (
                       <>
                         <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                          <input type="checkbox" checked={orgForm.previouslyLicensed} onChange={e => setOrgForm(f => ({ ...f, previouslyLicensed: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                          <input type="checkbox" checked={orgForm.previouslyLicensed} onChange={e => setOrgForm(f => ({ ...f, previouslyLicensed: e.target.checked }))} className="rounded border-gray-300 text-brand focus:ring-brand" />
                           Previously licensed
                         </label>
                         {orgForm.previouslyLicensed && (
@@ -1325,16 +1279,12 @@ export default function AgencyDetailContent({
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-base font-semibold text-gray-900">Contacts</h3>
                     {canEdit && editingSection !== 'contacts' && (
-                      <button type="button" onClick={() => setEditingSection('contacts')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                        <Pencil className="w-3.5 h-3.5" />Edit
-                      </button>
+                      <Button variant="secondary" size="sm" type="button" icon={Pencil} onClick={() => setEditingSection('contacts')}>Edit</Button>
                     )}
                     {canEdit && editingSection === 'contacts' && (
                       <div className="flex items-center gap-3">
-                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
-                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
-                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
-                        </button>
+                        <Button variant="secondary" type="button" size="sm" onClick={handleCancel}>Cancel</Button>
+                        <Button variant="primary" type="button" size="sm" onClick={handleSave} loading={isSaving}>Save</Button>
                       </div>
                     )}
                   </div>
@@ -1350,7 +1300,7 @@ export default function AgencyDetailContent({
                   <div className="mt-3">
                     {editingSection === 'contacts' ? (
                       <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                        <input type="checkbox" checked={orgForm.isOnCall} onChange={e => setOrgForm(f => ({ ...f, isOnCall: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        <input type="checkbox" checked={orgForm.isOnCall} onChange={e => setOrgForm(f => ({ ...f, isOnCall: e.target.checked }))} className="rounded border-gray-300 text-brand focus:ring-brand" />
                         Agency provides on-call services
                       </label>
                     ) : (
@@ -1369,16 +1319,12 @@ export default function AgencyDetailContent({
                   <div className="flex items-center justify-between">
                     <h3 className="text-base font-semibold text-gray-900">Additional Details</h3>
                     {canEdit && editingSection !== 'additional' && (
-                      <button type="button" onClick={() => setEditingSection('additional')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                        <Pencil className="w-3.5 h-3.5" />Edit
-                      </button>
+                      <Button variant="secondary" size="sm" type="button" icon={Pencil} onClick={() => setEditingSection('additional')}>Edit</Button>
                     )}
                     {canEdit && editingSection === 'additional' && (
                       <div className="flex items-center gap-3">
-                        <button type="button" onClick={handleCancel} className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
-                        <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
-                          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
-                        </button>
+                        <Button variant="secondary" type="button" size="sm" onClick={handleCancel}>Cancel</Button>
+                        <Button variant="primary" type="button" size="sm" onClick={handleSave} loading={isSaving}>Save</Button>
                       </div>
                     )}
                   </div>
@@ -1417,9 +1363,11 @@ export default function AgencyDetailContent({
                             ))}
                           </select>
                           {canEdit && (
-                            <button
+                            <Button
+                              variant="primary"
                               type="button"
-                              disabled={planSaving}
+                              size="sm"
+                              loading={planSaving}
                               onClick={() => {
                                 setPlanSaveError(null)
                                 startPlanSave(async () => {
@@ -1427,10 +1375,10 @@ export default function AgencyDetailContent({
                                   if (result.error) setPlanSaveError(result.error)
                                 })
                               }}
-                              className="px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                              className="whitespace-nowrap"
                             >
                               {planSaving ? 'Saving…' : 'Save'}
-                            </button>
+                            </Button>
                           )}
                         </div>
                         {planSaveError && <p className="text-sm text-red-600 mt-2">{planSaveError}</p>}

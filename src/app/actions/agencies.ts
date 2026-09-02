@@ -513,3 +513,96 @@ export async function deleteAgencyDocumentAction(agencyId: string, docId: string
   revalidateAgencyDetailPages()
   return { error: null }
 }
+
+// ─── Agency Branding ─────────────────────────────────────────────────────────
+
+function agencyBrandingPublicUrl(path: string | null | undefined): string | null {
+  if (!path) return null
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!supabaseUrl) return null
+  return `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET.AGENCY_PUBLIC}/${path}`
+}
+
+export async function getAgencyBrandingAction(agencyId: string) {
+  const supabase = await createClient()
+  const { data } = await q.getAgencyBranding(supabase, agencyId)
+  return {
+    logoUrl: agencyBrandingPublicUrl(data?.logo_path),
+    logoIconUrl: agencyBrandingPublicUrl(data?.logo_icon_path),
+    primaryColor: data?.primary_color ?? null,
+    sidebarColor: data?.sidebar_color ?? null,
+  }
+}
+
+export async function updateAgencyBrandingAction(
+  agencyId: string,
+  payload: { primaryColor: string; sidebarColor: string }
+): Promise<{ success: boolean; error: string | null }> {
+  const supabase = await createClient()
+  const { error } = await q.updateAgencyBrandingColors(supabase, agencyId, {
+    primary_color: payload.primaryColor,
+    sidebar_color: payload.sidebarColor,
+  })
+  if (error) return { success: false, error: (error as { message?: string }).message ?? 'Failed to save' }
+  revalidatePath('/pages/agency', 'layout')
+  revalidatePath('/pages/caregiver', 'layout')
+  return { success: true, error: null }
+}
+
+export async function uploadAgencyLogoAction(
+  agencyId: string,
+  formData: FormData,
+  variant: 'full' | 'icon'
+): Promise<{ url: string | null; error: string | null }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { url: null, error: 'Unauthorized' }
+
+  const file = formData.get('file') as File | null
+  if (!file || file.size === 0) return { url: null, error: 'No file provided' }
+  if (!file.type.startsWith('image/')) return { url: null, error: 'File must be an image' }
+  if (file.size > 5 * 1024 * 1024) return { url: null, error: 'File must be under 5MB' }
+
+  const colKey = variant === 'full' ? 'logo_path' : 'logo_icon_path'
+  const pathPrefix = variant === 'full' ? 'logo' : 'logo-icon'
+
+  const adminSupabase = createAdminClient()
+  const { data: existing } = await q.getAgencyBranding(supabase, agencyId)
+  const oldPath = existing?.[colKey]
+  if (oldPath) {
+    await adminSupabase.storage.from(STORAGE_BUCKET.AGENCY_PUBLIC).remove([oldPath])
+  }
+
+  const ext = file.name.split('.').pop() || 'png'
+  const path = `${agencyId}/${pathPrefix}.${ext}`
+
+  const { error: uploadError } = await adminSupabase.storage
+    .from(STORAGE_BUCKET.AGENCY_PUBLIC)
+    .upload(path, file, { upsert: true, contentType: file.type })
+  if (uploadError) return { url: null, error: uploadError.message }
+
+  await supabase.from('agencies').update({ [colKey]: path }).eq('id', agencyId)
+
+  revalidatePath('/pages/agency', 'layout')
+  revalidatePath('/pages/caregiver', 'layout')
+
+  return { url: agencyBrandingPublicUrl(path), error: null }
+}
+
+export async function resetAgencyBrandingAction(agencyId: string): Promise<{ success: boolean; error: string | null }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Unauthorized' }
+
+  const adminSupabase = createAdminClient()
+  const { data: existing } = await q.getAgencyBranding(supabase, agencyId)
+  const pathsToRemove = [existing?.logo_path, existing?.logo_icon_path].filter(Boolean) as string[]
+  if (pathsToRemove.length > 0) {
+    await adminSupabase.storage.from(STORAGE_BUCKET.AGENCY_PUBLIC).remove(pathsToRemove)
+  }
+
+  await q.clearAgencyBranding(supabase, agencyId)
+  revalidatePath('/pages/agency', 'layout')
+  revalidatePath('/pages/caregiver', 'layout')
+  return { success: true, error: null }
+}

@@ -16,6 +16,7 @@ import {
   User,
   XCircle,
 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import Modal from './Modal'
 import DeclineAssignmentModal from './DeclineAssignmentModal'
 import InternalNotesPanel from './InternalNotesPanel'
@@ -623,14 +624,14 @@ export default function VisitManagementContent({
                           ) : null}
                           {!isPastVisit && !isLockedStatus ? (
                             <>
-                              <button
+                              <Button
+                                variant="primary"
                                 type="button"
                                 disabled={pendingActionKey === `assign:${visit.id}`}
                                 onClick={() => void openReassignModal(visit)}
-                                className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
                               >
                                 {visit.caregiverId ? 'Reassign' : 'Assign'}
-                              </button>
+                              </Button>
                               {visit.caregiverId ? (
                                 <button
                                   type="button"
@@ -998,7 +999,7 @@ export default function VisitManagementContent({
             {detailVisit.status !== 'completed' && detailVisit.status !== 'missed' && !isPastVisitDate(detailVisit.date) ? (
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setMissVisit(detailVisit)} className="rounded-lg border border-orange-200 text-orange-700 px-3 py-2 text-sm font-medium hover:bg-orange-50">Mark Missed</button>
-                <button type="button" onClick={() => void openReassignModal(detailVisit)} className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-medium hover:bg-blue-700">{detailVisit.caregiverId ? 'Reassign Caregiver' : 'Assign Caregiver'}</button>
+                <Button variant="primary" type="button" onClick={() => void openReassignModal(detailVisit)}>{detailVisit.caregiverId ? 'Reassign Caregiver' : 'Assign Caregiver'}</Button>
               </div>
             ) : null}
             {canManageNotes && agencyId && (

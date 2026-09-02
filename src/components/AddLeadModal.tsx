@@ -12,6 +12,7 @@ import { formatUSPhone } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
 import EmailInput from '@/components/ui/EmailInput'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
+import Button from '@/components/ui/PrimaryButton'
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
@@ -637,21 +638,22 @@ export default function AddLeadModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
-          <button
+          <Button
+            variant="secondary"
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+            loading={isSubmitting}
           >
-            {isSubmitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Lead'}
-          </button>
+            {isEdit ? 'Save Changes' : 'Add Lead'}
+          </Button>
         </div>
       </form>
     </Modal>

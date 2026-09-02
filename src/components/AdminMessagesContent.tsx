@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
-import { MessageSquare, Search, Paperclip, Send, Check } from 'lucide-react'
+import { MessageSquare, Paperclip, Send, Check } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import SearchInput from '@/components/ui/SearchInput'
 
 interface Conversation {
   id: string
@@ -264,16 +266,7 @@ export default function AdminMessagesContent({
         </div>
         
         <div className="p-3 md:p-4 border-b border-gray-200">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-3 h-3 md:w-4 md:h-4" />
-            <input
-              type="text"
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 md:pl-10 pr-4 py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
+          <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Search conversations..." />
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -290,7 +283,7 @@ export default function AdminMessagesContent({
                     key={conv.id}
                     onClick={() => handleSelectConversation(conv.id)}
                     className={`p-3 md:p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
-                      isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : ''
+                      isSelected ? 'bg-brand-subtle border-l-4 border-brand' : ''
                     }`}
                   >
                     <div className="flex items-start gap-2 md:gap-3">
@@ -380,7 +373,7 @@ export default function AdminMessagesContent({
                         <div
                           className={`p-3 rounded-lg ${
                             isOwn
-                              ? 'bg-blue-600 text-white'
+                              ? 'bg-brand text-white'
                               : 'bg-gray-100 text-gray-900'
                           }`}
                         >
@@ -393,7 +386,7 @@ export default function AdminMessagesContent({
                         )}
                       </div>
                       {isOwn && (
-                        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                        <div className="w-8 h-8 bg-brand rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                           {getInitials('You')}
                         </div>
                       )}
@@ -433,14 +426,14 @@ export default function AdminMessagesContent({
                   placeholder="Type your message..."
                   className="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <button
+                <Button
+                  variant="primary"
                   onClick={handleSendMessage}
                   disabled={!messageContent.trim() || sending}
-                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
+                  icon={Send}
                 >
-                  <Send className="w-4 h-4" />
                   Send
-                </button>
+                </Button>
               </div>
             </div>
           </>

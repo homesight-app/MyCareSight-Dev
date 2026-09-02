@@ -6,9 +6,11 @@ import ConfigPricingSection from '@/components/ConfigPricingSection'
 import ConfigLicenseSection from '@/components/ConfigLicenseSection'
 import ConfigurableListSection from '@/components/ConfigurableListSection'
 import SystemListsManagement from '@/components/SystemListsManagement'
+import ConfigBrandingSection from '@/components/ConfigBrandingSection'
 import { getCurrentPricing } from '@/app/actions/pricing'
 import { getCachedLicenseTypesForConfiguration } from '@/lib/server-cache/reference-lists'
 import { getConfigurationValues } from '@/app/actions/configuration-values'
+import { getSystemBranding } from '@/app/actions/system-settings'
 import {
   getSkilledTasks,
   getNonSkilledTasks,
@@ -23,6 +25,7 @@ const VALID_SECTIONS = [
   'staff-roles',
   'task-catalog',
   'playbook-categories',
+  'branding',
 ] as const
 
 type Section = (typeof VALID_SECTIONS)[number]
@@ -135,6 +138,20 @@ async function ConfigurationSectionContent({ section }: { section: Section }) {
           }
         />
       </div>
+    )
+  }
+
+  if (section === 'branding') {
+    const branding = await getSystemBranding()
+    return (
+      <ConfigBrandingSection
+        initialValues={{
+          logoUrl: branding.logoUrl,
+          logoIconUrl: branding.logoIconUrl,
+          primaryColor: branding.primaryColor,
+          sidebarColor: branding.sidebarColor,
+        }}
+      />
     )
   }
 

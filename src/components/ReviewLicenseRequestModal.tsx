@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Modal from './Modal'
-import { Heart, Users, MapPin, DollarSign, Clock, RefreshCw, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react'
+import { Heart, Users, MapPin, DollarSign, Clock, RefreshCw, CheckCircle2, ArrowRight } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { LicenseType } from '@/types/license'
@@ -213,30 +214,20 @@ export default function ReviewLicenseRequestModal({
 
         {/* Action Buttons */}
         <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-          <button
-            onClick={onBack}
-            disabled={isLoading}
-            className="px-6 py-2.5 text-gray-700 font-medium rounded-xl border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <Button variant="secondary" type="button" onClick={onBack} disabled={isLoading}>
             Back to License Types
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            type="button"
+            icon={ArrowRight}
+            iconPosition="right"
             onClick={handleSubmit}
             disabled={isLoading}
-            className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            loading={isLoading}
           >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Submitting...
-              </>
-            ) : (
-              <>
-                Submit License Request
-                <ArrowRight className="w-4 h-4" />
-              </>
-            )}
-          </button>
+            Submit License Request
+          </Button>
         </div>
       </div>
     </Modal>

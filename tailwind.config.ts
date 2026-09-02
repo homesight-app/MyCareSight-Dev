@@ -15,12 +15,9 @@ const config: Config = {
           'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
       },
       colors: {
-        brand: {
-          navy: '#0F172A',
-          green: '#22C55E',
-          'green-dark': '#16A34A',
-          blue: '#2563EB',
-        },
+        brand: 'var(--brand)',
+        'brand-hover': 'var(--brand-hover)',
+        'brand-subtle': 'var(--brand-subtle)',
       },
     },
   },

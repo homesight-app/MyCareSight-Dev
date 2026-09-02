@@ -2,10 +2,11 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, Clock, AlertCircle, Circle, Search, ChevronRight, ChevronLeft, BookOpen, Eye, Loader2, X, ChevronDown } from 'lucide-react'
+import { CheckCircle2, Clock, AlertCircle, Circle, ChevronRight, ChevronLeft, BookOpen, Eye, Loader2, X, ChevronDown } from 'lucide-react'
 import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import { cancelProgramRequest } from '@/app/actions/applications'
+import SearchInput from '@/components/ui/SearchInput'
 
 type Status = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
 
@@ -159,14 +160,11 @@ export default function AgencyProgramsContent({
       )}
 
       {/* Search */}
-      <div className="relative mb-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-        <input
-          type="search"
+      <div className="mb-4 w-full sm:max-w-xs">
+        <SearchInput
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={setSearch}
           placeholder="Search by application name…"
-          className="w-full sm:max-w-xs pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
         />
       </div>
 
@@ -216,7 +214,7 @@ export default function AgencyProgramsContent({
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden flex-shrink-0">
-                          <div className="h-full bg-blue-600 rounded-full" style={{ width: `${prog.pct}%` }} />
+                          <div className="h-full bg-brand rounded-full" style={{ width: `${prog.pct}%` }} />
                         </div>
                         <span className="text-xs text-gray-500">{prog.pct}%</span>
                       </div>

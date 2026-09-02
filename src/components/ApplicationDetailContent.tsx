@@ -46,6 +46,8 @@ import ExpertStepsPanel from './ExpertStepsPanel'
 import ApplicationNotesModal from './ApplicationNotesModal'
 import ApplicationInternalNotesTab from './ApplicationInternalNotesTab'
 import ApplicationRequirementsTab from './ApplicationRequirementsTab'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
 
 interface Application {
   id: string
@@ -1652,7 +1654,7 @@ export default function ApplicationDetailContent({
             <div className="flex items-center gap-2">
               <div className="w-32 bg-gray-200 rounded-full h-2">
                 <div
-                  className="bg-blue-600 h-2 rounded-full transition-all"
+                  className="bg-brand h-2 rounded-full transition-all"
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -1702,43 +1704,29 @@ export default function ApplicationDetailContent({
   // Tab navigation UI
   const tabNavigation = showInlineTabs ? (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 -mt-2">
-      <div className="border-b border-gray-200">
-        <nav className="flex space-x-4 px-6 overflow-x-auto" aria-label="Tabs">
-          {(mode === 'program' ? [
-            { id: 'requirements',   label: 'Next Steps',    badge: 0 },
-            { id: 'templates',      label: 'Templates',     badge: 0 },
-            { id: 'message',        label: 'Messages',      badge: unreadMessageCount },
-            { id: 'internal-notes', label: 'Program Notes', badge: programNotesCount },
+      <div className="px-6">
+        <Tabs
+          variant="underline"
+          items={(mode === 'program' ? [
+            { key: 'requirements',   label: 'Next Steps',    count: unreadMessageCount > 0 ? undefined : undefined },
+            { key: 'templates',      label: 'Templates' },
+            { key: 'message',        label: 'Messages',      count: unreadMessageCount > 0 ? unreadMessageCount : undefined },
+            { key: 'internal-notes', label: 'Program Notes', count: programNotesCount > 0 ? programNotesCount : undefined },
           ] : [
-            { id: 'next-steps',     label: 'Next Steps',    badge: incompleteStepsCount },
-            { id: 'documents',      label: 'Documents',     badge: incompleteDocsCount },
-            { id: 'templates',      label: 'Templates',     badge: 0 },
-            { id: 'message',        label: 'Messages',      badge: unreadMessageCount },
+            { key: 'next-steps',     label: 'Next Steps',    count: incompleteStepsCount > 0 ? incompleteStepsCount : undefined },
+            { key: 'documents',      label: 'Documents',     count: incompleteDocsCount > 0 ? incompleteDocsCount : undefined },
+            { key: 'templates',      label: 'Templates' },
+            { key: 'message',        label: 'Messages',      count: unreadMessageCount > 0 ? unreadMessageCount : undefined },
             ...(currentUserRole === 'expert' || currentUserRole === 'admin'
-              ? [{ id: 'expert-process', label: 'Expert Process', badge: incompleteExpertStepsCount }]
+              ? [{ key: 'expert-process', label: 'Expert Process', count: incompleteExpertStepsCount > 0 ? incompleteExpertStepsCount : undefined }]
               : []),
             ...(currentUserRole === 'expert' || currentUserRole === 'admin'
-              ? [{ id: 'internal-notes', label: 'Internal Notes', badge: 0 }]
+              ? [{ key: 'internal-notes', label: 'Internal Notes' }]
               : []),
-          ]).map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => handleTabChange(tab.id as TabType)}
-              className={`flex items-center gap-1.5 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.label}
-              {tab.badge > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-xs font-semibold leading-none">
-                  {tab.badge > 99 ? '99+' : tab.badge}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
+          ])}
+          active={activeTab}
+          onChange={(key) => handleTabChange(key as TabType)}
+        />
       </div>
     </div>
   ) : null
@@ -1760,7 +1748,7 @@ export default function ApplicationDetailContent({
                 <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-gray-900">Next Steps</h2>
-                    <button className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                    <button className="text-sm text-brand flex items-center gap-1">
                       View All
                       <ArrowRight className="w-4 h-4" />
                     </button>
@@ -1796,16 +1784,16 @@ export default function ApplicationDetailContent({
                         ))}
                     </div>
                   )}
-                  <button className="w-full mt-4 px-4 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium">
+                  <Button variant="primary" type="button" className="w-full mt-4">
                     Continue Checklist
-                  </button>
+                  </Button>
               </div>
 
                 {/* Documents */}
                 <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-gray-900">Documents</h2>
-                    <button className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                    <button className="text-sm text-brand flex items-center gap-1">
                       View All
                       <ArrowRight className="w-4 h-4" />
                     </button>
@@ -1875,7 +1863,7 @@ export default function ApplicationDetailContent({
                       </div>
                       <a 
                         href="#" 
-                        className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium mt-4"
+                        className="inline-flex items-center gap-2 text-brand text-sm font-medium mt-4"
                       >
                         Learn more about {application.state} requirements
                         <ArrowRight className="w-4 h-4" />
@@ -1941,8 +1929,8 @@ export default function ApplicationDetailContent({
                                   </span>
                                 </div>
                                 <div className={`rounded-lg p-3 ${
-                                  isOwnMessage 
-                                    ? 'bg-blue-600 text-white' 
+                                  isOwnMessage
+                                    ? 'bg-brand text-white'
                                     : 'bg-white border border-gray-200'
                                 }`}>
                                   <p className={`text-sm whitespace-pre-wrap ${
@@ -1974,12 +1962,12 @@ export default function ApplicationDetailContent({
                         }}
                         placeholder="Type your message..."
                         rows={2}
-                        className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                        className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-brand focus:border-transparent resize-none"
                       />
                       <button
                         onClick={handleSendMessage}
                         disabled={!messageContent.trim() || isSendingMessage || !conversationId}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                        className="px-6 py-3 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                       >
                         {isSendingMessage ? (
                           <Loader2 className="w-5 h-5 animate-spin" />
@@ -2016,19 +2004,20 @@ export default function ApplicationDetailContent({
                   <h2 className="text-lg font-semibold text-gray-900">Documents</h2>
                   <div className="flex items-center gap-3">
                     {(currentUserRole === 'expert' || currentUserRole === 'admin') && (
-                      <button
+                      <Button
+                        variant="primary"
+                        type="button"
+                        icon={Plus}
                         onClick={() => { setUploadForRequirementDoc(null); setIsUploadModalOpen(true) }}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2"
                       >
-                        <Plus className="w-4 h-4" />
                         Add Document
-                      </button>
+                      </Button>
                     )}
                     <div className="relative flex items-center">
                       <select
                         value={documentFilter}
                         onChange={(e) => setDocumentFilter(e.target.value as typeof documentFilter)}
-                        className="appearance-none pl-4 pr-10 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-700 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer min-w-[140px]"
+                        className="appearance-none pl-4 pr-10 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-700 text-sm font-medium focus:outline-none focus:ring-2 focus-visible:ring-brand focus:border-transparent cursor-pointer min-w-[140px]"
                       >
                         <option value="all">All</option>
                         <option value="drafts">Drafts</option>
@@ -2118,16 +2107,16 @@ export default function ApplicationDetailContent({
                                     </button>
                                   )}
                                   {currentUserRole === 'company_owner' && canOwnerSubmit && (
-                                    <button
+                                    <Button
+                                      variant="primary"
+                                      type="button"
+                                      size="sm"
                                       onClick={() => handleSubmitDocument(linked.id)}
                                       disabled={!!submittingDocumentId}
-                                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                                      loading={submittingDocumentId === linked.id}
                                     >
-                                      {submittingDocumentId === linked.id ? (
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                      ) : null}
                                       Submit
-                                    </button>
+                                    </Button>
                                   )}
                                   {linked && (
                                     <button
@@ -2287,16 +2276,16 @@ export default function ApplicationDetailContent({
                                   {status}
                                 </span>
                                 {currentUserRole === 'company_owner' && canOwnerSubmit && (
-                                  <button
+                                  <Button
+                                    variant="primary"
+                                    type="button"
+                                    size="sm"
                                     onClick={() => handleSubmitDocument(doc.id)}
                                     disabled={!!submittingDocumentId}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                                    loading={submittingDocumentId === doc.id}
                                   >
-                                    {submittingDocumentId === doc.id ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : null}
                                     Submit
-                                  </button>
+                                  </Button>
                                 )}
                                 <button
                                   onClick={() => handleDownload(doc.document_url, doc.document_name)}
@@ -2343,13 +2332,15 @@ export default function ApplicationDetailContent({
 
               {/* Action Buttons */}
               <div className="flex gap-4">
-                <button
+                <Button
+                  variant="primary"
+                  type="button"
+                  icon={Download}
                   onClick={handleDownloadAll}
-                  className="flex-1 px-6 py-4 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center gap-2"
+                  className="flex-1"
                 >
-                  <Download className="w-5 h-5" />
                   Download All Documents
-                </button>
+                </Button>
                 {/* <button className="flex-1 px-6 py-4 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium flex items-center justify-center gap-2">
                   <FileText className="w-5 h-5" />
                   Generate Submission Packet
@@ -2400,7 +2391,7 @@ export default function ApplicationDetailContent({
                         ) : (
                           <div className={`w-5 h-5 border-2 rounded-full ${
                             isSelected
-                              ? 'border-blue-500 bg-blue-500'
+                              ? 'border-brand bg-brand'
                               : 'border-gray-300'
                           }`}>
                             {isSelected && (
@@ -2533,8 +2524,10 @@ export default function ApplicationDetailContent({
                       )}
                       <p className="text-sm text-gray-500 mt-1">{tpl.file_name}</p>
                     </div>
-                    <button
+                    <Button
+                      variant="primary"
                       type="button"
+                      icon={Download}
                       onClick={async () => {
                         if (tpl.file_url.startsWith('http')) {
                           window.open(tpl.file_url, '_blank')
@@ -2544,11 +2537,9 @@ export default function ApplicationDetailContent({
                         const { data } = await s.storage.from('license-templates').createSignedUrl(tpl.file_url, 3600)
                         if (data?.signedUrl) window.open(data.signedUrl, '_blank')
                       }}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors flex-shrink-0"
                     >
-                      <Download className="w-4 h-4" />
                       Download
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -2564,17 +2555,14 @@ export default function ApplicationDetailContent({
               <h2 className="text-xl font-bold text-gray-900">Expert Process Steps</h2>
               {(currentUserRole === 'expert' || currentUserRole === 'admin') && (
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={openAddExpertStepModal}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
+                  <Button variant="primary" type="button" icon={Plus} onClick={openAddExpertStepModal}>
                     Add Step
-                  </button>
+                  </Button>
                   {selectedListExpertStepIds.size > 0 && (
-                    <button
+                    <Button
+                      variant="primary"
                       type="button"
+                      icon={Copy}
                       onClick={async () => {
                         setIsLoadingApplications(true)
                         setShowCopyExpertStepsModal(true)
@@ -2582,11 +2570,9 @@ export default function ApplicationDetailContent({
                         if (allApplications) setAvailableApplications(allApplications)
                         setIsLoadingApplications(false)
                       }}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
                     >
-                      <Copy className="w-4 h-4" />
                       Copy Selected ({selectedListExpertStepIds.size})
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}
@@ -2607,7 +2593,7 @@ export default function ApplicationDetailContent({
                       onClick={() => setAddExpertStepModalTab('new')}
                       className={`flex items-center gap-2 py-3 px-4 border-b-2 font-medium text-sm transition-colors -mb-px ${
                         addExpertStepModalTab === 'new'
-                          ? 'border-blue-600 text-blue-600'
+                          ? 'border-brand text-brand'
                           : 'border-transparent text-gray-500 hover:text-gray-700'
                       }`}
                     >
@@ -2622,7 +2608,7 @@ export default function ApplicationDetailContent({
                       }}
                       className={`flex items-center gap-2 py-3 px-4 border-b-2 font-medium text-sm transition-colors -mb-px ${
                         addExpertStepModalTab === 'copy'
-                          ? 'border-blue-600 text-blue-600'
+                          ? 'border-brand text-brand'
                           : 'border-transparent text-gray-500 hover:text-gray-700'
                       }`}
                     >
@@ -2637,7 +2623,7 @@ export default function ApplicationDetailContent({
                       }}
                       className={`flex items-center gap-2 py-3 px-4 border-b-2 font-medium text-sm transition-colors -mb-px ${
                         addExpertStepModalTab === 'browse'
-                          ? 'border-blue-600 text-blue-600'
+                          ? 'border-brand text-brand'
                           : 'border-transparent text-gray-500 hover:text-gray-700'
                       }`}
                     >
@@ -2655,7 +2641,7 @@ export default function ApplicationDetailContent({
                           <select
                             value={expertStepFormData.phase}
                             onChange={(e) => setExpertStepFormData({ ...expertStepFormData, phase: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus-visible:ring-brand focus:border-transparent"
                           >
                             {EXPERT_STEP_PHASES.map((p) => (
                               <option key={p.value} value={p.value}>{p.label}</option>
@@ -2669,7 +2655,7 @@ export default function ApplicationDetailContent({
                             value={expertStepFormData.stepName}
                             onChange={(e) => setExpertStepFormData({ ...expertStepFormData, stepName: e.target.value })}
                             placeholder="e.g., Initial Client Consultation"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus-visible:ring-brand focus:border-transparent"
                             required
                           />
                         </div>
@@ -2680,25 +2666,16 @@ export default function ApplicationDetailContent({
                             onChange={(e) => setExpertStepFormData({ ...expertStepFormData, description: e.target.value })}
                             placeholder="Detailed description of this step"
                             rows={3}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus-visible:ring-brand focus:border-transparent"
                           />
                         </div>
                         <div className="flex gap-3 pt-2">
-                          <button
-                            type="submit"
-                            disabled={isSubmittingExpertStep}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                          >
-                            {isSubmittingExpertStep ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                          <Button variant="primary" type="submit" disabled={isSubmittingExpertStep} loading={isSubmittingExpertStep} icon={Plus}>
                             Save Step
-                          </button>
-                          <button
-                            type="button"
-                            onClick={closeAddExpertStepModal}
-                            className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                          >
+                          </Button>
+                          <Button variant="secondary" type="button" onClick={closeAddExpertStepModal}>
                             Cancel
-                          </button>
+                          </Button>
                         </div>
                       </form>
                     </div>
@@ -2710,7 +2687,7 @@ export default function ApplicationDetailContent({
                       <select
                         value={selectedSourceRequirementId}
                         onChange={(e) => handleSourceRequirementChangeForExpertSteps(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus-visible:ring-brand focus:border-transparent"
                         disabled={isLoadingCopyData}
                       >
                         <option value="">Select a license type...</option>
@@ -2769,22 +2746,19 @@ export default function ApplicationDetailContent({
                         </div>
                       )}
                       <div className="flex gap-3 pt-2 border-t border-gray-200">
-                        <button
+                        <Button
+                          variant="primary"
                           type="button"
+                          icon={Copy}
                           onClick={handleCopyExpertStepsFromRequirement}
                           disabled={isSubmittingExpertStep || selectedExpertStepIds.size === 0 || isLoadingCopyData}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          loading={isSubmittingExpertStep}
                         >
-                          <Copy className="w-4 h-4" />
                           Copy {selectedExpertStepIds.size} {selectedExpertStepIds.size === 1 ? 'Step' : 'Steps'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={closeAddExpertStepModal}
-                          className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                        >
+                        </Button>
+                        <Button variant="secondary" type="button" onClick={closeAddExpertStepModal}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -2800,7 +2774,7 @@ export default function ApplicationDetailContent({
                             value={browseExpertStepsSearch}
                             onChange={(e) => setBrowseExpertStepsSearch(e.target.value)}
                             placeholder="Search by title, description, phase, state, or license type..."
-                            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus-visible:ring-brand focus:border-transparent"
                           />
                         </div>
                       </div>
@@ -2857,22 +2831,19 @@ export default function ApplicationDetailContent({
                         )}
                       </div>
                       <div className="flex gap-3 pt-2 border-t border-gray-200">
-                        <button
+                        <Button
+                          variant="primary"
                           type="button"
+                          icon={Copy}
                           onClick={handleAddBrowseExpertSteps}
                           disabled={isSubmittingExpertStep || selectedBrowseExpertStepIds.size === 0 || isLoadingBrowseExpertSteps}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          loading={isSubmittingExpertStep}
                         >
-                          <Copy className="w-4 h-4" />
                           Copy {selectedBrowseExpertStepIds.size} {selectedBrowseExpertStepIds.size === 1 ? 'Step' : 'Steps'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={closeAddExpertStepModal}
-                          className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                        >
+                        </Button>
+                        <Button variant="secondary" type="button" onClick={closeAddExpertStepModal}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -2922,7 +2893,7 @@ export default function ApplicationDetailContent({
                       <select
                         value={selectedTargetApplicationId}
                         onChange={(e) => setSelectedTargetApplicationId(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus-visible:ring-brand focus:border-transparent"
                       >
                         <option value="">Select an application...</option>
                         {availableApplications.map((app) => (
@@ -2938,18 +2909,20 @@ export default function ApplicationDetailContent({
                     <p>{selectedListExpertStepIds.size} expert step(s) will be copied</p>
                   </div>
                   <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-                    <button
+                    <Button
+                      variant="secondary"
                       type="button"
                       onClick={() => {
                         setShowCopyExpertStepsModal(false)
                         setSelectedTargetApplicationId('')
                       }}
-                      className="px-6 py-2.5 text-gray-700 font-medium rounded-xl hover:bg-gray-100 transition-colors"
                     >
                       Cancel
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="primary"
                       type="button"
+                      icon={Copy}
                       onClick={async () => {
                         if (!selectedTargetApplicationId) {
                           alert('Please select a target application')
@@ -2961,15 +2934,10 @@ export default function ApplicationDetailContent({
                         setSelectedListExpertStepIds(new Set())
                       }}
                       disabled={isCopyingExpertSteps || !selectedTargetApplicationId}
-                      className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      loading={isCopyingExpertSteps}
                     >
-                      {isCopyingExpertSteps ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Copy className="w-4 h-4" />
-                      )}
                       Copy Steps
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </Modal>
@@ -3031,8 +2999,8 @@ export default function ApplicationDetailContent({
                               </span>
                             </div>
                             <div className={`rounded-lg p-3 ${
-                              isOwnMessage 
-                                ? 'bg-blue-600 text-white' 
+                              isOwnMessage
+                                ? 'bg-brand text-white'
                                 : 'bg-white'
                             }`}>
                               <p className={`text-sm whitespace-pre-wrap ${
@@ -3064,12 +3032,12 @@ export default function ApplicationDetailContent({
                     }}
                     placeholder="Type your message..."
                     rows={2}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-brand focus:border-transparent resize-none"
                   />
                   <button
                     onClick={handleSendMessage}
                     disabled={!messageContent.trim() || isSendingMessage || !conversationId}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    className="px-6 py-3 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                   >
                     {isSendingMessage ? (
                       <Loader2 className="w-5 h-5 animate-spin" />
@@ -3126,7 +3094,7 @@ export default function ApplicationDetailContent({
               <button
                 type="button"
                 onClick={() => handleDownload(selectedDocumentForReview.document_url, selectedDocumentForReview.document_name)}
-                className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
+                className="text-brand text-sm font-medium flex items-center gap-1"
               >
                 <FileText className="w-4 h-4" />
                 View Document
@@ -3143,7 +3111,7 @@ export default function ApplicationDetailContent({
                 onChange={(e) => setReviewNotes(e.target.value)}
                 placeholder="Add any notes about your review decision..."
                 rows={4}
-                className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
+                className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus-visible:ring-brand focus:border-transparent outline-none transition-all resize-none"
               />
             </div>
 

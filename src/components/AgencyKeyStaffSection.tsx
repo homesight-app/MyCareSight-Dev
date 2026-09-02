@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Users, Pencil, Loader2, X, Plus, ChevronDown, Trash2 } from 'lucide-react'
 import { saveKeyStaffAdmin, removeKeyStaff, addMemberOwner, updateMemberOwner } from '@/app/actions/agency-onboarding'
 import type { AgencyKeyStaff } from '@/lib/supabase/query'
+import Button from '@/components/ui/PrimaryButton'
 
 const OFFICER_ROLES = [
   { key: 'president', label: 'President' },
@@ -373,14 +374,15 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!isEditing && (
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
+                      icon={existing ? Pencil : Plus}
                       onClick={() => startEditOfficer(roleKey)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                     >
-                      {existing ? <Pencil className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
                       {existing ? 'Edit' : 'Add'}
-                    </button>
+                    </Button>
                   )}
                   {existing && !isEditing && (
                     <button
@@ -499,18 +501,8 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
 
                   {isEditing && (
                     <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-                      <button type="button" onClick={cancelEditOfficer} className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveOfficer}
-                        disabled={isSavingOfficer}
-                        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                      >
-                        {isSavingOfficer && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                        Save
-                      </button>
+                      <Button variant="secondary" size="sm" type="button" onClick={cancelEditOfficer}>Cancel</Button>
+                      <Button variant="primary" size="sm" type="button" onClick={handleSaveOfficer} disabled={isSavingOfficer} loading={isSavingOfficer}>Save</Button>
                     </div>
                   )}
                 </div>
@@ -524,14 +516,15 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
       <div className="border-t border-gray-200">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-800">Members / Owners</h3>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Plus}
             type="button"
             onClick={() => { setShowAddOwner(true); setAddOwnerForm(emptyMemberOwnerForm()); setAddOwnerError(null) }}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 border border-blue-300 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
           >
-            <Plus className="w-3 h-3" />
             Add Member/Owner
-          </button>
+          </Button>
         </div>
 
         {memberOwners.length === 0 && !showAddOwner && (
@@ -563,14 +556,7 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {!isEditingThis && (
-                      <button
-                        type="button"
-                        onClick={() => startEditOwner(owner)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
-                        <Pencil className="w-3 h-3" />
-                        Edit
-                      </button>
+                      <Button variant="secondary" size="sm" type="button" icon={Pencil} onClick={() => startEditOwner(owner)}>Edit</Button>
                     )}
                     {!isEditingThis && (
                       <button
@@ -658,18 +644,8 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
 
                     {isEditingThis && (
                       <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-                        <button type="button" onClick={() => setEditingOwnerId(null)} className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSaveOwner}
-                          disabled={isSavingOwner}
-                          className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                        >
-                          {isSavingOwner && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                          Save
-                        </button>
+                        <Button variant="secondary" size="sm" type="button" onClick={() => setEditingOwnerId(null)}>Cancel</Button>
+                        <Button variant="primary" size="sm" type="button" onClick={handleSaveOwner} disabled={isSavingOwner} loading={isSavingOwner}>Save</Button>
                       </div>
                     )}
                   </div>
@@ -724,18 +700,8 @@ export default function AgencyKeyStaffSection({ agencyId, keyStaff }: AgencyKeyS
               <FieldRow label="ZIP" value={addOwnerForm.home_address_zip} isEditing onChange={v => setAddOwnerField('home_address_zip', v)} />
             </div>
             <div className="flex items-center justify-end gap-3 mt-3 pt-3 border-t border-gray-200">
-              <button type="button" onClick={() => setShowAddOwner(false)} className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleAddOwner}
-                disabled={isAddingOwner}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                {isAddingOwner && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Add
-              </button>
+              <Button variant="secondary" size="sm" type="button" onClick={() => setShowAddOwner(false)}>Cancel</Button>
+              <Button variant="primary" size="sm" type="button" onClick={handleAddOwner} disabled={isAddingOwner} loading={isAddingOwner}>Add</Button>
             </div>
           </div>
         )}

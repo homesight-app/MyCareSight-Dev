@@ -2,18 +2,20 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { 
-  ClipboardList, 
-  Clock, 
-  FileText, 
+import {
+  ClipboardList,
+  Clock,
+  FileText,
   AlertCircle,
-  Search,
   ArrowRight,
   Plus
 } from 'lucide-react'
 import NewApplicationModal from './NewApplicationModal'
 import UploadDocumentButton from './UploadDocumentButton'
 import ApplicationDocumentsPanel from './ApplicationDocumentsPanel'
+import Button from '@/components/ui/PrimaryButton'
+import SearchInput from '@/components/ui/SearchInput'
+import StatusBadge from '@/components/ui/StatusBadge'
 
 interface Application {
   id: string
@@ -33,6 +35,7 @@ interface ApplicationsContentProps {
 export default function ApplicationsContent({ applications, documentCounts }: ApplicationsContentProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [expandedApplicationId, setExpandedApplicationId] = useState<string | null>(null)
+  const [searchValue, setSearchValue] = useState('')
 
   // Calculate statistics
   const inProgressCount = applications?.filter(a => a.status === 'in_progress').length || 0
@@ -56,31 +59,6 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
     return state.length > 2 ? state.substring(0, 2).toUpperCase() : state.toUpperCase()
   }
 
-  // Get status badge styling
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'in_progress':
-        return 'bg-blue-100 text-blue-700'
-      case 'under_review':
-        return 'bg-yellow-100 text-yellow-700'
-      case 'needs_revision':
-        return 'bg-orange-100 text-orange-700'
-      case 'approved':
-        return 'bg-green-100 text-green-700'
-      case 'rejected':
-        return 'bg-red-100 text-red-700'
-      default:
-        return 'bg-gray-100 text-gray-700'
-    }
-  }
-
-  // Get status display name
-  const getStatusDisplay = (status: string) => {
-    return status.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ')
-  }
-
   return (
     <>
       <div className="space-y-6">
@@ -92,24 +70,17 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
               Manage your in-process license applications and supporting documents
             </p>
           </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all flex items-center gap-2 shadow-lg"
-          >
-            <Plus className="w-5 h-5" />
+          <Button variant="primary" icon={Plus} onClick={() => setIsModalOpen(true)}>
             New Application
-          </button>
+          </Button>
         </div>
 
         {/* Search Bar */}
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Search applications by state..."
-            className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
-          />
-        </div>
+        <SearchInput
+          value={searchValue}
+          onChange={setSearchValue}
+          placeholder="Search applications by state..."
+        />
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -157,9 +128,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-gray-900">{application.application_name}</h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(application.status)}`}>
-                            {getStatusDisplay(application.status)}
-                          </span>
+                          <StatusBadge status={application.status} />
                         </div>
                         <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-3">
                           <span>Started {formatDate(application.started_date)}</span>
@@ -168,7 +137,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                         {/* Progress Bar */}
                         <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
                           <div
-                            className="bg-blue-600 h-2 rounded-full transition-all"
+                            className="bg-brand h-2 rounded-full transition-all"
                             style={{ width: `${application.progress_percentage || 0}%` }}
                           />
                         </div>
@@ -190,7 +159,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                       <UploadDocumentButton applicationId={application.id} />
                       <Link
                         href={`/pages/agency/applications/${application.id}`}
-                        className="text-blue-600 hover:text-blue-700 font-medium text-sm flex items-center gap-1"
+                        className="text-brand font-medium text-sm flex items-center gap-1"
                       >
                         View Details
                         <ArrowRight className="w-4 h-4" />
@@ -234,9 +203,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-gray-900">{application.application_name}</h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(application.status)}`}>
-                            {getStatusDisplay(application.status)}
-                          </span>
+                          <StatusBadge status={application.status} />
                         </div>
                         <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-3">
                           <span>Started {formatDate(application.started_date)}</span>
@@ -245,7 +212,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                         {/* Progress Bar */}
                         <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
                           <div
-                            className="bg-blue-600 h-2 rounded-full transition-all"
+                            className="bg-brand h-2 rounded-full transition-all"
                             style={{ width: `${application.progress_percentage || 0}%` }}
                           />
                         </div>
@@ -267,7 +234,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                       <UploadDocumentButton applicationId={application.id} />
                       <Link
                         href={`/pages/agency/applications/${application.id}`}
-                        className="text-blue-600 hover:text-blue-700 font-medium text-sm flex items-center gap-1"
+                        className="text-brand font-medium text-sm flex items-center gap-1"
                       >
                         View Details
                         <ArrowRight className="w-4 h-4" />
@@ -311,9 +278,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-gray-900">{application.application_name}</h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(application.status)}`}>
-                            {getStatusDisplay(application.status)}
-                          </span>
+                          <StatusBadge status={application.status} />
                         </div>
                         <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-3">
                           <span>Started {formatDate(application.started_date)}</span>
@@ -322,7 +287,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                         {/* Progress Bar */}
                         <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
                           <div
-                            className="bg-blue-600 h-2 rounded-full transition-all"
+                            className="bg-brand h-2 rounded-full transition-all"
                             style={{ width: `${application.progress_percentage || 0}%` }}
                           />
                         </div>
@@ -344,7 +309,7 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
                       <UploadDocumentButton applicationId={application.id} />
                       <Link
                         href={`/pages/agency/applications/${application.id}`}
-                        className="text-blue-600 hover:text-blue-700 font-medium text-sm flex items-center gap-1"
+                        className="text-brand font-medium text-sm flex items-center gap-1"
                       >
                         View Details
                         <ArrowRight className="w-4 h-4" />
@@ -375,13 +340,9 @@ export default function ApplicationsContent({ applications, documentCounts }: Ap
             <ClipboardList className="w-16 h-16 mx-auto mb-4 text-gray-300" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No applications yet</h3>
             <p className="text-gray-600 mb-6">Get started by creating your first license application</p>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all"
-            >
-              <Plus className="w-5 h-5" />
+            <Button variant="primary" icon={Plus} onClick={() => setIsModalOpen(true)}>
               New Application
-            </button>
+            </Button>
           </div>
         )}
       </div>

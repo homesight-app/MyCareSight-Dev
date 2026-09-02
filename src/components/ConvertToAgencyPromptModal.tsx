@@ -2,8 +2,9 @@
 
 import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, CheckCircle2, Loader2 } from 'lucide-react'
+import { Building2, CheckCircle2 } from 'lucide-react'
 import { convertLeadToAgency } from '@/app/actions/leads'
+import Button from '@/components/ui/PrimaryButton'
 
 interface Props {
   open: boolean
@@ -51,20 +52,12 @@ export default function ConvertToAgencyPromptModal({ open, lead, onClose }: Prop
             </div>
           </div>
           <div className="flex gap-3 mt-6">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
+            <Button variant="secondary" type="button" onClick={onClose} className="flex-1">
               Back to Leads
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push(`/pages/admin/agencies/${convertedAgencyId}`)}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-            >
+            </Button>
+            <Button variant="primary" type="button" onClick={() => router.push(`/pages/admin/agencies/${convertedAgencyId}`)} className="flex-1">
               Go to Agency
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -105,23 +98,19 @@ export default function ConvertToAgencyPromptModal({ open, lead, onClose }: Prop
         </div>
 
         <div className="flex gap-3 mt-6">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isPending}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isPending} className="flex-1">
             Skip for Now
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="button"
             onClick={handleConvert}
             disabled={!agencyName.trim() || isPending}
-            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+            loading={isPending}
+            className="flex-1"
           >
-            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             {isPending ? 'Converting…' : 'Convert Now'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

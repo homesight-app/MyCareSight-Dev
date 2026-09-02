@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, Save, Search, Sparkles, X } from 'lucide-react'
+import { Save, Search, Sparkles, X } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
 import { normalizeCaregiverSkillsList } from '@/lib/caregiver-skills'
 import * as q from '@/lib/supabase/query'
@@ -327,23 +328,12 @@ export default function EditCaregiverSkillsModal({
           </p>
 
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleClose}
-              disabled={isSaving}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
+            <Button variant="secondary" type="button" onClick={handleClose} disabled={isSaving}>
               Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
-            >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            </Button>
+            <Button variant="primary" type="button" onClick={handleSave} disabled={isSaving} loading={isSaving} icon={Save}>
               Save Skills
-            </button>
+            </Button>
           </div>
         </div>
       </div>

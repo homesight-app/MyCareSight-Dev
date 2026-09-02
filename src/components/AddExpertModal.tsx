@@ -9,6 +9,7 @@ import PhoneInput from '@/components/ui/PhoneInput'
 import { createExpert, CreateExpertData } from '@/app/actions/experts'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 
@@ -266,28 +267,12 @@ export default function AddExpertModal({
 
         {/* Submit Buttons */}
         <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={isLoading}
-            className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <Button variant="secondary" type="button" onClick={handleClose} disabled={isLoading}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Creating Expert...
-              </>
-            ) : (
-              'Create Expert'
-            )}
-          </button>
+          </Button>
+          <Button variant="primary" type="submit" disabled={isLoading} loading={isLoading}>
+            Create Expert
+          </Button>
         </div>
       </form>
     </Modal>

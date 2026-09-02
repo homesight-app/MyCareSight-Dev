@@ -157,7 +157,7 @@ export default function ExpertListWithFilters({
           aria-pressed={expertTab === 'active'}
           className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
             expertTab === 'active'
-              ? 'bg-gray-900 text-white'
+              ? 'bg-brand text-white'
               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -169,7 +169,7 @@ export default function ExpertListWithFilters({
           aria-pressed={expertTab === 'inactive'}
           className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
             expertTab === 'inactive'
-              ? 'bg-gray-900 text-white'
+              ? 'bg-brand text-white'
               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >

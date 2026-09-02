@@ -1,5 +1,6 @@
 import { getSession } from '@/lib/auth'
 import ProfileTabs from '@/components/ProfileTabs'
+import Button from '@/components/ui/PrimaryButton'
 
 export default async function StaffProfilePage() {
   const session = await getSession()
@@ -98,9 +99,9 @@ export default async function StaffProfilePage() {
               })}
             </div>
 
-            <button className="w-full mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium">
+            <Button variant="ghost" className="w-full mt-4 text-sm">
               View All Activity
-            </button>
+            </Button>
           </div>
 
           {/* Account Status */}

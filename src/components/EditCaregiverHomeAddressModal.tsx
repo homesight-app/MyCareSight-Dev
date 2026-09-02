@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, MapPin, Save } from 'lucide-react'
+import { MapPin, Save } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { useRouter } from 'next/navigation'
@@ -164,23 +165,12 @@ export default function EditCaregiverHomeAddressModal({
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={isSaving}
-            className="px-6 py-2.5 text-gray-700 font-medium rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50"
-          >
+          <Button variant="secondary" type="button" onClick={handleClose} disabled={isSaving}>
             Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 inline-flex items-center gap-2"
-          >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          </Button>
+          <Button variant="primary" type="button" onClick={handleSave} disabled={isSaving} loading={isSaving} icon={Save}>
             Save Address
-          </button>
+          </Button>
         </div>
       </div>
     </ModalWrapper>

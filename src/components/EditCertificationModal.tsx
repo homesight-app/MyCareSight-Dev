@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import Modal from './Modal'
-import { Upload, X, Loader2, Calendar, FileText } from 'lucide-react'
+import { Upload, X, Calendar, FileText } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { certificationSchema, type CertificationFormData } from '@/lib/schemas/certification'
 import { updateUnifiedCaregiverCertification } from '@/app/actions/staff-member-certifications'
 import { createClient } from '@/lib/supabase/client'
@@ -421,28 +422,12 @@ export default function EditCertificationModal({
 
         {/* Buttons */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
-            disabled={isSubmitting || isUploading}
-          >
+          <Button variant="secondary" type="button" onClick={handleClose} disabled={isSubmitting || isUploading}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-6 py-2 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={isSubmitting || isUploading}
-          >
-            {isSubmitting || isUploading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {isUploading ? 'Uploading...' : 'Updating...'}
-              </>
-            ) : (
-              'Update Certification'
-            )}
-          </button>
+          </Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting || isUploading} loading={isSubmitting || isUploading}>
+            Update Certification
+          </Button>
         </div>
       </form>
     </Modal>

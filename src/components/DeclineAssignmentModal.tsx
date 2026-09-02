@@ -1,6 +1,7 @@
 'use client'
 
 import { ThumbsDown } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { useState, useEffect } from 'react'
 import Modal from './Modal'
 
@@ -69,21 +70,12 @@ export default function DeclineAssignmentModal({
         </div>
         <p className="text-xs text-gray-500">{helperText}</p>
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
-          >
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(reason.trim())}
-            className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-          >
-            <ThumbsDown className="h-4 w-4" aria-hidden />
+          </Button>
+          <Button variant="danger" type="button" onClick={() => onConfirm(reason.trim())} icon={ThumbsDown}>
             Confirm Decline
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect } from 'react'
-import { X, Plus, Loader2 } from 'lucide-react'
+import { X } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -186,25 +187,22 @@ export default function AddUserModal({ isOpen, onClose, onSuccess, agencies = []
           )}
 
           <div className="flex justify-end gap-3 mt-2">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg disabled:opacity-50 flex items-center gap-2"
+              loading={isSubmitting}
             >
-              {isSubmitting ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Adding...</>
-              ) : (
-                <><Plus className="w-4 h-4" /> Add User</>
-              )}
-            </button>
+              Add User
+            </Button>
           </div>
         </form>
       </div>

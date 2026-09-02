@@ -2,9 +2,12 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, Search, SlidersHorizontal } from 'lucide-react'
+import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, SlidersHorizontal } from 'lucide-react'
 import type { TimeBillingRow, TimeBillingStatus } from '@/lib/time-billing-dashboard'
 import { approveTimeBillingRowAction, voidTimeBillingRowAction } from '@/app/actions/time-billing'
+import Tabs from '@/components/ui/Tabs'
+import StatusBadge from '@/components/ui/StatusBadge'
+import SearchInput from '@/components/ui/SearchInput'
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -225,40 +228,23 @@ export default function TimeBillingContent({ rows, loadError, selectedMonth, sel
         <div className="border-b border-gray-100 px-4 py-3">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-4 text-sm">
-                {(['pending', 'approved', 'voided'] as TimeBillingStatus[]).map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={`inline-flex items-center gap-2 pb-2 border-b-2 transition-colors ${
-                      activeTab === tab ? 'border-blue-600 text-blue-700 font-medium' : 'border-transparent text-gray-600 hover:text-gray-900'
-                    }`}
-                    onClick={() => setActiveTab(tab)}
-                  >
-                    {tab === 'pending' ? (
-                      <>
-                        {toLabel(tab)}
-                        <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                          {counts.pending}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        {toLabel(tab)} <span className="text-gray-500 font-normal">({counts[tab]})</span>
-                      </>
-                    )}
-                  </button>
-                ))}
-              </div>
+              <Tabs
+                variant="pill"
+                items={[
+                  { key: 'pending',  label: 'Pending',  count: counts.pending },
+                  { key: 'approved', label: 'Approved', count: counts.approved },
+                  { key: 'voided',   label: 'Voided',   count: counts.voided },
+                ]}
+                active={activeTab}
+                onChange={(key) => setActiveTab(key as TimeBillingStatus)}
+              />
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full lg:w-auto lg:min-w-0 lg:flex-1 lg:justify-end">
                 <div className="relative flex-1 min-w-0 max-w-md">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
-                  <input
-                    className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                    placeholder="Search..."
+                  <SearchInput
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    aria-label="Search visits"
+                    onChange={setQuery}
+                    placeholder="Search..."
+                    className="w-full"
                   />
                 </div>
                 <button
@@ -601,15 +587,11 @@ export default function TimeBillingContent({ rows, loadError, selectedMonth, sel
                           </button>
                         </div>
                       ) : (
-                        <span
-                          className={`inline-block rounded-full px-2 py-0.5 text-xs ${
-                            row.status === 'approved'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-gray-200 text-gray-600'
-                          }`}
-                        >
-                          {toLabel(row.status)}
-                        </span>
+                        <StatusBadge
+                          status={row.status === 'approved' ? 'approved' : 'inactive'}
+                          label={toLabel(row.status)}
+                          size="sm"
+                        />
                       )}
                     </td>
                   </tr>

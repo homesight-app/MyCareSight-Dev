@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { X, Plus, ChevronDown, ChevronUp, Loader2, Link2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -432,13 +433,13 @@ export default function AddAgencyModal({
           </div>
 
           <div className="flex items-center justify-between gap-3 pt-4 border-t border-gray-200 flex-wrap">
-            <button
+            <Button
+              variant="secondary"
               type="button"
               onClick={onClose}
-              className="px-6 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancel
-            </button>
+            </Button>
             <div className="flex items-center gap-2 flex-wrap">
               {!isEdit && (
                 <button
@@ -451,18 +452,14 @@ export default function AddAgencyModal({
                   Create &amp; Send Link
                 </button>
               )}
-              <button
+              <Button
+                variant="primary"
                 type="submit"
                 disabled={isSubmitting || isCreatingShell}
-                className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                loading={isSubmitting}
               >
-                {isSubmitting ? 'Saving...' : (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    {isEdit ? 'Update Agency' : 'Add Agency'}
-                  </>
-                )}
-              </button>
+                {isEdit ? 'Update Agency' : 'Add Agency'}
+              </Button>
             </div>
           </div>
         </form>

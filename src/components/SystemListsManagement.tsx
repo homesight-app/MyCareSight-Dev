@@ -192,7 +192,7 @@ export default function SystemListsManagement({
         <button
           onClick={onAddTask}
           disabled={loading || !newTask.trim() || !selectedCategoryId}
-          className="flex items-center gap-1 px-4 py-2 bg-gray-900 text-white rounded-lg disabled:opacity-50"
+          className="flex items-center gap-1 px-4 py-2 bg-brand text-white rounded-lg disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
           Add

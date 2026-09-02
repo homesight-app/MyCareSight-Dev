@@ -3,7 +3,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import Link from 'next/link'
-import { 
+import {
   ArrowLeft,
   User,
   Mail,
@@ -15,6 +15,7 @@ import {
   Users,
   BarChart3
 } from 'lucide-react'
+import StatusBadge from '@/components/ui/StatusBadge'
 
 export default async function ExpertDetailPage({
   params
@@ -63,7 +64,6 @@ export default async function ExpertDetailPage({
 
   type ExpertRow = { id: string; first_name?: string; last_name?: string; status?: string; role?: string; email?: string; phone?: string; expertise?: string; created_at?: string }
   const expertRow = expert as ExpertRow
-  const statusCapitalized = (expertRow.status ?? '').charAt(0).toUpperCase() + (expertRow.status ?? '').slice(1)
   const clientCount = clients?.length || 0
   const applicationCount = applications?.length || 0
   type AppRow = { status?: string }
@@ -90,13 +90,7 @@ export default async function ExpertDetailPage({
               <div>
                 <div className="flex items-center gap-3 mb-2">
                   <h1 className="text-2xl font-bold text-gray-900">{expertRow.first_name ?? ''} {expertRow.last_name ?? ''}</h1>
-                  <span className={`px-3 py-1 text-xs font-semibold rounded-full ${
-                    expertRow.status === 'active' 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {statusCapitalized}
-                  </span>
+                  <StatusBadge status={expertRow.status ?? 'inactive'} />
                 </div>
                 <p className="text-sm text-gray-600">{expertRow.role ?? ''}</p>
               </div>
@@ -104,7 +98,7 @@ export default async function ExpertDetailPage({
             <div className="flex items-center gap-2">
               <Link
                 href={`/pages/admin/experts/${expertRow.id}/edit`}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2"
+                className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors text-sm font-medium flex items-center gap-2"
               >
                 <Edit className="w-4 h-4" />
                 Edit Information

@@ -9,7 +9,8 @@ import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertification, createCertificationAndLink } from '@/app/actions/licenses'
 import { uploadLicenseDocumentAction, uploadLicenseDocumentsForCreationAction, removeUploadedLicenseFilesAction } from '@/app/actions/license-documents'
-import { Loader2, Upload, X, FileText, Plus } from 'lucide-react'
+import { Upload, X, FileText, Plus } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
@@ -529,27 +530,21 @@ export default function CreateLicenseModal({
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-          <button
+          <Button
+            variant="secondary"
             type="button"
             onClick={handleClose}
-            className="px-4 py-2.5 text-gray-700 font-medium rounded-xl hover:bg-gray-100 transition-colors"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={isSubmitting}
-            className="px-4 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center gap-2"
+            loading={isSubmitting}
           >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {agencyId ? 'Adding…' : 'Creating…'}
-              </>
-            ) : (
-              isEditMode ? 'Save Changes' : agencyId ? 'Add License' : 'Create License'
-            )}
-          </button>
+            {isEditMode ? 'Save Changes' : agencyId ? 'Add License' : 'Create License'}
+          </Button>
         </div>
       </form>
     </Modal>

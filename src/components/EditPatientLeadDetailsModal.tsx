@@ -10,6 +10,7 @@ import { patientLeadDetailsSchema, type PatientLeadDetailsFormData } from '@/lib
 import { updatePatientLeadDetailsAction } from '@/app/actions/leads'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 import type { PatientLeadDetails } from '@/lib/supabase/query'
+import Button from '@/components/ui/PrimaryButton'
 
 interface Props {
   isOpen: boolean
@@ -277,21 +278,12 @@ export default function EditPatientLeadDetailsModal({ isOpen, onClose, onSuccess
         </div>
 
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-          >
-            {isSubmitting ? 'Saving…' : 'Save Details'}
-          </button>
+          </Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting} loading={isSubmitting}>
+            Save Details
+          </Button>
         </div>
       </form>
     </Modal>

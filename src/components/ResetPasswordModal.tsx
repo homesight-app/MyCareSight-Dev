@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Modal from './Modal'
 import { User, Mail, KeyRound } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import SetPasswordModal from './SetPasswordModal'
 
 interface ResetPasswordModalProps {
@@ -62,19 +63,12 @@ export default function ResetPasswordModal({
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-          <button
-            onClick={handleClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
+          <Button variant="secondary" type="button" onClick={handleClose}>
             Cancel
-          </button>
-          <button
-            onClick={handleSendResetLink}
-            className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
-          >
-            <KeyRound className="w-4 h-4" />
+          </Button>
+          <Button variant="primary" type="button" onClick={handleSendResetLink} icon={KeyRound}>
             Change Password
-          </button>
+          </Button>
         </div>
       </div>
 

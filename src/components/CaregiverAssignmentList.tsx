@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Check, Clock, X, MapPin, Phone, SquareArrowOutUpRight, Loader2 } from 'lucide-react'
 import type { CaregiverMatchOption, CaregiverAvailabilityStatus } from '@/lib/caregiver-matching'
+import Button from '@/components/ui/PrimaryButton'
 
 interface Props {
   options: CaregiverMatchOption[]
@@ -298,16 +299,14 @@ export function CaregiverAssignmentList({
                   </div>
                 )}
               </div>
-              <button
+              <Button
+                variant="primary"
                 type="button"
                 disabled={disabled}
                 onClick={() => onSelect(o.id)}
-                className={`rounded-lg text-white px-3 py-2 text-sm font-medium disabled:opacity-60 ${
-                  o.isCurrent ? 'bg-blue-600 hover:bg-blue-700' : 'bg-black hover:bg-gray-800'
-                }`}
               >
                 {o.isCurrent ? 'Keep' : 'Assign'}
-              </button>
+              </Button>
             </div>
           </div>
         ))}

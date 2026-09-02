@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Link2, Copy, ExternalLink, Check, Loader2, ChevronDown, ChevronUp, AlertCircle, Clock, X } from 'lucide-react'
 import { generateOnboardingToken, revokeOnboardingToken } from '@/app/actions/agency-onboarding'
 import type { OnboardingToken } from '@/lib/supabase/query'
+import Button from '@/components/ui/PrimaryButton'
 
 interface AgencyOnboardingLinkPanelProps {
   agencyId: string
@@ -96,14 +97,15 @@ export default function AgencyOnboardingLinkPanel({
           <Link2 className="w-5 h-5 text-blue-600" />
           <h2 className="text-base font-semibold text-gray-900">Onboarding Link</h2>
         </div>
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           type="button"
+          icon={sendPanelOpen ? ChevronUp : ChevronDown}
           onClick={() => { setSendPanelOpen(prev => !prev); setSendError(null) }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
         >
-          {sendPanelOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           {activeToken ? 'Send New Link' : 'Send Link'}
-        </button>
+        </Button>
       </div>
 
       <div className="p-6 space-y-4">
@@ -212,22 +214,10 @@ export default function AgencyOnboardingLinkPanel({
               />
             </div>
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => { setSendPanelOpen(false); setSendError(null) }}
-                className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={isSending}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                {isSending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <Button variant="secondary" size="sm" type="button" onClick={() => { setSendPanelOpen(false); setSendError(null) }}>Cancel</Button>
+              <Button variant="primary" size="sm" type="button" onClick={handleSend} disabled={isSending} loading={isSending}>
                 {recipientEmail.trim() ? 'Send' : 'Generate'}
-              </button>
+              </Button>
             </div>
           </div>
         )}

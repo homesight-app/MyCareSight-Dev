@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Modal from './Modal'
-import { Heart, Users, BookOpen, ArrowRight, DollarSign, Clock, RefreshCw, Loader2, Search } from 'lucide-react'
+import { Heart, Users, BookOpen, ArrowRight, DollarSign, Clock, RefreshCw, Loader2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
+import SearchInput from '@/components/ui/SearchInput'
 import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createClient } from '@/lib/supabase/client'
@@ -207,14 +209,11 @@ export default function SelectLicenseTypeModal({
         {/* Search + filters — shown only in programsOnly mode */}
         {!isLoading && programsOnly && standalonePlaybooks.length > 0 && (
           <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              <input
-                type="search"
+            <div className="flex-1">
+              <SearchInput
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={setSearch}
                 placeholder="Search programs…"
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
               />
             </div>
             {categories.length > 0 && (
@@ -336,12 +335,9 @@ export default function SelectLicenseTypeModal({
 
         {/* Back Button */}
         <div className="pt-4 border-t border-gray-200">
-          <button
-            onClick={onBack}
-            className="px-4 py-2 text-gray-700 font-medium rounded-xl hover:bg-gray-100 transition-colors"
-          >
+          <Button variant="secondary" type="button" onClick={onBack}>
             Back to State Selection
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

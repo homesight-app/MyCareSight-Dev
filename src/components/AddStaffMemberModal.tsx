@@ -11,6 +11,7 @@ import * as q from '@/lib/supabase/query'
 import { createStaffUserAccount } from '@/app/actions/users'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 
 
@@ -305,28 +306,12 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
 
         {/* Form Actions */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={isLoading}
-            className="px-6 py-2.5 text-gray-700 font-medium rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <Button variant="secondary" type="button" onClick={handleClose} disabled={isLoading}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Adding...
-              </>
-            ) : (
-              'Add Caregiver'
-            )}
-          </button>
+          </Button>
+          <Button variant="primary" type="submit" disabled={isLoading} loading={isLoading}>
+            Add Caregiver
+          </Button>
         </div>
       </form>
     </Modal>

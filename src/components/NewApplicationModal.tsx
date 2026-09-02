@@ -152,7 +152,7 @@ export default function NewApplicationModal({ isOpen, onClose, onSuccess }: NewA
           <button
             type="submit"
             disabled={isLoading}
-            className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-brand-hover transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isLoading ? (
               <>

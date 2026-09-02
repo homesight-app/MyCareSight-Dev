@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { BookOpen, Plus, X, Search, Eye } from 'lucide-react'
+import { BookOpen, Plus, X, Eye } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { createPlaybook, updatePlaybook } from '@/app/actions/playbooks'
@@ -10,6 +10,8 @@ import { US_STATES } from '@/lib/constants'
 import { createPlaybookSchema, type CreatePlaybookFormData } from '@/lib/schemas/playbook'
 import { showValidationToast } from '@/lib/form-validation-toast'
 import { useTableState } from '@/hooks/useTableState'
+import Button from '@/components/ui/PrimaryButton'
+import SearchInput from '@/components/ui/SearchInput'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import TablePagination from '@/components/ui/TablePagination'
 import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
@@ -178,14 +180,11 @@ export default function PlaybookLibraryContent({ playbooks, categories }: Props)
       {/* Search, filter, and add button */}
       <div className="bg-white rounded-xl p-4 shadow-md border border-gray-100">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search by name, state, or description..."
+          <div className="flex-1">
+            <SearchInput
               value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white"
+              onChange={setSearch}
+              placeholder="Search by name, state, or description..."
             />
           </div>
           {categories.length > 0 && (
@@ -210,13 +209,9 @@ export default function PlaybookLibraryContent({ playbooks, categories }: Props)
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          <button
-            onClick={() => setShowModal(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm font-medium whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
+          <Button variant="primary" type="button" icon={Plus} onClick={() => setShowModal(true)}>
             New Playbook
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -470,20 +465,12 @@ export default function PlaybookLibraryContent({ playbooks, categories }: Props)
               </div>
 
               <div className="flex gap-3 justify-end px-6 py-4 border-t border-gray-200 flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={() => { setShowModal(false); reset() }}
-                  className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
+                <Button variant="secondary" type="button" onClick={() => { setShowModal(false); reset() }}>
                   Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {submitting ? 'Creating…' : 'Create Playbook'}
-                </button>
+                </Button>
+                <Button variant="primary" type="submit" disabled={submitting} loading={submitting}>
+                  Create Playbook
+                </Button>
               </div>
             </form>
           </div>

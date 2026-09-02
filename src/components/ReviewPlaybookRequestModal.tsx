@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Modal from './Modal'
 import { BookOpen, MapPin, DollarSign, Clock, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react'
+import Button from '@/components/ui/PrimaryButton'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createProgramForAgency, submitProgramRequest } from '@/app/actions/applications'
 
@@ -188,13 +189,14 @@ export default function ReviewPlaybookRequestModal({
 
         {/* Action Buttons */}
         <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-          <button
+          <Button
+            variant="secondary"
+            type="button"
             onClick={onBack}
             disabled={isLoading}
-            className="px-6 py-2.5 text-gray-700 font-medium rounded-xl border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Back to Programs
-          </button>
+          </Button>
           <button
             onClick={handleSubmit}
             disabled={isLoading}

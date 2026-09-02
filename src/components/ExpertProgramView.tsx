@@ -22,6 +22,8 @@ import AddProgramItemModal from './AddProgramItemModal'
 import InternalNotesPanel from './InternalNotesPanel'
 import CreateLicenseModal from './CreateLicenseModal'
 import Modal from './Modal'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
 import { formatDate } from '@/lib/format-date'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -638,14 +640,9 @@ export default function ExpertProgramView({
               </>
             )}
             {canReopen && (
-              <button
-                type="button"
-                onClick={() => { setManualStatusModal('reopen'); setManualStatusReason('') }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
+              <Button variant="primary" type="button" size="sm" icon={ArrowRight} onClick={() => { setManualStatusModal('reopen'); setManualStatusReason('') }}>
                 Re-open
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -728,29 +725,13 @@ export default function ExpertProgramView({
       </div>
 
       {/* ── Tab navigation ── */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 -mt-2">
-        <div className="border-b border-gray-200">
-          <nav className="flex space-x-4 px-6 overflow-x-auto" aria-label="Tabs">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-                {tab.badge && tab.badge > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-xs font-semibold leading-none">
-                    {tab.badge > 99 ? '99+' : tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 -mt-2 px-6">
+        <Tabs
+          variant="underline"
+          active={activeTab}
+          onChange={(k) => setActiveTab(k as Tab)}
+          items={tabs.map(t => ({ key: t.id, label: t.label, count: t.badge }))}
+        />
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════════════
@@ -763,22 +744,16 @@ export default function ExpertProgramView({
 
           {/* Filter bar */}
           <div className="flex flex-wrap items-center gap-3 mb-3">
-            <div className="flex border border-gray-200 rounded-lg overflow-hidden text-sm">
-              {(['all', 'required', 'optional'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setFilterType(t)}
-                  className={`px-3 py-1.5 capitalize transition-colors ${
-                    filterType === t ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {t === 'all'
-                    ? `All (${stepItems.length})`
-                    : `${t.charAt(0).toUpperCase() + t.slice(1)} (${stepItems.filter(i => i.requirement_type === t).length})`
-                  }
-                </button>
-              ))}
-            </div>
+            <Tabs
+              variant="pill"
+              active={filterType}
+              onChange={(k) => setFilterType(k as typeof filterType)}
+              items={[
+                { key: 'all', label: `All (${stepItems.length})` },
+                { key: 'required', label: `Required (${stepItems.filter(i => i.requirement_type === 'required').length})` },
+                { key: 'optional', label: `Optional (${stepItems.filter(i => i.requirement_type === 'optional').length})` },
+              ]}
+            />
             <select
               value={filterAssignment}
               onChange={e => setFilterAssignment(e.target.value as typeof filterAssignment)}
@@ -848,7 +823,7 @@ export default function ExpertProgramView({
                               <div className="w-4 h-4 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center cursor-help">
                                 <Info className="w-2.5 h-2.5 text-blue-600" />
                               </div>
-                              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-56 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-50 shadow-xl pointer-events-none">
+                              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-56 bg-brand text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-50 shadow-xl pointer-events-none">
                                 {item.description}
                                 <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[5px] border-r-[5px] border-t-[5px] border-l-transparent border-r-transparent border-t-gray-900" />
                               </div>
@@ -1048,7 +1023,7 @@ export default function ExpertProgramView({
                 type="button"
                 onClick={handleManualStatusConfirm}
                 disabled={!manualStatusReason.trim() || isManualStatusLoading}
-                className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${manualStatusModal === 'complete' ? 'bg-teal-600 hover:bg-teal-700' : manualStatusModal === 'reopen' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-800'}`}
+                className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${manualStatusModal === 'complete' ? 'bg-teal-600 hover:bg-teal-700' : manualStatusModal === 'reopen' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-brand-hover'}`}
               >
                 {isManualStatusLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 {manualStatusModal === 'close' ? 'Close' : manualStatusModal === 'complete' ? 'Mark Complete' : 'Re-open'}
@@ -1084,11 +1059,10 @@ export default function ExpertProgramView({
                 </select>
               </div>
               <div className="flex justify-end gap-3 pt-1">
-                <button type="button" onClick={() => setLinkCertModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="button" onClick={handleLinkCert} disabled={!selectedCertId || isLinkingCert} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                  {isLinkingCert && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <Button variant="secondary" type="button" onClick={() => setLinkCertModal(false)}>Cancel</Button>
+                <Button variant="primary" type="button" onClick={handleLinkCert} disabled={!selectedCertId || isLinkingCert} loading={isLinkingCert}>
                   Link Certification
-                </button>
+                </Button>
               </div>
             </>
           )}
@@ -1139,18 +1113,18 @@ export default function ExpertProgramView({
                   )}
                   <p className="text-sm text-gray-500 mt-1">{tpl.file_name}</p>
                 </div>
-                <button
+                <Button
+                  variant="primary"
                   type="button"
+                  icon={Download}
                   onClick={async () => {
                     if (tpl.file_url.startsWith('http')) { window.open(tpl.file_url, '_blank'); return }
                     const { data } = await supabase.storage.from('license-templates').createSignedUrl(tpl.file_url, 3600)
                     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
                   }}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors flex-shrink-0"
                 >
-                  <Download className="w-4 h-4" />
                   Download
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -1217,16 +1191,13 @@ export default function ExpertProgramView({
               rows={2}
               className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
             />
-            <button
+            <Button
+              variant="primary"
               onClick={handleSendMessage}
               disabled={!messageContent.trim() || isSendingMessage || !conversationId}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              {isSendingMessage
-                ? <Loader2 className="w-5 h-5 animate-spin" />
-                : <Send className="w-5 h-5" />
-              }
-            </button>
+              loading={isSendingMessage}
+              icon={isSendingMessage ? undefined : Send}
+            />
           </div>
           <p className="text-xs text-gray-500 mt-2">Press Enter to send, Shift+Enter for new line</p>
         </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { UserPlus, Loader2, RefreshCw } from 'lucide-react'
+import { UserPlus, RefreshCw, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Modal from './Modal'
 import ResetPasswordModal from './ResetPasswordModal'
@@ -9,6 +9,8 @@ import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
 import TablePagination from '@/components/ui/TablePagination'
 import { useTableState } from '@/hooks/useTableState'
+import Button from '@/components/ui/PrimaryButton'
+import StatusBadge from '@/components/ui/StatusBadge'
 import {
   updateCaregiverStatus,
   addCaregiverForAgency,
@@ -70,22 +72,23 @@ function AddPanel({ children, onSave, onCancel, submitting, error }: {
       <div className="space-y-3">{children}</div>
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
       <div className="flex gap-2 mt-3">
-        <button
+        <Button
+          variant="primary"
           type="button"
+          size="sm"
           onClick={onSave}
-          disabled={submitting}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+          loading={submitting}
         >
-          {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
           {submitting ? 'Creating…' : 'Create Account'}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
           type="button"
+          size="sm"
           onClick={onCancel}
-          className="px-3 py-1.5 border border-gray-200 text-xs text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -115,15 +118,15 @@ function UserSettingsModal({
             <div className="space-y-3">{children}</div>
             {saveError && <p className="mt-2 text-xs text-red-600">{saveError}</p>}
             <div className="flex gap-2 mt-3">
-              <button
+              <Button
+                variant="primary"
                 type="button"
+                size="sm"
                 onClick={onSave}
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+                loading={saving}
               >
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                 {saving ? 'Saving…' : 'Save Changes'}
-              </button>
+              </Button>
             </div>
           </div>
           <div className="border-t border-gray-200" />
@@ -390,14 +393,14 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
             placeholder="Search caregivers…"
             className="w-48 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
           />
-          <button
+          <Button
+            variant="primary"
             type="button"
+            icon={UserPlus}
             onClick={() => { setShowAdd(p => !p); setAddError(null) }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
           >
-            <UserPlus className="w-4 h-4" />
             Add Caregiver
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -465,11 +468,7 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
                   <td className={`px-4 py-3 text-sm text-gray-700 ${cg.status !== 'active' ? 'opacity-60' : ''}`}>{cg.phone || '—'}</td>
                   <td className={`px-4 py-3 text-sm text-gray-700 ${cg.status !== 'active' ? 'opacity-60' : ''}`}>{cg.email}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                      cg.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {cg.status === 'active' ? 'Active' : 'Inactive'}
-                    </span>
+                    <StatusBadge status={cg.status === 'active' ? 'active' : 'inactive'} />
                   </td>
                 </tr>
               ))}

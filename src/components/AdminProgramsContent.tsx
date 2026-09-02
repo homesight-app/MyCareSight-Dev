@@ -3,13 +3,17 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Search, Clock, FileText, CheckCircle2, AlertCircle,
+  Clock, FileText, CheckCircle2, AlertCircle,
   Circle, ChevronRight, Calendar, MapPin, Loader2,
   Check, X,
 } from 'lucide-react'
 import { acceptApplicationRequest, rejectProgramRequest } from '@/app/actions/applications'
 import TablePagination from '@/components/ui/TablePagination'
 import { formatDateShort } from '@/lib/format-date'
+import Button from '@/components/ui/PrimaryButton'
+import Tabs from '@/components/ui/Tabs'
+import SearchInput from '@/components/ui/SearchInput'
+import StatusBadge from '@/components/ui/StatusBadge'
 
 type ItemStatus = 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'
 
@@ -49,18 +53,6 @@ function computeProgress(items: { status: ItemStatus }[]) {
   const countable   = items.length - na
   const pct         = countable > 0 ? Math.round((approved / countable) * 100) : 0
   return { approved, inProgress, review, notStarted, pct }
-}
-
-const STATUS_BADGE: Record<string, string> = {
-  requested:    'bg-blue-100 text-blue-700',
-  in_progress:  'bg-blue-100 text-blue-700',
-  under_review: 'bg-yellow-100 text-yellow-700',
-  approved:     'bg-green-100 text-green-700',
-  closed:       'bg-gray-100 text-gray-600',
-}
-
-function statusLabel(s: string) {
-  return s.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
 }
 
 
@@ -120,52 +112,22 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-        <input
-          type="text"
-          placeholder="Search by program name, state, or agency..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
-        />
-      </div>
+      <SearchInput
+        value={searchQuery}
+        onChange={setSearchQuery}
+        placeholder="Search by program name, state, or agency..."
+      />
 
       {/* Tabs */}
-      <div className="flex gap-4 border-b border-gray-200">
-        <button
-          onClick={() => setActiveTab('requested')}
-          className={`flex items-center gap-2 px-4 py-3 font-semibold transition-colors border-b-2 ${
-            activeTab === 'requested'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          <Clock className="w-5 h-5" />
-          Requested
-          {requestedPrograms.length > 0 && (
-            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-              {requestedPrograms.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('all')}
-          className={`flex items-center gap-2 px-4 py-3 font-semibold transition-colors border-b-2 ${
-            activeTab === 'all'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          <FileText className="w-5 h-5" />
-          All Programs
-          {allPrograms.length > 0 && (
-            <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-              {allPrograms.length}
-            </span>
-          )}
-        </button>
-      </div>
+      <Tabs
+        variant="underline"
+        items={[
+          { key: 'requested', label: 'Requested', count: requestedPrograms.length > 0 ? requestedPrograms.length : undefined },
+          { key: 'all', label: 'All Programs', count: allPrograms.length > 0 ? allPrograms.length : undefined },
+        ]}
+        active={activeTab}
+        onChange={(key) => setActiveTab(key as 'requested' | 'all')}
+      />
 
       {/* ── Requested Tab ── */}
       {activeTab === 'requested' && (
@@ -203,26 +165,24 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <button
+                      <Button
+                        variant="secondary"
                         onClick={() => handleReject(program.id)}
                         disabled={loadingId !== null}
-                        className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        loading={loadingId === program.id + '-reject'}
+                        icon={loadingId === program.id + '-reject' ? undefined : X}
                       >
-                        {loadingId === program.id + '-reject'
-                          ? <Loader2 className="w-4 h-4 animate-spin" />
-                          : <X className="w-4 h-4" />}
                         Reject
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="primary"
                         onClick={() => handleApprove(program.id)}
                         disabled={loadingId !== null}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        loading={loadingId === program.id}
+                        icon={loadingId === program.id ? undefined : Check}
                       >
-                        {loadingId === program.id
-                          ? <Loader2 className="w-4 h-4 animate-spin" />
-                          : <Check className="w-4 h-4" />}
                         Approve &amp; Launch
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -258,7 +218,6 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
               <tbody className="divide-y divide-gray-50">
                 {pagedAll.map(program => {
                   const prog = computeProgress(program.application_playbook_items)
-                  const badgeClass = STATUS_BADGE[program.status] ?? 'bg-gray-100 text-gray-600'
                   return (
                     <tr
                       key={program.id}
@@ -274,7 +233,7 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2 mb-1">
                           <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden flex-shrink-0">
-                            <div className="h-full bg-blue-600 rounded-full" style={{ width: `${prog.pct}%` }} />
+                            <div className="h-full bg-brand rounded-full" style={{ width: `${prog.pct}%` }} />
                           </div>
                           <span className="text-xs text-gray-500">{prog.pct}%</span>
                         </div>
@@ -297,9 +256,7 @@ export default function AdminProgramsContent({ requestedPrograms, allPrograms }:
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${badgeClass}`}>
-                          {statusLabel(program.status)}
-                        </span>
+                        <StatusBadge status={program.status} size="sm" />
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500">
                         {program.application_playbook_items.length} items

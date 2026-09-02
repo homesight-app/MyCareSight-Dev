@@ -6,9 +6,10 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { US_STATES } from '@/lib/constants'
+import Button from '@/components/ui/PrimaryButton'
+import PageHeader from '@/components/ui/PageHeader'
 
 const licenseSchema = z.object({
   license_name: z.string().min(1, 'License name is required').min(3, 'License name must be at least 3 characters'),
@@ -96,20 +97,11 @@ function NewLicensePageContent() {
   return (
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center gap-4">
-          <Link
-            href="/pages/agency/licenses"
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">New Application Request</h1>
-            <p className="text-gray-600 text-lg">
-              Add a new home care license for your organization
-            </p>
-          </div>
-        </div>
+        <PageHeader
+          title="New Application Request"
+          subtitle="Add a new home care license for your organization"
+          back={{ href: '/pages/agency/licenses', label: 'Back' }}
+        />
 
         {/* Form */}
         <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
@@ -238,20 +230,14 @@ function NewLicensePageContent() {
               >
                 Cancel
               </Link>
-              <button
+              <Button
                 type="submit"
+                variant="primary"
                 disabled={isLoading}
-                className="px-6 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                loading={isLoading}
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  'Create License'
-                )}
-              </button>
+                {isLoading ? 'Creating...' : 'Create License'}
+              </Button>
             </div>
           </form>
         </div>

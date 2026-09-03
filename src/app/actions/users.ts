@@ -277,7 +277,7 @@ export async function createUserAccount(
         }
         const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
           email: normalizedEmail,
-          options: { emailRedirectTo: buildMagicLinkRedirectUrl(siteUrl) },
+          options: { emailRedirectTo: buildMagicLinkRedirectUrl(siteUrl), shouldCreateUser: false },
         })
         if (magicLinkError) {
           return { error: `User already exists. Failed to send login link: ${magicLinkError.message}`, data: null }
@@ -436,7 +436,7 @@ export async function createUserAccount(
 
     const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
       email: normalizedEmail,
-      options: { emailRedirectTo: buildMagicLinkRedirectUrl(siteUrl) },
+      options: { emailRedirectTo: buildMagicLinkRedirectUrl(siteUrl), shouldCreateUser: false },
     })
     if (magicLinkError) console.warn('Failed to send magic link:', magicLinkError.message)
 
@@ -541,7 +541,7 @@ export async function createAgencyAdminAccount(
         }
         const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
           email: normalizedEmail,
-          options: { emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink` },
+          options: { emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink`, shouldCreateUser: false },
         })
         if (magicLinkError) {
           return { error: `User already exists. Failed to send login link: ${magicLinkError.message}`, data: null }
@@ -593,7 +593,7 @@ export async function createAgencyAdminAccount(
 
     const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
       email: normalizedEmail,
-      options: { emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink` },
+      options: { emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink`, shouldCreateUser: false },
     })
     if (magicLinkError) console.warn('Failed to send magic link:', magicLinkError.message)
 
@@ -677,6 +677,7 @@ export async function createStaffUserAccount(
           email: normalizedEmail,
           options: {
             emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink`,
+            shouldCreateUser: false,
           },
         })
 
@@ -748,6 +749,7 @@ export async function createStaffUserAccount(
       email: normalizedEmail,
       options: {
         emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink`,
+        shouldCreateUser: false,
       },
     })
     if (magicLinkError) {

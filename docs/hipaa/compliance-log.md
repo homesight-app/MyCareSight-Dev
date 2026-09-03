@@ -23,6 +23,19 @@ and auditors.
 
 ## § 164.312(b) — Audit Controls
 
+### Azure Blob Storage Target Recorded (2026-09-03)
+- **What:** The approved target for private document storage changed from Cloudflare R2 to Azure Blob Storage. This is a migration-design decision only; no application storage code, access path, or live data changed.
+- **Required design:** The future Azure adapter remains behind `src/lib/storage/`; private containers, server-authorized short-lived SAS URLs, database-backed ownership and agency checks, and audit events for upload, download, URL issuance, deletion, and denied access are required before PHI/ePHI is introduced.
+- **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, 164.312(c)(1) Integrity, and 164.312(e)(1) Transmission Security.
+- **Files changed:** `AGENTS.md`, `docs/migrations/step-1-migration-control.md`, `docs/hipaa/compliance-log.md`.
+- **Gap and remediation:** A BAA/contractual eligibility review, Azure account and tenant configuration, encryption/key-management decisions, private networking, retention, recovery, monitoring, and incident-response controls remain unverified. They are required before Azure Blob Storage may contain PHI/ePHI.
+
+### Public Self-Service Registration Disabled (2026-09-03)
+- **What:** Disabled public self-service registration. Middleware no longer treats `/pages/auth/signup` or legacy `/signup` as public paths, and the signup route returns `notFound()`. The unused shared Supabase `signUp` helper was removed. All six remaining administrative magic-link sends now set `shouldCreateUser: false`, preventing them from creating a user. The former page allowed a visitor to submit `admin`, `expert`, or `company_owner` role metadata.
+- **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control and 164.312(d) Person or Entity Authentication.
+- **Files changed:** `src/app/pages/auth/signup/page.tsx`, `src/lib/auth.ts`, `src/lib/supabase/middleware.ts`, `src/app/actions/users.ts`, `docs/migrations/step-1-migration-control.md`, `docs/hipaa/compliance-log.md`.
+- **Gap and remediation:** A browser can call Supabase Auth directly with the public key until the project-level **Allow new users to sign up** setting is disabled. The project owner must disable that setting and **Allow anonymous sign-ins** in Supabase Dashboard, then verify existing administrator login and admin-created magic links. Step 6 must replace the remaining Supabase administrative and magic-link mechanisms with invite-only Auth.js provisioning, durable rate limits, MFA enrollment, revocable database sessions, and authentication audit events.
+
 ### Internal Note Search Audit (pre-existing, date unknown)
 - **What:** Every search of `internal_notes` ≥ 3 characters triggers a debounced audit log entry.
 - **Files:** `src/app/actions/internal-notes.ts` → `logNoteSearchAction`

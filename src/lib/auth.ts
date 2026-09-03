@@ -1,6 +1,6 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { UserRole, AgencyRole } from '@/types/auth'
+import { AgencyRole } from '@/types/auth'
 
 function isDynamicServerUsageError(error: unknown): boolean {
   return (
@@ -91,33 +91,6 @@ export async function signIn(email: string, password: string, rememberMe: boolea
   return { data, error: null }
 }
 
-export async function signUp(email: string, password: string, fullName: string, role: UserRole) {
-  const supabase = await createClient()
-  
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL 
-  
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: `${siteUrl}/auth/callback`,
-      data: {
-        full_name: fullName,
-        role,
-      },
-    },
-  })
-
-  if (error) {
-    return { error }
-  }
-
-  // User profile is automatically created by database trigger (handle_new_user)
-  // No need to manually insert as it would violate RLS policies
-
-  return { data, error: null }
-}
-
 export async function resetPassword(email: string) {
   const supabase = await createClient()
   
@@ -137,5 +110,4 @@ export async function updatePassword(newPassword: string) {
 
   return { error }
 }
-
 

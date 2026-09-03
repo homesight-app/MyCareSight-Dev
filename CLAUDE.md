@@ -175,6 +175,21 @@ Never call Supabase Storage SDK methods (`supabase.storage.*`) directly in pages
 
 This keeps the storage provider (currently Supabase Storage) swappable. When migrating to S3-compatible storage on Aptible, only `src/lib/storage/` needs to change.
 
+### Infrastructure provider abstraction — no direct vendor SDK imports in business logic
+
+Do not introduce direct vendor SDK dependencies into business logic, UI components, or domain services. All external infrastructure services — including storage, authentication, email, logging, and background jobs — must be accessed through application-owned provider interfaces so implementations can be replaced without rewriting business logic.
+
+**In practice for this codebase:**
+- Storage → `src/lib/storage/` (never call `supabase.storage.*` directly outside this module)
+- Auth → `src/lib/auth.ts` and `src/lib/auth-helpers.ts` (never import `@supabase/supabase-js` in pages or components)
+- DB queries → `src/lib/supabase/query/` (never write inline Supabase query chains in pages, components, or server actions)
+- Email → wrap any email SDK (Resend, Mailgun, etc.) in a module under `src/lib/email/`
+- Any future service (analytics, feature flags, background jobs) → create a `src/lib/` wrapper first, never import the vendor SDK directly at the call site
+
+If you find a direct vendor import in a component or server action that bypasses these layers, flag it and route it through the appropriate abstraction before proceeding.
+
+---
+
 ### Query layer (`src/lib/supabase/query/`)
 
 All DB access goes through named functions in this directory. Each function takes a Supabase client as its first argument and returns `Promise<{ data: T | null, error: PostgrestError | null }>`. The barrel `index.ts` re-exports everything — import as `import * as q from '@/lib/supabase/query'`.

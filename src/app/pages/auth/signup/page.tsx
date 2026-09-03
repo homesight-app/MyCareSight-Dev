@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { notFound, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -34,6 +34,8 @@ const ROLE_OPTIONS = [
 ]
 
 export default function SignupPage() {
+  notFound()
+
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -211,7 +213,7 @@ export default function SignupPage() {
                     />
                   </div>
                   {errors.fullName && (
-                    <p className="mt-1 text-sm text-red-300">{errors.fullName.message}</p>
+                    <p className="mt-1 text-sm text-red-300">{errors.fullName?.message}</p>
                   )}
                 </div>
 
@@ -233,7 +235,7 @@ export default function SignupPage() {
                     />
                   </div>
                   {errors.email && (
-                    <p className="mt-1 text-sm text-red-300">{errors.email.message}</p>
+                    <p className="mt-1 text-sm text-red-300">{errors.email?.message}</p>
                   )}
                 </div>
 
@@ -256,7 +258,7 @@ export default function SignupPage() {
                       />
                     </div>
                     {errors.password && (
-                      <p className="mt-1 text-sm text-red-300">{errors.password.message}</p>
+                      <p className="mt-1 text-sm text-red-300">{errors.password?.message}</p>
                     )}
                   </div>
 
@@ -277,7 +279,7 @@ export default function SignupPage() {
                       />
                     </div>
                     {errors.confirmPassword && (
-                      <p className="mt-1 text-sm text-red-300">{errors.confirmPassword.message}</p>
+                      <p className="mt-1 text-sm text-red-300">{errors.confirmPassword?.message}</p>
                     )}
                   </div>
                 </div>
@@ -332,7 +334,7 @@ export default function SignupPage() {
                     ))}
                   </div>
                   {errors.role && (
-                    <p className="mt-1 text-sm text-red-300">{errors.role.message}</p>
+                    <p className="mt-1 text-sm text-red-300">{errors.role?.message}</p>
                   )}
                 </div>
 

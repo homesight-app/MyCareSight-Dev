@@ -102,12 +102,6 @@ export async function toggleUserStatus(userId: string, isActive: boolean) {
   const supabase = createAdminClient()
 
   try {
-    // Prevent disabling admin accounts (would lock them out)
-    const { data: target } = await supabase.from('user_profiles').select('role').eq('id', userId).single()
-    if (!isActive && target?.role === 'admin') {
-      return { error: 'Admin accounts cannot be disabled.', data: null }
-    }
-
     const { error } = await q.updateUserProfileById(supabase, userId, {
       is_active: isActive,
       updated_at: new Date().toISOString(),

@@ -7,9 +7,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { personalInfoSchema, type PersonalInfoFormData, companyDetailsSchema, type CompanyDetailsFormInput, type CompanyDetailsFormOutput } from '@/lib/schemas/profile'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
 import { UserRole } from '@/types/auth'
 import { saveCompanyDetails } from '@/app/actions/agencies'
+import { updatePersonalProfile } from '@/app/actions/users'
 
 
 interface InitialAgency {
@@ -176,30 +176,25 @@ export default function ProfileTabs({ user, profile, initialAgency }: ProfileTab
     setSuccess(false)
 
     try {
-      const supabase = createClient()
-
-      const { error: updateError } = await q.updateUserProfileById(supabase, user.id, {
-        full_name: `${data.firstName} ${data.lastName}`,
+      const result = await updatePersonalProfile({
+        fullName: `${data.firstName} ${data.lastName}`,
         phone: data.phone || null,
-        job_title: data.jobTitle || null,
+        jobTitle: data.jobTitle || null,
         department: data.department || null,
-        work_location: data.workLocation || null,
-        start_date: data.startDate || null,
-        updated_at: new Date().toISOString(),
+        workLocation: data.workLocation || null,
+        startDate: data.startDate || null,
       })
 
-      if (updateError) {
-        setError(updateError.message)
+      if (result.error) {
+        setError(result.error)
         setIsLoading(false)
         return
       }
 
-      // Update email if changed
+      // Email is an auth operation — must use the browser client with the user's own session
       if (data.email !== user.email) {
-        const { error: emailError } = await supabase.auth.updateUser({
-          email: data.email,
-        })
-
+        const supabase = createClient()
+        const { error: emailError } = await supabase.auth.updateUser({ email: data.email })
         if (emailError) {
           setError(emailError.message)
           setIsLoading(false)

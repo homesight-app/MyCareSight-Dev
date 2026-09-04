@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { MoreVertical } from 'lucide-react'
 import Link from 'next/link'
 
@@ -100,7 +101,7 @@ export default function RecordActionsMenu({ actions, label }: RecordActionsMenuP
         <MoreVertical className="w-4 h-4" />
       </button>
 
-      {isOpen && (
+      {isOpen && createPortal(
         <div
           ref={menuRef}
           role="menu"
@@ -160,7 +161,8 @@ export default function RecordActionsMenu({ actions, label }: RecordActionsMenuP
               })}
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </>
   )

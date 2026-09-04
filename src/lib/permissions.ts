@@ -17,15 +17,16 @@ export async function requirePlatformStaffOrAgencyRole(agencyId: string) {
   if (!session) return { error: 'Not authenticated', session: null }
 
   const profile = session.profile as { role?: string; is_active?: boolean } | null
+  const role = profile?.role
 
-  // Deactivated accounts are blocked before any role check
+  // Platform staff have universal access regardless of is_active
+  // (blocking an admin via this guard would lock them out of fixing the situation)
+  if (role === 'admin' || role === 'expert') return { error: null, session }
+
+  // Deactivated non-platform accounts are blocked
   if (profile?.is_active === false) {
     return { error: 'Account is deactivated', session: null }
   }
-
-  // Platform staff have universal access
-  const role = profile?.role
-  if (role === 'admin' || role === 'expert') return { error: null, session }
 
   // Agency-level check: read from pre-loaded session roles (no DB query)
   const hasAccess = session.agencyRoles?.some(

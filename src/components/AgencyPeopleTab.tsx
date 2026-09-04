@@ -109,7 +109,8 @@ function buildPeopleRows(
       credential,
       adminRecordId: admin?.id ?? null,
       coordinatorRecordId: coord?.id ?? null,
-      status: (s.status as PersonRow['status']) ?? 'active',
+      // Prefer user_profiles.is_active when a login account exists; fall back to ks status for pure contacts
+      status: (s.user_profile_id && s.is_active === false) ? 'inactive' : ((s.status as PersonRow['status']) ?? 'active'),
     }
   })
 
@@ -131,7 +132,7 @@ function buildPeopleRows(
       credential: 'company_owner',
       adminRecordId: a.id,
       coordinatorRecordId: null,
-      status: (a.status as PersonRow['status']) ?? 'active',
+      status: a.is_active === false ? 'inactive' : 'active',
     })
   }
 
@@ -152,7 +153,7 @@ function buildPeopleRows(
       credential: 'care_coordinator',
       adminRecordId: null,
       coordinatorRecordId: c.id,
-      status: (c.status as PersonRow['status']) ?? 'active',
+      status: c.is_active === false ? 'inactive' : 'active',
     })
   }
 

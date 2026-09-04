@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
+import { getSession } from '@/lib/auth'
 
 const createUserAccountSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -33,11 +34,84 @@ const createStaffSchema = z.object({
   agencyName: z.string().optional(),
 })
 
-export async function toggleUserStatus(userId: string, isActive: boolean) {
-  const supabase = await createClient()
+export async function updatePersonalProfile(payload: {
+  fullName: string
+  phone: string | null
+  jobTitle: string | null
+  department: string | null
+  workLocation: string | null
+  startDate: string | null
+}) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+
+  const userId = session.user.id
+  const role = session.profile?.role
+  const supabase = createAdminClient()
+  const now = new Date().toISOString()
 
   try {
-    const { error } = await q.updateUserProfileUpdatedAt(supabase, userId)
+    const { error: profileError } = await supabase
+      .from('user_profiles')
+      .update({
+        full_name: payload.fullName,
+        phone: payload.phone,
+        job_title: payload.jobTitle,
+        department: payload.department,
+        work_location: payload.workLocation,
+        start_date: payload.startDate,
+        updated_at: now,
+      })
+      .eq('id', userId)
+    if (profileError) return { error: profileError.message, data: null }
+
+    // Sync name/phone to the role table so the People/Caregivers tabs
+    // never show a stale name after a user edits their own profile.
+    const { first_name, last_name } = parseFullName(payload.fullName)
+    if (role === 'company_owner') {
+      await supabase
+        .from('agency_admins')
+        .update({ contact_name: payload.fullName, contact_phone: payload.phone, updated_at: now })
+        .eq('user_id', userId)
+    } else if (role === 'care_coordinator') {
+      await supabase
+        .from('care_coordinators')
+        .update({ first_name, last_name, updated_at: now })
+        .eq('user_id', userId)
+    } else if (role === 'staff_member') {
+      await supabase
+        .from('caregiver_members')
+        .update({ first_name, last_name, phone: payload.phone, updated_at: now })
+        .eq('user_id', userId)
+    }
+
+    revalidatePath('/pages/agency/profile')
+    revalidatePath('/pages/caregiver/profile')
+    revalidatePath('/pages/expert/profile')
+    return { error: null, data: { success: true } }
+  } catch (err: any) {
+    return { error: err?.message || 'Failed to update profile', data: null }
+  }
+}
+
+export async function toggleUserStatus(userId: string, isActive: boolean) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  if (session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
+
+  const supabase = createAdminClient()
+
+  try {
+    // Prevent disabling admin accounts (would lock them out)
+    const { data: target } = await supabase.from('user_profiles').select('role').eq('id', userId).single()
+    if (!isActive && target?.role === 'admin') {
+      return { error: 'Admin accounts cannot be disabled.', data: null }
+    }
+
+    const { error } = await q.updateUserProfileById(supabase, userId, {
+      is_active: isActive,
+      updated_at: new Date().toISOString(),
+    })
 
     if (error) {
       return { error: error.message, data: null }

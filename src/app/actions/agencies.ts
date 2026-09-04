@@ -366,7 +366,9 @@ export async function removeAdminFromAgency(agencyId: string, adminId: string) {
   }
 }
 
-/** Admin/expert: set an agency's status to 'active' or 'inactive'. */
+/** Admin/expert: set an agency's status to 'active' or 'inactive'.
+ *  user_profiles.is_active is the single source of truth for login access —
+ *  role table status columns (agency_admins, care_coordinators, caregiver_members) are not written here. */
 export async function setAgencyStatus(agencyId: string, status: 'active' | 'inactive') {
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', data: null }
@@ -374,12 +376,24 @@ export async function setAgencyStatus(agencyId: string, status: 'active' | 'inac
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
   const supabase = createAdminClient()
+  const isActive = status === 'active'
+  const now = new Date().toISOString()
+
   try {
-    const { error } = await supabase
+    const { error: agencyError } = await supabase
       .from('agencies')
-      .update({ status, updated_at: new Date().toISOString() })
+      .update({ status, updated_at: now })
       .eq('id', agencyId)
-    if (error) return { error: error.message, data: null }
+    if (agencyError) return { error: agencyError.message, data: null }
+
+    // Cascade to user_profiles only — agency-scoped roles, never admin/expert
+    const { error: profilesError } = await supabase
+      .from('user_profiles')
+      .update({ is_active: isActive, updated_at: now })
+      .eq('agency_id', agencyId)
+      .in('role', ['company_owner', 'care_coordinator', 'staff_member'])
+    if (profilesError) return { error: `Agency updated but failed to sync user accounts: ${profilesError.message}`, data: null }
+
     revalidateAgencyDetailPages()
     revalidateAgencyListCaches()
     return { error: null, data: { success: true } }

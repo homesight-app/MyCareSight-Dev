@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
@@ -9,7 +9,7 @@ import type { BillingCode } from '@/lib/supabase/query/billing'
 export type { BillingCode }
 
 export async function getActiveBillingCodesAction(): Promise<{ data: BillingCode[] | null; error: string | null }> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getActiveBillingCodes(supabase)
   return { data, error: error?.message ?? null }
 }
@@ -28,7 +28,7 @@ export async function createBilling(data: CreateBillingData) {
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', data: null }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
     // Calculate total amount

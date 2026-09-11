@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import { computeCaregiverMatches } from '@/lib/caregiver-matching'
 import type { CaregiverMatchOption } from '@/lib/caregiver-matching'
@@ -11,7 +11,7 @@ export type { CaregiverMatchOption }
 export async function getCaregiverCandidatesForVisitAction(
   visitId: string
 ): Promise<{ data: CaregiverMatchOption[] | null; error: string | null }> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: visit, error: visitErr } = await supabase
     .from('scheduled_visits')

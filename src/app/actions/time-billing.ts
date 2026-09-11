@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import type { Supabase } from '@/lib/supabase/types'
 import {
   clearVisitApprovalAndFinancialsOnVoid,
@@ -142,10 +143,9 @@ async function applyTimeBillingVisitUpdate(
 }
 
 export async function approveTimeBillingRowAction(input: PendingPayload) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   const result = await applyTimeBillingVisitUpdate(supabase, user?.id ?? null, input, 'approved')
   if (!result.ok) return { error: result.error }
   revalidatePath(PATH)
@@ -154,10 +154,9 @@ export async function approveTimeBillingRowAction(input: PendingPayload) {
 }
 
 export async function voidTimeBillingRowAction(input: PendingPayload) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   const result = await applyTimeBillingVisitUpdate(supabase, user?.id ?? null, input, 'voided')
   if (!result.ok) return { error: result.error }
   revalidatePath(PATH)
@@ -169,10 +168,9 @@ export async function updateVisitMileageAction(
   scheduledVisitId: string,
   mileageMiles: number | null
 ): Promise<{ ok: boolean; error?: string }> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { ok: false, error: 'Not authenticated' }
 
   // Read current value for audit log

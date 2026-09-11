@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import { getSystemSettingsByCategory, upsertSystemSetting } from '@/lib/supabase/query/system-settings'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { hexDarken, hexLighten } from '@/lib/color-utils'
@@ -23,7 +23,7 @@ function buildPublicUrl(path: string | null | undefined): string | null {
 }
 
 export async function getSystemBranding(): Promise<SystemBranding> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const settings = await getSystemSettingsByCategory(supabase, 'branding')
   return {
     logoUrl: buildPublicUrl(settings.platform_logo_path),
@@ -37,8 +37,9 @@ export async function updateSystemBranding(payload: {
   primaryColor: string
   sidebarColor: string
 }): Promise<{ success: boolean; error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { success: false, error: 'Unauthorized' }
 
   const adminSupabase = createAdminClient()
@@ -52,8 +53,9 @@ export async function uploadPlatformLogo(
   formData: FormData,
   variant: 'full' | 'icon'
 ): Promise<{ url: string | null; error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { url: null, error: 'Unauthorized' }
 
   const file = formData.get('file') as File | null
@@ -86,8 +88,9 @@ export async function uploadPlatformLogo(
 }
 
 export async function resetSystemBranding(): Promise<{ success: boolean; error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { success: false, error: 'Unauthorized' }
 
   const adminSupabase = createAdminClient()

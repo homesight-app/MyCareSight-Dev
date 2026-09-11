@@ -18,7 +18,7 @@ export default async function CareVisitsPage() {
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? ''
   const role = session.profile?.role ?? ''
   const canManageNotes =
-    role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
+    role === 'company_owner' || role === 'care_coordinator'
 
   const dashboard = await fetchVisitAssignmentDashboardData(supabase)
   const allVisits = await fetchAllVisitsDashboardData(supabase)

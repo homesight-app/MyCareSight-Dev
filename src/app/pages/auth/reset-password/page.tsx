@@ -7,9 +7,11 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { Mail, Lock, FileText } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
-import { createImplicitClient } from '@/lib/supabase/client-implicit'
-import { checkEmailExistsForReset } from '@/app/actions/auth'
+import {
+  checkEmailExistsForReset,
+  sendPasswordResetAction,
+  updatePasswordWithTokenAction,
+} from '@/app/actions/auth'
 
 const resetSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -34,7 +36,9 @@ function ResetPasswordPageContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [isUpdateMode, setIsUpdateMode] = useState(false)
+  const [token, setToken] = useState<string | null>(null)
+
+  const isUpdateMode = !!token
 
   const resetForm = useForm<ResetFormData>({
     resolver: zodResolver(resetSchema),
@@ -44,11 +48,10 @@ function ResetPasswordPageContent() {
     resolver: zodResolver(updatePasswordSchema),
   })
 
-  // Check if we're in password update mode (after clicking email link)
   useEffect(() => {
-    const hash = window.location.hash
-    if (hash.includes('access_token') || searchParams.get('token')) {
-      setIsUpdateMode(true)
+    const tokenParam = searchParams.get('token')
+    if (tokenParam) {
+      setToken(tokenParam)
     }
   }, [searchParams])
 
@@ -69,21 +72,16 @@ function ResetPasswordPageContent() {
         return
       }
 
-      // Use implicit flow so the reset link works when opened in a different browser/device
-      const supabase = createImplicitClient()
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(data.email, {
-        redirectTo: `${window.location.origin}/pages/auth/change-password`,
-      })
-
+      const { error: resetError } = await sendPasswordResetAction(data.email)
       if (resetError) {
-        setError(resetError.message)
+        setError(resetError)
         setIsLoading(false)
         return
       }
 
       setSuccess(true)
       setIsLoading(false)
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred. Please try again.')
       setIsLoading(false)
     }
@@ -94,22 +92,25 @@ function ResetPasswordPageContent() {
     setError(null)
 
     try {
-      const supabase = createClient()
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: data.password,
-      })
+      if (!token) {
+        setError('Invalid reset link. Please request a new one.')
+        setIsLoading(false)
+        return
+      }
+
+      const { error: updateError } = await updatePasswordWithTokenAction(token, data.password)
 
       if (updateError) {
-        setError(updateError.message)
+        setError(updateError)
         setIsLoading(false)
         return
       }
 
       setSuccess(true)
       setTimeout(() => {
-        router.push('/pages/auth/login')
+        router.push('/pages/auth/login?passwordChanged=true')
       }, 2000)
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred. Please try again.')
       setIsLoading(false)
     }
@@ -209,7 +210,7 @@ function ResetPasswordPageContent() {
 
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || success}
                 className="w-full bg-gradient-to-r from-gray-900 to-gray-800 text-white py-3.5 rounded-xl font-semibold hover:from-gray-800 hover:to-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
               >
                 {isLoading ? 'Updating...' : 'Update Password'}
@@ -291,7 +292,7 @@ function ResetPasswordPageContent() {
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || success}
               className="w-full bg-gradient-to-r from-gray-900 to-gray-800 text-white py-3.5 rounded-xl font-semibold hover:from-gray-800 hover:to-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
             >
               {isLoading ? 'Sending...' : 'Send Reset Link'}
@@ -330,11 +331,10 @@ export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-white">Loading...</div>
+        <div className="text-gray-600">Loading...</div>
       </div>
     }>
       <ResetPasswordPageContent />
     </Suspense>
   )
 }
-

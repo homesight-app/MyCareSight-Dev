@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 
 const REVAL_PATHS = ['/pages/agency/caregiver', '/pages/agency/time-billing', '/pages/agency/reports/payroll-billing']
@@ -11,8 +12,9 @@ function todayUtcDate(): string {
 }
 
 async function getViewerAgencyId(): Promise<string | null> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return null
   const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
   return up?.agency_id ?? null
@@ -36,10 +38,9 @@ export async function appendCaregiverPayRateAction(input: {
   if (!caregiverMemberId) return { error: 'Missing caregiver.' }
   if (!Number.isFinite(payRate) || payRate < 0) return { error: 'Invalid pay rate.' }
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not signed in.' }
 
   const viewerAgencyId = await getViewerAgencyId()

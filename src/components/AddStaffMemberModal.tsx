@@ -9,6 +9,7 @@ import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { createStaffUserAccount } from '@/app/actions/users'
+import { useSession } from 'next-auth/react'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
@@ -25,6 +26,7 @@ interface AddStaffMemberModalProps {
 
 export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffRoleNames }: AddStaffMemberModalProps) {
   const router = useRouter()
+  const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
 
   const {
@@ -44,14 +46,13 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = session?.user
       if (!user) {
         showValidationToast({ error: 'You must be logged in to add a staff member' })
         setIsLoading(false)
         return
       }
+      const supabase = createClient()
 
       const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
       const agencyId = up?.agency_id ?? null

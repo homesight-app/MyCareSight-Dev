@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
@@ -40,7 +39,7 @@ export async function getOrCreatePlaybook(licenseRequirementId: string) {
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden', playbook: null }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: existing } = await q.getPlaybookByRequirementId(supabase, licenseRequirementId)
   if (existing) return { error: null, playbook: existing }
@@ -81,7 +80,7 @@ export async function getPlaybookItems(playbookId: string): Promise<{ error: str
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, items: [] }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getPlaybookItems(supabase, playbookId)
   if (error) return { error: error.message, items: [] }
   return { error: null, items: (data ?? []) as PlaybookItem[] }
@@ -96,7 +95,7 @@ export async function importFromRequirement(playbookId: string, licenseRequireme
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Guard: don't double-import
   const { data: existing } = await q.getPlaybookItems(supabase, playbookId)
@@ -239,7 +238,7 @@ export async function addPlaybookItem(
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden', item: null }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Get max order
   const { data: existing } = await q.getPlaybookItems(supabase, playbookId)
@@ -285,7 +284,7 @@ export async function updatePlaybookItem(
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updatePlaybookItem(supabase, itemId, payload)
   if (error) return { error: error.message }
 
@@ -307,7 +306,7 @@ export async function deletePlaybookItem(itemId: string) {
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.deletePlaybookItem(supabase, itemId)
   if (error) return { error: error.message }
 
@@ -326,7 +325,7 @@ export async function deletePlaybookItem(itemId: string) {
 
 /** Fetch the active validation rule library (small, cacheable). */
 export async function getValidationRuleLibrary(): Promise<{ error: string | null; rules: ValidationRule[] }> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getValidationRuleLibrary(supabase)
   if (error) return { error: error.message, rules: [] }
   return { error: null, rules: (data ?? []) as ValidationRule[] }
@@ -337,7 +336,7 @@ export async function getPlaybookItemRules(playbookItemId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, ruleIds: [] as string[] }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getPlaybookItemValidationRules(supabase, playbookItemId)
   if (error) return { error: error.message, ruleIds: [] as string[] }
   return { error: null, ruleIds: (data ?? []).map((r: { validation_rule_id: string }) => r.validation_rule_id) }
@@ -351,7 +350,7 @@ export async function setPlaybookItemRules(playbookItemId: string, selectedRuleI
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const rules = selectedRuleIds.map((validation_rule_id, idx) => ({
     validation_rule_id,
     rule_order: idx + 1,
@@ -372,7 +371,7 @@ export async function copyPlaybookItems(
 
   if (sourceItemIds.length === 0) return { error: 'No items selected', items: [] }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const ITEM_SELECT = 'id, playbook_id, item_order, item_type, name, description, instructions, estimated_days, document_type, phase, assignment, requirement_type, source_step_id, source_document_id, created_at, updated_at'
 
@@ -462,7 +461,7 @@ export async function getOtherPlaybooksForCopy(currentPlaybookId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, playbooks: [] as OtherPlaybook[] }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getOtherPlaybooks(supabase, currentPlaybookId)
   if (error) return { error: error.message, playbooks: [] as OtherPlaybook[] }
   return { error: null, playbooks: (data ?? []) as unknown as OtherPlaybook[] }
@@ -473,7 +472,7 @@ export async function getAllItemsForBrowse(excludePlaybookId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, items: [] as PlaybookItemWithPlaybook[] }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getAllPlaybookItemsWithPlaybookInfo(supabase, excludePlaybookId)
   if (error) return { error: error.message, items: [] as PlaybookItemWithPlaybook[] }
   return { error: null, items: (data ?? []) as unknown as PlaybookItemWithPlaybook[] }
@@ -484,7 +483,7 @@ export async function reorderPlaybookItems(playbookId: string, orderedIds: strin
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.reorderPlaybookItems(supabase, orderedIds)
   if (error) return { error: typeof error === 'string' ? error : (error as { message: string }).message }
   return { error: null }
@@ -507,7 +506,7 @@ export async function addProgramItem(
   const { error: authError, session } = await requireStaff()
   if (authError || !session) return { error: authError ?? 'Forbidden', data: null }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const [{ data: maxRow }, { data: appRow }] = await Promise.all([
     supabase
@@ -574,7 +573,7 @@ import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
  * Called on first load of the Requirements tab for any application.
  */
 export async function migrateApplicationToProgram(applicationId: string): Promise<{ error: string | null; count: number }> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Fetch existing program items to know what's already been migrated.
   // If this SELECT fails (e.g. missing column, RLS), bail out — never proceed
@@ -754,7 +753,7 @@ export async function migrateApplicationToProgram(applicationId: string): Promis
 
 /** Fetch all program items for an application. No auth guard — agency can view their own. */
 export async function getApplicationProgramItems(applicationId: string): Promise<{ error: string | null; items: ApplicationPlaybookItem[] }> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getApplicationPlaybookItems(supabase, applicationId)
   if (error) return { error: error.message, items: [] }
   return { error: null, items: (data ?? []) as ApplicationPlaybookItem[] }
@@ -762,7 +761,7 @@ export async function getApplicationProgramItems(applicationId: string): Promise
 
 export async function getProgramItemNoteCounts(itemIds: string[]): Promise<Record<string, number>> {
   if (itemIds.length === 0) return {}
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data } = await supabase
     .from('internal_notes')
     .select('subject_id')
@@ -783,7 +782,7 @@ export async function applyPlaybookToApplication(applicationId: string): Promise
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr ?? 'Forbidden', count: 0 }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Guard: already has items
   const { count: existing } = await q.getApplicationPlaybookItemCount(supabase, applicationId)
@@ -936,7 +935,7 @@ export async function updateProgramItem(
     update.approved_by = null
   }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updateApplicationPlaybookItemRow(supabase, itemId, update as Parameters<typeof q.updateApplicationPlaybookItemRow>[2])
   if (error) return { error: error.message }
 
@@ -997,7 +996,7 @@ export async function toggleProgramRuleCheck(
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updateApplicationRuleCheck(supabase, ruleCheckId, {
     is_checked: isChecked,
     checked_by: isChecked ? session.user.id : null,
@@ -1010,7 +1009,7 @@ export async function toggleProgramRuleCheck(
 
 /** Get validation rule checks for a program document item. No auth guard. */
 export async function getProgramItemRuleChecks(applicationPlaybookItemId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getRuleChecksForApplicationItem(supabase, applicationPlaybookItemId)
   if (error) return { error: error.message, checks: [] as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[] }
   return { error: null, checks: (data ?? []) as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[] }
@@ -1018,7 +1017,7 @@ export async function getProgramItemRuleChecks(applicationPlaybookItemId: string
 
 /** Get documents uploaded for a specific program requirement item. No auth guard. */
 export async function getProgramItemDocuments(applicationPlaybookItemId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getDocumentsByPlaybookItem(supabase, applicationPlaybookItemId)
   if (error) return { error: error.message, documents: [] as { id: string; document_name: string; document_url: string; document_type: string | null; status: string | null; description: string | null; expert_review_notes: string | null; created_at: string }[] }
   return { error: null, documents: data ?? [] }
@@ -1026,7 +1025,7 @@ export async function getProgramItemDocuments(applicationPlaybookItemId: string)
 
 /** Get agency field values needed for document validation display. No auth guard. */
 export async function getAgencyFieldValues(agencyId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('agencies')
     .select('legal_entity_name, name, dba_name, licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code')
@@ -1104,7 +1103,7 @@ export async function addApplicationItemRule(itemId: string, validationRuleId: s
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, check: null }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: rule, error: ruleErr } = await supabase
     .from('validation_rules')
@@ -1136,7 +1135,7 @@ export async function removeApplicationItemRule(ruleCheckId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.deleteApplicationRuleCheck(supabase, ruleCheckId)
   if (error) return { error: error.message }
   return { error: null }
@@ -1165,7 +1164,7 @@ export async function runDocumentValidation(itemId: string, agencyId: string | n
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, extractionStatus: 'failed', draftResults: [] }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const [checksRes, agencyRes, docsRes] = await Promise.all([
     q.getRuleChecksForApplicationItem(supabase, itemId),
@@ -1286,7 +1285,7 @@ export async function saveValidationRun(
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const now = new Date().toISOString()
 
   if (runNumber > 1) {
@@ -1340,7 +1339,7 @@ export async function getValidationHistory(itemId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, runs: [] as import('@/lib/supabase/query/playbooks').ValidationRun[] }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getValidationRunsForItem(supabase, itemId)
   if (error) return { error: error.message, runs: [] as import('@/lib/supabase/query/playbooks').ValidationRun[] }
   return { error: null, runs: (data ?? []) as unknown as import('@/lib/supabase/query/playbooks').ValidationRun[] }
@@ -1348,7 +1347,7 @@ export async function getValidationHistory(itemId: string) {
 
 /** Fetch the latest validation run summary for an item (staff + agency members). */
 export async function getLatestValidationSummary(itemId: string): Promise<{ passed: number; failed: number } | null> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data } = await supabase
     .from('validation_runs')
     .select('passed_count, failed_count')
@@ -1367,7 +1366,7 @@ export async function deleteApplicationDocument(documentId: string): Promise<{ e
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: doc } = await supabase
     .from('application_documents')
@@ -1412,7 +1411,7 @@ export async function submitProgramItem(itemId: string): Promise<{ error: string
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: item } = await supabase
     .from('application_playbook_items')
@@ -1473,7 +1472,7 @@ export async function sendBackProgramItem(itemId: string, notes: string): Promis
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: item } = await supabase
     .from('application_playbook_items')
@@ -1558,7 +1557,7 @@ export async function createPlaybook(
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: row, error } = await q.insertPlaybookRecord(supabase, {
     ...data,
     is_active: true,
@@ -1578,7 +1577,7 @@ export async function updatePlaybook(
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updatePlaybookRecord(supabase, playbookId, data)
   if (error) return { error: error.message }
 
@@ -1599,7 +1598,7 @@ export async function createPlaybookTemplate(data: {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, data: null }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: row, error } = await q.insertPlaybookTemplate(supabase, {
     playbook_id: data.playbookId,
     template_name: data.templateName,
@@ -1620,7 +1619,7 @@ export async function updatePlaybookTemplateAction(
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updatePlaybookTemplateById(supabase, id, {
     template_name: data.templateName,
     description: data.description || null,
@@ -1635,7 +1634,7 @@ export async function deletePlaybookTemplateAction(id: string): Promise<{ error:
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.deletePlaybookTemplateById(supabase, id)
   if (error) return { error: error.message }
   revalidatePath('/pages/admin/playbooks')

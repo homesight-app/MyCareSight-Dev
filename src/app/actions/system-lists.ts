@@ -1,6 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { Supabase } from '@/lib/supabase/types'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import {
   CACHE_TAG_CAREGIVER_SKILL_CATALOG,
@@ -20,7 +21,7 @@ type ServiceType = 'skilled' | 'non_skilled'
 type TaskCategoryItem = { id: string; name: string }
 type TaskCatalogItem = { id: string; name: string; categoryId: string; categoryName: string }
 
-async function ensureDefaultTaskCategory(supabase: Awaited<ReturnType<typeof createClient>>, serviceType: ServiceType) {
+async function ensureDefaultTaskCategory(supabase: Supabase, serviceType: ServiceType) {
   const { data: existing, error: readErr } = await supabase
     .from('task_categories')
     .select('id')
@@ -77,7 +78,7 @@ export async function getNonSkilledTaskCategories() {
 }
 
 async function getTaskCatalogItemById(id: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('task_catalog')
     .select('id, name, category_id, task_categories!inner(name)')
@@ -101,7 +102,7 @@ async function getTaskCatalogItemById(id: string) {
 }
 
 export async function createTaskCatalogItem(serviceType: ServiceType, name: string, categoryId?: string | null) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   try {
     const trimmedName = name.trim()
     if (!trimmedName) return { error: 'Task name is required.', data: null }
@@ -136,7 +137,7 @@ export async function createTaskCatalogItem(serviceType: ServiceType, name: stri
 }
 
 export async function updateTaskCatalogItem(id: string, name: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   try {
     const trimmedName = name.trim()
     if (!trimmedName) return { error: 'Task name is required.', data: null }
@@ -160,7 +161,7 @@ export async function updateTaskCatalogItem(id: string, name: string) {
 }
 
 export async function deleteTaskCatalogItem(id: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   try {
     const { error } = await supabase.from('task_catalog').delete().eq('id', id)
     if (error) return { error: error.message }

@@ -10,6 +10,7 @@ import { getCertificationTypes } from '@/app/actions/certifications'
 import { getCaregiverSkillCatalogAction } from '@/app/actions/reference-data'
 import { getMyStaffCertifications } from '@/app/actions/staff-member-certifications'
 import { createClient } from '@/lib/supabase/client'
+import { useSession } from 'next-auth/react'
 import { CAREGIVER_SKILL_POINTS } from '@/lib/constants'
 import { normalizeCaregiverSkillsList } from '@/lib/caregiver-skills'
 import { Plus, Edit, Eye, Award, Loader2, Sparkles } from 'lucide-react'
@@ -90,6 +91,7 @@ function groupSkillsForDisplay(
 function MyCertificationsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { data: session } = useSession()
   const action = searchParams.get('action')
   const [certifications, setCertifications] = useState<Certification[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -135,15 +137,12 @@ function MyCertificationsContent() {
 
   const loadData = useCallback(async () => {
     try {
-      const supabase = createClient()
-
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser()
+      const currentUser = session?.user
       if (!currentUser) {
         router.push('/pages/auth/login')
         return
       }
+      const supabase = createClient()
 
       const [certsResult, memberRes] = await Promise.all([
         getMyStaffCertifications(),
@@ -171,7 +170,7 @@ function MyCertificationsContent() {
     } finally {
       setIsLoading(false)
     }
-  }, [router])
+  }, [router, session])
 
   useEffect(() => {
     loadData()

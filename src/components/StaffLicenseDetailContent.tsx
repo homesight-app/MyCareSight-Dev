@@ -16,6 +16,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { useState } from 'react'
+import { useSession } from 'next-auth/react'
 import Button from '@/components/ui/PrimaryButton'
 
 interface License {
@@ -53,6 +54,7 @@ export default function StaffLicenseDetailContent({
   documents
 }: StaffLicenseDetailContentProps) {
   const router = useRouter()
+  const { data: session } = useSession()
   const [isUploading, setIsUploading] = useState(false)
 
   const getStatusBadge = (status: string) => {
@@ -128,13 +130,11 @@ export default function StaffLicenseDetailContent({
 
       setIsUploading(true)
       try {
-        const supabase = createClient()
-        
-        // Get current user
-        const { data: { user } } = await supabase.auth.getUser()
+        const user = session?.user
         if (!user) {
           throw new Error('You must be logged in to upload documents')
         }
+        const supabase = createClient()
 
         const fileExt = file.name.split('.').pop()
         const fileName = `${license.id}/${Date.now()}.${fileExt}`

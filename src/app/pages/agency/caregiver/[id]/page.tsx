@@ -61,7 +61,7 @@ export default async function CaregiverProfilePage({
 
   const role = session.profile?.role ?? ''
   const canManageNotes =
-    role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
+    role === 'company_owner' || role === 'care_coordinator'
 
   const profileCard = (
     <div className="max-w-4xl mx-auto mt-20">

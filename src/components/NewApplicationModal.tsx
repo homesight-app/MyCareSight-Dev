@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { applicationSchema, type ApplicationFormData } from '@/lib/schemas/application'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
+import { useSession } from 'next-auth/react'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 import { US_STATES } from '@/lib/constants'
@@ -20,6 +21,7 @@ interface NewApplicationModalProps {
 
 export default function NewApplicationModal({ isOpen, onClose, onSuccess }: NewApplicationModalProps) {
   const router = useRouter()
+  const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,15 +39,13 @@ export default function NewApplicationModal({ isOpen, onClose, onSuccess }: NewA
     setError(null)
 
     try {
-      const supabase = createClient()
-      
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = session?.user
       if (!user) {
         setError('You must be logged in to create an application')
         setIsLoading(false)
         return
       }
+      const supabase = createClient()
 
       const today = new Date().toISOString().split('T')[0]
 

@@ -1,9 +1,11 @@
 'use server'
 
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
+import bcrypt from 'bcryptjs'
+import { sendInvitationEmail } from '@/lib/email'
 
 function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
@@ -11,21 +13,8 @@ function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/agency/people`)
 }
 
-// Polls for the user_profiles row created by DB trigger after auth user insert.
-async function waitForProfile(
-  supabaseAdmin: ReturnType<typeof createAdminClient>,
-  userId: string
-): Promise<boolean> {
-  for (let i = 0; i < 10; i++) {
-    await new Promise(r => setTimeout(r, 500))
-    const { data } = await supabaseAdmin.from('user_profiles').select('id').eq('id', userId).single()
-    if (data) return true
-  }
-  return false
-}
-
-// Shared creation flow: auth user + profile update + role-table insert.
-// On any failure after auth user creation, rolls back by deleting the auth user.
+// Shared creation flow: insert user_profiles + role-table insert + send invitation email.
+// On any failure after profile insert, rolls back by deleting user_profiles row.
 async function createUserForAgency(
   supabaseAdmin: ReturnType<typeof createAdminClient>,
   agencyId: string,
@@ -34,27 +23,41 @@ async function createUserForAgency(
 ): Promise<{ userId: string; error?: never } | { error: string; userId?: never }> {
   const normalizedEmail = opts.email.toLowerCase().trim()
   const fullName = `${opts.firstName} ${opts.lastName}`
+  const tempPassword = randomBytes(16).toString('hex')
 
-  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-    email: normalizedEmail,
-    password: randomBytes(16).toString('hex'),
-    email_confirm: true,
-    user_metadata: { full_name: fullName, role },
-  })
-  if (authError) return { error: authError.message }
+  // Check for existing user first
+  const { data: existingProfile } = await supabaseAdmin
+    .from('user_profiles')
+    .select('id')
+    .eq('email', normalizedEmail)
+    .maybeSingle()
 
-  const userId = authData.user.id
-
-  const profileAppeared = await waitForProfile(supabaseAdmin, userId)
-  if (!profileAppeared) {
-    await supabaseAdmin.auth.admin.deleteUser(userId)
-    return { error: 'User profile did not initialize in time. Please try again.' }
+  if (existingProfile) {
+    // Re-send invitation with a fresh temp password
+    const passwordHash = await bcrypt.hash(tempPassword, 12)
+    await supabaseAdmin
+      .from('user_profiles')
+      .update({ password_hash: passwordHash, role, agency_id: agencyId, updated_at: new Date().toISOString() })
+      .eq('id', existingProfile.id)
+    await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
+    return { userId: existingProfile.id }
   }
 
-  await supabaseAdmin
-    .from('user_profiles')
-    .update({ full_name: fullName, role, agency_id: agencyId, updated_at: new Date().toISOString() })
-    .eq('id', userId)
+  const userId = randomUUID()
+  const passwordHash = await bcrypt.hash(tempPassword, 12)
+
+  const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
+    id: userId,
+    email: normalizedEmail,
+    role,
+    full_name: fullName,
+    password_hash: passwordHash,
+    is_active: true,
+    agency_id: agencyId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })
+  if (insertError) return { error: insertError.message }
 
   if (role === 'care_coordinator') {
     const { error: roleErr } = await supabaseAdmin.from('care_coordinators').insert({
@@ -66,7 +69,7 @@ async function createUserForAgency(
       status: 'active',
     })
     if (roleErr) {
-      await supabaseAdmin.auth.admin.deleteUser(userId)
+      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
       return { error: `Failed to create coordinator record: ${roleErr.message}` }
     }
   } else if (role === 'staff_member') {
@@ -89,7 +92,7 @@ async function createUserForAgency(
       documents: {},
     })
     if (roleErr) {
-      await supabaseAdmin.auth.admin.deleteUser(userId)
+      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
       return { error: `Failed to create caregiver record: ${roleErr.message}` }
     }
   } else if (role === 'company_owner') {
@@ -103,7 +106,7 @@ async function createUserForAgency(
       agency_id: agencyId,
     })
     if (roleErr) {
-      await supabaseAdmin.auth.admin.deleteUser(userId)
+      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
       return { error: `Failed to create admin record: ${roleErr.message}` }
     }
     // Link to agency.agency_admin_ids
@@ -119,6 +122,7 @@ async function createUserForAgency(
       .eq('id', agencyId)
   }
 
+  await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
   return { userId }
 }
 
@@ -440,26 +444,21 @@ export async function promoteKeyStaffToUser(
   const normalizedEmail = opts.email.toLowerCase().trim()
   const fullName = `${opts.firstName} ${opts.lastName}`.trim()
 
-  const { data: authData, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+  const userId = randomUUID()
+  const passwordHash = await bcrypt.hash(opts.tempPassword, 12)
+
+  const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
+    id: userId,
     email: normalizedEmail,
-    password: opts.tempPassword,
-    email_confirm: true,
-    user_metadata: { full_name: fullName, role },
+    role,
+    full_name: fullName,
+    password_hash: passwordHash,
+    is_active: true,
+    agency_id: agencyId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   })
-  if (createErr) return { error: createErr.message }
-
-  const userId = authData.user.id
-
-  const profileAppeared = await waitForProfile(supabaseAdmin, userId)
-  if (!profileAppeared) {
-    await supabaseAdmin.auth.admin.deleteUser(userId)
-    return { error: 'User profile did not initialize in time. Please try again.' }
-  }
-
-  await supabaseAdmin
-    .from('user_profiles')
-    .update({ full_name: fullName, role, agency_id: agencyId, updated_at: new Date().toISOString() })
-    .eq('id', userId)
+  if (insertError) return { error: insertError.message }
 
   if (role === 'company_owner') {
     const { error: roleErr } = await supabaseAdmin.from('agency_admins').insert({
@@ -471,7 +470,7 @@ export async function promoteKeyStaffToUser(
       agency_id: agencyId,
     })
     if (roleErr) {
-      await supabaseAdmin.auth.admin.deleteUser(userId)
+      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
       return { error: `Failed to create admin record: ${roleErr.message}` }
     }
     const { data: agency } = await supabaseAdmin.from('agencies').select('agency_admin_ids').eq('id', agencyId).single()
@@ -490,10 +489,12 @@ export async function promoteKeyStaffToUser(
       status: 'active',
     })
     if (roleErr) {
-      await supabaseAdmin.auth.admin.deleteUser(userId)
+      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
       return { error: `Failed to create coordinator record: ${roleErr.message}` }
     }
   }
+
+  await sendInvitationEmail(normalizedEmail, fullName, opts.tempPassword)
 
   const { error: linkErr } = await supabaseAdmin
     .from('agency_key_staff')

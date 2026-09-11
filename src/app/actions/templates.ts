@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 
 function revalidateTemplatePaths() {
@@ -56,7 +56,7 @@ export async function createTemplate(payload: {
     return { error: 'Agency ID required' }
   }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('templates')
     .insert({
@@ -104,7 +104,7 @@ export async function updateTemplate(
     return { error: 'Forbidden' }
   }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
@@ -145,7 +145,7 @@ export async function deleteTemplate(templateId: string) {
   const { error: authErr, session } = await requireAuthenticated()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from('templates')
     .delete()
@@ -162,7 +162,7 @@ export async function duplicateTemplate(templateId: string, agencyId: string) {
   const { error: authErr, session } = await requireAuthenticated()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: source, error: fetchErr } = await supabase
     .from('templates')

@@ -2,13 +2,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { Lock, Eye, EyeOff } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { createClient } from '@/lib/supabase/client'
 import Modal from './Modal'
+import { updateCurrentUserPasswordAction } from '@/app/actions/auth'
 
 const changePasswordSchema = z
   .object({
@@ -51,41 +52,17 @@ export default function ChangePasswordModal({
     setError(null)
 
     try {
-      const supabase = createClient()
+      const result = await updateCurrentUserPasswordAction(data.newPassword)
 
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user || !user.email) {
-        setError('User not found. Please log in again.')
+      if (result.error) {
+        setError(result.error)
         setIsLoading(false)
         return
       }
 
-      // Update password
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: data.newPassword,
-      })
-
-      if (updateError) {
-        setError(updateError.message)
-        setIsLoading(false)
-        return
-      }
-
-      // Sign out the user
-      const { error: signOutError } = await supabase.auth.signOut()
-      
-      if (signOutError) {
-        console.error('Error signing out:', signOutError)
-        // Continue anyway - password was updated
-      }
-
-      // Reset form
       reset()
-
-      // Redirect to login page
-      router.push('/pages/auth/login?passwordChanged=true')
-    } catch (err: any) {
+      await signOut({ callbackUrl: '/pages/auth/login?passwordChanged=true' })
+    } catch {
       setError('An unexpected error occurred. Please try again.')
       setIsLoading(false)
     }

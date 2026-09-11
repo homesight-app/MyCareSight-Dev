@@ -30,7 +30,7 @@ export default async function ClientDetailPage({
 
   const role = session!.profile?.role ?? ''
   const canManageNotes =
-    role === 'agency_admin' || role === 'company_owner' || role === 'care_coordinator'
+    role === 'company_owner' || role === 'care_coordinator'
 
   const allowedFeatures = await getAgencyAllowedFeatures(agencyId)
   const canSchedule = allowedFeatures === null || allowedFeatures.includes('clients_scheduling')

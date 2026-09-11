@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
  * Get pricing that was effective for a specific month
@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/server'
  * @returns Pricing data that was effective for that month
  */
 export async function getPricingForMonth(year: number, month: number) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
     // Get the first day of the specified month
@@ -52,7 +52,7 @@ export async function getPricingForMonth(year: number, month: number) {
  * Get current pricing (most recent effective pricing)
  */
 export async function getCurrentPricing() {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
     const { data: pricing, error } = await supabase

@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
@@ -25,7 +24,7 @@ export async function approveApplication(applicationId: string): Promise<{ error
   if (!session) return { error: 'Not authenticated' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await updateApplicationStatus(supabase, applicationId, { status: 'approved' })
   if (error) return { error: error.message }
 
@@ -39,7 +38,7 @@ export async function approveApplication(applicationId: string): Promise<{ error
  * Expert and admin can close from the application detail page.
  */
 export async function closeApplication(applicationId: string): Promise<{ error: string | null }> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: app, error: fetchError } = await getApplicationForClose(supabase, applicationId)
 
@@ -72,7 +71,7 @@ export async function approveProgramComplete(applicationId: string): Promise<{ e
   if (!session) return { error: 'Not authenticated' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await updateApplicationStatus(supabase, applicationId, { status: 'closed' })
   if (error) return { error: error.message }
 
@@ -190,7 +189,7 @@ export async function acceptApplicationRequest(applicationId: string): Promise<{
   if (!session) return { error: 'Not authenticated' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const today = new Date().toISOString().split('T')[0]
 
   const { data: app, error: fetchErr } = await q.getApplicationById(supabase, applicationId)
@@ -263,7 +262,7 @@ export async function rejectProgramRequest(applicationId: string): Promise<{ err
   if (!session) return { error: 'Not authenticated' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const today = new Date().toISOString().split('T')[0]
 
   const { data: app, error: fetchErr } = await q.getApplicationById(supabase, applicationId)
@@ -398,7 +397,7 @@ export async function closeApplicationManually(
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Reason is required' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
   if (fetchErr || !app) return { error: 'Application not found' }
   if (!app.agency_id) return { error: 'Application has no agency' }
@@ -433,7 +432,7 @@ export async function completeApplicationManually(
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Notes are required' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
   if (fetchErr || !app) return { error: 'Application not found' }
   if (!app.agency_id) return { error: 'Application has no agency' }
@@ -468,7 +467,7 @@ export async function reopenApplication(
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Reason is required' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
   if (fetchErr || !app) return { error: 'Application not found' }
   if (!app.agency_id) return { error: 'Application has no agency' }
@@ -503,7 +502,7 @@ export async function renameApplication(
   const trimmed = name.trim()
   if (!trimmed) return { error: 'Name is required' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updateApplicationById(supabase, applicationId, { application_name: trimmed })
   if (error) return { error: error.message }
 
@@ -529,7 +528,7 @@ export async function submitProgramRequest(data: {
   const role = session.profile?.role
   if (role !== 'company_owner' && role !== 'care_coordinator') return { error: 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -593,7 +592,7 @@ export async function cancelProgramRequest(applicationId: string): Promise<{ err
   if (role !== 'company_owner' && role !== 'care_coordinator') return { error: 'Forbidden' }
 
   // Verify via RLS client that this request belongs to the user's agency and is cancellable
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: app, error: fetchError } = await supabase
     .from('applications')
     .select('id, status')
@@ -627,7 +626,7 @@ export async function updateApplicationProgressAction(
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from('applications')
     .update({ progress_percentage: progressPercentage, last_updated_date: new Date().toISOString().split('T')[0] })

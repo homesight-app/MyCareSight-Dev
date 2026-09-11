@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { CACHE_TAG_LICENSE_TYPES_ACTIVE } from '@/lib/cache-tags'
 
@@ -15,7 +15,7 @@ export interface CreateLicenseTypeData {
 }
 
 export async function createLicenseType(data: CreateLicenseTypeData) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Parse processing time (e.g., "60 days" -> 60)
   const processingTimeMatch = data.processingTime.match(/(\d+)/)
@@ -83,7 +83,7 @@ export async function createLicenseType(data: CreateLicenseTypeData) {
 }
 
 export async function updateLicenseTypeActive(id: string, isActive: boolean) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { error } = await supabase
     .from('license_types')
@@ -100,7 +100,7 @@ export async function updateLicenseTypeActive(id: string, isActive: boolean) {
 }
 
 export async function deleteLicenseType(id: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Get the license type to find the name for license_requirements
   const { data: licenseType, error: fetchError } = await supabase

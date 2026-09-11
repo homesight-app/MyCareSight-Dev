@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 import { getAgencyKeyStaff, getAgencyAdmins, getAgencyCareCoordinators } from '@/lib/supabase/query/agency-people'
 
@@ -56,7 +56,7 @@ export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> 
   const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { keyStaff: [], admins: [], coordinators: [], error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const [staffRes, adminsRes, coordsRes] = await Promise.all([
     getAgencyKeyStaff(supabase, agencyId),

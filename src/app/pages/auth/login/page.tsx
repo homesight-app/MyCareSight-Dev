@@ -8,8 +8,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { Mail, Lock, User, Shield, RefreshCw, GraduationCap, ArrowLeft } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import { signIn } from 'next-auth/react'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -90,37 +89,41 @@ function LoginPageContent() {
     setError(null)
 
     try {
-      const supabase = createClient()
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      const result = await signIn('credentials', {
         email: data.email,
         password: data.password,
+        redirect: false,
       })
-      if (authError) {
-        setError(
-          authError.message?.toLowerCase().includes('invalid login credentials')
-            ? 'Invalid email or password. Please try again.'
-            : authError.message
-        )
+
+      if (!result?.ok || result.error) {
+        const msg = result?.error ?? 'Invalid email or password.'
+        // Hint for users who haven't set a password yet (existing accounts before migration)
+        if (msg.toLowerCase().includes('credentialssignin') || msg.toLowerCase().includes('credentials')) {
+          setError(
+            'Invalid email or password. If this is your first login after our system update, please use "Forgot password?" to set your new password.'
+          )
+        } else {
+          setError('Invalid email or password. Please try again.')
+        }
         setIsLoading(false)
         return
       }
 
-      if (authData.session) {
-        // Get user profile to check role
-        const { data: profile } = await q.getUserProfileRoleById(supabase, authData.user.id)
-        // Redirect based on role
-        if (profile?.role === 'admin') {
-          router.push('/pages/admin')
-        } else if (profile?.role === 'expert') {
-          router.push('/pages/expert/clients')
-        } else if (profile?.role === 'staff_member') {
-          router.push('/pages/caregiver')
-        } else if (profile?.role === 'care_coordinator') {
-          router.push('/pages/agency/clients')
-        } else {
-          router.push('/pages/agency')
-        }
+      // Session is set — fetch role via the session endpoint then redirect
+      const sessionRes = await fetch('/api/auth/session')
+      const sessionData = await sessionRes.json()
+      const role = sessionData?.user?.role
 
+      if (role === 'admin') {
+        router.push('/pages/admin')
+      } else if (role === 'expert') {
+        router.push('/pages/expert/clients')
+      } else if (role === 'staff_member') {
+        router.push('/pages/caregiver')
+      } else if (role === 'care_coordinator') {
+        router.push('/pages/agency/clients')
+      } else {
+        router.push('/pages/agency')
       }
     } catch (err) {
       const isNetworkError =

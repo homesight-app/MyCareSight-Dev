@@ -7,6 +7,7 @@ import { X, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { createAgencyAdminAccount } from '@/app/actions/users'
 import { US_STATES } from '@/lib/constants'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
@@ -30,6 +31,7 @@ interface AddNewClientModalProps {
 
 export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = 'care_recipient', prefill }: AddNewClientModalProps) {
   const router = useRouter()
+  const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
 
   // ─── Agency admin form (RHF + Zod) ───────────────────────────────────────
@@ -144,13 +146,13 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = session?.user
       if (!user) {
         showValidationToast({ error: 'You must be logged in to add a client' })
         setIsLoading(false)
         return
       }
+      const supabase = createClient()
 
       const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
       if (!up?.agency_id) {

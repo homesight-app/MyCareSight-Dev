@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 
@@ -18,9 +19,10 @@ export async function updatePatientDocumentsAction(
   patientId: string,
   documents: PatientDocument[]
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) {
     return { error: 'You must be logged in to update documents' }
   }
@@ -48,10 +50,9 @@ export async function upsertPatientCaregiverRequirementsAction(
   patientId: string,
   skillCodes: string[]
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) {
     return { error: 'You must be logged in to update caregiver requirements' }
   }

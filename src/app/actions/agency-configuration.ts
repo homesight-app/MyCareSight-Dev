@@ -1,7 +1,7 @@
 'use server'
 
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { revalidatePath } from 'next/cache'
@@ -43,7 +43,7 @@ export async function saveAgencyConfiguration(
     return { error: 'Forbidden' }
   }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: profile } = await q.getAgencyIdFromProfile(supabase, session.user.id)
   const agencyId = profile?.agency_id ?? null

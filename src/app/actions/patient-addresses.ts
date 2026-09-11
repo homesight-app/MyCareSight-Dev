@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import type { PatientAddressInsert, PatientAddressUpdate } from '@/lib/supabase/query/patient-addresses'
 
@@ -14,8 +15,9 @@ export async function addPatientAddressAction(
   patientId: string,
   payload: Omit<PatientAddressInsert, 'agency_id'>
 ): Promise<{ error: string | null; id?: string }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated' }
 
   const { data: patient } = await supabase
@@ -56,8 +58,9 @@ export async function updatePatientAddressAction(
   patientId: string,
   payload: PatientAddressUpdate
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated' }
 
   if (payload.is_primary) {
@@ -88,8 +91,9 @@ export async function deletePatientAddressAction(
   id: string,
   patientId: string
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated' }
 
   const { data: existing } = await q.getPatientAddresses(supabase, patientId)
@@ -122,8 +126,9 @@ export async function setPrimaryPatientAddressAction(
   patientId: string,
   addressId: string
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated' }
 
   const { error } = await q.setPrimaryPatientAddress(supabase, patientId, addressId)

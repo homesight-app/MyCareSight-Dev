@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
@@ -26,8 +27,9 @@ export async function uploadLicenseDocumentAction(
   agencyId: string | null,
   formData: FormData
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated' }
 
   const file = formData.get('file') as File | null
@@ -81,8 +83,9 @@ export async function uploadLicenseDocumentsForCreationAction(
   agencyId: string,
   formData: FormData
 ): Promise<{ error: string | null; data: { url: string; name: string; type: string | null }[] | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated', data: null }
 
   const files = formData.getAll('file') as File[]
@@ -122,7 +125,7 @@ export async function uploadLicenseDocumentsForCreationAction(
 /** Remove files from the application-documents storage bucket (cleanup on creation failure). */
 export async function removeUploadedLicenseFilesAction(paths: string[]): Promise<void> {
   if (paths.length === 0) return
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, paths)
   if (error) console.error('[license-documents/cleanup] Storage removal failed. paths=%j err=%s', paths, error.message)
 }

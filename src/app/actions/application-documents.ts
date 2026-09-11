@@ -1,7 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { Supabase } from '@/lib/supabase/types'
+import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
@@ -13,7 +15,7 @@ function revalidateApplicationPages(applicationId: string) {
 }
 
 async function resolveApplicationAgencyId(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: Supabase,
   applicationId: string
 ): Promise<string | null> {
   const { data } = await supabase
@@ -38,8 +40,9 @@ export async function uploadApplicationDocumentsAction(
     applicationPlaybookItemId?: string | null
   }
 ): Promise<{ error: string | null; data: { id: string; document_url: string; document_name: string }[] | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated', data: null }
 
   const files = formData.getAll('file') as File[]
@@ -108,8 +111,9 @@ export async function replaceApplicationDocumentAction(
   formData: FormData,
   docMeta: { document_name: string; document_type: string | null; description: string | null }
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated' }
 
   const file = formData.get('file') as File | null

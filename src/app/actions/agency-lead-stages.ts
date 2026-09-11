@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidateTag } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { CACHE_TAG_AGENCY_LEAD_STAGES } from '@/lib/cache-tags'
@@ -18,7 +18,7 @@ async function requireAgencyOwner(agencyId: string) {
 export async function getAgencyLeadStagesAction(agencyId: string) {
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error, data: null }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error: dbErr } = await q.getAgencyLeadStages(supabase, agencyId)
   if (dbErr) return { success: false as const, error: dbErr.message, data: null }
   return { success: true as const, error: null, data }
@@ -33,7 +33,7 @@ export async function createAgencyLeadStageAction(
   }
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error, data: null }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error: dbErr } = await q.createAgencyLeadStage(supabase, agencyId, stageData)
   if (dbErr) return { success: false as const, error: dbErr.message, data: null }
   revalidateTag(CACHE_TAG_AGENCY_LEAD_STAGES)
@@ -50,7 +50,7 @@ export async function updateAgencyLeadStageAction(
   }
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error, data: null }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error: dbErr } = await q.updateAgencyLeadStage(supabase, stageId, updates)
   if (dbErr) return { success: false as const, error: dbErr.message, data: null }
   revalidateTag(CACHE_TAG_AGENCY_LEAD_STAGES)
@@ -60,7 +60,7 @@ export async function updateAgencyLeadStageAction(
 export async function deleteAgencyLeadStageAction(agencyId: string, stageId: string) {
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   // First verify the stage is not locked
   const { data: stage } = await supabase
     .from('agency_lead_stages')
@@ -81,7 +81,7 @@ export async function deleteAgencyLeadStageAction(agencyId: string, stageId: str
 export async function reorderAgencyLeadStagesAction(agencyId: string, orderedIds: string[]) {
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error: dbErr } = await q.reorderAgencyLeadStages(supabase, agencyId, orderedIds)
   if (dbErr) return { success: false as const, error: (dbErr as { message?: string }).message ?? 'Reorder failed' }
   revalidateTag(CACHE_TAG_AGENCY_LEAD_STAGES)

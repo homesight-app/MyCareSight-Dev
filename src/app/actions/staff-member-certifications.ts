@@ -1,6 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import type { CreateCertificationData, UpdateCertificationData } from '@/app/actions/certifications'
@@ -80,13 +81,11 @@ export async function getMyStaffCertifications(): Promise<{
   error: string | null
   hasStaffProfile: boolean
 }> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
 
-  if (authError || !user) {
+  if (!user) {
     return { data: null, error: 'You must be logged in', hasStaffProfile: false }
   }
 
@@ -119,13 +118,11 @@ export async function createMyStaffCertification(data: CreateCertificationData) 
     return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   }
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
 
-  if (authError || !user) {
+  if (!user) {
     return { success: false as const, error: 'You must be logged in to create a certification', data: null }
   }
 
@@ -182,13 +179,11 @@ export async function updateMyStaffCertification(certificationId: string, data: 
     return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   }
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
 
-  if (authError || !user) {
+  if (!user) {
     return { success: false as const, error: 'You must be logged in to update a certification', data: null }
   }
 
@@ -246,13 +241,11 @@ export async function updateMyStaffCertification(certificationId: string, data: 
 }
 
 export async function getMyStaffCertificationById(certificationId: string) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
 
-  if (authError || !user) {
+  if (!user) {
     return { error: 'You must be logged in', data: null }
   }
 

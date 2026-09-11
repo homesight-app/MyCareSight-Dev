@@ -110,6 +110,27 @@ and auditors.
 
 ---
 
+## § 164.312(d) — Person/Entity Authentication
+
+### Auth.js v5 Migration — Password-Based Authentication (2026-09-09)
+- **What:** Replaced Supabase Auth (closed password storage in `auth.users`, inaccessible) with Auth.js v5 Credentials provider. Passwords are now stored as bcrypt hashes (cost factor 12) in `user_profiles.password_hash` under the application's direct control. `password_hash` is never selected in any query returned to the client.
+- **Existing user impact:** Supabase passwords were not exportable. All existing users are required to reset their password on first login after cutover. A pre-cutover notification email is sent via Mailgun. Users with `password_hash IS NULL` are rejected at login with a prompt to reset.
+- **Invited user flow:** Admin-created users receive a temporary bcrypt-hashed password via Mailgun invitation email. They must change it on first login.
+- **Token expiry:** JWT sessions expire after 1 hour (`maxAge: 60 * 60`). `is_active` is fetched fresh from DB on every request — disabling a user takes effect on the next server request regardless of JWT age.
+- **Relevant safeguard:** 45 CFR § 164.312(d) Person/Entity Authentication.
+- **Files changed:** `src/auth.ts` (new), `src/lib/auth.ts` (internals replaced), `src/app/actions/users.ts`, `src/app/actions/agency-users.ts`, `src/lib/email.ts`
+
+---
+
+## § 164.312(e)(1) — Transmission Security
+
+### Auth.js v5 Migration — Session Cookie Security (2026-09-09)
+- **What:** Auth.js v5 issues JWT sessions in HTTP-only, Secure, SameSite=Strict signed cookies using `AUTH_SECRET`. Supabase Auth cookies are removed. The new cookies are not accessible to JavaScript (XSS protection) and are not sent cross-origin (CSRF protection). All server actions using `createAdminClient()` are now protected by explicit `getSession()` calls rather than relying on implicit Supabase Auth cookie context.
+- **Relevant safeguard:** 45 CFR § 164.312(e)(1) Transmission Security — prevents session token interception via XSS and CSRF.
+- **Files changed:** `src/auth.ts`, `src/middleware.ts`, all `src/app/actions/*.ts` (switched to `createAdminClient()` + explicit `getSession()`)
+
+---
+
 ## § 164.312(a)(1) — Access Control
 
 ### Permission Centralization — `requirePlatformStaffOrAgencyRole` (2026-08-19)
@@ -140,3 +161,29 @@ and auditors.
 - **Files changed:** `src/app/actions/agency-users.ts`, `src/app/actions/agency-onboarding.ts`
 - **RLS policies added:** `agency_key_staff_agency_admin_select`, `agency_key_staff_agency_admin_insert`, `agency_key_staff_agency_admin_update`, `care_coordinators_agency_admin_select`, `care_coordinators_agency_admin_update` — all scoped via `hs_is_agency_admin(agency_id)`.
 - **Why it matters:** Ensures agency owners can self-manage their own team without platform-admin involvement while preventing any cross-agency data access.
+
+### Admin Account — Cascade Deactivation Independence (2026-09-08)
+- **What:** Agency deactivation cascade (`setAgencyStatus` in `src/app/actions/agencies.ts`) only touches accounts with roles `['company_owner', 'care_coordinator', 'staff_member']`. Admin accounts are never deactivated by an agency cascade, even if that admin is associated with the agency. Manual disable from User Management remains available for admin accounts when explicitly needed.
+- **Relevant safeguard:** 45 CFR § 164.312(a)(2)(ii) Emergency Access Procedure — ensures platform administrators retain access for emergency and break-glass operations even when an agency is deactivated.
+- **Files changed:** `src/app/actions/agencies.ts` (cascade role filter — confirmed correct), `src/app/actions/users.ts` (removed erroneous admin disable guard), `src/components/UserManagementTabs.tsx`
+
+### People Tab — Key Staff Active Status Source of Truth (2026-09-08)
+- **What:** Fixed a bug where key staff members linked to a user account were still displayed as Active in the Agency People tab after the agency was deactivated. Root cause: `buildPeopleRows` was reading `agency_key_staff.status` (never updated by the cascade) instead of `user_profiles.is_active` (the single source of truth). The fix fetches `is_active` for all linked user accounts in one bulk query and maps it onto key staff records.
+- **Relevant safeguard:** 45 CFR § 164.312(a)(1) Access Control — ensures ePHI access state is accurately represented in the UI, allowing admins to trust what they see without a false sense of active access.
+- **Files changed:** `src/app/actions/agency-people.ts`, `src/components/AgencyPeopleTab.tsx`
+
+### Auth.js v5 Migration — `is_active` Real-Time Enforcement (2026-09-09)
+- **What:** `user_profiles.is_active` is fetched fresh from the DB on every server request inside `getSession()` (wrapped with `React.cache()` so only one DB query fires per request). It is never embedded in the JWT. An admin disabling a user takes effect on the user's next server request — there is no stale-JWT window where a deactivated account retains ePHI access.
+- **Relevant safeguard:** 45 CFR § 164.312(a)(1) Access Control — ensures revocation of ePHI access is immediate and cannot be bypassed by a cached token.
+- **Files changed:** `src/lib/auth.ts` (internals replaced — exported API unchanged)
+
+### Edit User Modal — Admin User Profile Editing (2026-09-10)
+- **What:** Admin can edit any user's full name, email address, and role from the User Management page via the "Edit User" modal. The `updateUserProfileAction` server action in `src/app/actions/users.ts` replaces the narrower `changeUserRoleAction`.
+- **Auth enforcement:** `getSession()` + admin role check on every call. Self-role-change returns an error server-side; self name/email edit is permitted.
+- **Audit trail:** All changed fields are recorded in a single `audit_log` insert with `details.changes` as an array of `{ field, old, new }` objects. `details.affected_user_email` records the user's pre-change email so the log remains interpretable after an email change.
+- **Email change security:** When admin changes a user's email, `invite_token` and `invite_token_expires_at` are cleared in the same DB update. A password reset link addressed to the old email cannot be redeemed after the change.
+- **Email uniqueness:** Checked server-side before update. Duplicate email returns a user-facing error rather than a Postgres constraint violation.
+- **Role-table consistency:** Name and email changes are propagated to the role-specific table (`agency_admins.contact_name/contact_email`, `care_coordinators.first_name/last_name/email`, `caregiver_members.first_name/last_name/email`, `licensing_experts.first_name/last_name/email`) so the Agency People tab and Caregivers tab never show stale identity data. This also closes a pre-existing gap where `updatePersonalProfile` (self-edit) did not sync expert names.
+- **Role change — row creation:** When role changes to `company_owner`, `staff_member`, or `expert`, `ensureRoleTableRow` is called to idempotently create the new role's table row. `care_coordinator` is excluded (requires `agency_id` not available in admin edit context); `admin` has no role-specific table.
+- **Relevant safeguards:** 45 CFR § 164.312(d) Person/Entity Authentication — email address is the password reset delivery address; an unaudited change could silently redirect account access to a different inbox. 45 CFR § 164.312(a)(1) Access Control — role changes directly determine what ePHI the user can reach.
+- **Files changed:** `src/app/actions/users.ts` (`updateUserProfileAction` replaces `changeUserRoleAction`), `src/components/UserManagementTabs.tsx` (`EditUserModal` replaces `ChangeRoleModal`)

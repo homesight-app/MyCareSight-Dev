@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { createClient } from '@/lib/supabase/client'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { US_STATES } from '@/lib/constants'
 import Button from '@/components/ui/PrimaryButton'
@@ -25,6 +26,7 @@ type LicenseFormData = z.infer<typeof licenseSchema>
 function NewLicensePageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,15 +56,13 @@ function NewLicensePageContent() {
     setError(null)
 
     try {
-      const supabase = createClient()
-      
-      // Get current user
-      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const authUser = session?.user
       if (!authUser) {
         setError('You must be logged in to create a license')
         setIsLoading(false)
         return
       }
+      const supabase = createClient()
 
       // Create the license
       const { data: license, error: insertError } = await supabase

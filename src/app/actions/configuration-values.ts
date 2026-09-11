@@ -2,7 +2,6 @@
 
 import { unstable_cache, revalidateTag } from 'next/cache'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import { CACHE_TAG_CONFIGURATION_VALUES } from '@/lib/cache-tags'
@@ -42,7 +41,7 @@ export async function createConfigurationValue(data: {
   const { error: authErr, session } = await assertAdmin()
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const typeResult = await supabase
     .from('configuration_types')
@@ -74,7 +73,7 @@ export async function updateConfigurationValue(
   const { error: authErr } = await assertAdmin()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const payload: Parameters<typeof q.updateConfigurationValue>[2] = {}
   if (data.name !== undefined)        payload.name = data.name.trim()
   if (data.description !== undefined) payload.description = data.description?.trim() || null
@@ -92,7 +91,7 @@ export async function deleteConfigurationValue(id: string) {
   const { error: authErr } = await assertAdmin()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const counts = await q.getConfigurationValueReferenceCount(supabase, id)
 
   if (counts.childCount > 0) {

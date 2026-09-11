@@ -1,6 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { getConfigurationValues } from '@/app/actions/configuration-values'
 
@@ -24,15 +25,13 @@ function mapCredentialToLegacyCert(row: Record<string, unknown>) {
 }
 
 export async function createCertification(data: CreateCertificationData) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    const session = await getSession()
+    const user = session ? { id: session.user.id } : null
 
-    if (authError || !user) {
+    if (!user) {
       return { error: 'You must be logged in to create a certification', data: null }
     }
 
@@ -84,15 +83,13 @@ export async function createCertification(data: CreateCertificationData) {
 }
 
 export async function getCertifications() {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    const session = await getSession()
+    const user = session ? { id: session.user.id } : null
 
-    if (authError || !user) {
+    if (!user) {
       return { error: 'You must be logged in', data: null }
     }
 
@@ -137,15 +134,13 @@ export interface UpdateCertificationData {
 }
 
 export async function updateCertification(certificationId: string, data: UpdateCertificationData) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    const session = await getSession()
+    const user = session ? { id: session.user.id } : null
 
-    if (authError || !user) {
+    if (!user) {
       return { error: 'You must be logged in to update a certification', data: null }
     }
 
@@ -184,15 +179,13 @@ export async function updateCertification(certificationId: string, data: UpdateC
 }
 
 export async function getCertification(certificationId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    const session = await getSession()
+    const user = session ? { id: session.user.id } : null
 
-    if (authError || !user) {
+    if (!user) {
       return { error: 'You must be logged in', data: null }
     }
 

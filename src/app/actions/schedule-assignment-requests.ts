@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { Supabase } from '@/lib/supabase/types'
 import * as q from '@/lib/supabase/query'
 
 const COORDINATOR_PATH = '/pages/agency/care-visits'
@@ -47,7 +48,7 @@ function mapSubmitUnassignmentRequestError(code: string | undefined): string {
 type RpcPayload = { ok?: boolean; error?: string }
 
 async function logScheduleAudit(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: Supabase,
   userId: string,
   action: string,
   recordId: string,
@@ -82,7 +83,7 @@ export async function approveScheduleAssignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.approveScheduleAssignmentRequestRpc(supabase, requestId)
 
   if (error) {
@@ -107,7 +108,7 @@ export async function declineScheduleAssignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.declineScheduleAssignmentRequestRpc(supabase, requestId, reason)
 
   if (error) {
@@ -145,7 +146,7 @@ export async function requestScheduleAssignmentAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const note = caregiverNote?.trim() ? caregiverNote.trim() : ''
   const { data, error } = await q.submitScheduleAssignmentRequestRpc(supabase, scheduleId, note || null)
 
@@ -186,7 +187,7 @@ export async function cancelScheduleAssignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error, data } = await q.cancelScheduleAssignmentRequestRpc(supabase, requestId)
   if (error) {
     return { error: error.message || 'Could not cancel request.' }
@@ -209,7 +210,7 @@ export async function markScheduleMissedAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const trimmedReason = reason?.trim() || null
   const { data, error } = await q.updateSchedule(supabase, scheduleId, {
     status: 'missed',
@@ -235,7 +236,7 @@ export async function markScheduleCancelledAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const trimmedReason = reason.trim() || null
   const { data, error } = await q.updateSchedule(supabase, scheduleId, {
     status: 'cancelled',
@@ -261,7 +262,7 @@ export async function markScheduleOnHoldAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const trimmedReason = reason.trim() || null
   const { data, error } = await q.updateSchedule(supabase, scheduleId, {
     status: 'on_hold',
@@ -286,7 +287,7 @@ export async function reinstateScheduleAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.updateSchedule(supabase, scheduleId, {
     status: null,
     status_reason: null,
@@ -307,7 +308,7 @@ export async function assignCaregiverToScheduleAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updateSchedule(supabase, scheduleId, {
     caregiver_id: caregiverId,
     status: 'scheduled',
@@ -324,7 +325,7 @@ export async function unassignCaregiverFromScheduleAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updateSchedule(supabase, scheduleId, {
     caregiver_id: null,
     status: 'scheduled',
@@ -342,7 +343,7 @@ export async function submitScheduleUnassignmentRequestAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.submitScheduleUnassignmentRequestRpc(supabase, scheduleId)
 
   if (error) {
@@ -367,7 +368,7 @@ export async function cancelScheduleUnassignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.cancelScheduleUnassignmentRequestRpc(supabase, requestId)
   if (error) return { error: error.message }
 
@@ -386,7 +387,7 @@ export async function approveScheduleUnassignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.approveScheduleUnassignmentRequestRpc(supabase, requestId)
 
   if (error) {
@@ -411,7 +412,7 @@ export async function declineScheduleUnassignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.declineScheduleUnassignmentRequestRpc(supabase, requestId, reason)
 
   if (error) {

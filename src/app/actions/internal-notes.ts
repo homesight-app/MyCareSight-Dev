@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import type { InternalNoteSubjectType } from '@/lib/supabase/query/internal-notes'
@@ -96,7 +96,7 @@ export async function addInternalNoteAction(input: {
   if (!isAllowedRole(input.subjectType, session.profile?.role ?? '')) return { error: 'Insufficient permissions' }
 
   const isAppNote = APPLICATION_SUBJECT_TYPES.has(input.subjectType)
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.insertInternalNote(supabase, {
     agency_id: input.agencyId,
     subject_type: input.subjectType,
@@ -153,7 +153,7 @@ export async function editInternalNoteAction(input: {
   if (!isAllowedRole(input.subjectType, session.profile?.role ?? '')) return { error: 'Insufficient permissions' }
 
   const isAppNote = APPLICATION_SUBJECT_TYPES.has(input.subjectType)
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Read existing note BEFORE overwriting — required for HIPAA old_values audit record.
   const { data: existing } = await q.getInternalNoteById(supabase, input.noteId)
@@ -208,7 +208,7 @@ export async function logNoteSearchAction(input: {
   if (!parsed.success) return
   const session = await getSession()
   if (!session) return
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error: auditSearchErr } = await supabase.from('audit_log').insert({
     agency_id:            input.agencyId,
     table_name:           'internal_notes',
@@ -238,7 +238,7 @@ export async function deleteInternalNoteAction(input: {
   if (!isAllowedRole(input.subjectType, session.profile?.role ?? '')) return { error: 'Insufficient permissions' }
 
   const isAppNote = APPLICATION_SUBJECT_TYPES.has(input.subjectType)
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.deleteInternalNote(supabase, input.noteId)
 
   if (error || !data) return { error: 'Failed to delete note' }

@@ -14,9 +14,10 @@ import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
 import TablePagination from '@/components/ui/TablePagination'
 import { useTableState } from '@/hooks/useTableState'
-import { toggleUserStatus } from '@/app/actions/users'
+import { toggleUserStatus, updateUserProfileAction } from '@/app/actions/users'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Plus } from 'lucide-react'
+import { Plus, Pencil } from 'lucide-react'
+import { useSession } from 'next-auth/react'
 
 type TabType = 'users' | 'clients' | 'experts'
 type UserTabKey = 'active' | 'inactive'
@@ -101,6 +102,150 @@ function UserStatusBadge({ isActive }: { isActive: boolean }) {
   )
 }
 
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'company_owner', label: 'Agency Admin' },
+  { value: 'care_coordinator', label: 'Care Coordinator' },
+  { value: 'staff_member', label: 'Caregiver' },
+  { value: 'expert', label: 'Expert' },
+]
+
+type EditUserTarget = { id: string; fullName: string; email: string; role: string; agencyId: string | null }
+
+const AGENCY_SCOPED_ROLES = new Set(['company_owner', 'staff_member', 'care_coordinator'])
+
+function EditUserModal({
+  user,
+  isSelf,
+  agencies,
+  onConfirm,
+  onClose,
+  isPending,
+  error,
+}: {
+  user: EditUserTarget
+  isSelf: boolean
+  agencies: { id: string; name: string }[]
+  onConfirm: (payload: { fullName: string; email: string; role: string; agencyId: string | null }) => void
+  onClose: () => void
+  isPending: boolean
+  error: string | null
+}) {
+  const [fullName, setFullName] = useState(user.fullName)
+  const [email, setEmail] = useState(user.email)
+  const [role, setRole] = useState(user.role)
+  const [agencyId, setAgencyId] = useState<string | null>(user.agencyId)
+
+  // When role changes to a non-agency role, clear the agency selection
+  const handleRoleChange = (newRole: string) => {
+    setRole(newRole)
+    if (!AGENCY_SCOPED_ROLES.has(newRole)) setAgencyId(null)
+  }
+
+  const showAgency = AGENCY_SCOPED_ROLES.has(role)
+
+  const hasChanges =
+    fullName.trim() !== user.fullName ||
+    email.toLowerCase().trim() !== user.email.toLowerCase() ||
+    role !== user.role ||
+    (showAgency && agencyId !== user.agencyId)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-5">
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 bg-blue-100 rounded-xl p-2.5">
+            <Pencil className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Edit User</h2>
+            <p className="text-sm text-gray-500 mt-0.5">{user.email}</p>
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>
+        )}
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-gray-700">Full Name</label>
+            <input
+              type="text"
+              value={fullName}
+              onChange={e => setFullName(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              placeholder="Full name"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-gray-700">Email Address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              placeholder="email@example.com"
+            />
+            <p className="text-xs text-gray-400">Password reset links are sent to this address.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-gray-700">
+              Role
+              {isSelf && <span className="ml-2 text-xs text-gray-400 font-normal">(cannot change your own role)</span>}
+            </label>
+            <select
+              value={role}
+              onChange={e => handleRoleChange(e.target.value)}
+              disabled={isSelf}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+            >
+              {ROLE_OPTIONS.map(r => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {showAgency && (
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-gray-700">Agency</label>
+              <select
+                value={agencyId ?? ''}
+                onChange={e => setAgencyId(e.target.value || null)}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              >
+                <option value="">— No agency —</option>
+                {agencies.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={onClose}
+            disabled={isPending}
+            className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm({ fullName: fullName.trim(), email: email.trim(), role, agencyId })}
+            disabled={isPending || !hasChanges}
+            className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isPending ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function UserManagementTabs({
   userProfiles,
   totalUsers,
@@ -136,6 +281,11 @@ export default function UserManagementTabs({
   const [selectedUser, setSelectedUser] = useState<{ id: string; name: string; email: string } | null>(null)
   const [userStatuses, setUserStatuses] = useState<Record<string, boolean>>({})
   const [isTogglingStatus, setIsTogglingStatus] = useState<string | null>(null)
+  const [editUserTarget, setEditUserTarget] = useState<EditUserTarget | null>(null)
+  const [editUserPending, setEditUserPending] = useState(false)
+  const [editUserError, setEditUserError] = useState<string | null>(null)
+  const { data: sessionData } = useSession()
+  const currentUserId = sessionData?.user?.id
   const [isAddExpertModalOpen, setIsAddExpertModalOpen] = useState(false)
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false)
   const [isAddClientModalOpen, setIsAddClientModalOpen] = useState(false)
@@ -267,6 +417,25 @@ export default function UserManagementTabs({
     setResetPasswordModalOpen(true)
   }
 
+  const handleSubmitEditUser = async (payload: { fullName: string; email: string; role: string; agencyId: string | null }) => {
+    if (!editUserTarget) return
+    setEditUserError(null)
+    setEditUserPending(true)
+    const result = await updateUserProfileAction(editUserTarget.id, {
+      fullName: payload.fullName,
+      email: payload.email,
+      role: payload.role as 'admin' | 'company_owner' | 'staff_member' | 'expert' | 'care_coordinator',
+      agencyId: payload.agencyId,
+    })
+    setEditUserPending(false)
+    if (result.error) {
+      setEditUserError(result.error)
+    } else {
+      setEditUserTarget(null)
+      router.refresh()
+    }
+  }
+
   const userTableHeaders = (
     <tr className="border-b border-gray-100 bg-gray-50/60">
       <th className="w-10 px-2 py-2.5" />
@@ -296,6 +465,20 @@ export default function UserManagementTabs({
                   name: userProfile.full_name || 'N/A',
                   email: userProfile.email,
                 }),
+              },
+              {
+                label: 'Edit User',
+                icon: Pencil,
+                onClick: () => {
+                  setEditUserError(null)
+                  setEditUserTarget({
+                    id: userProfile.id,
+                    fullName: userProfile.full_name || '',
+                    email: userProfile.email,
+                    role: userProfile.role,
+                    agencyId: userProfile.agency_id ?? null,
+                  })
+                },
               },
               {
                 label: isActive ? 'Disable Account' : 'Enable Account',
@@ -638,6 +821,19 @@ export default function UserManagementTabs({
           </div>
         )}
       </div>
+
+      {/* Edit User Modal */}
+      {editUserTarget && (
+        <EditUserModal
+          user={editUserTarget}
+          isSelf={editUserTarget.id === currentUserId}
+          agencies={agencies}
+          onConfirm={handleSubmitEditUser}
+          onClose={() => { setEditUserTarget(null); setEditUserError(null) }}
+          isPending={editUserPending}
+          error={editUserError}
+        />
+      )}
 
       {/* Modals */}
       {selectedUser && (

@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -29,7 +28,7 @@ export async function insertCaregiverLicenseApplicationAction(
   }
 
   const userId = session.user.id
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: up } = await q.getAgencyIdFromProfile(supabase, userId)
   const viewerAgencyId = up?.agency_id ?? null

@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
@@ -21,8 +22,9 @@ export async function uploadPatientDocumentsAction(
   formData: FormData,
   existingDocs: PatientDocument[]
 ): Promise<{ error: string | null; data: PatientDocument[] | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated', data: null }
 
   const files = formData.getAll('file') as File[]
@@ -79,8 +81,9 @@ export async function deletePatientDocumentAction(
   docPath: string,
   updatedDocs: PatientDocument[]
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated' }
 
   await removeFiles(supabase, STORAGE_BUCKET.PATIENT, [docPath])

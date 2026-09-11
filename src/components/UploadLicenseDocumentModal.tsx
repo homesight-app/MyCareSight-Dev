@@ -8,6 +8,7 @@ import { Upload, X, FileText, Calendar } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
+import { useSession } from 'next-auth/react'
 
 interface UploadLicenseDocumentModalProps {
   isOpen: boolean
@@ -25,6 +26,7 @@ export default function UploadLicenseDocumentModal({
   onSuccess
 }: UploadLicenseDocumentModalProps) {
   const router = useRouter()
+  const { data: session } = useSession()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [documentName, setDocumentName] = useState('')
@@ -75,15 +77,13 @@ export default function UploadLicenseDocumentModal({
     setError(null)
 
     try {
-      const supabase = createClient()
-
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = session?.user
       if (!user) {
         setError('You must be logged in to upload documents')
         setIsUploading(false)
         return
       }
+      const supabase = createClient()
 
       // Upload file to Supabase Storage
       const fileExt = selectedFile.name.split('.').pop()

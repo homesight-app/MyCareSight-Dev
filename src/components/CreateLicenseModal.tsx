@@ -7,6 +7,7 @@ import { licenseSchema, type CreateLicenseFormData } from '@/lib/schemas/license
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
+import { useSession } from 'next-auth/react'
 import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertification, createCertificationAndLink } from '@/app/actions/licenses'
 import { uploadLicenseDocumentAction, uploadLicenseDocumentsForCreationAction, removeUploadedLicenseFilesAction } from '@/app/actions/license-documents'
 import { Upload, X, FileText, Plus } from 'lucide-react'
@@ -70,6 +71,7 @@ export default function CreateLicenseModal({
 }: CreateLicenseModalProps) {
   const isEditMode = !!licenseToEdit
   const router = useRouter()
+  const { data: session } = useSession()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([])
   const [linkedProgramId, setLinkedProgramId] = useState('')
@@ -227,7 +229,7 @@ export default function CreateLicenseModal({
       }
 
       // ── Owner mode ─────────────────────────────────────────────────────────
-      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const authUser = session?.user
       if (!authUser) { showValidationToast({ error: 'You must be logged in to create a license' }); setIsSubmitting(false); return }
 
       const { data: newLicense, error } = await q.insertLicenseReturning(supabase, {

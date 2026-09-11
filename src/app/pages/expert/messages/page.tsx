@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 
@@ -56,6 +57,7 @@ interface Message {
 function ExpertMessagesContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { data: session } = useSession()
   const fromNotification = searchParams?.get('fromNotification') === 'true'
   const applicationIdFromNotification = searchParams?.get('applicationId')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -75,15 +77,13 @@ function ExpertMessagesContent() {
 
   const loadData = useCallback(async () => {
     try {
-      const supabase = createClient()
-      
-      // Get user session
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      const currentUser = session?.user
       if (!currentUser) {
         router.push('/pages/auth/login')
         return
       }
       setUser(currentUser)
+      const supabase = createClient()
 
       const { data: profileData } = await q.getUserProfileFull(supabase, currentUser.id)
       if (profileData?.role !== 'expert') {
@@ -161,7 +161,7 @@ function ExpertMessagesContent() {
     } finally {
       setLoading(false)
     }
-  }, [router])
+  }, [router, session])
 
   useEffect(() => {
     loadData()
@@ -169,9 +169,9 @@ function ExpertMessagesContent() {
 
   const loadMessages = useCallback(async (conversationId: string) => {
     try {
-      const supabase = createClient()
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      const currentUser = session?.user
       if (!currentUser) return
+      const supabase = createClient()
 
       const { data: messagesData } = await q.getMessagesByConversationId(supabase, conversationId)
 
@@ -224,7 +224,7 @@ function ExpertMessagesContent() {
     } catch (error) {
       console.error('Error loading messages:', error)
     }
-  }, [fromNotification])
+  }, [fromNotification, session])
 
   useEffect(() => {
     if (selectedConversation) {
@@ -325,9 +325,9 @@ function ExpertMessagesContent() {
 
     try {
       setSending(true)
-      const supabase = createClient()
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      const currentUser = session?.user
       if (!currentUser) return
+      const supabase = createClient()
 
       const { data: client } = await q.getClientById(supabase, selectedClient)
       if (!client) throw new Error('Client not found')

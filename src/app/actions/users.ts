@@ -1,12 +1,13 @@
 'use server'
 
 import { z } from 'zod'
-import { randomBytes } from 'node:crypto'
-import { createClient } from '@/lib/supabase/server'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
+import bcrypt from 'bcryptjs'
+import { sendInvitationEmail } from '@/lib/email'
 
 const createUserAccountSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -83,6 +84,11 @@ export async function updatePersonalProfile(payload: {
         .from('caregiver_members')
         .update({ first_name, last_name, phone: payload.phone, updated_at: now })
         .eq('user_id', userId)
+    } else if (role === 'expert') {
+      await supabase
+        .from('licensing_experts')
+        .update({ first_name, last_name, updated_at: now })
+        .eq('user_id', userId)
     }
 
     revalidatePath('/pages/agency/profile')
@@ -118,38 +124,208 @@ export async function toggleUserStatus(userId: string, isActive: boolean) {
   }
 }
 
-export async function setUserPassword(userId: string, newPassword: string) {
-  const supabase = await createClient()
+const AGENCY_SCOPED_ROLES = new Set(['company_owner', 'staff_member', 'care_coordinator'])
 
-  try {
-    const { data: userProfile, error: fetchError } = await q.getUserProfileEmail(supabase, userId)
+/** Edit any user's full name, email, role, and/or agency — admin only.
+ *  Self-role-change is blocked server-side; self name/email edit is permitted.
+ *  All changed fields are recorded in audit_log with before/after values.
+ *  Email change clears any pending invite_token so old reset links cannot be reused.
+ *  Name/email/agency changes are propagated to the role-specific table.
+ *  Role changes trigger ensureRoleTableRow for company_owner, staff_member, expert.
+ */
+export async function updateUserProfileAction(
+  userId: string,
+  payload: {
+    fullName?: string
+    email?: string
+    role?: 'admin' | 'company_owner' | 'staff_member' | 'expert' | 'care_coordinator'
+    agencyId?: string | null
+  }
+) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  if (session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
 
-    if (fetchError || !userProfile) {
-      return { error: 'User not found', data: null }
+  if (payload.role && session.user.id === userId) {
+    return { error: 'You cannot change your own role.', data: null }
+  }
+
+  const supabase = createAdminClient()
+  const now = new Date().toISOString()
+
+  const { data: current } = await supabase
+    .from('user_profiles')
+    .select('id, full_name, email, role, agency_id')
+    .eq('id', userId)
+    .single()
+  if (!current) return { error: 'User not found', data: null }
+
+  const newEmail = payload.email ? payload.email.toLowerCase().trim() : current.email
+  const newFullName = payload.fullName !== undefined ? payload.fullName : current.full_name
+  const newRole = payload.role ?? current.role
+
+  // agencyId is only meaningful for agency-scoped roles; clear it for admin/expert
+  const resolvedAgencyId = AGENCY_SCOPED_ROLES.has(newRole)
+    ? (payload.agencyId !== undefined ? payload.agencyId : current.agency_id)
+    : null
+
+  if (newEmail !== current.email) {
+    const { data: existing } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('email', newEmail)
+      .maybeSingle()
+    if (existing) return { error: 'A user with this email already exists.', data: null }
+  }
+
+  const updates: Record<string, unknown> = { updated_at: now }
+  const changes: { field: string; old: string | null; new: string | null }[] = []
+
+  if (newFullName !== current.full_name) {
+    updates.full_name = newFullName
+    changes.push({ field: 'full_name', old: current.full_name, new: newFullName })
+  }
+  if (newEmail !== current.email) {
+    updates.email = newEmail
+    updates.invite_token = null
+    updates.invite_token_expires_at = null
+    changes.push({ field: 'email', old: current.email, new: newEmail })
+  }
+  if (newRole !== current.role) {
+    updates.role = newRole
+    changes.push({ field: 'role', old: current.role, new: newRole })
+  }
+  if (resolvedAgencyId !== current.agency_id) {
+    updates.agency_id = resolvedAgencyId
+    changes.push({ field: 'agency_id', old: current.agency_id, new: resolvedAgencyId })
+  }
+
+  if (changes.length === 0) return { error: null, data: { success: true } }
+
+  const { error } = await supabase.from('user_profiles').update(updates).eq('id', userId)
+  if (error) return { error: error.message, data: null }
+
+  // Sync name, email, and agency_id to the role-specific table.
+  const { first_name, last_name } = parseFullName(newFullName ?? '')
+  const needsRoleTableSync = changes.some(
+    c => c.field === 'full_name' || c.field === 'email' || c.field === 'agency_id'
+  )
+  // For company_owner, also sync the agency's display name into agency_admins.company_name
+  // so the admin User Management table shows the correct company in the Company column.
+  let agencyDisplayName: string | null = null
+  if (newRole === 'company_owner' && resolvedAgencyId) {
+    const { data: agencyRow } = await supabase
+      .from('agencies')
+      .select('name')
+      .eq('id', resolvedAgencyId)
+      .maybeSingle()
+    agencyDisplayName = agencyRow?.name ?? null
+  }
+
+  if (needsRoleTableSync) {
+    if (newRole === 'company_owner') {
+      await supabase
+        .from('agency_admins')
+        .update({
+          contact_name: newFullName,
+          contact_email: newEmail,
+          agency_id: resolvedAgencyId,
+          ...(agencyDisplayName ? { company_name: agencyDisplayName } : {}),
+          updated_at: now,
+        })
+        .eq('user_id', userId)
+    } else if (newRole === 'care_coordinator') {
+      await supabase
+        .from('care_coordinators')
+        .update({ first_name, last_name, email: newEmail, agency_id: resolvedAgencyId, updated_at: now })
+        .eq('user_id', userId)
+    } else if (newRole === 'staff_member') {
+      await supabase
+        .from('caregiver_members')
+        .update({ first_name, last_name, email: newEmail, agency_id: resolvedAgencyId, updated_at: now })
+        .eq('user_id', userId)
+    } else if (newRole === 'expert') {
+      await supabase
+        .from('licensing_experts')
+        .update({ first_name, last_name, email: newEmail, updated_at: now })
+        .eq('user_id', userId)
     }
+  }
 
-    const { error: updateError } = await q.rpcUpdateUserPassword(supabase, userId, newPassword)
-
-    if (updateError) {
-      if (updateError.message.includes('could not find the function') || updateError.message.includes('does not exist')) {
-        return {
-          error: 'Database function not found. Please run the migration file 015_update_user_password_function.sql in Supabase SQL Editor first.',
-          data: null,
-        }
+  // Idempotently create the new role's table row when role changes.
+  // care_coordinator is handled inline below (needs agency_id).
+  // admin has no role table.
+  if (changes.some(c => c.field === 'role')) {
+    if (newRole === 'company_owner' || newRole === 'staff_member' || newRole === 'expert') {
+      await ensureRoleTableRow(supabase, userId, newFullName ?? '', newEmail, newRole)
+      // If a new agency_admins row was just created by ensureRoleTableRow, patch company_name onto it.
+      if (newRole === 'company_owner' && agencyDisplayName) {
+        await supabase
+          .from('agency_admins')
+          .update({ company_name: agencyDisplayName, agency_id: resolvedAgencyId, updated_at: now })
+          .eq('user_id', userId)
       }
-      return { error: updateError.message, data: null }
+    } else if (newRole === 'care_coordinator' && resolvedAgencyId) {
+      const { data: existingCoord } = await supabase
+        .from('care_coordinators')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (!existingCoord) {
+        await q.insertCareCoordinator(supabase, {
+          user_id: userId,
+          agency_id: resolvedAgencyId,
+          first_name,
+          last_name,
+          email: newEmail,
+          status: 'active',
+        })
+      }
     }
+  }
 
-    revalidatePath('/pages/admin/users')
-    return {
-      error: null,
-      data: {
-        success: true,
-        message: `Password has been set for ${userProfile.email}. Email notification should be sent separately.`,
-      },
-    }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to set password', data: null }
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    table_name: 'user_profiles',
+    record_id: userId,
+    action: 'UPDATE',
+    performed_by_user_id: session.user.id,
+    details: { changes, affected_user_email: current.email },
+  })
+  if (auditErr) console.error('[updateUserProfileAction] Audit log failed:', auditErr.message)
+
+  revalidatePath('/pages/admin/users')
+  revalidatePath('/pages/agency/profile')
+  revalidatePath('/pages/caregiver/profile')
+  revalidatePath('/pages/expert/profile')
+  return { error: null, data: { success: true } }
+}
+
+/** Set (or reset) a user's password directly — admin only. */
+export async function setUserPassword(userId: string, newPassword: string) {
+  const session = await getSession()
+  if (!session || session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
+
+  const supabase = createAdminClient()
+  const { data: userProfile } = await supabase
+    .from('user_profiles')
+    .select('email')
+    .eq('id', userId)
+    .single()
+
+  if (!userProfile) return { error: 'User not found', data: null }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12)
+  const { error } = await supabase
+    .from('user_profiles')
+    .update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+    .eq('id', userId)
+
+  if (error) return { error: error.message, data: null }
+
+  revalidatePath('/pages/admin/users')
+  return {
+    error: null,
+    data: { success: true, message: `Password has been set for ${userProfile.email}.` },
   }
 }
 
@@ -159,29 +335,8 @@ export type CreateUserRole = 'admin' | 'company_owner' | 'staff_member' | 'exper
 type SupabaseAdminClient = ReturnType<typeof createAdminClient>
 
 /**
- * Poll until `user_profiles` exists for `userId` (handle_new_user).
- * Default: first check immediately, then up to `maxRetries` more attempts spaced by `intervalMs`.
- */
-async function waitForUserProfileRow(
-  admin: SupabaseAdminClient,
-  userId: string,
-  options?: { maxRetries?: number; intervalMs?: number }
-) {
-  const maxRetries = options?.maxRetries ?? 3
-  const intervalMs = options?.intervalMs ?? 200
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const { data } = await admin.from('user_profiles').select('id').eq('id', userId).maybeSingle()
-    if (data?.id) return true
-    if (attempt < maxRetries) {
-      await new Promise((r) => setTimeout(r, intervalMs))
-    }
-  }
-  return false
-}
-
-/**
- * Best-effort undo after auth user exists but app-specific setup failed.
- * Order: unlink from agencies → role tables → user_profiles → auth.users
+ * Best-effort undo after user_profiles was inserted but app-specific setup failed.
+ * Order: unlink from agencies → role tables → user_profiles
  */
 async function rollbackProvisionalUserAccount(
   admin: SupabaseAdminClient,
@@ -205,10 +360,6 @@ async function rollbackProvisionalUserAccount(
     await admin.from('licensing_experts').delete().eq('user_id', userId)
     await admin.from('care_coordinators').delete().eq('user_id', userId)
     await admin.from('user_profiles').delete().eq('id', userId)
-    const { error: delAuthErr } = await admin.auth.admin.deleteUser(userId)
-    if (delAuthErr) {
-      console.error('rollbackProvisionalUserAccount: deleteUser failed', delAuthErr.message)
-    }
   } catch (e: unknown) {
     console.error('rollbackProvisionalUserAccount: unexpected error', e)
   }
@@ -223,13 +374,6 @@ function parseFullName(fullName: string): { first_name: string; last_name: strin
     first_name: trimmed.slice(0, space),
     last_name: trimmed.slice(space + 1).trim() || 'Unknown',
   }
-}
-
-function buildMagicLinkRedirectUrl(siteUrl: string | undefined) {
-  const baseUrl = siteUrl?.trim() ? siteUrl : 'http://localhost:3000'
-  const redirectUrl = new URL('/auth/callback', baseUrl)
-  redirectUrl.searchParams.set('type', 'magiclink')
-  return redirectUrl.toString()
 }
 
 /** Ensure the role-specific table has a row for this user (idempotent). Used when user already exists. */
@@ -280,9 +424,9 @@ async function ensureRoleTableRow(
 }
 
 /**
- * Create a user account from admin User Management. Uses Admin API so the current
- * admin's session is never overwritten (unlike signUp() which would log the admin out).
- * When role is company_owner, staff_member, or care_coordinator, agencyId is required and the user is assigned to that agency.
+ * Create a user account from admin User Management.
+ * Inserts directly into user_profiles with a bcrypt password hash and sends an invitation email.
+ * When role is company_owner, staff_member, or care_coordinator, agencyId is required.
  */
 export async function createUserAccount(
   email: string,
@@ -293,95 +437,58 @@ export async function createUserAccount(
 ) {
   const inputParsed = createUserAccountSchema.safeParse({ email, password, fullName, role, agencyId })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
-  let supabaseAdmin
-  try {
-    supabaseAdmin = createAdminClient()
-  } catch (e: any) {
-    return {
-      error:
-        e?.message ||
-        'Server is missing SUPABASE_SERVICE_ROLE_KEY. Add it to .env.local for creating user accounts.',
-      data: null,
-    }
+
+  const supabaseAdmin = createAdminClient()
+  const normalizedEmail = email.toLowerCase().trim()
+  const fullNameTrimmed = fullName.trim()
+
+  if (role === 'care_coordinator' && !agencyId) {
+    return { error: 'Agency is required for care coordinator role.', data: null }
   }
-  const supabaseCookie = await createClient()
 
   let provisionalUserId: string | null = null
   let setupCompleted = false
 
   try {
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL 
-    const normalizedEmail = email.toLowerCase().trim()
-    const userMetadata: Record<string, string> = {
-      full_name: fullName.trim(),
-      role,
-      temporary_password: password,
-    }
+    // Check for existing user
+    const { data: existingProfile } = await q.getUserProfileByEmail(supabaseAdmin, normalizedEmail)
 
-    if (role === 'care_coordinator' && !agencyId) {
-      return { error: 'Agency is required for care coordinator role.', data: null }
-    }
-
-    const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email: normalizedEmail,
-      password,
-      email_confirm: true,
-      user_metadata: userMetadata,
-    })
-
-    let userId: string | null = null
-
-    if (createError) {
-      if (
-        createError.message.includes('already registered') ||
-        createError.message.includes('already exists') ||
-        createError.message.includes('User already registered')
-      ) {
-        const { data: existingProfile } = await q.getUserProfileByEmail(supabaseAdmin, normalizedEmail)
-        userId = existingProfile?.id || null
-        if (userId) {
-          await ensureRoleTableRow(supabaseAdmin, userId, fullName.trim(), normalizedEmail, role)
-          await supabaseAdmin.auth.admin.updateUserById(userId, { user_metadata: userMetadata })
-        }
-        const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
-          email: normalizedEmail,
-          options: { emailRedirectTo: buildMagicLinkRedirectUrl(siteUrl), shouldCreateUser: false },
-        })
-        if (magicLinkError) {
-          return { error: `User already exists. Failed to send login link: ${magicLinkError.message}`, data: null }
-        }
-        revalidatePath('/pages/admin/users')
-        return {
-          error: null,
-          data: { success: true, userId, message: `User already exists. Login link sent to ${email}.` },
-        }
-      }
-      const errorMessage =
-        createError.message.includes('Database error') || createError.message.includes('database')
-          ? 'Database error creating user. Ensure handle_new_user migration has been applied.'
-          : createError.message
-      return { error: `Failed to create user: ${errorMessage}`, data: null }
-    }
-
-    if (!newUser?.user?.id) {
-      return { error: 'Failed to create user account - no user returned', data: null }
-    }
-    userId = newUser.user.id
-    provisionalUserId = userId
-
-    const profileReady = await waitForUserProfileRow(supabaseAdmin, userId)
-    if (!profileReady) {
-      await rollbackProvisionalUserAccount(supabaseAdmin, userId)
-      provisionalUserId = null
+    if (existingProfile) {
+      const passwordHash = await bcrypt.hash(password, 12)
+      await supabaseAdmin
+        .from('user_profiles')
+        .update({ password_hash: passwordHash, role, agency_id: agencyId ?? null, updated_at: new Date().toISOString() })
+        .eq('id', existingProfile.id)
+      await ensureRoleTableRow(supabaseAdmin, existingProfile.id, fullNameTrimmed, normalizedEmail, role)
+      await sendInvitationEmail(normalizedEmail, fullNameTrimmed, password)
+      revalidatePath('/pages/admin/users')
       return {
-        error:
-          'Auth user was created but user profile did not appear in time (handle_new_user). The incomplete account was removed.',
-        data: null,
+        error: null,
+        data: { success: true, userId: existingProfile.id, message: `User already exists. Invitation re-sent to ${email}.` },
       }
     }
 
-    // Insert into role-specific table so the user appears in the right tab
-    const fullNameTrimmed = fullName.trim()
+    // New user — insert directly into user_profiles
+    const userId = randomUUID()
+    provisionalUserId = userId
+    const passwordHash = await bcrypt.hash(password, 12)
+
+    const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
+      id: userId,
+      email: normalizedEmail,
+      role,
+      full_name: fullNameTrimmed,
+      password_hash: passwordHash,
+      is_active: true,
+      agency_id: agencyId ?? null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    if (insertError) {
+      return { error: `Failed to create user: ${insertError.message}`, data: null }
+    }
+
+    // Insert into role-specific table
     const { first_name: firstName, last_name: lastName } = parseFullName(fullNameTrimmed)
 
     if (role === 'company_owner') {
@@ -400,10 +507,7 @@ export async function createUserAccount(
       if (adminError) {
         await rollbackProvisionalUserAccount(supabaseAdmin, userId)
         provisionalUserId = null
-        return {
-          error: `Failed to create agency record: ${adminError.message}`,
-          data: null,
-        }
+        return { error: `Failed to create agency record: ${adminError.message}`, data: null }
       }
       if (agencyId && newAdmin?.id) {
         const { data: agency, error: agencySelErr } = await supabaseAdmin
@@ -454,10 +558,7 @@ export async function createUserAccount(
       if (staffError) {
         await rollbackProvisionalUserAccount(supabaseAdmin, userId)
         provisionalUserId = null
-        return {
-          error: `Failed to create staff record: ${staffError.message}`,
-          data: null,
-        }
+        return { error: `Failed to create staff record: ${staffError.message}`, data: null }
       }
     } else if (role === 'expert') {
       const { error: expertError } = await supabaseAdmin
@@ -474,10 +575,7 @@ export async function createUserAccount(
       if (expertError) {
         await rollbackProvisionalUserAccount(supabaseAdmin, userId)
         provisionalUserId = null
-        return {
-          error: `Failed to create expert record: ${expertError.message}`,
-          data: null,
-        }
+        return { error: `Failed to create expert record: ${expertError.message}`, data: null }
       }
     } else if (role === 'care_coordinator') {
       const { error: coordinatorError } = await q.insertCareCoordinator(supabaseAdmin, {
@@ -491,10 +589,7 @@ export async function createUserAccount(
       if (coordinatorError) {
         await rollbackProvisionalUserAccount(supabaseAdmin, userId)
         provisionalUserId = null
-        return {
-          error: `Failed to create care coordinator record: ${coordinatorError.message}`,
-          data: null,
-        }
+        return { error: `Failed to create care coordinator record: ${coordinatorError.message}`, data: null }
       }
     }
     // admin role: no extra table
@@ -502,16 +597,12 @@ export async function createUserAccount(
     setupCompleted = true
     provisionalUserId = null
 
-    const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
-      email: normalizedEmail,
-      options: { emailRedirectTo: buildMagicLinkRedirectUrl(siteUrl), shouldCreateUser: false },
-    })
-    if (magicLinkError) console.warn('Failed to send magic link:', magicLinkError.message)
+    await sendInvitationEmail(normalizedEmail, fullNameTrimmed, password)
 
     revalidatePath('/pages/admin/users')
     return {
       error: null,
-      data: { success: true, userId, message: `User created. Login link sent to ${email}.` },
+      data: { success: true, userId, message: `User created. Invitation email sent to ${email}.` },
     }
   } catch (err: any) {
     if (!setupCompleted && provisionalUserId) {
@@ -530,8 +621,8 @@ function buildAgencyAdminCompanyName(workLocation: string, jobTitle?: string, de
 }
 
 /**
- * Create an agency admin: auth user (→ user_profiles via trigger) first, then clients row.
- * Sends magic link for first login. No table schema changes.
+ * Create an agency admin account. Inserts directly into user_profiles and sends an invitation email.
+ * No table schema changes.
  */
 export async function createAgencyAdminAccount(
   firstName: string,
@@ -545,100 +636,68 @@ export async function createAgencyAdminAccount(
 ) {
   const inputParsed = createAgencyAdminSchema.safeParse({ firstName, lastName, contactEmail, contactPhone, jobTitle, department, workLocation, status })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
-  let supabaseAdmin
-  try {
-    supabaseAdmin = createAdminClient()
-  } catch (e: any) {
-    return {
-      error:
-        e?.message ||
-        'Server is missing SUPABASE_SERVICE_ROLE_KEY. Add it to .env.local for creating agency admin accounts.',
-      data: null,
-    }
-  }
-  const supabaseCookie = await createClient()
+
+  const supabaseAdmin = createAdminClient()
+  const normalizedEmail = contactEmail.toLowerCase().trim()
+  const fullName = `${firstName.trim()} ${lastName.trim()}`.trim() || normalizedEmail
+  const tempPassword = randomBytes(12).toString('base64')
 
   try {
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL 
-    const normalizedEmail = contactEmail.toLowerCase().trim()
-    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim() || normalizedEmail
-    // const companyName = buildAgencyAdminCompanyName(workLocation, jobTitle, department)
-    const defaultPassword = randomBytes(12).toString('base64')
+    // Check for existing user
+    const { data: existingProfile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('id')
+      .eq('email', normalizedEmail)
+      .maybeSingle()
 
-    const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email: normalizedEmail,
-      password: defaultPassword,
-      email_confirm: true,
-      user_metadata: {
-        full_name: fullName,
-        role: 'company_owner',
-      },
-    })
-
-    let userId: string | null = null
-
-    if (createError) {
-      if (
-        createError.message.includes('already registered') ||
-        createError.message.includes('already exists') ||
-        createError.message.includes('User already registered')
-      ) {
-        const { data: existingProfile } = await supabaseAdmin
-          .from('user_profiles')
-          .select('id')
-          .eq('email', normalizedEmail)
-          .maybeSingle()
-        userId = existingProfile?.id ?? null
-        if (userId) {
-          const { data: existingAdmin } = await supabaseAdmin
-            .from('agency_admins')
-            .select('id')
-            .eq('user_id', userId)
-            .maybeSingle()
-          if (!existingAdmin) {
-            await supabaseAdmin.from('agency_admins').insert({
-              user_id: userId,
-              company_owner_id: userId,
-              contact_name: fullName,
-              contact_email: normalizedEmail,
-              contact_phone: contactPhone.trim() || null,
-              status,
-              agency_id: null,
-            })
-          }
-        }
-        const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
-          email: normalizedEmail,
-          options: { emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink`, shouldCreateUser: false },
+    if (existingProfile) {
+      // Ensure agency_admins row exists
+      const { data: existingAdmin } = await supabaseAdmin
+        .from('agency_admins')
+        .select('id')
+        .eq('user_id', existingProfile.id)
+        .maybeSingle()
+      if (!existingAdmin) {
+        await supabaseAdmin.from('agency_admins').insert({
+          user_id: existingProfile.id,
+          company_owner_id: existingProfile.id,
+          contact_name: fullName,
+          contact_email: normalizedEmail,
+          contact_phone: contactPhone.trim() || null,
+          status,
+          agency_id: null,
         })
-        if (magicLinkError) {
-          return { error: `User already exists. Failed to send login link: ${magicLinkError.message}`, data: null }
-        }
-        revalidatePath('/pages/admin/users')
-        return {
-          error: null,
-          data: { success: true, userId, message: `User already exists. Login link sent to ${contactEmail}.` },
-        }
       }
-      const errorMessage =
-        createError.message.includes('Database error') || createError.message.includes('database')
-          ? 'Database error creating user. Ensure handle_new_user migration has been applied.'
-          : createError.message
-      return { error: `Failed to create agency admin: ${errorMessage}`, data: null }
-    }
-
-    if (!newUser?.user?.id) {
-      return { error: 'Failed to create agency admin - no user returned', data: null }
-    }
-    userId = newUser.user.id
-
-    const profileReady = await waitForUserProfileRow(supabaseAdmin, userId)
-    if (!profileReady) {
+      // Re-send invitation with a fresh password
+      const passwordHash = await bcrypt.hash(tempPassword, 12)
+      await supabaseAdmin
+        .from('user_profiles')
+        .update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+        .eq('id', existingProfile.id)
+      await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
+      revalidatePath('/pages/admin/users')
       return {
-        error:
-          'Auth user was created but user profile did not appear in time (handle_new_user). Try again or remove the incomplete auth user.',
-        data: null,
+        error: null,
+        data: { success: true, userId: existingProfile.id, message: `User already exists. Invitation re-sent to ${contactEmail}.` },
       }
+    }
+
+    // New user
+    const userId = randomUUID()
+    const passwordHash = await bcrypt.hash(tempPassword, 12)
+
+    const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
+      id: userId,
+      email: normalizedEmail,
+      role: 'company_owner',
+      full_name: fullName,
+      password_hash: passwordHash,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    if (insertError) {
+      return { error: `Failed to create agency admin: ${insertError.message}`, data: null }
     }
 
     const { error: adminError } = await supabaseAdmin.from('agency_admins').insert({
@@ -652,23 +711,16 @@ export async function createAgencyAdminAccount(
     })
     if (adminError) {
       console.error('Failed to create agency_admins row for agency admin:', adminError)
-      await rollbackProvisionalUserAccount(supabaseAdmin, userId)
-      return {
-        error: `User created but failed to create agency record: ${adminError.message}`,
-        data: null,
-      }
+      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
+      return { error: `User created but failed to create agency record: ${adminError.message}`, data: null }
     }
 
-    const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
-      email: normalizedEmail,
-      options: { emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink`, shouldCreateUser: false },
-    })
-    if (magicLinkError) console.warn('Failed to send magic link:', magicLinkError.message)
+    await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
 
     revalidatePath('/pages/admin/users')
     return {
       error: null,
-      data: { success: true, userId, message: `Agency admin created. Login link sent to ${contactEmail}.` },
+      data: { success: true, userId, message: `Agency admin created. Invitation email sent to ${contactEmail}.` },
     }
   } catch (err: any) {
     return { error: err?.message || 'Failed to create agency admin account', data: null }
@@ -683,158 +735,57 @@ export async function createStaffUserAccount(
 ) {
   const inputParsed = createStaffSchema.safeParse({ email, firstName, lastName, agencyName })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
-  // Use admin client for user creation so the current user's session is NEVER overwritten.
-  // signUp() with the cookie-based client would set the new user's session and log out the agency admin.
-  let supabaseAdmin
-  try {
-    supabaseAdmin = createAdminClient()
-  } catch (e: any) {
-    return {
-      error:
-        e?.message ||
-        'Server is missing SUPABASE_SERVICE_ROLE_KEY. Add it to .env.local for creating staff accounts.',
-      data: null,
-    }
-  }
-  const supabaseCookie = await createClient()
 
-  const generatedPassword = randomBytes(12).toString('base64')
-
-  // For Supabase Magic Link email template: {{ .Data.agency_name }} and {{ .Data.temporary_password }}
-  const userMetadata: Record<string, string> = {
-    full_name: `${firstName} ${lastName}`,
-    role: 'staff_member',
-    agency_name: agencyName ?? 'Your Agency',
-    temporary_password: generatedPassword,
-  }
+  const supabaseAdmin = createAdminClient()
+  const normalizedEmail = email.toLowerCase().trim()
+  const fullName = `${firstName} ${lastName}`.trim()
+  const tempPassword = randomBytes(12).toString('base64')
 
   try {
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL 
-    const normalizedEmail = email.toLowerCase().trim()
+    // Check for existing user
+    const { data: existingProfile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('id')
+      .eq('email', normalizedEmail)
+      .maybeSingle()
 
-    // Create user via Admin API (no session change; never touches cookie client auth)
-    const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email: normalizedEmail,
-      password: generatedPassword,
-      email_confirm: true,
-      user_metadata: userMetadata,
-    })
-
-    let userId: string | null = null
-
-    if (createError) {
-      // User might already exist
-      if (
-        createError.message.includes('already registered') ||
-        createError.message.includes('already exists') ||
-        createError.message.includes('User already registered')
-      ) {
-        const { data: existingProfile } = await supabaseAdmin
-          .from('user_profiles')
-          .select('id')
-          .eq('email', normalizedEmail)
-          .single()
-
-        userId = existingProfile?.id || null
-
-        // Update existing user metadata so Magic Link email template has agency_name and temporary_password
-        await supabaseAdmin.auth.admin.updateUserById(userId!, { user_metadata: userMetadata })
-
-        // Send magic link using cookie client (only sends email; does not set session)
-        const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
-          email: normalizedEmail,
-          options: {
-            emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink`,
-            shouldCreateUser: false,
-          },
-        })
-
-        if (magicLinkError) {
-          return {
-            error: `User already exists. Failed to send login link: ${magicLinkError.message}`,
-            data: null,
-          }
-        }
-
-        return {
-          error: null,
-          data: {
-            success: true,
-            userId: userId,
-            message: `User already exists. Login link sent to ${email}.`,
-          },
-        }
-      }
-
-      let errorMessage = createError.message
-      if (
-        createError.message.includes('Database error') ||
-        createError.message.includes('database')
-      ) {
-        errorMessage =
-          'Database error creating user account. Please ensure handle_new_user / caregiver_members migrations are applied.'
-      }
-      return { error: `Failed to create user: ${errorMessage}`, data: null }
-    }
-
-    if (!newUser?.user) {
-      return { error: 'Failed to create user account - no user returned', data: null }
-    }
-
-    userId = newUser.user.id
-
-    if (!userId) {
-      return { error: 'Failed to create user account - user ID is missing', data: null }
-    }
-
-    const profileReady = await waitForUserProfileRow(supabaseAdmin, userId)
-    let verifiedUserId = userId
-    if (profileReady) {
-      const { data: profile, error: profileError } = await supabaseAdmin
+    if (existingProfile) {
+      // Re-send invitation with a fresh password
+      const passwordHash = await bcrypt.hash(tempPassword, 12)
+      await supabaseAdmin
         .from('user_profiles')
-        .select('id, role')
-        .eq('id', userId)
-        .single()
-      if (!profileError && profile) {
-        verifiedUserId = profile.id
-      }
-    } else {
-      console.warn('User profile not found after creation (handle_new_user retries exhausted):', userId)
-      const { data: profileByEmail } = await supabaseAdmin
-        .from('user_profiles')
-        .select('id')
-        .eq('email', normalizedEmail)
-        .maybeSingle()
-      if (profileByEmail?.id) {
-        verifiedUserId = profileByEmail.id
+        .update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+        .eq('id', existingProfile.id)
+      await sendInvitationEmail(normalizedEmail, fullName, tempPassword, agencyName)
+      return {
+        error: null,
+        data: { success: true, userId: existingProfile.id, message: `User already exists. Invitation re-sent to ${email}.` },
       }
     }
 
-    userId = verifiedUserId
+    // New user
+    const userId = randomUUID()
+    const passwordHash = await bcrypt.hash(tempPassword, 12)
 
-    // Optional: send magic link via cookie client (sends email only; does not set session)
-    const { error: magicLinkError } = await supabaseCookie.auth.signInWithOtp({
+    const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
+      id: userId,
       email: normalizedEmail,
-      options: {
-        emailRedirectTo: `${siteUrl}/auth/callback?type=magiclink`,
-        shouldCreateUser: false,
-      },
+      role: 'staff_member',
+      full_name: fullName,
+      password_hash: passwordHash,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
-    if (magicLinkError) {
-      console.warn('Failed to send magic link:', magicLinkError.message)
+    if (insertError) {
+      return { error: `Failed to create user: ${insertError.message}`, data: null }
     }
 
-    if (!userId) {
-      return { error: 'Failed to get user ID after account creation', data: null }
-    }
+    await sendInvitationEmail(normalizedEmail, fullName, tempPassword, agencyName)
 
     return {
       error: null,
-      data: {
-        success: true,
-        userId,
-            message: `User account created. Login link sent to ${email}.`,
-      },
+      data: { success: true, userId, message: `User account created. Invitation email sent to ${email}.` },
     }
   } catch (err: any) {
     return { error: err.message || 'Failed to create user account', data: null }

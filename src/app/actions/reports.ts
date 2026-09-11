@@ -1,9 +1,11 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { Supabase } from '@/lib/supabase/types'
+import { getSession } from '@/lib/auth'
 import { formatDate } from '@/lib/format-date'
 
-type ServerSupabase = Awaited<ReturnType<typeof createClient>>
+type ServerSupabase = Supabase
 
 /** Agency admin: own admin row. Care coordinator: primary agency admin for coordinator's agency. */
 type ReportCaregiverScope =
@@ -107,11 +109,12 @@ export interface StaffRosterReportRow {
 }
 
 export async function getStaffCertificationsReport() {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    const session = await getSession()
+    const user = session ? { id: session.user.id } : null
+    if (!user) {
       return { error: 'You must be logged in', data: null }
     }
 
@@ -195,11 +198,12 @@ export async function getStaffCertificationsReport() {
 }
 
 export async function getExpiringCertificationsReport() {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    const session = await getSession()
+    const user = session ? { id: session.user.id } : null
+    if (!user) {
       return { error: 'You must be logged in', data: null }
     }
 
@@ -286,11 +290,12 @@ export async function getExpiringCertificationsReport() {
 }
 
 export async function getStaffRosterReport() {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    const session = await getSession()
+    const user = session ? { id: session.user.id } : null
+    if (!user) {
       return { error: 'You must be logged in', data: null }
     }
 

@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
@@ -71,7 +70,7 @@ export async function createLead(payload: {
     userId = session.user.id
   }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('leads')
     .insert({
@@ -132,7 +131,7 @@ export async function updateLead(
     serviceStates?: string[] | null
   }
 ) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const updateData: Record<string, unknown> = {
     contact_first_name: payload.contactFirstName,
     contact_last_name: payload.contactLastName,
@@ -167,7 +166,7 @@ export async function updateLead(
 }
 
 export async function updateLeadStage(leadId: string, stage: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const updates: Record<string, unknown> = { stage, updated_at: new Date().toISOString() }
 
   if (stage === 'proposal_sent') {
@@ -189,7 +188,7 @@ export async function updateLeadStage(leadId: string, stage: string) {
 }
 
 export async function archiveLead(leadId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from('leads')
     .update({ status: 'archived', updated_at: new Date().toISOString() })
@@ -201,7 +200,7 @@ export async function archiveLead(leadId: string) {
 }
 
 export async function unarchiveLead(leadId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from('leads')
     .update({ status: 'active', updated_at: new Date().toISOString() })
@@ -221,7 +220,7 @@ export async function addLeadNote(
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from('lead_notes')
     .insert({
@@ -237,7 +236,7 @@ export async function addLeadNote(
 }
 
 export async function deleteLeadNote(leadId: string, noteId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase.from('lead_notes').delete().eq('id', noteId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
@@ -253,7 +252,7 @@ export async function addLeadTask(
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from('lead_tasks')
     .insert({
@@ -271,7 +270,7 @@ export async function addLeadTask(
 }
 
 export async function completeLeadTask(leadId: string, taskId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from('lead_tasks')
     .update({ completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
@@ -283,7 +282,7 @@ export async function completeLeadTask(leadId: string, taskId: string) {
 }
 
 export async function uncompleteLeadTask(leadId: string, taskId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from('lead_tasks')
     .update({ completed_at: null, updated_at: new Date().toISOString() })
@@ -295,7 +294,7 @@ export async function uncompleteLeadTask(leadId: string, taskId: string) {
 }
 
 export async function deleteLeadTask(leadId: string, taskId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase.from('lead_tasks').delete().eq('id', taskId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
@@ -308,7 +307,7 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const supabaseAdmin = createAdminClient()
 
   const { data: lead, error: fetchErr } = await supabase
@@ -367,7 +366,7 @@ export async function linkLeadToExistingAgency(leadId: string, agencyId: string)
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.linkLeadToExistingAgency(supabase, leadId, agencyId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
@@ -378,7 +377,7 @@ export async function unlinkLeadFromAgency(leadId: string) {
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.unlinkLeadFromAgency(supabase, leadId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
@@ -398,7 +397,7 @@ export async function uploadLeadDocument(
 
   if (!file || !documentName?.trim()) return { error: 'File and document name are required' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const ext = file.name.split('.').pop()
   const filePath = `${leadId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
@@ -428,7 +427,7 @@ export async function deleteLeadDocumentAction(leadId: string, docId: string, fi
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error: storageErr } = await removeFiles(supabase, STORAGE_BUCKET.LEAD, [filePath])
   if (storageErr) console.error('[leads/deleteLeadDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
   const { error } = await q.deleteLeadDocument(supabase, docId)
@@ -440,14 +439,14 @@ export async function deleteLeadDocumentAction(leadId: string, docId: string, fi
 // ——— On-demand reads (called from client components) ——————————————————————
 
 export async function fetchLeadDocumentsAction(leadId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getLeadDocuments(supabase, leadId)
   if (error) return { error: error.message, data: null }
   return { error: null, data: data ?? [] }
 }
 
 export async function fetchLeadNotesAction(leadId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await q.getLeadNotes(supabase, leadId)
   if (error) return { error: error.message, data: null }
   return { error: null, data: data ?? [] }
@@ -477,7 +476,7 @@ export async function updatePatientLeadDetailsAction(
   const { error: authErr, session } = await requireAgencyMember()
   if (authErr || !session) return { success: false, error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const agencyId = session.profile?.agency_id
 
   const { data: lead } = await supabase
@@ -527,7 +526,7 @@ export async function createRepresentativeFromLeadAction(leadId: string, patient
   const { error: authErr, session } = await requireAgencyMember()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: details } = await q.getPatientLeadDetails(supabase, leadId)
 
   if (!details?.poc_name?.trim()) return { error: null }
@@ -549,7 +548,7 @@ export async function linkLeadToPatient(leadId: string, patientId: string) {
   const { error: authErr, session } = await requireAgencyMember()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const agencyId = session.profile?.agency_id
   if (!agencyId) return { error: 'No agency found for this user' }
 

@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client'
 import { uploadFile } from '@/lib/storage/client'
 import { US_STATES } from '@/lib/constants'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
+import { useSession } from 'next-auth/react'
 
 interface AddCertificationModalProps {
   isOpen: boolean
@@ -26,6 +27,7 @@ export default function AddCertificationModal({
   onSuccess,
   certificationTypes
 }: AddCertificationModalProps) {
+  const { data: session } = useSession()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -126,15 +128,14 @@ export default function AddCertificationModal({
 
       if (selectedFile) {
         setIsUploading(true)
-        const supabase = createClient()
-
-        const { data: { user } } = await supabase.auth.getUser()
+        const user = session?.user
         if (!user) {
           showValidationToast({ error: 'You must be logged in to upload documents' })
           setIsSubmitting(false)
           setIsUploading(false)
           return
         }
+        const supabase = createClient()
 
         const fileExt = selectedFile.name.split('.').pop()
         const fileName = `certifications/${user.id}/${Date.now()}.${fileExt}`

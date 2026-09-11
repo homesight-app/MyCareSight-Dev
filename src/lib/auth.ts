@@ -1,6 +1,10 @@
 import { cache } from 'react'
-import { createClient } from '@/lib/supabase/server'
-import { AgencyRole } from '@/types/auth'
+import { auth, signIn as nextAuthSignIn, signOut as nextAuthSignOut } from '@/auth'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { randomBytes } from 'crypto'
+import bcrypt from 'bcryptjs'
+import { sendPasswordResetEmail } from '@/lib/email'
+import type { AgencyRole, UserRole } from '@/types/auth'
 
 function isDynamicServerUsageError(error: unknown): boolean {
   return (
@@ -11,103 +15,153 @@ function isDynamicServerUsageError(error: unknown): boolean {
   )
 }
 
+// Single source of truth for the session on every server request.
+// React.cache() memoizes per request — multiple callers pay for one DB query total.
+// is_active is fetched fresh every time; it is never read from the JWT.
 export const getSession = cache(async () => {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser()
+    const session = await auth()
+    if (!session?.user?.id) return null
 
-    if (error || !user) {
-      return null
-    }
+    const userId = session.user.id
+    const supabase = createAdminClient()
 
-    // Get user profile with role
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('*')
-      .eq('id', user.id)
+      .select(
+        'id, email, role, full_name, agency_id, is_active, last_login_at, created_at, updated_at, user_agency_roles ( agency_id, role, status )'
+      )
+      .eq('id', userId)
       .single()
 
-    // Load agency roles for permission checks (no extra DB query in server actions)
-    const { data: agencyRolesData } = await supabase
-      .from('user_agency_roles')
-      .select('agency_id, role, status')
-      .eq('user_id', user.id)
-      .in('status', ['active', 'invited', 'pending'])
+    if (!profile || !profile.is_active) return null
 
-    const agencyRoles: AgencyRole[] = (agencyRolesData ?? []) as AgencyRole[]
+    type RawRole = { agency_id: string; role: string; status: string }
+    const agencyRoles: AgencyRole[] = (
+      (profile.user_agency_roles as RawRole[]) ?? []
+    )
+      .filter(r => ['active', 'invited', 'pending'].includes(r.status))
+      .map(r => ({
+        agency_id: r.agency_id,
+        role: r.role as AgencyRole['role'],
+        status: r.status,
+      }))
 
     return {
-      user,
-      profile,
+      user: {
+        id: userId,
+        email: session.user.email ?? profile.email ?? '',
+      },
+      profile: {
+        id: profile.id,
+        email: profile.email,
+        role: profile.role as UserRole,
+        full_name: profile.full_name,
+        agency_id: profile.agency_id,
+        is_active: profile.is_active,
+        last_login_at: profile.last_login_at,
+        created_at: profile.created_at,
+        updated_at: profile.updated_at,
+      },
       agencyRoles,
     }
   } catch (error) {
-    // Let Next.js handle dynamic-render bailouts for routes using cookies/headers.
-    if (isDynamicServerUsageError(error)) {
-      throw error
-    }
-
-    console.error('getSession failed:', error)
+    if (isDynamicServerUsageError(error)) throw error
     return null
   }
 })
 
 export async function signOut() {
-  const supabase = await createClient()
-  await supabase.auth.signOut()
+  await nextAuthSignOut({ redirectTo: '/pages/auth/login' })
 }
 
-export async function signIn(email: string, password: string, rememberMe: boolean = false) {
-  const supabase = await createClient()
-  
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  })
-
-  if (error) {
-    return { error }
+// Used by server-side callers only. The login page uses next-auth/react signIn directly.
+export async function signIn(email: string, password: string) {
+  try {
+    await nextAuthSignIn('credentials', { email, password, redirect: false })
+    return { error: null }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Invalid credentials'
+    return { error: msg }
   }
-
-  // If remember me is checked, extend session duration
-  if (rememberMe && data.session) {
-    await supabase.auth.setSession({
-      access_token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
-    })
-  }
-
-  // HIPAA § 164.312(b): record login timestamp for audit trail
-  if (data.user) {
-    await supabase
-      .from('user_profiles')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', data.user.id)
-  }
-
-  return { data, error: null }
 }
 
 export async function resetPassword(email: string) {
-  const supabase = await createClient()
-  
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL }/pages/auth/reset-password`,
-  })
+  const supabase = createAdminClient()
 
-  return { error }
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, email, full_name')
+    .eq('email', email.toLowerCase().trim())
+    .single()
+
+  // Always return success to prevent user enumeration
+  if (!profile) return { error: null }
+
+  const token = randomBytes(32).toString('hex')
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+
+  await supabase
+    .from('user_profiles')
+    .update({ invite_token: token, invite_token_expires_at: expiresAt })
+    .eq('id', profile.id)
+
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.AUTH_URL ?? 'http://localhost:3000'
+  const resetLink = `${baseUrl}/pages/auth/reset-password?token=${token}`
+
+  // In dev, always log the link so it's testable without Mailgun configured
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[DEV] Password reset link:', resetLink)
+  }
+
+  const emailResult = await sendPasswordResetEmail(profile.email ?? email, resetLink)
+  if (!emailResult.success) {
+    console.error('[resetPassword] Email send failed:', emailResult.error)
+    // In production, surface the failure. In dev, succeed so the console link is usable.
+    if (process.env.NODE_ENV !== 'development') {
+      return { error: 'Failed to send reset email. Please try again.' }
+    }
+  }
+
+  return { error: null }
 }
 
-export async function updatePassword(newPassword: string) {
-  const supabase = await createClient()
-  
-  const { error } = await supabase.auth.updateUser({
-    password: newPassword,
-  })
+// token param: provided for unauthenticated resets (email link flow).
+// No token: requires an active session (change-password flow).
+export async function updatePassword(newPassword: string, token?: string) {
+  const supabase = createAdminClient()
 
-  return { error }
+  if (token) {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('id, invite_token_expires_at')
+      .eq('invite_token', token)
+      .single()
+
+    if (!profile) return { error: 'Invalid or expired reset link.' }
+
+    if (new Date(profile.invite_token_expires_at) < new Date()) {
+      return { error: 'Reset link has expired. Please request a new one.' }
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12)
+    await supabase
+      .from('user_profiles')
+      .update({ password_hash: passwordHash, invite_token: null, invite_token_expires_at: null })
+      .eq('id', profile.id)
+
+    return { error: null }
+  }
+
+  // Authenticated change — must have an active session
+  const session = await auth()
+  if (!session?.user?.id) return { error: 'Not authenticated.' }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12)
+  await supabase
+    .from('user_profiles')
+    .update({ password_hash: passwordHash })
+    .eq('id', session.user.id)
+
+  return { error: null }
 }
-

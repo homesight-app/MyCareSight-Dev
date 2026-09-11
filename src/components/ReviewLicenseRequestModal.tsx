@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { LicenseType } from '@/types/license'
 import { createApplicationForAgency } from '@/app/actions/applications'
+import { useSession } from 'next-auth/react'
 
 interface ReviewLicenseRequestModalProps {
   isOpen: boolean
@@ -36,6 +37,7 @@ export default function ReviewLicenseRequestModal({
   hasPlaybook,
 }: ReviewLicenseRequestModalProps) {
   const router = useRouter()
+  const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -61,12 +63,12 @@ export default function ReviewLicenseRequestModal({
       }
 
       // ── Owner mode (agency owner creating for themselves) ─────────────────
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = session?.user
       if (!user) {
         setError('You must be logged in to submit a license request')
         return
       }
+      const supabase = createClient()
 
       const todayStr = new Date().toISOString().split('T')[0]
 

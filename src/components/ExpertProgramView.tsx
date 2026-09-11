@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSession } from 'next-auth/react'
 import {
   CheckCircle2, Clock, AlertCircle, Circle,
   FileText, Loader2, ChevronRight, CalendarDays,
@@ -95,6 +96,7 @@ export default function ExpertProgramView({
 }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const supabase = createClient()
+  const { data: session } = useSession()
 
   // ── Name editing ─────────────────────────────────────────────────────────────
   const [displayName, setDisplayName] = useState(applicationName)
@@ -300,10 +302,9 @@ export default function ExpertProgramView({
 
   // ── Current user ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setCurrentUserId(user.id)
-    })
-  }, [supabase])
+    const userId = session?.user?.id
+    if (userId) setCurrentUserId(userId)
+  }, [session])
 
   // ── Templates ─────────────────────────────────────────────────────────────────
   const fetchTemplates = useCallback(async () => {

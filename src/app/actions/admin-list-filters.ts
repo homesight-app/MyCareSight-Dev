@@ -1,13 +1,13 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 
 async function requireAdminSupabase() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user?.id) return { supabase, user: null, error: 'Not authenticated' }
   const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
   if (profile?.role !== 'admin') return { supabase, user, error: 'Forbidden' }

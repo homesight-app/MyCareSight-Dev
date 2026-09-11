@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import * as q from '@/lib/supabase/query'
@@ -71,7 +70,7 @@ export async function createAgency(data: AgencyFormData) {
   const parsed = agencyFormSchema.safeParse(data)
   if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   const validData = parsed.data
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   try {
     const ids = (validData.agencyAdminIds || []).filter(Boolean)
     const { data: newAgency, error } = await q.insertAgency(supabase, {
@@ -185,9 +184,10 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
   const parsed = companyDetailsSchema.safeParse(data)
   if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   const validData = parsed.data
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   try {
-    const { data: { user } } = await supabase.auth.getUser()
+    const session = await getSession()
+    const user = session ? { id: session.user.id } : null
     if (!user?.id) {
       return { error: 'Not authenticated', data: null }
     }
@@ -411,7 +411,7 @@ export async function addAgencyNote(
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: note, error } = await supabase.from('agency_notes').insert({
     agency_id: agencyId,
     author_id: session.user.id,
@@ -436,8 +436,9 @@ export async function addAgencyNote(
 }
 
 export async function deleteAgencyNote(agencyId: string, noteId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   const { error } = await supabase.from('agency_notes').delete().eq('id', noteId)
   if (error) return { error: error.message }
 
@@ -470,7 +471,7 @@ export async function uploadAgencyDocument(
 
   if (!file || !documentName?.trim()) return { error: 'File and document name are required' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const ext = file.name.split('.').pop()
   const filePath = `${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
@@ -507,8 +508,9 @@ export async function uploadAgencyDocument(
 }
 
 export async function deleteAgencyDocumentAction(agencyId: string, docId: string, filePath: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   const { error: storageErr } = await removeFiles(supabase, STORAGE_BUCKET.AGENCY, [filePath])
   if (storageErr) console.error('[agencies/deleteAgencyDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
   const { error } = await q.deleteAgencyDocument(supabase, docId)
@@ -538,7 +540,7 @@ function agencyBrandingPublicUrl(path: string | null | undefined): string | null
 }
 
 export async function getAgencyBrandingAction(agencyId: string) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data } = await q.getAgencyBranding(supabase, agencyId)
   return {
     logoUrl: agencyBrandingPublicUrl(data?.logo_path),
@@ -552,7 +554,7 @@ export async function updateAgencyBrandingAction(
   agencyId: string,
   payload: { primaryColor: string; sidebarColor: string }
 ): Promise<{ success: boolean; error: string | null }> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await q.updateAgencyBrandingColors(supabase, agencyId, {
     primary_color: payload.primaryColor,
     sidebar_color: payload.sidebarColor,
@@ -568,8 +570,9 @@ export async function uploadAgencyLogoAction(
   formData: FormData,
   variant: 'full' | 'icon'
 ): Promise<{ url: string | null; error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { url: null, error: 'Unauthorized' }
 
   const file = formData.get('file') as File | null
@@ -604,8 +607,9 @@ export async function uploadAgencyLogoAction(
 }
 
 export async function resetAgencyBrandingAction(agencyId: string): Promise<{ success: boolean; error: string | null }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = createAdminClient()
+  const session = await getSession()
+  const user = session ? { id: session.user.id } : null
   if (!user) return { success: false, error: 'Unauthorized' }
 
   const adminSupabase = createAdminClient()

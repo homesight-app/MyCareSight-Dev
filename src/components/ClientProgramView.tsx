@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSession } from 'next-auth/react'
 import {
   CheckCircle2, Clock, AlertCircle, Circle,
   FileText, Upload, Trash2, Loader2,
@@ -77,6 +78,7 @@ export default function ClientProgramView({
 }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const supabase = createClient()
+  const { data: session } = useSession()
 
   // ── Tab ───────────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>('steps')
@@ -194,10 +196,9 @@ export default function ClientProgramView({
 
   // ── Current user ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setCurrentUserId(user.id)
-    })
-  }, [supabase])
+    const userId = session?.user?.id
+    if (userId) setCurrentUserId(userId)
+  }, [session])
 
   // ── Templates ─────────────────────────────────────────────────────────────────
   const fetchTemplates = useCallback(async () => {

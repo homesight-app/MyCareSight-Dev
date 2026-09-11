@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
 import { UserRole } from '@/types/auth'
+import { updateUserEmailAction } from '@/app/actions/auth'
 
 
 interface ProfileFormProps {
@@ -82,14 +83,11 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
         return
       }
 
-      // Update email if changed
+      // Update email in user_profiles if changed
       if (data.email !== user.email) {
-        const { error: emailError } = await supabase.auth.updateUser({
-          email: data.email,
-        })
-
+        const { error: emailError } = await updateUserEmailAction(data.email)
         if (emailError) {
-          setError(emailError.message)
+          setError(emailError)
           setIsLoading(false)
           return
         }

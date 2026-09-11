@@ -6,10 +6,10 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { personalInfoSchema, type PersonalInfoFormData, companyDetailsSchema, type CompanyDetailsFormInput, type CompanyDetailsFormOutput } from '@/lib/schemas/profile'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { UserRole } from '@/types/auth'
 import { saveCompanyDetails } from '@/app/actions/agencies'
 import { updatePersonalProfile } from '@/app/actions/users'
+import { updateUserEmailAction } from '@/app/actions/auth'
 
 
 interface InitialAgency {
@@ -191,12 +191,11 @@ export default function ProfileTabs({ user, profile, initialAgency }: ProfileTab
         return
       }
 
-      // Email is an auth operation — must use the browser client with the user's own session
+      // Update email in user_profiles if changed
       if (data.email !== user.email) {
-        const supabase = createClient()
-        const { error: emailError } = await supabase.auth.updateUser({ email: data.email })
+        const { error: emailError } = await updateUserEmailAction(data.email)
         if (emailError) {
-          setError(emailError.message)
+          setError(emailError)
           setIsLoading(false)
           return
         }

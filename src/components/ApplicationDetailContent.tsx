@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { replaceApplicationDocumentAction } from '@/app/actions/application-documents'
@@ -150,6 +151,7 @@ export default function ApplicationDetailContent({
   assignedExpertProfile,
   mode,
 }: ApplicationDetailContentProps) {
+  const { data: session } = useSession()
   const [infoModalStep, setInfoModalStep] = useState<any | null>(null)
   const [programProgressPct, setProgramProgressPct] = useState<number | null>(null)
   const router = useRouter()
@@ -974,18 +976,13 @@ export default function ApplicationDetailContent({
 
   // Get current user ID and role
   useEffect(() => {
-    const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        setCurrentUserId(user.id)
-        const { data: profile } = await q.getUserProfileRoleById(supabase, user.id)
-        if (profile) {
-          setCurrentUserRole(profile.role)
-        }
-      }
-    }
-    getCurrentUser()
-  }, [supabase])
+    const userId = session?.user?.id
+    if (!userId) return
+    setCurrentUserId(userId)
+    q.getUserProfileRoleById(supabase, userId).then(({ data: profile }) => {
+      if (profile) setCurrentUserRole(profile.role)
+    })
+  }, [session, supabase])
 
   // Fetch or create conversation for application-based group chat
   useEffect(() => {

@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 
 // Update pricing
@@ -10,7 +10,7 @@ export interface UpdatePricingData {
 }
 
 export async function updatePricing(data: UpdatePricingData) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
     // Get current pricing to check if values have changed
@@ -71,7 +71,7 @@ export interface UpdateLicenseTypeData {
 }
 
 export async function updateLicenseType(data: UpdateLicenseTypeData) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   try {
     // Parse processing time (e.g., "60 days" -> 60)

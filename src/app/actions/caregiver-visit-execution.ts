@@ -3,7 +3,7 @@
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { CACHE_TAG_CAREGIVER_VISIT_EXECUTION, caregiverVisitExecutionTag } from '@/lib/cache-tags'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import { fetchCaregiverPastVisitSummary } from '@/lib/caregiver-visit-execution'
 import type { CaregiverPastVisitSummaryDTO } from '@/lib/caregiver-visit-execution'
@@ -58,7 +58,7 @@ export async function caregiverClockInAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase.rpc('caregiver_clock_in_visit', {
     p_scheduled_visit_id: visitId,
     p_latitude: latitude,
@@ -83,7 +83,7 @@ export async function caregiverClockOutAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase.rpc('caregiver_clock_out_visit', {
     p_scheduled_visit_id: visitId,
     p_latitude: latitude,
@@ -108,7 +108,7 @@ export async function caregiverSetTaskCompletedAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase.rpc('caregiver_set_scheduled_visit_task_completed', {
     p_scheduled_visit_task_id: scheduledVisitTaskId,
     p_completed: completed,
@@ -133,7 +133,7 @@ export async function caregiverSaveVisitNotesAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const trimmed = notes.trim()
   const { data: updated, error } = await supabase
     .from('visit_time_entries')
@@ -158,7 +158,7 @@ export async function getCaregiverPastVisitSummaryAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data: staff, error: staffErr } = await q.getStaffMemberByUserId(supabase, session.user.id)
   if (staffErr || !staff) return { error: 'Staff member record not found.' }
 

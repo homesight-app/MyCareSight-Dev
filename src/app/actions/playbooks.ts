@@ -1193,7 +1193,7 @@ export async function runDocumentValidation(itemId: string, agencyId: string | n
       const docUrl = (doc as { document_url: string }).document_url
       if (!docUrl) { failCount++; continue }
 
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, docUrl, 600)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, docUrl, 600)
       if (!signedUrl) { failCount++; continue }
 
       const ext = (doc as { document_name: string }).document_name.split('.').pop()?.toLowerCase()
@@ -1394,7 +1394,7 @@ export async function deleteApplicationDocument(documentId: string): Promise<{ e
   }
 
   if (doc.document_url) {
-    await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, [doc.document_url])
+    await removeFiles(STORAGE_BUCKET.APPLICATION, [doc.document_url])
   }
 
   const { error } = await supabase.from('application_documents').delete().eq('id', documentId)

@@ -45,12 +45,11 @@ export async function uploadCaregiverDocumentsAction(
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const path = `${staffMemberId}/${docId}_${safeName}`
 
-    const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.STAFF_MEMBER, path, file, {
-      cacheControl: '3600',
+    const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.STAFF_MEMBER, path, file, {
       upsert: false,
     })
     if (uploadErr) {
-      await removeFiles(supabase, STORAGE_BUCKET.STAFF_MEMBER, uploadedPaths)
+      await removeFiles(STORAGE_BUCKET.STAFF_MEMBER, uploadedPaths)
       return { error: uploadErr.message, data: null }
     }
     uploadedPaths.push(path)
@@ -60,7 +59,7 @@ export async function uploadCaregiverDocumentsAction(
   const nextDocs = [...existingDocs, ...newDocs]
   const { data: updated, error: updateErr } = await q.updateStaffMemberDocuments(supabase, staffMemberId, nextDocs)
   if (updateErr || !updated) {
-    await removeFiles(supabase, STORAGE_BUCKET.STAFF_MEMBER, uploadedPaths)
+    await removeFiles(STORAGE_BUCKET.STAFF_MEMBER, uploadedPaths)
     return { error: updateErr?.message ?? 'Update returned no row', data: null }
   }
 
@@ -95,7 +94,7 @@ export async function deleteCaregiverDocumentAction(
     .eq('id', staffMemberId)
     .maybeSingle()
 
-  await removeFiles(supabase, STORAGE_BUCKET.STAFF_MEMBER, [docPath])
+  await removeFiles(STORAGE_BUCKET.STAFF_MEMBER, [docPath])
 
   const { data: updated, error: updateErr } = await q.updateStaffMemberDocuments(supabase, staffMemberId, updatedDocs)
   if (updateErr || !updated) return { error: updateErr?.message ?? 'Update returned no row' }

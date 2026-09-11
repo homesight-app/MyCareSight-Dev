@@ -41,7 +41,7 @@ export async function uploadLicenseDocumentAction(
   const fileExt = file.name.split('.').pop()
   const filePath = `license-${licenseId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
 
-  const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.APPLICATION, filePath, file, {
+  const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.APPLICATION, filePath, file, {
     upsert: false,
     contentType: file.type || `application/${fileExt}`,
   })
@@ -54,7 +54,7 @@ export async function uploadLicenseDocumentAction(
     document_type: documentType || null,
   })
   if (docErr) {
-    await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, [filePath])
+    await removeFiles(STORAGE_BUCKET.APPLICATION, [filePath])
     return { error: docErr.message }
   }
 
@@ -102,13 +102,12 @@ export async function uploadLicenseDocumentsForCreationAction(
     const fileExt = file.name.split('.').pop()
     const filePath = `agency-${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
 
-    const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.APPLICATION, filePath, file, {
+    const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.APPLICATION, filePath, file, {
       upsert: false,
       contentType: file.type || `application/${fileExt}`,
-      cacheControl: '3600',
     })
     if (uploadErr) {
-      await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, uploadedPaths)
+      await removeFiles(STORAGE_BUCKET.APPLICATION, uploadedPaths)
       return { error: uploadErr.message, data: null }
     }
     uploadedPaths.push(filePath)
@@ -125,7 +124,6 @@ export async function uploadLicenseDocumentsForCreationAction(
 /** Remove files from the application-documents storage bucket (cleanup on creation failure). */
 export async function removeUploadedLicenseFilesAction(paths: string[]): Promise<void> {
   if (paths.length === 0) return
-  const supabase = createAdminClient()
-  const { error } = await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, paths)
+  const { error } = await removeFiles(STORAGE_BUCKET.APPLICATION, paths)
   if (error) console.error('[license-documents/cleanup] Storage removal failed. paths=%j err=%s', paths, error.message)
 }

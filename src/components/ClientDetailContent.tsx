@@ -1161,8 +1161,7 @@ export default function ClientDetailContent({ client, allClients, representative
     setDownloadingDocId(doc.id)
     setDocumentUploadError(null)
     try {
-      const supabase = createClient()
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.PATIENT, doc.path)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.PATIENT, doc.path)
       if (!signedUrl) throw new Error('Could not generate download link')
       const res = await fetch(signedUrl)
       if (!res.ok) throw new Error(`Download failed (${res.status})`)
@@ -1317,12 +1316,15 @@ export default function ClientDetailContent({ client, allClients, representative
       let file_name: string | null = null
       const safeName = incidentFormFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${localClient.id}/incidents/${inserted.id}_${safeName}`
-      const { error: uploadError } = await supabase.storage
-        .from('patient-documents')
-        .upload(path, incidentFormFile)
-      if (uploadError) {
+      const uploadForm = new FormData()
+      uploadForm.append('file', incidentFormFile)
+      uploadForm.append('bucket', 'patient-documents')
+      uploadForm.append('path', path)
+      const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
+      if (!uploadRes.ok) {
         await q.deleteIncident(supabase, inserted.id)
-        throw uploadError
+        const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
+        throw new Error(uploadError || 'Failed to upload incident file')
       }
       file_path = path
       file_name = incidentFormFile.name
@@ -1363,8 +1365,7 @@ export default function ClientDetailContent({ client, allClients, representative
     setDownloadingIncidentId(incident.id)
     setIncidentListError(null)
     try {
-      const supabase = createClient()
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.PATIENT, incident.file_path)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.PATIENT, incident.file_path)
       if (!signedUrl) throw new Error('Could not generate download link')
       const res = await fetch(signedUrl)
       if (!res.ok) throw new Error(`Download failed (${res.status})`)

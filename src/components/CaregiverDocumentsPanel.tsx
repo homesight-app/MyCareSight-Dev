@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl } from '@/lib/supabase/storage'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { uploadCaregiverDocumentsAction, deleteCaregiverDocumentAction } from '@/app/actions/caregiver-documents'
@@ -139,8 +138,7 @@ export function CaregiverDocumentsPanel({
     setDownloadingId(doc.id)
     setError(null)
     try {
-      const supabase = createClient()
-      const signedUrl = await createSignedStorageUrl(supabase, BUCKET, doc.path)
+      const signedUrl = await createSignedStorageUrl(BUCKET, doc.path)
       if (!signedUrl) throw new Error('Could not generate download link')
       const res = await fetch(signedUrl)
       if (!res.ok) throw new Error(`Download failed (${res.status})`)

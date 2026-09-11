@@ -326,7 +326,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
       const ext = doc.document_name.split('.').pop()?.toLowerCase() ?? ''
       let url = doc.document_url
       if (url && !url.startsWith('http')) {
-        const signed = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, url, 3600)
+        const signed = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, url, 3600)
         url = signed ?? ''
       }
       if (url) previews.push({ url, name: doc.document_name, ext })
@@ -460,8 +460,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
 
   const handleDownload = async (doc: ItemDoc) => {
     setDownloadingDocId(doc.id)
-    const supabase = createClient()
-    const url = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, doc.document_url)
+    const url = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, doc.document_url)
     if (url) {
       const a = document.createElement('a')
       a.href = url

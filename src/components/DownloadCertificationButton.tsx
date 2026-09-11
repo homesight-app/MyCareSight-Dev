@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 interface DownloadCertificationButtonProps {
@@ -25,8 +24,7 @@ export default function DownloadCertificationButton({
 
     setIsDownloading(true)
     try {
-      const supabase = createClient()
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentUrl)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documentUrl)
       if (!signedUrl) throw new Error('Failed to generate download URL')
 
       const response = await fetch(signedUrl)

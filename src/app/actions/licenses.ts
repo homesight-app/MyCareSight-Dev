@@ -244,7 +244,7 @@ export async function deleteLicenseDocument(
   const { data: doc, error: fetchErr } = await q.getLicenseDocumentUrlById(supabaseAdmin, documentId)
   if (fetchErr || !doc) return { error: fetchErr?.message ?? 'Document not found' }
 
-  const { error: storageErr } = await removeFiles(supabaseAdmin, 'application-documents', [doc.document_url])
+  const { error: storageErr } = await removeFiles('application-documents', [doc.document_url])
   if (storageErr) console.error('[licenses/deleteLicenseDocument] Storage delete failed. docId=%s err=%s', documentId, storageErr.message)
   const { error } = await q.deleteLicenseDocumentById(supabaseAdmin, documentId)
   if (error) return { error: error.message }

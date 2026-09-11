@@ -1481,8 +1481,7 @@ export default function ApplicationDetailContent({
 
   const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const supabase = createClient()
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentPath)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documentPath)
       if (!signedUrl) throw new Error('Could not generate download link')
       const response = await fetch(signedUrl)
       const blob = await response.blob()
@@ -2530,9 +2529,8 @@ export default function ApplicationDetailContent({
                           window.open(tpl.file_url, '_blank')
                           return
                         }
-                        const s = createClient()
-                        const { data } = await s.storage.from('license-templates').createSignedUrl(tpl.file_url, 3600)
-                        if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                        const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, tpl.file_url)
+                        if (signedUrl) window.open(signedUrl, '_blank')
                       }}
                     >
                       Download

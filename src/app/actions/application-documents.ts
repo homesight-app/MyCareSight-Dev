@@ -59,9 +59,9 @@ export async function uploadApplicationDocumentsAction(
     const fileExt = file.name.split('.').pop()
     const filePath = `${applicationId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
 
-    const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.APPLICATION, filePath, file)
+    const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.APPLICATION, filePath, file)
     if (uploadErr) {
-      await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, uploadedPaths)
+      await removeFiles(STORAGE_BUCKET.APPLICATION, uploadedPaths)
       return { error: uploadErr.message, data: null }
     }
     uploadedPaths.push(filePath)
@@ -83,7 +83,7 @@ export async function uploadApplicationDocumentsAction(
 
     const { data: doc, error: insertErr } = await q.insertApplicationDocument(supabase, insertData)
     if (insertErr) {
-      await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, uploadedPaths)
+      await removeFiles(STORAGE_BUCKET.APPLICATION, uploadedPaths)
       return { error: insertErr.message, data: null }
     }
 
@@ -122,7 +122,7 @@ export async function replaceApplicationDocumentAction(
   const fileExt = file.name.split('.').pop()
   const filePath = `${applicationId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
 
-  const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.APPLICATION, filePath, file)
+  const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.APPLICATION, filePath, file)
   if (uploadErr) return { error: uploadErr.message }
 
   const { error: updateErr } = await q.updateApplicationDocumentFile(supabase, docId, applicationId, {
@@ -132,7 +132,7 @@ export async function replaceApplicationDocumentAction(
     description: docMeta.description,
   })
   if (updateErr) {
-    await removeFiles(supabase, STORAGE_BUCKET.APPLICATION, [filePath])
+    await removeFiles(STORAGE_BUCKET.APPLICATION, [filePath])
     return { error: updateErr.message }
   }
 

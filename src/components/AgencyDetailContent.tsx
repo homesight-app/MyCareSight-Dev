@@ -32,7 +32,6 @@ import {
   Layers,
   Lock,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
@@ -399,14 +398,12 @@ export default function AgencyDetailContent({
   }
 
   const handleViewLeadDoc = async (fileUrl: string) => {
-    const supabase = createClient()
-    const url = await createSignedStorageUrl(supabase, STORAGE_BUCKET.LEAD, fileUrl)
+    const url = await createSignedStorageUrl(STORAGE_BUCKET.LEAD, fileUrl)
     if (url) window.open(url, '_blank')
   }
 
   const handleDownloadLeadDoc = async (fileUrl: string, fileName: string) => {
-    const supabase = createClient()
-    const url = await createSignedStorageUrl(supabase, STORAGE_BUCKET.LEAD, fileUrl)
+    const url = await createSignedStorageUrl(STORAGE_BUCKET.LEAD, fileUrl)
     if (!url) return
     try {
       const res = await fetch(url)

@@ -150,13 +150,13 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
 
   const handleView = async (doc: UnifiedDoc) => {
     const bucket = doc.source === 'agency' ? STORAGE_BUCKET.AGENCY : STORAGE_BUCKET.LEAD
-    const url = await createSignedStorageUrl(supabase, bucket, doc.file_url)
+    const url = await createSignedStorageUrl(bucket, doc.file_url)
     if (url) window.open(url, '_blank')
   }
 
   const handleDownload = async (doc: UnifiedDoc) => {
     const bucket = doc.source === 'agency' ? STORAGE_BUCKET.AGENCY : STORAGE_BUCKET.LEAD
-    const url = await createSignedStorageUrl(supabase, bucket, doc.file_url)
+    const url = await createSignedStorageUrl(bucket, doc.file_url)
     if (!url) return
     const a = document.createElement('a')
     a.href = url

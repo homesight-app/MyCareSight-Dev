@@ -47,7 +47,7 @@ export default function ApplicationDocumentsPanel({
         await Promise.all(
           data.map(async (doc) => {
             try {
-              const docSignedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, doc.document_url)
+              const docSignedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, doc.document_url)
               if (docSignedUrl) {
                 const response = await fetch(docSignedUrl, { method: 'HEAD' })
                 const contentLength = response.headers.get('content-length')
@@ -90,8 +90,7 @@ export default function ApplicationDocumentsPanel({
 
   const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const supabase = createClient()
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentPath)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documentPath)
       if (!signedUrl) throw new Error('Failed to generate download URL')
       const response = await fetch(signedUrl)
       const blob = await response.blob()

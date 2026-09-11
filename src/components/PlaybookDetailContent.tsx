@@ -7,6 +7,7 @@ import Tabs from '@/components/ui/Tabs'
 import PlaybookTab from './PlaybookTab'
 import Modal from './Modal'
 import { createClient } from '@/lib/supabase/client'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { updatePlaybook, createPlaybookTemplate, updatePlaybookTemplateAction, deletePlaybookTemplateAction } from '@/app/actions/playbooks'
 import { US_STATES } from '@/lib/constants'
 import type { PlaybookItem, PlaybookTemplate } from '@/lib/supabase/query/playbooks'
@@ -196,8 +197,8 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
 
   const handleDownloadTemplate = async (fileUrlOrPath: string) => {
     if (fileUrlOrPath.startsWith('http')) { window.open(fileUrlOrPath, '_blank'); return }
-    const { data } = await supabase.storage.from('license-templates').createSignedUrl(fileUrlOrPath, 3600)
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, fileUrlOrPath)
+    if (signedUrl) window.open(signedUrl, '_blank')
   }
 
   const handleUploadTemplate = async (e: React.FormEvent) => {
@@ -208,10 +209,16 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
     try {
       const fileExt = templateFile.name.split('.').pop()
       const filePath = `playbooks/${playbook.id}/${Date.now()}.${fileExt}`
-      const { error: uploadError } = await supabase.storage
-        .from('license-templates')
-        .upload(filePath, templateFile, { upsert: false, contentType: templateFile.type || 'application/octet-stream', cacheControl: '3600' })
-      if (uploadError) { setError(uploadError.message); return }
+      const uploadForm = new FormData()
+      uploadForm.append('file', templateFile)
+      uploadForm.append('bucket', 'license-templates')
+      uploadForm.append('path', filePath)
+      const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
+      if (!uploadRes.ok) {
+        const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
+        setError(uploadError || 'Failed to upload file')
+        return
+      }
 
       const result = await createPlaybookTemplate({
         playbookId: playbook.id,

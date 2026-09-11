@@ -237,7 +237,7 @@ export default function LicensesContent({
       }
 
       // Download the document
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documents.document_url)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documents.document_url)
       if (!signedUrl) throw new Error('Failed to generate download URL')
       const response = await fetch(signedUrl)
       if (!response.ok) {
@@ -264,10 +264,10 @@ export default function LicensesContent({
   const handleDownloadLatestLicenseDocument = async (licenseId: string, e: React.MouseEvent) => {
     e.stopPropagation() // Prevent row click
     setDownloadingLicenseId(licenseId)
-    
+
     try {
       const supabase = createClient()
-      
+
       // Fetch the latest document for this license
       const { data: documents, error } = await q.getLatestLicenseDocumentByLicenseId(supabase, licenseId)
 
@@ -281,7 +281,7 @@ export default function LicensesContent({
       }
 
       // Download the document
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documents.document_url)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documents.document_url)
       if (!signedUrl) throw new Error('Failed to generate download URL')
       const response = await fetch(signedUrl)
       if (!response.ok) {

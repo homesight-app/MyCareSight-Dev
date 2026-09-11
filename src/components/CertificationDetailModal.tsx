@@ -19,7 +19,6 @@ import {
 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
-import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import {
   updateCertificationDetails,
@@ -288,8 +287,7 @@ function DocumentsSection({
   const handleDownload = async (doc: LicenseDocument) => {
     setDownloadingId(doc.id)
     try {
-      const supabase = createClient()
-      const signedUrl = await createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, doc.document_url)
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, doc.document_url)
       if (!signedUrl) throw new Error('Failed to generate URL')
       const response = await fetch(signedUrl)
       const blob = await response.blob()

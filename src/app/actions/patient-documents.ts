@@ -39,9 +39,9 @@ export async function uploadPatientDocumentsAction(
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const path = `${patientId}/${docId}_${safeName}`
 
-    const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.PATIENT, path, file)
+    const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.PATIENT, path, file)
     if (uploadErr) {
-      await removeFiles(supabase, STORAGE_BUCKET.PATIENT, uploadedPaths)
+      await removeFiles(STORAGE_BUCKET.PATIENT, uploadedPaths)
       return { error: uploadErr.message, data: null }
     }
     uploadedPaths.push(path)
@@ -51,7 +51,7 @@ export async function uploadPatientDocumentsAction(
   const nextDocs = [...existingDocs, ...newDocs]
   const { error: updateErr } = await q.updatePatientDocuments(supabase, patientId, nextDocs)
   if (updateErr) {
-    await removeFiles(supabase, STORAGE_BUCKET.PATIENT, uploadedPaths)
+    await removeFiles(STORAGE_BUCKET.PATIENT, uploadedPaths)
     return { error: updateErr.message, data: null }
   }
 
@@ -86,7 +86,7 @@ export async function deletePatientDocumentAction(
   const user = session ? { id: session.user.id } : null
   if (!user) return { error: 'Not authenticated' }
 
-  await removeFiles(supabase, STORAGE_BUCKET.PATIENT, [docPath])
+  await removeFiles(STORAGE_BUCKET.PATIENT, [docPath])
 
   const { error: updateErr } = await q.updatePatientDocuments(supabase, patientId, updatedDocs)
   if (updateErr) return { error: updateErr.message }

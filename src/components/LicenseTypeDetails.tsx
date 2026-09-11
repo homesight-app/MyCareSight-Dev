@@ -6,6 +6,7 @@ import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { 
   createStep, 
   createDocument, 
@@ -734,8 +735,8 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
       window.open(fileUrlOrPath, '_blank')
       return
     }
-    const { data } = await supabase.storage.from('license-templates').createSignedUrl(fileUrlOrPath, 3600)
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, fileUrlOrPath)
+    if (signedUrl) window.open(signedUrl, '_blank')
   }
 
   // Template handlers
@@ -748,15 +749,14 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
     try {
       const fileExt = templateFile.name.split('.').pop()
       const filePath = `${requirementId}/${Date.now()}.${fileExt}`
-      const { error: uploadError } = await supabase.storage
-        .from('license-templates')
-        .upload(filePath, templateFile, {
-          upsert: false,
-          contentType: templateFile.type || 'application/octet-stream',
-          cacheControl: '3600',
-        })
-      if (uploadError) {
-        setError(uploadError.message || 'Failed to upload file')
+      const uploadForm = new FormData()
+      uploadForm.append('file', templateFile)
+      uploadForm.append('bucket', 'license-templates')
+      uploadForm.append('path', filePath)
+      const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
+      if (!uploadRes.ok) {
+        const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
+        setError(uploadError || 'Failed to upload file')
         setIsSubmitting(false)
         return
       }

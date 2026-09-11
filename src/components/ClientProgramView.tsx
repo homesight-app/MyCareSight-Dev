@@ -12,6 +12,7 @@ import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import { createClient } from '@/lib/supabase/client'
 import * as q from '@/lib/supabase/query'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import UploadDocumentModal from './UploadDocumentModal'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
 import Modal from './Modal'
@@ -846,9 +847,8 @@ export default function ClientProgramView({
                   icon={Download}
                   onClick={async () => {
                     if (tpl.file_url.startsWith('http')) { window.open(tpl.file_url, '_blank'); return }
-                    const s = createClient()
-                    const { data } = await s.storage.from('license-templates').createSignedUrl(tpl.file_url, 3600)
-                    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                    const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, tpl.file_url)
+                    if (signedUrl) window.open(signedUrl, '_blank')
                   }}
                 >
                   Download

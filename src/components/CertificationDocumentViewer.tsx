@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { FileText, Download, Image as ImageIcon, Loader2, ExternalLink } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
 interface CertificationDocumentViewerProps {
@@ -22,8 +21,7 @@ export default function CertificationDocumentViewer({
 
   useEffect(() => {
     if (!documentUrl) return
-    const supabase = createClient()
-    createSignedStorageUrl(supabase, STORAGE_BUCKET.APPLICATION, documentUrl).then(url => {
+    createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documentUrl).then(url => {
       setSignedUrl(url)
     })
   }, [documentUrl])

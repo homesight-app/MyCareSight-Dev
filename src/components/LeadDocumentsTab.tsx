@@ -2,7 +2,6 @@
 
 import { useState, useRef } from 'react'
 import { Upload, FileText, Trash2, Download, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { uploadLeadDocument, deleteLeadDocumentAction } from '@/app/actions/leads'
 
@@ -35,8 +34,6 @@ export default function LeadDocumentsTab({ leadId, initialDocuments, canUpload }
   const [docType, setDocType] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-
-  const supabase = createClient()
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null
@@ -77,7 +74,7 @@ export default function LeadDocumentsTab({ leadId, initialDocuments, canUpload }
   }
 
   const handleDownload = async (doc: LeadDocument) => {
-    const url = await createSignedStorageUrl(supabase, STORAGE_BUCKET.LEAD, doc.file_url)
+    const url = await createSignedStorageUrl(STORAGE_BUCKET.LEAD, doc.file_url)
     if (!url) return
     const a = document.createElement('a')
     a.href = url

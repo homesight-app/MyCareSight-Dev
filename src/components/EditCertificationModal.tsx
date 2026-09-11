@@ -8,8 +8,6 @@ import { Upload, X, Calendar, FileText } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { certificationSchema, type CertificationFormData } from '@/lib/schemas/certification'
 import { updateUnifiedCaregiverCertification } from '@/app/actions/staff-member-certifications'
-import { createClient } from '@/lib/supabase/client'
-import { uploadFile } from '@/lib/storage/client'
 import { US_STATES } from '@/lib/constants'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 import { useSession } from 'next-auth/react'
@@ -158,19 +156,19 @@ export default function EditCertificationModal({
           setIsUploading(false)
           return
         }
-        const supabase = createClient()
-
         const fileExt = selectedFile.name.split('.').pop()
         const fileName = `certifications/${user.id}/${Date.now()}.${fileExt}`
 
-        const { path: uploadedPath, error: uploadError } = await uploadFile(
-          supabase,
-          'application-documents',
-          fileName,
-          selectedFile
-        )
-
-        if (uploadError) throw uploadError
+        const form = new FormData()
+        form.append('file', selectedFile)
+        form.append('bucket', 'application-documents')
+        form.append('path', fileName)
+        const res = await fetch('/api/storage/upload', { method: 'POST', body: form })
+        if (!res.ok) {
+          const { error: uploadError } = await res.json().catch(() => ({ error: 'Failed to upload file' }))
+          throw new Error(uploadError || 'Failed to upload file')
+        }
+        const { path: uploadedPath } = await res.json()
 
         documentUrl = uploadedPath
         setIsUploading(false)

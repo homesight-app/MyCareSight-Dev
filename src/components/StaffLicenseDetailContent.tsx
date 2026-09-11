@@ -138,19 +138,16 @@ export default function StaffLicenseDetailContent({
 
         const fileExt = file.name.split('.').pop()
         const fileName = `${license.id}/${Date.now()}.${fileExt}`
-        
-        // Upload file to storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('application-documents')
-          .upload(fileName, file, {
-            upsert: false,
-            contentType: file.type || `application/${fileExt}`,
-            cacheControl: '3600',
-          })
 
-        if (uploadError) {
-          console.error('Upload error details:', uploadError)
-          const errorMsg = uploadError.message || 'Failed to upload file'
+        // Upload file to storage
+        const uploadForm = new FormData()
+        uploadForm.append('file', file)
+        uploadForm.append('bucket', 'application-documents')
+        uploadForm.append('path', fileName)
+        const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
+        if (!uploadRes.ok) {
+          const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
+          const errorMsg = uploadError || 'Failed to upload file'
           throw new Error(`Upload failed: ${errorMsg}. Please check storage bucket exists and policies are configured.`)
         }
 
@@ -164,9 +161,11 @@ export default function StaffLicenseDetailContent({
 
         if (docError) {
           // If insert fails, try to delete the uploaded file
-          await supabase.storage
-            .from('application-documents')
-            .remove([fileName])
+          await fetch('/api/storage/upload', {
+            method: 'DELETE',
+            body: JSON.stringify({ bucket: 'application-documents', paths: [fileName] }),
+            headers: { 'Content-Type': 'application/json' },
+          })
           throw docError
         }
 

@@ -6,7 +6,7 @@ import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
-import { uploadFile, removeFiles } from '@/lib/storage/client'
+import { uploadFile, removeFiles, getPublicUrl } from '@/lib/storage/client'
 import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
   CACHE_TAG_AGENCIES_ID_NAME,
@@ -475,7 +475,7 @@ export async function uploadAgencyDocument(
   const ext = file.name.split('.').pop()
   const filePath = `${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
-  const { error: uploadErr } = await uploadFile(supabase, STORAGE_BUCKET.AGENCY, filePath, file)
+  const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.AGENCY, filePath, file)
   if (uploadErr) return { error: uploadErr.message }
 
   const { data, error: insertErr } = await q.insertAgencyDocument(supabase, {
@@ -488,7 +488,7 @@ export async function uploadAgencyDocument(
   })
 
   if (insertErr) {
-    const { error: cleanupErr } = await removeFiles(supabase, STORAGE_BUCKET.AGENCY, [filePath])
+    const { error: cleanupErr } = await removeFiles(STORAGE_BUCKET.AGENCY, [filePath])
     if (cleanupErr) console.error('[agencies/uploadAgencyDocument] Storage cleanup failed. path=%s err=%s', filePath, cleanupErr.message)
     return { error: insertErr.message }
   }
@@ -511,7 +511,7 @@ export async function deleteAgencyDocumentAction(agencyId: string, docId: string
   const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
-  const { error: storageErr } = await removeFiles(supabase, STORAGE_BUCKET.AGENCY, [filePath])
+  const { error: storageErr } = await removeFiles(STORAGE_BUCKET.AGENCY, [filePath])
   if (storageErr) console.error('[agencies/deleteAgencyDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
   const { error } = await q.deleteAgencyDocument(supabase, docId)
   if (error) return { error: error.message }
@@ -534,9 +534,7 @@ export async function deleteAgencyDocumentAction(agencyId: string, docId: string
 
 function agencyBrandingPublicUrl(path: string | null | undefined): string | null {
   if (!path) return null
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!supabaseUrl) return null
-  return `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET.AGENCY_PUBLIC}/${path}`
+  return getPublicUrl(STORAGE_BUCKET.AGENCY_PUBLIC, path)
 }
 
 export async function getAgencyBrandingAction(agencyId: string) {
@@ -583,19 +581,16 @@ export async function uploadAgencyLogoAction(
   const colKey = variant === 'full' ? 'logo_path' : 'logo_icon_path'
   const pathPrefix = variant === 'full' ? 'logo' : 'logo-icon'
 
-  const adminSupabase = createAdminClient()
   const { data: existing } = await q.getAgencyBranding(supabase, agencyId)
   const oldPath = existing?.[colKey]
   if (oldPath) {
-    await adminSupabase.storage.from(STORAGE_BUCKET.AGENCY_PUBLIC).remove([oldPath])
+    await removeFiles(STORAGE_BUCKET.AGENCY_PUBLIC, [oldPath])
   }
 
   const ext = file.name.split('.').pop() || 'png'
   const path = `${agencyId}/${pathPrefix}.${ext}`
 
-  const { error: uploadError } = await adminSupabase.storage
-    .from(STORAGE_BUCKET.AGENCY_PUBLIC)
-    .upload(path, file, { upsert: true, contentType: file.type })
+  const { error: uploadError } = await uploadFile(STORAGE_BUCKET.AGENCY_PUBLIC, path, file, { upsert: true, contentType: file.type })
   if (uploadError) return { url: null, error: uploadError.message }
 
   await supabase.from('agencies').update({ [colKey]: path }).eq('id', agencyId)
@@ -612,11 +607,10 @@ export async function resetAgencyBrandingAction(agencyId: string): Promise<{ suc
   const user = session ? { id: session.user.id } : null
   if (!user) return { success: false, error: 'Unauthorized' }
 
-  const adminSupabase = createAdminClient()
   const { data: existing } = await q.getAgencyBranding(supabase, agencyId)
   const pathsToRemove = [existing?.logo_path, existing?.logo_icon_path].filter(Boolean) as string[]
   if (pathsToRemove.length > 0) {
-    await adminSupabase.storage.from(STORAGE_BUCKET.AGENCY_PUBLIC).remove(pathsToRemove)
+    await removeFiles(STORAGE_BUCKET.AGENCY_PUBLIC, pathsToRemove)
   }
 
   await q.clearAgencyBranding(supabase, agencyId)

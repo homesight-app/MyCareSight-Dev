@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import { getSystemSettingsByCategory, upsertSystemSetting } from '@/lib/supabase/query/system-settings'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { uploadFile, removeFiles, getPublicUrl } from '@/lib/storage/client'
 import { hexDarken, hexLighten } from '@/lib/color-utils'
 // Note: buildBrandingStyleVars lives in src/lib/color-utils.ts (not in this 'use server' file)
 
@@ -17,9 +18,7 @@ export interface SystemBranding {
 
 function buildPublicUrl(path: string | null | undefined): string | null {
   if (!path) return null
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!supabaseUrl) return null
-  return `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET.AGENCY_PUBLIC}/${path}`
+  return getPublicUrl(STORAGE_BUCKET.AGENCY_PUBLIC, path)
 }
 
 export async function getSystemBranding(): Promise<SystemBranding> {
@@ -53,7 +52,6 @@ export async function uploadPlatformLogo(
   formData: FormData,
   variant: 'full' | 'icon'
 ): Promise<{ url: string | null; error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return { url: null, error: 'Unauthorized' }
@@ -69,15 +67,13 @@ export async function uploadPlatformLogo(
   const adminSupabase = createAdminClient()
   const settings = await getSystemSettingsByCategory(adminSupabase, 'branding')
   if (settings[settingKey]) {
-    await adminSupabase.storage.from(STORAGE_BUCKET.AGENCY_PUBLIC).remove([settings[settingKey]!])
+    await removeFiles(STORAGE_BUCKET.AGENCY_PUBLIC, [settings[settingKey]!])
   }
 
   const ext = file.name.split('.').pop() || 'png'
   const path = `${pathPrefix}.${ext}`
 
-  const { error: uploadError } = await adminSupabase.storage
-    .from(STORAGE_BUCKET.AGENCY_PUBLIC)
-    .upload(path, file, { upsert: true, contentType: file.type })
+  const { error: uploadError } = await uploadFile(STORAGE_BUCKET.AGENCY_PUBLIC, path, file, { upsert: true, contentType: file.type })
   if (uploadError) return { url: null, error: uploadError.message }
 
   await upsertSystemSetting(adminSupabase, 'branding', settingKey, path, user.id)
@@ -98,7 +94,7 @@ export async function resetSystemBranding(): Promise<{ success: boolean; error: 
 
   const pathsToRemove = [settings.platform_logo_path, settings.platform_logo_icon_path].filter(Boolean) as string[]
   if (pathsToRemove.length > 0) {
-    await adminSupabase.storage.from(STORAGE_BUCKET.AGENCY_PUBLIC).remove(pathsToRemove)
+    await removeFiles(STORAGE_BUCKET.AGENCY_PUBLIC, pathsToRemove)
   }
 
   await upsertSystemSetting(adminSupabase, 'branding', 'platform_logo_path', null, user.id)

@@ -1,6 +1,6 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 
 /**
  * Get pricing that was effective for a specific month
@@ -9,36 +9,21 @@ import { createAdminClient } from '@/lib/supabase/admin'
  * @returns Pricing data that was effective for that month
  */
 export async function getPricingForMonth(year: number, month: number) {
-  const supabase = createAdminClient()
-
   try {
-    // Get the first day of the specified month
     const targetDate = new Date(year, month - 1, 1)
     const targetDateStr = targetDate.toISOString().split('T')[0]
 
-    // Find the pricing record with the most recent effective_date that is <= target date
-    // This gives us the pricing that was in effect for that month
-    const { data: pricing, error } = await supabase
-      .from('pricing')
-      .select('*')
-      .lte('effective_date', targetDateStr)
-      .order('effective_date', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const [pricing] = await sql<{ owner_admin_license: number; staff_license: number; effective_date: string }[]>`
+      SELECT * FROM pricing
+      WHERE effective_date <= ${targetDateStr}
+      ORDER BY effective_date DESC
+      LIMIT 1
+    `
 
-    if (error) {
-      return { error: error.message, data: null }
-    }
-
-    // If no pricing found, return default values
     if (!pricing) {
       return {
         error: null,
-        data: {
-          owner_admin_license: 50,
-          staff_license: 25,
-          effective_date: targetDateStr
-        }
+        data: { owner_admin_license: 50, staff_license: 25, effective_date: targetDateStr }
       }
     }
 
@@ -52,29 +37,13 @@ export async function getPricingForMonth(year: number, month: number) {
  * Get current pricing (most recent effective pricing)
  */
 export async function getCurrentPricing() {
-  const supabase = createAdminClient()
-
   try {
-    const { data: pricing, error } = await supabase
-      .from('pricing')
-      .select('*')
-      .order('effective_date', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const [pricing] = await sql<{ owner_admin_license: number; staff_license: number }[]>`
+      SELECT * FROM pricing ORDER BY effective_date DESC LIMIT 1
+    `
 
-    if (error) {
-      return { error: error.message, data: null }
-    }
-
-    // If no pricing found, return default values
     if (!pricing) {
-      return {
-        error: null,
-        data: {
-          owner_admin_license: 50,
-          staff_license: 25
-        }
-      }
+      return { error: null, data: { owner_admin_license: 50, staff_license: 25 } }
     }
 
     return { error: null, data: pricing }

@@ -1,9 +1,7 @@
-'use server'
+﻿'use server'
 
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
-import { createAdminClient } from '@/lib/supabase/admin'
-import type { Supabase } from '@/lib/supabase/types'
 import * as q from '@/lib/supabase/query'
 
 const COORDINATOR_PATH = '/pages/agency/care-visits'
@@ -48,21 +46,19 @@ function mapSubmitUnassignmentRequestError(code: string | undefined): string {
 type RpcPayload = { ok?: boolean; error?: string }
 
 async function logScheduleAudit(
-  supabase: Supabase,
   userId: string,
   action: string,
   recordId: string,
   details: Record<string, unknown>,
   opts?: { agencyId?: string | null; patientId?: string | null }
 ) {
-  const { error } = await supabase.from('audit_log').insert({
+  const { error } = await q.insertAuditLog({
     table_name: 'scheduled_visits',
     record_id: recordId,
     action,
     performed_by_user_id: userId,
-    details,
-    ...(opts?.agencyId ? { agency_id: opts.agencyId } : {}),
-    ...(opts?.patientId ? { patient_id: opts.patientId } : {}),
+    details: opts?.patientId ? { ...details, patient_id: opts.patientId } : details,
+    agency_id: opts?.agencyId ?? null,
   })
   if (error) console.error('[schedule-assignments] Audit log failed. action=%s recordId=%s err=%s', action, recordId, error.message)
 }
@@ -83,8 +79,7 @@ export async function approveScheduleAssignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.approveScheduleAssignmentRequestRpc(supabase, requestId)
+  const { data, error } = await q.approveScheduleAssignmentRequestRpc(requestId)
 
   if (error) {
     return { error: error.message }
@@ -95,7 +90,7 @@ export async function approveScheduleAssignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
-  await logScheduleAudit(supabase, session.user.id, 'APPROVE_ASSIGNMENT', requestId, { request_id: requestId })
+  await logScheduleAudit(session.user.id, 'APPROVE_ASSIGNMENT', requestId, { request_id: requestId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -108,8 +103,7 @@ export async function declineScheduleAssignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.declineScheduleAssignmentRequestRpc(supabase, requestId, reason)
+  const { data, error } = await q.declineScheduleAssignmentRequestRpc(requestId, reason)
 
   if (error) {
     return { error: error.message }
@@ -120,7 +114,7 @@ export async function declineScheduleAssignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
-  await logScheduleAudit(supabase, session.user.id, 'DECLINE_ASSIGNMENT', requestId, { request_id: requestId, reason })
+  await logScheduleAudit(session.user.id, 'DECLINE_ASSIGNMENT', requestId, { request_id: requestId, reason })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -146,9 +140,8 @@ export async function requestScheduleAssignmentAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = createAdminClient()
   const note = caregiverNote?.trim() ? caregiverNote.trim() : ''
-  const { data, error } = await q.submitScheduleAssignmentRequestRpc(supabase, scheduleId, note || null)
+  const { data, error } = await q.submitScheduleAssignmentRequestRpc(scheduleId, note || null)
 
   if (error) {
     return { error: error.message || 'Could not submit request.' }
@@ -159,7 +152,7 @@ export async function requestScheduleAssignmentAction(
     return { error: mapSubmitAssignmentRequestError(body?.error) }
   }
 
-  await logScheduleAudit(supabase, session.user.id, 'REQUEST_ASSIGNMENT', scheduleId, { schedule_id: scheduleId, caregiver_note: note || null })
+  await logScheduleAudit(session.user.id, 'REQUEST_ASSIGNMENT', scheduleId, { schedule_id: scheduleId, caregiver_note: note || null })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -187,8 +180,7 @@ export async function cancelScheduleAssignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = createAdminClient()
-  const { error, data } = await q.cancelScheduleAssignmentRequestRpc(supabase, requestId)
+  const { error, data } = await q.cancelScheduleAssignmentRequestRpc(requestId)
   if (error) {
     return { error: error.message || 'Could not cancel request.' }
   }
@@ -198,7 +190,7 @@ export async function cancelScheduleAssignmentRequestAction(
     return { error: mapCancelAssignmentRequestError(body?.error) }
   }
 
-  await logScheduleAudit(supabase, session.user.id, 'CANCEL_ASSIGNMENT_REQUEST', requestId, { request_id: requestId })
+  await logScheduleAudit(session.user.id, 'CANCEL_ASSIGNMENT_REQUEST', requestId, { request_id: requestId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -210,9 +202,8 @@ export async function markScheduleMissedAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const supabase = createAdminClient()
   const trimmedReason = reason?.trim() || null
-  const { data, error } = await q.updateSchedule(supabase, scheduleId, {
+  const { data, error } = await q.updateSchedule(scheduleId, {
     status: 'missed',
     status_reason: trimmedReason,
   })
@@ -221,7 +212,7 @@ export async function markScheduleMissedAction(
     return { error: 'Visit status was not updated to missed. Please refresh and try again.' }
   }
   await logScheduleAudit(
-    supabase, session.user.id, 'MARK_MISSED', scheduleId,
+    session.user.id, 'MARK_MISSED', scheduleId,
     { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
     { agencyId: data?.agency_id, patientId: data?.patient_id }
   )
@@ -236,9 +227,8 @@ export async function markScheduleCancelledAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const supabase = createAdminClient()
   const trimmedReason = reason.trim() || null
-  const { data, error } = await q.updateSchedule(supabase, scheduleId, {
+  const { data, error } = await q.updateSchedule(scheduleId, {
     status: 'cancelled',
     status_reason: trimmedReason,
   })
@@ -247,7 +237,7 @@ export async function markScheduleCancelledAction(
     return { error: 'Visit status was not updated to cancelled. Please refresh and try again.' }
   }
   await logScheduleAudit(
-    supabase, session.user.id, 'MARK_CANCELLED', scheduleId,
+    session.user.id, 'MARK_CANCELLED', scheduleId,
     { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
     { agencyId: data?.agency_id, patientId: data?.patient_id }
   )
@@ -262,9 +252,8 @@ export async function markScheduleOnHoldAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const supabase = createAdminClient()
   const trimmedReason = reason.trim() || null
-  const { data, error } = await q.updateSchedule(supabase, scheduleId, {
+  const { data, error } = await q.updateSchedule(scheduleId, {
     status: 'on_hold',
     status_reason: trimmedReason,
   })
@@ -273,7 +262,7 @@ export async function markScheduleOnHoldAction(
     return { error: 'Visit status was not updated to on hold. Please refresh and try again.' }
   }
   await logScheduleAudit(
-    supabase, session.user.id, 'MARK_ON_HOLD', scheduleId,
+    session.user.id, 'MARK_ON_HOLD', scheduleId,
     { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
     { agencyId: data?.agency_id, patientId: data?.patient_id }
   )
@@ -287,14 +276,13 @@ export async function reinstateScheduleAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const supabase = createAdminClient()
-  const { data, error } = await q.updateSchedule(supabase, scheduleId, {
+  const { data, error } = await q.updateSchedule(scheduleId, {
     status: null,
     status_reason: null,
   })
   if (error) return { error: error.message || 'Could not reinstate visit.' }
   await logScheduleAudit(
-    supabase, session.user.id, 'REINSTATE', scheduleId,
+    session.user.id, 'REINSTATE', scheduleId,
     { schedule_id: scheduleId, caregiver_id: data?.caregiver_id ?? null },
     { agencyId: data?.agency_id, patientId: data?.patient_id }
   )
@@ -308,13 +296,12 @@ export async function assignCaregiverToScheduleAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  const supabase = createAdminClient()
-  const { error } = await q.updateSchedule(supabase, scheduleId, {
+  const { error } = await q.updateSchedule(scheduleId, {
     caregiver_id: caregiverId,
     status: 'scheduled',
   })
   if (error) return { error: error.message || 'Could not assign caregiver.' }
-  await logScheduleAudit(supabase, session.user.id, 'ASSIGN_CAREGIVER', scheduleId, { schedule_id: scheduleId, caregiver_id: caregiverId })
+  await logScheduleAudit(session.user.id, 'ASSIGN_CAREGIVER', scheduleId, { schedule_id: scheduleId, caregiver_id: caregiverId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -325,13 +312,12 @@ export async function unassignCaregiverFromScheduleAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  const supabase = createAdminClient()
-  const { error } = await q.updateSchedule(supabase, scheduleId, {
+  const { error } = await q.updateSchedule(scheduleId, {
     caregiver_id: null,
     status: 'scheduled',
   })
   if (error) return { error: error.message || 'Could not unassign caregiver.' }
-  await logScheduleAudit(supabase, session.user.id, 'UNASSIGN_CAREGIVER', scheduleId, { schedule_id: scheduleId })
+  await logScheduleAudit(session.user.id, 'UNASSIGN_CAREGIVER', scheduleId, { schedule_id: scheduleId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -343,8 +329,7 @@ export async function submitScheduleUnassignmentRequestAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.submitScheduleUnassignmentRequestRpc(supabase, scheduleId)
+  const { data, error } = await q.submitScheduleUnassignmentRequestRpc(scheduleId)
 
   if (error) {
     return { error: error.message || 'Could not submit unassignment request.' }
@@ -355,7 +340,7 @@ export async function submitScheduleUnassignmentRequestAction(
     return { error: mapSubmitUnassignmentRequestError(body?.error) }
   }
 
-  await logScheduleAudit(supabase, session.user.id, 'REQUEST_UNASSIGNMENT', scheduleId, { schedule_id: scheduleId })
+  await logScheduleAudit(session.user.id, 'REQUEST_UNASSIGNMENT', scheduleId, { schedule_id: scheduleId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -368,14 +353,13 @@ export async function cancelScheduleUnassignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.cancelScheduleUnassignmentRequestRpc(supabase, requestId)
+  const { data, error } = await q.cancelScheduleUnassignmentRequestRpc(requestId)
   if (error) return { error: error.message }
 
   const body = data as RpcPayload | null
   if (!body?.ok) return { error: mapRpcError(body?.error) }
 
-  await logScheduleAudit(supabase, session.user.id, 'CANCEL_UNASSIGNMENT_REQUEST', requestId, { request_id: requestId })
+  await logScheduleAudit(session.user.id, 'CANCEL_UNASSIGNMENT_REQUEST', requestId, { request_id: requestId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -387,8 +371,7 @@ export async function approveScheduleUnassignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.approveScheduleUnassignmentRequestRpc(supabase, requestId)
+  const { data, error } = await q.approveScheduleUnassignmentRequestRpc(requestId)
 
   if (error) {
     return { error: error.message }
@@ -399,7 +382,7 @@ export async function approveScheduleUnassignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
-  await logScheduleAudit(supabase, session.user.id, 'APPROVE_UNASSIGNMENT', requestId, { request_id: requestId })
+  await logScheduleAudit(session.user.id, 'APPROVE_UNASSIGNMENT', requestId, { request_id: requestId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -412,8 +395,7 @@ export async function declineScheduleUnassignmentRequestAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.declineScheduleUnassignmentRequestRpc(supabase, requestId, reason)
+  const { data, error } = await q.declineScheduleUnassignmentRequestRpc(requestId, reason)
 
   if (error) {
     return { error: error.message }
@@ -424,7 +406,7 @@ export async function declineScheduleUnassignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
-  await logScheduleAudit(supabase, session.user.id, 'DECLINE_UNASSIGNMENT', requestId, { request_id: requestId, reason })
+  await logScheduleAudit(session.user.id, 'DECLINE_UNASSIGNMENT', requestId, { request_id: requestId, reason })
   revalidateVisitsPages()
   return { ok: true }
 }

@@ -12,7 +12,7 @@ export default async function AdminProfilePage() {
   }
 
   const supabase = await createClient()
-  const { data: profile } = await q.getUserProfileFull(supabase, session.user.id)
+  const { data: profile } = await q.getUserProfileFull(session.user.id)
 
   // Get recent activity (placeholder - you can create an activity log table later)
   const recentActivity = [

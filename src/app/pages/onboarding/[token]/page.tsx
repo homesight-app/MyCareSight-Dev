@@ -10,7 +10,7 @@ export default async function OnboardingPage({
   const { token } = await params
   const supabase = createAdminClient()
 
-  const { data: tokenData } = await q.getOnboardingTokenByValue(supabase, token)
+  const { data: tokenData } = await q.getOnboardingTokenByValue(token)
 
   const isExpired = !tokenData || new Date(tokenData.expires_at) <= new Date()
 
@@ -34,7 +34,7 @@ export default async function OnboardingPage({
 
   const [{ data: agency }, { data: keyStaff }] = await Promise.all([
     supabase.from('agencies').select('*').eq('id', tokenData.agency_id).single(),
-    q.getKeyStaffByAgencyId(supabase, tokenData.agency_id),
+    q.getKeyStaffByAgencyId(tokenData.agency_id),
   ])
 
   return (

@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -17,9 +17,9 @@ export default async function ProfilePage() {
   const profile = session!.profile
   let initialAgency: Record<string, unknown> | null = null
   if (profile?.role === 'company_owner') {
-    const { data: client } = await q.getClientByCompanyOwnerId(supabase, session.user.id)
+    const { data: client } = await q.getClientByCompanyOwnerId(session.user.id)
     if (client?.id) {
-      const { data: agency } = await q.getAgencyByAdminIdFull(supabase, client.id)
+      const { data: agency } = await q.getAgencyByAdminIdFull(client.id)
       if (agency) initialAgency = agency
     }
   }

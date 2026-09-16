@@ -39,7 +39,7 @@ import {
   isVisitPastForCaregiverMyVisits,
   MY_CARE_VISITS_TAB_STORAGE_KEY,
   type CaregiverVisitCardDTO,
-} from '@/lib/caregiver-care-visits'
+} from '@/lib/caregiver-care-visits-shared'
 import Modal from '@/components/Modal'
 
 type Props = {

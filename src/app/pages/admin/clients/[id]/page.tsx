@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -33,10 +33,10 @@ export default async function ClientDetailPage({
     { data: cases },
     { data: conversations }
   ] = await Promise.all([
-    q.getClientById(supabase, id),
-    q.getClientStatesByClientId(supabase, id),
-    q.getCasesByClientId(supabase, id),
-    q.getConversationsByClientIds(supabase, [id])
+    q.getClientById(id),
+    q.getClientStatesByClientId(id),
+    q.getCasesByClientId(id),
+    q.getConversationsByClientIds([id])
   ])
 
   if (!client) {
@@ -45,10 +45,10 @@ export default async function ClientDetailPage({
 
   const [{ data: applications }, { data: expertData }] = await Promise.all([
     client.agency_id
-      ? q.getApplicationsByAgencyId(supabase, client.agency_id)
+      ? q.getApplicationsByAgencyId(client.agency_id)
       : Promise.resolve({ data: [] as NonNullable<Awaited<ReturnType<typeof q.getApplicationsByAgencyId>>['data']> }),
     client.expert_id
-      ? q.getLicensingExpertByUserId(supabase, client.expert_id)
+      ? q.getLicensingExpertByUserId(client.expert_id)
       : Promise.resolve({ data: null }),
   ])
   const expert = (expertData ?? null) as { first_name?: string; last_name?: string } | null
@@ -56,7 +56,7 @@ export default async function ClientDetailPage({
   const conversationIds = conversations?.map((c: { id: string }) => c.id) || []
   const { data: unreadRpcRows } =
     conversationIds.length > 0
-      ? await q.rpcCountUnreadMessagesForUser(supabase, conversationIds, user.id)
+      ? await q.rpcCountUnreadMessagesForUser(conversationIds, user.id)
       : { data: [] }
 
   const unreadCount =

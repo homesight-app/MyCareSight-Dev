@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -22,14 +22,14 @@ export default async function ExpertPerformancePage({
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: expert } = await q.getLicensingExpertById(supabase, id)
+  const { data: expert } = await q.getLicensingExpertById(id)
 
   const [{ data: applications }, { data: clients }] = await Promise.all([
     expert?.user_id
-      ? q.getApplicationsByAssignedExpertId(supabase, expert.user_id)
+      ? q.getApplicationsByAssignedExpertId(expert.user_id)
       : Promise.resolve({ data: [] }),
     expert?.user_id
-      ? q.getClientsByExpertId(supabase, expert.user_id)
+      ? q.getClientsByExpertId(expert.user_id)
       : Promise.resolve({ data: [] })
   ])
   if (!expert) {

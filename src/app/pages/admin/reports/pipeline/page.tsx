@@ -1,14 +1,12 @@
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import AdminPipelineReport, { type PipelineReportData, type StageRow } from '@/components/AdminPipelineReport'
 import { LEAD_STAGES } from '@/lib/constants/lead-configs'
 
 export default async function PipelineReportPage() {
   await requireAdmin()
-  const supabase = await createClient()
 
-  const { data: rawLeads } = await q.getLeads(supabase, { leadType: 'agency', includeArchived: true })
+  const { data: rawLeads } = await q.getLeads({ leadType: 'agency', includeArchived: true })
 
   const leads = rawLeads ?? []
   const totalLeads = leads.length

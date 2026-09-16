@@ -24,9 +24,9 @@ export default async function AgenciesPage({
 
   const [agenciesResult, { data: agencyAdminsWithUser }, { data: allAgencyAdminIds }] =
     await Promise.all([
-      q.getAgenciesFilteredPaginated(supabaseAdmin, { page, pageSize: PAGE_SIZE, search, status, sortKey, sortDir }),
-      q.getClientsWithCompanyOwner(supabaseAdmin),
-      supabaseAdmin.from('agencies').select('agency_admin_ids'),
+      q.getAgenciesFilteredPaginated({ page, pageSize: PAGE_SIZE, search, status, sortKey, sortDir }),
+      q.getClientsWithCompanyOwner(),
+      q.getAllAgencyAdminIds(),
     ])
 
   // Build admin lookup: include any IDs referenced in agency_admin_ids that aren't company owners
@@ -40,7 +40,7 @@ export default async function AgenciesPage({
   const missingReferenced = Array.from(new Set(referencedAdminIds)).filter(id => !withUserIdSet.has(id))
   const { data: extraAdmins } =
     missingReferenced.length > 0
-      ? await q.getAgencyAdminsByIds(supabaseAdmin, missingReferenced)
+      ? await q.getAgencyAdminsByIds(missingReferenced)
       : { data: [] as { id: string; contact_name: string | null; contact_email: string | null }[] }
 
   const agencyAdminById = new Map<string, { id: string; contact_name: string; contact_email: string }>()

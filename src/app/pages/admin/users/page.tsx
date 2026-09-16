@@ -1,4 +1,4 @@
-import { requireAdmin } from '@/lib/auth-helpers'
+﻿import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
@@ -10,7 +10,7 @@ export default async function UsersPage() {
   const { user } = await requireAdmin()
   const supabase = await createClient()
 
-  const { data: userProfilesRaw } = await q.getUserProfilesOrderedByCreatedAt(supabase)
+  const { data: userProfilesRaw } = await q.getUserProfilesOrderedByCreatedAt()
   type UserProfileRow = { id: string; role: string | null; [key: string]: unknown }
   const profilesList = (userProfilesRaw ?? []) as UserProfileRow[]
 
@@ -55,13 +55,13 @@ export default async function UsersPage() {
   const staffUserIds = profilesList.filter(u => u.role === 'staff_member').map(u => u.id)
   type StaffMemberRow = { user_id: string; agency_id: string | null; company_owner_id: string | null }
   const { data: staffMembersData } =
-    staffUserIds.length > 0 ? await q.getStaffMembersByUserIds(supabase, staffUserIds) : { data: [] }
+    staffUserIds.length > 0 ? await q.getStaffMembersByUserIds(staffUserIds) : { data: [] }
   const staffMembers = (staffMembersData ?? []) as unknown as StaffMemberRow[]
   const clientIdsForStaff = staffMembers.map(s => s.company_owner_id).filter(Boolean) as string[]
   type ClientForStaffRow = { id: string; company_name: string | null; agency_id: string | null }
   const { data: clientsForStaffData } =
     clientIdsForStaff.length > 0
-      ? await q.getClientsByIds(supabase, clientIdsForStaff, 'id, company_name, agency_id')
+      ? await q.getClientsByIds(clientIdsForStaff, 'id, company_name, agency_id')
       : { data: [] }
   const clientsForStaff = (clientsForStaffData ?? []) as unknown as ClientForStaffRow[]
   const companyNameByClientId: Record<string, string> = {}
@@ -84,7 +84,7 @@ export default async function UsersPage() {
   const coordinatorUserIds = profilesList.filter(u => u.role === 'care_coordinator').map(u => u.id)
   type CareCoordinatorRow = { user_id: string; agency_id: string | null }
   const { data: coordinatorsData } =
-    coordinatorUserIds.length > 0 ? await q.getCareCoordinatorsByUserIds(supabase, coordinatorUserIds) : { data: [] }
+    coordinatorUserIds.length > 0 ? await q.getCareCoordinatorsByUserIds(coordinatorUserIds) : { data: [] }
   const coordinators = (coordinatorsData ?? []) as unknown as CareCoordinatorRow[]
   const companyNameByCoordinatorUserId: Record<string, string> = {}
   coordinators.forEach(c => {
@@ -110,7 +110,7 @@ export default async function UsersPage() {
   const disabledUsers = 0
   const companies = new Set(userProfiles?.map(u => (u as { company_name?: string | null }).company_name).filter(Boolean)).size
 
-  const { data: clients } = await q.getAllClientsOrdered(supabase)
+  const { data: clients } = await q.getAllClientsOrdered()
   const clientIds = (clients?.map((c) => c.id).filter(Boolean) ?? []) as string[]
   const expertIds = Array.from(
     new Set((clients ?? []).map((c) => c.expert_id).filter((id): id is string => Boolean(id)))
@@ -123,14 +123,14 @@ export default async function UsersPage() {
     { data: allExperts },
     { data: unreadRows, error: unreadRpcError },
   ] = await Promise.all([
-    clientIds.length > 0 ? q.getClientStatesByClientIds(supabase, clientIds) : Promise.resolve({ data: [], error: null }),
+    clientIds.length > 0 ? q.getClientStatesByClientIds(clientIds) : Promise.resolve({ data: [], error: null }),
     clientIds.length > 0
-      ? q.getCasesByClientIds(supabase, clientIds, 'client_id, progress_percentage, status')
+      ? q.getCasesByClientIds(clientIds, 'client_id, progress_percentage, status')
       : Promise.resolve({ data: [], error: null }),
-    expertIds.length > 0 ? q.getLicensingExpertsByIds(supabase, expertIds, '*') : Promise.resolve({ data: [], error: null }),
-    q.getLicensingExpertsActive(supabase),
+    expertIds.length > 0 ? q.getLicensingExpertsByIds(expertIds, '*') : Promise.resolve({ data: [], error: null }),
+    q.getLicensingExpertsActive(),
     clientIds.length > 0
-      ? q.rpcAdminUnreadMessageCountsByClient(supabase, user.id, clientIds)
+      ? q.rpcAdminUnreadMessageCountsByClient(user.id, clientIds)
       : Promise.resolve({ data: [], error: null }),
   ])
 
@@ -182,16 +182,16 @@ export default async function UsersPage() {
   })
 
   type LicensingExpertRow = { id: string; status?: string; [key: string]: unknown }
-  const { data: allExpertsDataRaw } = await q.getLicensingExpertsOrdered(supabase)
+  const { data: allExpertsDataRaw } = await q.getLicensingExpertsOrdered()
   const allExpertsData = (allExpertsDataRaw ?? []) as LicensingExpertRow[]
   const licensingExpertIds = allExpertsData.map((e) => e.id)
   type ExpertStateRow = { expert_id: string; state: string }
   const { data: expertStatesData } =
     licensingExpertIds.length > 0
-      ? await q.getExpertStatesByExpertIds(supabase, licensingExpertIds)
+      ? await q.getExpertStatesByExpertIds(licensingExpertIds)
       : { data: [] }
   const expertStates = (expertStatesData ?? []) as ExpertStateRow[]
-  const { data: expertClientsData } = await q.getClientsByExpertIds(supabase, licensingExpertIds)
+  const { data: expertClientsData } = await q.getClientsByExpertIds(licensingExpertIds)
   const expertClients = (expertClientsData ?? []) as { expert_id: string }[]
   const totalExperts = allExpertsData.length
   const activeExperts = allExpertsData.filter(e => e.status === 'active').length

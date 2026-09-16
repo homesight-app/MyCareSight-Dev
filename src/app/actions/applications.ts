@@ -1,9 +1,9 @@
-'use server'
+﻿'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
+import sql from '@/db'
 import {
   getApplicationForClose,
   closeApplicationUpdate,
@@ -24,8 +24,7 @@ export async function approveApplication(applicationId: string): Promise<{ error
   if (!session) return { error: 'Not authenticated' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await updateApplicationStatus(supabase, applicationId, { status: 'approved' })
+  const { error } = await updateApplicationStatus(applicationId, { status: 'approved' })
   if (error) return { error: error.message }
 
   revalidatePath('/pages/admin/licenses/applications/[id]', 'page')
@@ -38,9 +37,7 @@ export async function approveApplication(applicationId: string): Promise<{ error
  * Expert and admin can close from the application detail page.
  */
 export async function closeApplication(applicationId: string): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
-
-  const { data: app, error: fetchError } = await getApplicationForClose(supabase, applicationId)
+  const { data: app, error: fetchError } = await getApplicationForClose(applicationId)
 
   if (fetchError || !app) {
     return { error: 'Application not found' }
@@ -55,7 +52,7 @@ export async function closeApplication(applicationId: string): Promise<{ error: 
     return { error: 'Application can only be closed when progress is 100%' }
   }
 
-  const { error: updateError } = await closeApplicationUpdate(supabase, applicationId)
+  const { error: updateError } = await closeApplicationUpdate(applicationId)
 
   if (updateError) {
     return { error: updateError.message }
@@ -71,8 +68,7 @@ export async function approveProgramComplete(applicationId: string): Promise<{ e
   if (!session) return { error: 'Not authenticated' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await updateApplicationStatus(supabase, applicationId, { status: 'closed' })
+  const { error } = await updateApplicationStatus(applicationId, { status: 'closed' })
   if (error) return { error: error.message }
 
   revalidatePath('/pages/admin/programs')
@@ -99,14 +95,13 @@ export async function createApplicationForAgency(
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabaseAdmin = createAdminClient()
   const today = new Date().toISOString().split('T')[0]
 
   // Auto-approve: admin/expert bypass the "requested" review step.
   // Experts are also auto-assigned to the application they initiate.
   const assignedExpertId = role === 'expert' ? session.user.id : null
 
-  const { data: application, error: insertError } = await q.insertApplicationRow(supabaseAdmin, {
+  const { data: application, error: insertError } = await q.insertApplicationRow({
     agency_id: agencyId,
     company_owner_id: null,
     application_name: data.application_name,
@@ -123,7 +118,6 @@ export async function createApplicationForAgency(
   if (insertError || !application) return { error: insertError?.message ?? 'Insert failed', data: null }
 
   const { error: rpcError } = await q.rpcCopyExpertStepsToApplication(
-    supabaseAdmin,
     application.id,
     data.state,
     data.application_name
@@ -134,42 +128,36 @@ export async function createApplicationForAgency(
   // 'in_progress', bypassing the DB trigger that normally seeds these steps
   // on the requested → in_progress transition.
   const { data: requirement } = await q.getLicenseRequirementByStateAndType(
-    supabaseAdmin,
     data.state,
     data.application_name
   )
   if (requirement) {
-    const { data: templateSteps } = await supabaseAdmin
-      .from('license_requirement_steps')
-      .select('step_name, step_order, description, instructions, phase')
-      .eq('license_requirement_id', requirement.id)
-      .or('is_expert_step.is.null,is_expert_step.eq.false')
-      .order('step_order')
+    const templateSteps = await sql<{ step_name: string; step_order: number; description: string | null; instructions: string | null; phase: string | null }[]>`
+      SELECT step_name, step_order, description, instructions, phase
+      FROM license_requirement_steps
+      WHERE license_requirement_id = ${requirement.id}
+        AND (is_expert_step IS NULL OR is_expert_step = false)
+      ORDER BY step_order ASC
+    `
 
-    if (templateSteps && templateSteps.length > 0) {
-      const { data: existing } = await supabaseAdmin
-        .from('application_steps')
-        .select('step_order')
-        .eq('application_id', application.id)
-        .order('step_order', { ascending: false })
-        .limit(1)
-
-      let nextOrder = (existing?.[0]?.step_order ?? 0) + 1
-
-      await supabaseAdmin
-        .from('application_steps')
-        .insert(
-          templateSteps.map((s) => ({
-            application_id: application.id,
-            step_name: s.step_name,
-            step_order: nextOrder++,
-            description: s.description,
-            instructions: s.instructions,
-            phase: s.phase,
-            is_expert_step: false,
-            is_completed: false,
-          }))
-        )
+    if (templateSteps.length > 0) {
+      const [lastStep] = await sql<{ step_order: number }[]>`
+        SELECT step_order FROM application_steps
+        WHERE application_id = ${application.id}
+        ORDER BY step_order DESC LIMIT 1
+      `
+      const baseOrder = (lastStep?.step_order ?? 0) + 1
+      const stepPayloads = templateSteps.map((s, i) => ({
+        application_id: application.id,
+        step_name: s.step_name,
+        step_order: baseOrder + i,
+        description: s.description,
+        instructions: s.instructions,
+        phase: s.phase,
+        is_expert_step: false,
+        is_completed: false,
+      }))
+      await sql`INSERT INTO application_steps ${sql(stepPayloads)}`
     }
   }
 
@@ -189,13 +177,12 @@ export async function acceptApplicationRequest(applicationId: string): Promise<{
   if (!session) return { error: 'Not authenticated' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = createAdminClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const { data: app, error: fetchErr } = await q.getApplicationById(supabase, applicationId)
+  const { data: app, error: fetchErr } = await q.getApplicationById(applicationId)
   if (fetchErr || !app) return { error: 'Application not found' }
 
-  const { error: updateErr } = await q.updateApplicationById(supabase, applicationId, {
+  const { error: updateErr } = await q.updateApplicationById(applicationId, {
     status: 'in_progress',
     last_updated_date: today,
   })
@@ -206,7 +193,7 @@ export async function acceptApplicationRequest(applicationId: string): Promise<{
 
   let hasPlaybook = !!appRow.playbook_id
   if (!hasPlaybook) {
-    const { data: playbooks } = await q.getPlaybooksWithRequirements(supabase)
+    const { data: playbooks } = await q.getPlaybooksWithRequirements()
     const matchKey = `${appRow.state}|${appRow.application_name}`
     hasPlaybook = (playbooks ?? []).some(p => {
       const lr = p.license_requirement as unknown as { state: string; license_type: string } | null
@@ -217,7 +204,6 @@ export async function acceptApplicationRequest(applicationId: string): Promise<{
   if (hasPlaybook) {
     await applyPlaybookToApplication(applicationId)
 
-    const adminClient = createAdminClient()
     const notifPayload = {
       title: 'Program Launched',
       message: `Your "${appRow.application_name}" program is now active and ready to begin.`,
@@ -226,22 +212,14 @@ export async function acceptApplicationRequest(applicationId: string): Promise<{
     }
 
     if (appRow.agency_id) {
-      // Notify all agency admins for this agency
-      const { data: admins } = await adminClient
-        .from('agency_admins')
-        .select('user_id')
-        .eq('agency_id', appRow.agency_id)
-      if (admins && admins.length > 0) {
-        await adminClient.from('notifications').insert(
-          admins.map(a => ({ ...notifPayload, user_id: a.user_id }))
-        )
+      const admins = await sql<{ user_id: string }[]>`
+        SELECT user_id FROM agency_admins WHERE agency_id = ${appRow.agency_id}
+      `
+      if (admins.length > 0) {
+        await sql`INSERT INTO notifications ${sql(admins.map(a => ({ ...notifPayload, user_id: a.user_id })))}`
       }
     } else if (appRow.company_owner_id) {
-      // Legacy: owner-scoped application
-      await adminClient.from('notifications').insert({
-        ...notifPayload,
-        user_id: appRow.company_owner_id,
-      })
+      await sql`INSERT INTO notifications ${sql([{ ...notifPayload, user_id: appRow.company_owner_id }])}`
     }
   }
 
@@ -262,13 +240,12 @@ export async function rejectProgramRequest(applicationId: string): Promise<{ err
   if (!session) return { error: 'Not authenticated' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = createAdminClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const { data: app, error: fetchErr } = await q.getApplicationById(supabase, applicationId)
+  const { data: app, error: fetchErr } = await q.getApplicationById(applicationId)
   if (fetchErr || !app) return { error: 'Application not found' }
 
-  const { error: updateErr } = await q.updateApplicationById(supabase, applicationId, {
+  const { error: updateErr } = await q.updateApplicationById(applicationId, {
     status: 'rejected',
     last_updated_date: today,
   })
@@ -276,7 +253,6 @@ export async function rejectProgramRequest(applicationId: string): Promise<{ err
 
   const appRow = app as unknown as { application_name: string; company_owner_id: string | null; agency_id: string | null }
 
-  const adminClient = createAdminClient()
   const notifPayload = {
     title: 'Program Request Declined',
     message: `Your "${appRow.application_name}" program request was not approved at this time. Please contact us if you have questions.`,
@@ -286,20 +262,14 @@ export async function rejectProgramRequest(applicationId: string): Promise<{ err
   }
 
   if (appRow.agency_id) {
-    const { data: admins } = await adminClient
-      .from('agency_admins')
-      .select('user_id')
-      .eq('agency_id', appRow.agency_id)
-    if (admins && admins.length > 0) {
-      await adminClient.from('notifications').insert(
-        admins.map(a => ({ ...notifPayload, user_id: a.user_id }))
-      )
+    const admins = await sql<{ user_id: string }[]>`
+      SELECT user_id FROM agency_admins WHERE agency_id = ${appRow.agency_id}
+    `
+    if (admins.length > 0) {
+      await sql`INSERT INTO notifications ${sql(admins.map(a => ({ ...notifPayload, user_id: a.user_id })))}`
     }
   } else if (appRow.company_owner_id) {
-    await adminClient.from('notifications').insert({
-      ...notifPayload,
-      user_id: appRow.company_owner_id,
-    })
+    await sql`INSERT INTO notifications ${sql([{ ...notifPayload, user_id: appRow.company_owner_id }])}`
   }
 
   revalidatePath('/pages/admin/programs', 'page')
@@ -321,11 +291,10 @@ export async function createProgramForAgency(
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabaseAdmin = createAdminClient()
   const today = new Date().toISOString().split('T')[0]
   const assignedExpertId = role === 'expert' ? session.user.id : null
 
-  const { data: application, error: insertError } = await q.insertApplicationRow(supabaseAdmin, {
+  const { data: application, error: insertError } = await q.insertApplicationRow({
     agency_id: agencyId,
     company_owner_id: null,
     application_name: data.application_name,
@@ -343,12 +312,14 @@ export async function createProgramForAgency(
   if (insertError || !application) return { error: insertError?.message ?? 'Insert failed', data: null }
 
   // Copy category/subcategory from the selected playbook
-  const { data: playbook } = await q.getPlaybookById(supabaseAdmin, data.playbook_id)
+  const { data: playbook } = await q.getPlaybookById(data.playbook_id)
   if (playbook?.category_id) {
-    await supabaseAdmin.from('applications').update({
-      category_id: playbook.category_id,
-      subcategory_id: (playbook as { subcategory_id?: string | null }).subcategory_id ?? null,
-    }).eq('id', application.id)
+    await sql`
+      UPDATE applications
+      SET category_id = ${playbook.category_id},
+          subcategory_id = ${(playbook as { subcategory_id?: string | null }).subcategory_id ?? null}
+      WHERE id = ${application.id}
+    `
   }
 
   await applyPlaybookToApplication(application.id)
@@ -373,15 +344,14 @@ async function insertApplicationStatusNote(
   userId: string,
   content: string
 ) {
-  const supabaseAdmin = createAdminClient()
-  const { error } = await supabaseAdmin.from('internal_notes').insert({
-    agency_id: agencyId,
-    subject_type: 'application',
-    subject_id: applicationId,
-    content,
-    created_by: userId,
-  })
-  if (error) console.error('[applications] Failed to insert status note:', error.message)
+  try {
+    await sql`
+      INSERT INTO internal_notes (agency_id, subject_type, subject_id, content, created_by)
+      VALUES (${agencyId}, 'application', ${applicationId}, ${content}, ${userId})
+    `
+  } catch (err) {
+    console.error('[applications] Failed to insert status note:', err)
+  }
 }
 
 /** Manually close an application regardless of task completion. Admin/expert only. */
@@ -397,15 +367,14 @@ export async function closeApplicationManually(
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Reason is required' }
 
-  const supabase = createAdminClient()
-  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
+  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(applicationId)
   if (fetchErr || !app) return { error: 'Application not found' }
   if (!app.agency_id) return { error: 'Application has no agency' }
   if (app.status === 'approved' || app.status === 'rejected') {
     return { error: 'Cannot close an approved or rejected application' }
   }
 
-  const { error } = await closeApplicationManualUpdate(supabase, applicationId, app.agency_id, session.user.id, trimmedReason)
+  const { error } = await closeApplicationManualUpdate(applicationId, app.agency_id, session.user.id, trimmedReason)
   if (error) return { error: error.message }
 
   await insertApplicationStatusNote(
@@ -432,15 +401,14 @@ export async function completeApplicationManually(
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Notes are required' }
 
-  const supabase = createAdminClient()
-  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
+  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(applicationId)
   if (fetchErr || !app) return { error: 'Application not found' }
   if (!app.agency_id) return { error: 'Application has no agency' }
   if (app.status === 'approved' || app.status === 'rejected') {
     return { error: 'Cannot mark an approved or rejected application complete' }
   }
 
-  const { error } = await completeApplicationManualUpdate(supabase, applicationId, app.agency_id, session.user.id, trimmedReason)
+  const { error } = await completeApplicationManualUpdate(applicationId, app.agency_id, session.user.id, trimmedReason)
   if (error) return { error: error.message }
 
   await insertApplicationStatusNote(
@@ -467,15 +435,14 @@ export async function reopenApplication(
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Reason is required' }
 
-  const supabase = createAdminClient()
-  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(supabase, applicationId)
+  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(applicationId)
   if (fetchErr || !app) return { error: 'Application not found' }
   if (!app.agency_id) return { error: 'Application has no agency' }
   if (app.status !== 'closed' && app.status !== 'complete') {
     return { error: 'Application is not closed or complete' }
   }
 
-  const { error } = await reopenApplicationUpdate(supabase, applicationId, app.agency_id)
+  const { error } = await reopenApplicationUpdate(applicationId, app.agency_id)
   if (error) return { error: error.message }
 
   await insertApplicationStatusNote(
@@ -502,8 +469,7 @@ export async function renameApplication(
   const trimmed = name.trim()
   if (!trimmed) return { error: 'Name is required' }
 
-  const supabase = createAdminClient()
-  const { error } = await q.updateApplicationById(supabase, applicationId, { application_name: trimmed })
+  const { error } = await q.updateApplicationById(applicationId, { application_name: trimmed })
   if (error) return { error: error.message }
 
   revalidatePath('/pages/admin/programs', 'page')
@@ -528,13 +494,9 @@ export async function submitProgramRequest(data: {
   const role = session.profile?.role
   if (role !== 'company_owner' && role !== 'care_coordinator') return { error: 'Forbidden' }
 
-  const supabase = createAdminClient()
-
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('agency_id')
-    .eq('id', session.user.id)
-    .single()
+  const [profile] = await sql<{ agency_id: string | null }[]>`
+    SELECT agency_id FROM user_profiles WHERE id = ${session.user.id} LIMIT 1
+  `
 
   if (!profile?.agency_id) return { error: 'Could not determine your agency. Please contact support.' }
 
@@ -542,7 +504,7 @@ export async function submitProgramRequest(data: {
 
   // Insert via user client (RLS-respecting); DB trigger fires here and sends
   // admin notifications without action_url.
-  const { error: insertError } = await q.insertApplication(supabase, {
+  const { error: insertError } = await q.insertApplication({
     agency_id: profile.agency_id,
     company_owner_id: null,
     application_name: data.application_name,
@@ -560,21 +522,18 @@ export async function submitProgramRequest(data: {
 
   // Patch the notifications just created by the DB trigger so clicking them
   // routes the admin to the Programs page instead of Licenses.
-  const adminClient = createAdminClient()
   const cutoff = new Date(Date.now() - 15000).toISOString()
 
-  const { data: admins } = await adminClient
-    .from('user_profiles')
-    .select('id')
-    .eq('role', 'admin')
-
-  if (admins && admins.length > 0) {
-    await adminClient
-      .from('notifications')
-      .update({ action_url: '/pages/admin/programs' })
-      .in('user_id', admins.map((a: { id: string }) => a.id))
-      .is('action_url', null)
-      .gte('created_at', cutoff)
+  const admins = await sql<{ id: string }[]>`SELECT id FROM user_profiles WHERE role = 'admin'`
+  if (admins.length > 0) {
+    const adminIds = admins.map(a => a.id)
+    await sql`
+      UPDATE notifications
+      SET action_url = '/pages/admin/programs'
+      WHERE user_id = ANY(${adminIds}::uuid[])
+        AND action_url IS NULL
+        AND created_at >= ${cutoff}
+    `
   }
 
   revalidatePath('/pages/agency/programs')
@@ -591,26 +550,13 @@ export async function cancelProgramRequest(applicationId: string): Promise<{ err
   const role = session.profile?.role
   if (role !== 'company_owner' && role !== 'care_coordinator') return { error: 'Forbidden' }
 
-  // Verify via RLS client that this request belongs to the user's agency and is cancellable
-  const supabase = createAdminClient()
-  const { data: app, error: fetchError } = await supabase
-    .from('applications')
-    .select('id, status')
-    .eq('id', applicationId)
-    .single()
-
-  if (fetchError || !app) return { error: 'Request not found' }
+  const [app] = await sql<{ id: string; status: string }[]>`
+    SELECT id, status FROM applications WHERE id = ${applicationId} LIMIT 1
+  `
+  if (!app) return { error: 'Request not found' }
   if (app.status !== 'requested') return { error: 'This request can no longer be cancelled' }
 
-  // Delete via admin client (agency users lack DELETE on applications)
-  const adminClient = createAdminClient()
-  const { error } = await adminClient
-    .from('applications')
-    .delete()
-    .eq('id', applicationId)
-    .eq('status', 'requested')
-
-  if (error) return { error: error.message }
+  await sql`DELETE FROM applications WHERE id = ${applicationId} AND status = 'requested'`
 
   revalidatePath('/pages/agency/programs')
   revalidatePath('/pages/admin/programs')
@@ -626,21 +572,23 @@ export async function updateApplicationProgressAction(
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('applications')
-    .update({ progress_percentage: progressPercentage, last_updated_date: new Date().toISOString().split('T')[0] })
-    .eq('id', applicationId)
-  if (error) return { error: error.message }
+  try {
+    await sql`
+      UPDATE applications
+      SET progress_percentage = ${progressPercentage},
+          last_updated_date = ${new Date().toISOString().split('T')[0]}
+      WHERE id = ${applicationId}
+    `
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Update failed' }
+  }
 
-  const { data: app } = await supabase
-    .from('applications')
-    .select('agency_id')
-    .eq('id', applicationId)
-    .maybeSingle()
+  const [appRow] = await sql<{ agency_id: string | null }[]>`
+    SELECT agency_id FROM applications WHERE id = ${applicationId} LIMIT 1
+  `
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: app?.agency_id ?? null,
+  const { error: auditErr } = await q.insertAuditLog({
+    agency_id: appRow?.agency_id ?? null,
     table_name: 'applications',
     record_id: applicationId,
     action: 'UPDATE',

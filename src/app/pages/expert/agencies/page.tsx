@@ -20,8 +20,8 @@ export default async function ExpertAgenciesPage({
   const supabaseAdmin = createAdminClient()
 
   const [agenciesResult, { data: agencyAdminsWithUser }] = await Promise.all([
-    q.getAgenciesFilteredPaginated(supabaseAdmin, { page, pageSize: PAGE_SIZE, search, status, sortKey, sortDir }),
-    q.getClientsWithCompanyOwner(supabaseAdmin),
+    q.getAgenciesFilteredPaginated({ page, pageSize: PAGE_SIZE, search, status, sortKey, sortDir }),
+    q.getClientsWithCompanyOwner(),
   ])
 
   // Build admin lookup for current page's agencies
@@ -35,7 +35,7 @@ export default async function ExpertAgenciesPage({
   const missingReferenced = Array.from(new Set(referencedAdminIds)).filter(id => !withUserIdSet.has(id))
   const { data: extraAdmins } =
     missingReferenced.length > 0
-      ? await q.getAgencyAdminsByIds(supabaseAdmin, missingReferenced)
+      ? await q.getAgencyAdminsByIds(missingReferenced)
       : { data: [] as { id: string; contact_name: string | null; contact_email: string | null }[] }
 
   const agencyAdminById = new Map<string, { id: string; contact_name: string; contact_email: string }>()

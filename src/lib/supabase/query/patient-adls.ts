@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 /** One row per assigned ADL (day_of_week = 1 in patient_care_plan_tasks). */
 export interface PatientAdl {
@@ -79,146 +79,168 @@ function mapTaskToDaySchedule(row: {
   }
 }
 
-async function requireAgencyIdForPatient(supabase: Supabase, patientId: string): Promise<string> {
-  const { data } = await supabase.from('patients').select('agency_id').eq('id', patientId).maybeSingle()
-  if (!data?.agency_id) throw new Error('Patient has no agency_id')
-  return data.agency_id
+async function requireAgencyIdForPatient(patientId: string): Promise<string> {
+  const rows = await sql`SELECT agency_id FROM patients WHERE id = ${patientId} LIMIT 1`
+  const agencyId = rows[0]?.agency_id as string | null
+  if (!agencyId) throw new Error('Patient has no agency_id')
+  return agencyId
 }
 
 /** Assigned ADLs for a patient (day_of_week = 1), ordered by display_order. */
-export async function getAdlsByPatientId(supabase: Supabase, patientId: string) {
-  const { data, error } = await supabase
-    .from('patient_care_plan_tasks')
-    .select('*')
-    .eq('patient_id', patientId)
-    .eq('service_type', 'non_skilled')
-    .eq('day_of_week', 1)
-    .order('display_order', { ascending: true })
-    .order('created_at', { ascending: true })
-  if (error) return { data: null, error }
-  return {
-    data: (data ?? []).map((r) => mapTaskToAdl(r as Parameters<typeof mapTaskToAdl>[0])),
-    error: null,
+export async function getAdlsByPatientId(patientId: string) {
+  try {
+    const rows = await sql`
+      SELECT *
+      FROM patient_care_plan_tasks
+      WHERE patient_id = ${patientId}
+        AND service_type = 'non_skilled'
+        AND day_of_week = 1
+      ORDER BY display_order ASC, created_at ASC
+    `
+    return {
+      data: rows.map((r) => mapTaskToAdl(r as Parameters<typeof mapTaskToAdl>[0])),
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err) } }
   }
 }
 
 /** Insert one ADL: upsert 7 rows (days 1–7) with schedule_type never. */
 export async function insertAdl(
-  supabase: Supabase,
   data: { patient_id: string; adl_code: string; display_order?: number }
 ) {
-  const agencyId = await requireAgencyIdForPatient(supabase, data.patient_id)
-  const displayOrder = data.display_order ?? 0
-  const rows = [1, 2, 3, 4, 5, 6, 7].map((day_of_week) => ({
-    agency_id: agencyId,
-    patient_id: data.patient_id,
-    legacy_task_code: data.adl_code,
-    day_of_week,
-    schedule_type: 'never' as const,
-    service_type: 'non_skilled' as const,
-    display_order: displayOrder,
-  }))
-  const { error } = await supabase
-    .from('patient_care_plan_tasks')
-    .upsert(rows, { onConflict: 'patient_id,legacy_task_code,day_of_week', ignoreDuplicates: true })
-  if (error) return { data: null, error }
-  const { data: dayOne } = await supabase
-    .from('patient_care_plan_tasks')
-    .select('*')
-    .eq('patient_id', data.patient_id)
-    .eq('service_type', 'non_skilled')
-    .eq('legacy_task_code', data.adl_code)
-    .eq('day_of_week', 1)
-    .maybeSingle()
-  return {
-    data: dayOne ? mapTaskToAdl(dayOne as Parameters<typeof mapTaskToAdl>[0]) : null,
-    error: null,
+  try {
+    const agencyId = await requireAgencyIdForPatient(data.patient_id)
+    const displayOrder = data.display_order ?? 0
+    const rows = [1, 2, 3, 4, 5, 6, 7].map((day_of_week) => ({
+      agency_id: agencyId,
+      patient_id: data.patient_id,
+      legacy_task_code: data.adl_code,
+      day_of_week,
+      schedule_type: 'never' as const,
+      service_type: 'non_skilled' as const,
+      display_order: displayOrder,
+    }))
+
+    await sql`
+      INSERT INTO patient_care_plan_tasks ${sql(rows)}
+      ON CONFLICT (patient_id, legacy_task_code, day_of_week) DO NOTHING
+    `
+
+    const dayOneRows = await sql`
+      SELECT *
+      FROM patient_care_plan_tasks
+      WHERE patient_id = ${data.patient_id}
+        AND service_type = 'non_skilled'
+        AND legacy_task_code = ${data.adl_code}
+        AND day_of_week = 1
+      LIMIT 1
+    `
+    return {
+      data: dayOneRows[0] ? mapTaskToAdl(dayOneRows[0] as Parameters<typeof mapTaskToAdl>[0]) : null,
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err) } }
   }
 }
 
 /** Insert multiple ADLs; returns day_of_week=1 rows for list display. */
 export async function insertAdls(
-  supabase: Supabase,
   patientId: string,
   adlCodes: string[],
   startDisplayOrder: number = 0
 ) {
   if (adlCodes.length === 0) return { data: [], error: null }
-  const agencyId = await requireAgencyIdForPatient(supabase, patientId)
-  const allRows: {
-    agency_id: string
-    patient_id: string
-    legacy_task_code: string
-    day_of_week: number
-    schedule_type: 'never'
-    service_type: 'non_skilled'
-    display_order: number
-  }[] = []
-  adlCodes.forEach((adl_code, i) => {
-    const displayOrder = startDisplayOrder + i
-    for (let d = 1; d <= 7; d++) {
-      allRows.push({
-        agency_id: agencyId,
-        patient_id: patientId,
-        legacy_task_code: adl_code,
-        day_of_week: d,
-        schedule_type: 'never',
-        service_type: 'non_skilled',
-        display_order: displayOrder,
-      })
+  try {
+    const agencyId = await requireAgencyIdForPatient(patientId)
+    const allRows: {
+      agency_id: string
+      patient_id: string
+      legacy_task_code: string
+      day_of_week: number
+      schedule_type: 'never'
+      service_type: 'non_skilled'
+      display_order: number
+    }[] = []
+    adlCodes.forEach((adl_code, i) => {
+      const displayOrder = startDisplayOrder + i
+      for (let d = 1; d <= 7; d++) {
+        allRows.push({
+          agency_id: agencyId,
+          patient_id: patientId,
+          legacy_task_code: adl_code,
+          day_of_week: d,
+          schedule_type: 'never',
+          service_type: 'non_skilled',
+          display_order: displayOrder,
+        })
+      }
+    })
+
+    await sql`
+      INSERT INTO patient_care_plan_tasks ${sql(allRows)}
+      ON CONFLICT (patient_id, legacy_task_code, day_of_week) DO NOTHING
+    `
+
+    const dayOneRows = await sql`
+      SELECT *
+      FROM patient_care_plan_tasks
+      WHERE patient_id = ${patientId}
+        AND service_type = 'non_skilled'
+        AND day_of_week = 1
+        AND legacy_task_code IN ${sql(adlCodes)}
+      ORDER BY display_order ASC
+    `
+    return {
+      data: dayOneRows.map((r) => mapTaskToAdl(r as Parameters<typeof mapTaskToAdl>[0])),
+      error: null,
     }
-  })
-  const { error } = await supabase
-    .from('patient_care_plan_tasks')
-    .upsert(allRows, { onConflict: 'patient_id,legacy_task_code,day_of_week', ignoreDuplicates: true })
-  if (error) return { data: null, error }
-  const { data: dayOneRows } = await supabase
-    .from('patient_care_plan_tasks')
-    .select('*')
-    .eq('patient_id', patientId)
-    .eq('service_type', 'non_skilled')
-    .eq('day_of_week', 1)
-    .in('legacy_task_code', adlCodes)
-    .order('display_order', { ascending: true })
-  return {
-    data: (dayOneRows ?? []).map((r) => mapTaskToAdl(r as Parameters<typeof mapTaskToAdl>[0])),
-    error: null,
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err) } }
   }
 }
 
 /** Delete all day rows for one ADL code. Returns an error if the server deletes 0 rows (RLS or bad code). */
-export async function deleteAdl(supabase: Supabase, patientId: string, adlCode: string) {
-  const { data, error } = await supabase
-    .from('patient_care_plan_tasks')
-    .delete()
-    .eq('patient_id', patientId)
-    .eq('service_type', 'non_skilled')
-    .eq('legacy_task_code', adlCode)
-    .select('id')
-  if (error) return { data: null, error }
-  const deleted = data?.length ?? 0
-  if (deleted === 0) {
-    return {
-      data: null,
-      error: new Error(
-        `Could not remove "${adlCode}" from the care plan (no rows deleted). Your account may not have permission to remove tasks.`
-      ),
+export async function deleteAdl(patientId: string, adlCode: string) {
+  try {
+    const deleted = await sql`
+      DELETE FROM patient_care_plan_tasks
+      WHERE patient_id = ${patientId}
+        AND service_type = 'non_skilled'
+        AND legacy_task_code = ${adlCode}
+      RETURNING id
+    `
+    if (deleted.length === 0) {
+      return {
+        data: null,
+        error: new Error(
+          `Could not remove "${adlCode}" from the care plan (no rows deleted). Your account may not have permission to remove tasks.`
+        ),
+      }
     }
+    return { data: deleted, error: null }
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err : new Error(String(err)) }
   }
-  return { data, error: null }
 }
 
 /** All per-day schedules for a patient. */
-export async function getPatientAdlDaySchedulesByPatientId(supabase: Supabase, patientId: string) {
-  const { data, error } = await supabase
-    .from('patient_care_plan_tasks')
-    .select('*')
-    .eq('patient_id', patientId)
-    .eq('service_type', 'non_skilled')
-  if (error) return { data: null, error }
-  return {
-    data: (data ?? []).map((r) => mapTaskToDaySchedule(r as Parameters<typeof mapTaskToDaySchedule>[0])),
-    error: null,
+export async function getPatientAdlDaySchedulesByPatientId(patientId: string) {
+  try {
+    const rows = await sql`
+      SELECT *
+      FROM patient_care_plan_tasks
+      WHERE patient_id = ${patientId}
+        AND service_type = 'non_skilled'
+    `
+    return {
+      data: rows.map((r) => mapTaskToDaySchedule(r as Parameters<typeof mapTaskToDaySchedule>[0])),
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err) } }
   }
 }
 
@@ -242,62 +264,80 @@ export type PatientAdlDayScheduleUpsert = {
  * Prefer this over looping `upsertPatientAdlDaySchedule` from the client save path.
  */
 export async function upsertPatientAdlDaySchedulesBatch(
-  supabase: Supabase,
   patientId: string,
   rows: PatientAdlDayScheduleUpsert[]
 ): Promise<{ error: Error | null }> {
   if (rows.length === 0) return { error: null }
-  const agencyId = await requireAgencyIdForPatient(supabase, patientId)
-  const payloads = rows.map((data) => ({
-    agency_id: agencyId,
-    patient_id: data.patient_id,
-    legacy_task_code: data.adl_code,
-    day_of_week: data.day_of_week,
-    display_order: data.display_order ?? 0,
-    service_type: 'non_skilled' as const,
-    task_note: data.adl_note ?? null,
-    schedule_type: data.schedule_type,
-    times_per_day: data.times_per_day ?? null,
-    slot_morning: data.slot_morning ?? null,
-    slot_afternoon: data.slot_afternoon ?? null,
-    slot_evening: data.slot_evening ?? null,
-    slot_night: data.slot_night ?? null,
-  }))
-  const chunkSize = 250
-  for (let i = 0; i < payloads.length; i += chunkSize) {
-    const chunk = payloads.slice(i, i + chunkSize)
-    const { error } = await supabase
-      .from('patient_care_plan_tasks')
-      .upsert(chunk, { onConflict: 'patient_id,legacy_task_code,day_of_week' })
-    if (error) return { error: new Error(error.message) }
+  try {
+    const agencyId = await requireAgencyIdForPatient(patientId)
+    const payloads = rows.map((data) => ({
+      agency_id: agencyId,
+      patient_id: data.patient_id,
+      legacy_task_code: data.adl_code,
+      day_of_week: data.day_of_week,
+      display_order: data.display_order ?? 0,
+      service_type: 'non_skilled' as const,
+      task_note: data.adl_note ?? null,
+      schedule_type: data.schedule_type,
+      times_per_day: data.times_per_day ?? null,
+      slot_morning: data.slot_morning ?? null,
+      slot_afternoon: data.slot_afternoon ?? null,
+      slot_evening: data.slot_evening ?? null,
+      slot_night: data.slot_night ?? null,
+    }))
+
+    const chunkSize = 250
+    for (let i = 0; i < payloads.length; i += chunkSize) {
+      const chunk = payloads.slice(i, i + chunkSize)
+      await sql`
+        INSERT INTO patient_care_plan_tasks ${sql(chunk)}
+        ON CONFLICT (patient_id, legacy_task_code, day_of_week)
+        DO UPDATE SET
+          display_order  = EXCLUDED.display_order,
+          service_type   = EXCLUDED.service_type,
+          task_note      = EXCLUDED.task_note,
+          schedule_type  = EXCLUDED.schedule_type,
+          times_per_day  = EXCLUDED.times_per_day,
+          slot_morning   = EXCLUDED.slot_morning,
+          slot_afternoon = EXCLUDED.slot_afternoon,
+          slot_evening   = EXCLUDED.slot_evening,
+          slot_night     = EXCLUDED.slot_night
+      `
+    }
+    return { error: null }
+  } catch (err) {
+    return { error: err instanceof Error ? err : new Error(String(err)) }
   }
-  return { error: null }
 }
 
 /** Upsert one day row (patient_id, legacy ADL code, day_of_week). */
-export async function upsertPatientAdlDaySchedule(supabase: Supabase, data: PatientAdlDayScheduleUpsert) {
-  return upsertPatientAdlDaySchedulesBatch(supabase, data.patient_id, [data])
+export async function upsertPatientAdlDaySchedule(data: PatientAdlDayScheduleUpsert) {
+  return upsertPatientAdlDaySchedulesBatch(data.patient_id, [data])
 }
 
 export async function updatePatientAdlDaySchedule(
-  supabase: Supabase,
   data: {
     id: string
     adl_note?: string | null
   }
 ) {
-  return supabase
-    .from('patient_care_plan_tasks')
-    .update({ task_note: data.adl_note })
-    .eq('id', data.id)
-    .select()
-    .single()
+  try {
+    const rows = await sql`
+      UPDATE patient_care_plan_tasks
+      SET task_note = ${data.adl_note ?? null}
+      WHERE id = ${data.id}
+      RETURNING *
+    `
+    if (!rows[0]) throw new Error('Update did not return a row')
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err) } }
+  }
 }
 
 export async function deletePatientAdlDaySchedulesForAdl(
-  supabase: Supabase,
   patientId: string,
   adlCode: string
 ) {
-  return deleteAdl(supabase, patientId, adlCode)
+  return deleteAdl(patientId, adlCode)
 }

@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -24,12 +24,12 @@ export default async function AgencyLeadDetailPage({
   const { id } = await params
 
   const [{ data: lead }, { data: notes }, { data: tasks }, { data: documents }, agencyStagesResult, patientDetailsResult] = await Promise.all([
-    q.getLeadById(supabase, id),
-    q.getLeadNotes(supabase, id),
-    q.getLeadTasks(supabase, id),
-    q.getLeadDocuments(supabase, id),
-    q.getAgencyLeadStages(supabase, agencyId),
-    q.getPatientLeadDetails(supabase, id),
+    q.getLeadById(id),
+    q.getLeadNotes(id),
+    q.getLeadTasks(id),
+    q.getLeadDocuments(id),
+    q.getAgencyLeadStages(agencyId),
+    q.getPatientLeadDetails(id),
   ])
 
   if (!lead || lead.agency_id !== agencyId) redirect('/pages/agency/leads')

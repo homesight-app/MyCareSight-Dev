@@ -8,7 +8,7 @@ export default async function AdminEditTemplatePage({ params }: { params: Promis
   await requireAdmin()
   const { id } = await params
 
-  const { data: template } = await getTemplateById(createAdminClient(), id)
+  const { data: template } = await getTemplateById(id)
 
   if (!template) notFound()
 

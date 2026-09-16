@@ -20,7 +20,7 @@ import {
   Mail
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
@@ -122,7 +122,7 @@ export default function ExpertApplicationDetailModal({
     setIsLoadingDocs(true)
     try {
       const supabase = createClient()
-      const { data, error } = await q.getApplicationDocumentsByApplicationId(supabase, application.id)
+      const { data, error } = await q.getApplicationDocumentsByApplicationId(application.id)
 
       if (error) {
         console.error('Error fetching documents:', error)
@@ -147,7 +147,7 @@ export default function ExpertApplicationDetailModal({
       const supabase = createClient()
       
       // First, try to fetch application_steps (steps specific to this application)
-      const { data: applicationSteps, error: appStepsError } = await q.getApplicationStepsByApplicationId(supabase, application.id)
+      const { data: applicationSteps, error: appStepsError } = await q.getApplicationStepsByApplicationId(application.id)
 
       if (appStepsError) {
         console.error('Error fetching application steps:', appStepsError)
@@ -172,7 +172,7 @@ export default function ExpertApplicationDetailModal({
       // We need to get the license_type_id and find the corresponding license_requirements
       if (application.license_type_id && application.state) {
         // Get license type name
-        const { data: licenseType, error: licenseTypeError } = await q.getLicenseTypeById(supabase, application.license_type_id)
+        const { data: licenseType, error: licenseTypeError } = await q.getLicenseTypeById(application.license_type_id)
 
         if (licenseTypeError) {
           console.error('Error fetching license type:', licenseTypeError)
@@ -188,7 +188,7 @@ export default function ExpertApplicationDetailModal({
         }
 
         // Find license_requirement_id for this state and license type
-        const { data: licenseRequirement, error: reqError } = await q.getLicenseRequirementByStateAndType(supabase, application.state, licenseType.name)
+        const { data: licenseRequirement, error: reqError } = await q.getLicenseRequirementByStateAndType(application.state, licenseType.name)
 
         if (reqError) {
           console.error('Error fetching license requirement:', reqError)
@@ -204,7 +204,7 @@ export default function ExpertApplicationDetailModal({
         }
 
         // Fetch required steps from license_requirement_steps
-        const { data: requiredSteps, error: stepsError } = await q.getStepsFromRequirement(supabase, licenseRequirement.id)
+        const { data: requiredSteps, error: stepsError } = await q.getStepsFromRequirement(licenseRequirement.id)
 
         if (stepsError) {
           console.error('Error fetching required steps:', stepsError)
@@ -281,10 +281,10 @@ export default function ExpertApplicationDetailModal({
       if (reviewAction === 'approve') {
         // Approve application - status becomes 'approved'
         // License creation will be handled by database trigger
-        const { error } = await q.updateApplicationStatus(supabase, application.id, { status: 'approved', revision_reason: null })
+        const { error } = await q.updateApplicationStatus(application.id, { status: 'approved', revision_reason: null })
         if (error) throw error
       } else {
-        const { error } = await q.updateApplicationStatus(supabase, application.id, { status: 'needs_revision', revision_reason: revisionReason.trim() })
+        const { error } = await q.updateApplicationStatus(application.id, { status: 'needs_revision', revision_reason: revisionReason.trim() })
 
         if (error) throw error
       }

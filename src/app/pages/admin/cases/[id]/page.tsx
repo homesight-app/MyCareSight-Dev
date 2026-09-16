@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -21,7 +21,7 @@ export default async function CaseDetailPage({
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: caseItem } = await q.getCaseById(supabase, id)
+  const { data: caseItem } = await q.getCaseById(id)
 
   if (!caseItem) {
     redirect('/pages/admin')

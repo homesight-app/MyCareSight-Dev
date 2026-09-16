@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { NOTE_TYPES } from '@/lib/constants/lead-configs'
 import { addAgencyNote, deleteAgencyNote } from '@/app/actions/agencies'
 import { deleteLeadNote } from '@/app/actions/leads'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import Button from '@/components/ui/PrimaryButton'
 import Badge, { type BadgeColor } from '@/components/ui/Badge'
 
@@ -58,8 +58,8 @@ export default function AgencyNotesTab({ agencyId, leadIds, leadNameMap }: Agenc
   const fetchNotes = useCallback(async () => {
     const supabase = createClient()
     const [agencyRes, leadRes] = await Promise.all([
-      q.getAgencyNotes(supabase, agencyId),
-      q.getLeadNotesByLeadIds(supabase, leadIds),
+      q.getAgencyNotes(agencyId),
+      q.getLeadNotesByLeadIds(leadIds),
     ])
 
     const agencyNotes: Note[] = (agencyRes.data ?? []).map((n: any) => ({

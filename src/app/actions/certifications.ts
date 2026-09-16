@@ -1,6 +1,6 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 import { getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { getConfigurationValues } from '@/app/actions/configuration-values'
@@ -16,7 +16,9 @@ export interface CreateCertificationData {
   document_url?: string | null
 }
 
-function mapCredentialToLegacyCert(row: Record<string, unknown>) {
+type CredentialRow = Record<string, unknown>
+
+function mapCredentialToLegacyCert(row: CredentialRow) {
   return {
     ...row,
     type: row.source_credential_name,
@@ -25,89 +27,50 @@ function mapCredentialToLegacyCert(row: Record<string, unknown>) {
 }
 
 export async function createCertification(data: CreateCertificationData) {
-  const supabase = createAdminClient()
-
   try {
     const session = await getSession()
-    const user = session ? { id: session.user.id } : null
+    if (!session) return { error: 'You must be logged in to create a certification', data: null }
 
-    if (!user) {
-      return { error: 'You must be logged in to create a certification', data: null }
-    }
-
-    const { data: staff, error: staffErr } = await supabase
-      .from('caregiver_members')
-      .select('id, agency_id, user_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-
-    if (staffErr || !staff?.agency_id) {
+    const [staff] = await sql<{ id: string; agency_id: string }[]>`
+      SELECT id, agency_id FROM caregiver_members WHERE user_id = ${session.user.id} LIMIT 1
+    `
+    if (!staff?.agency_id) {
       return {
-        error:
-          'Your account must be linked to an agency staff profile to save certifications. Ask your agency to connect your login.',
+        error: 'Your account must be linked to an agency staff profile to save certifications. Ask your agency to connect your login.',
         data: null,
       }
     }
 
-    const { data: certification, error: insertError } = await supabase
-      .from('caregiver_credentials')
-      .insert({
-        agency_id: staff.agency_id,
-        caregiver_member_id: staff.id,
-        user_id: user.id,
-        source_credential_name: data.type,
-        credential_number: data.license_number,
-        state: data.state || null,
-        issue_date: data.issue_date || null,
-        expiration_date: data.expiration_date,
-        issuing_authority: data.issuing_authority,
-        status: data.status,
-        document_url: data.document_url || null,
-      })
-      .select()
-      .single()
-
-    if (insertError) {
-      return { error: insertError.message, data: null }
-    }
-
+    const [certification] = await sql<CredentialRow[]>`
+      INSERT INTO caregiver_credentials (
+        agency_id, caregiver_member_id, user_id,
+        source_credential_name, credential_number, state, issue_date,
+        expiration_date, issuing_authority, status, document_url
+      ) VALUES (
+        ${staff.agency_id}, ${staff.id}, ${session.user.id},
+        ${data.type}, ${data.license_number}, ${data.state || null}, ${data.issue_date || null},
+        ${data.expiration_date}, ${data.issuing_authority}, ${data.status}, ${data.document_url || null}
+      )
+      RETURNING *
+    `
     revalidatePath('/pages/caregiver/my-certifications')
-    return {
-      error: null,
-      data: certification ? mapCredentialToLegacyCert(certification as Record<string, unknown>) : null,
-    }
+    return { error: null, data: certification ? mapCredentialToLegacyCert(certification) : null }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to create certification'
-    return { error: msg, data: null }
+    return { error: err instanceof Error ? err.message : 'Failed to create certification', data: null }
   }
 }
 
 export async function getCertifications() {
-  const supabase = createAdminClient()
-
   try {
     const session = await getSession()
-    const user = session ? { id: session.user.id } : null
+    if (!session) return { error: 'You must be logged in', data: null }
 
-    if (!user) {
-      return { error: 'You must be logged in', data: null }
-    }
-
-    const { data: certifications, error: fetchError } = await supabase
-      .from('caregiver_credentials')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('expiration_date', { ascending: true })
-
-    if (fetchError) {
-      return { error: fetchError.message, data: null }
-    }
-
-    const mapped = (certifications || []).map((c) => mapCredentialToLegacyCert(c as Record<string, unknown>))
-    return { error: null, data: mapped }
+    const rows = await sql<CredentialRow[]>`
+      SELECT * FROM caregiver_credentials WHERE user_id = ${session.user.id} ORDER BY expiration_date ASC
+    `
+    return { error: null, data: rows.map(mapCredentialToLegacyCert) }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to fetch certifications'
-    return { error: msg, data: null }
+    return { error: err instanceof Error ? err.message : 'Failed to fetch certifications', data: null }
   }
 }
 
@@ -117,8 +80,7 @@ export async function getCertificationTypes() {
     if (result.error) return { error: String(result.error), data: null }
     return { error: null, data: (result.data ?? []).map(v => ({ id: v.id, name: v.name })) }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to fetch certification types'
-    return { error: msg, data: null }
+    return { error: err instanceof Error ? err.message : 'Failed to fetch certification types', data: null }
   }
 }
 
@@ -134,78 +96,43 @@ export interface UpdateCertificationData {
 }
 
 export async function updateCertification(certificationId: string, data: UpdateCertificationData) {
-  const supabase = createAdminClient()
-
   try {
     const session = await getSession()
-    const user = session ? { id: session.user.id } : null
+    if (!session) return { error: 'You must be logged in to update a certification', data: null }
 
-    if (!user) {
-      return { error: 'You must be logged in to update a certification', data: null }
-    }
-
-    const { data: certification, error: updateError } = await supabase
-      .from('caregiver_credentials')
-      .update({
-        source_credential_name: data.type,
-        credential_number: data.license_number,
-        state: data.state || null,
-        issue_date: data.issue_date || null,
-        expiration_date: data.expiration_date,
-        issuing_authority: data.issuing_authority,
-        status: data.status,
-        document_url: data.document_url || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', certificationId)
-      .eq('user_id', user.id)
-      .select()
-      .single()
-
-    if (updateError) {
-      return { error: updateError.message, data: null }
-    }
-
+    const [certification] = await sql<CredentialRow[]>`
+      UPDATE caregiver_credentials SET
+        source_credential_name = ${data.type},
+        credential_number      = ${data.license_number},
+        state                  = ${data.state || null},
+        issue_date             = ${data.issue_date || null},
+        expiration_date        = ${data.expiration_date},
+        issuing_authority      = ${data.issuing_authority},
+        status                 = ${data.status},
+        document_url           = ${data.document_url || null},
+        updated_at             = ${new Date().toISOString()}
+      WHERE id = ${certificationId} AND user_id = ${session.user.id}
+      RETURNING *
+    `
     revalidatePath('/pages/caregiver/my-certifications')
     revalidatePath(`/pages/caregiver/my-certifications/${certificationId}`)
-    return {
-      error: null,
-      data: certification ? mapCredentialToLegacyCert(certification as Record<string, unknown>) : null,
-    }
+    return { error: null, data: certification ? mapCredentialToLegacyCert(certification) : null }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to update certification'
-    return { error: msg, data: null }
+    return { error: err instanceof Error ? err.message : 'Failed to update certification', data: null }
   }
 }
 
 export async function getCertification(certificationId: string) {
-  const supabase = createAdminClient()
-
   try {
     const session = await getSession()
-    const user = session ? { id: session.user.id } : null
+    if (!session) return { error: 'You must be logged in', data: null }
 
-    if (!user) {
-      return { error: 'You must be logged in', data: null }
-    }
-
-    const { data: certification, error: fetchError } = await supabase
-      .from('caregiver_credentials')
-      .select('*')
-      .eq('id', certificationId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (fetchError) {
-      return { error: fetchError.message, data: null }
-    }
-
-    return {
-      error: null,
-      data: certification ? mapCredentialToLegacyCert(certification as Record<string, unknown>) : null,
-    }
+    const [certification] = await sql<CredentialRow[]>`
+      SELECT * FROM caregiver_credentials WHERE id = ${certificationId} AND user_id = ${session.user.id} LIMIT 1
+    `
+    if (!certification) return { error: 'Certification not found', data: null }
+    return { error: null, data: mapCredentialToLegacyCert(certification) }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to fetch certification'
-    return { error: msg, data: null }
+    return { error: err instanceof Error ? err.message : 'Failed to fetch certification', data: null }
   }
 }

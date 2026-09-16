@@ -8,7 +8,7 @@ import * as z from 'zod'
 import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
@@ -167,7 +167,7 @@ export default function EditStaffModal({
     try {
       const supabase = createClient()
 
-      const { error: updateError } = await q.updateStaffMember(supabase, staff.id, {
+      const { error: updateError } = await q.updateStaffMember(staff.id, {
         first_name: data.first_name,
         last_name: data.last_name,
         email: data.email,

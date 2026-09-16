@@ -13,7 +13,7 @@ export default async function AgencyTemplatesPage() {
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency')
 
-  const { data: templates } = await getTemplates(supabase, { agencyId, includeInactive: true })
+  const { data: templates } = await getTemplates({ agencyId, includeInactive: true })
 
   return (
     <div className="p-4 sm:p-6">

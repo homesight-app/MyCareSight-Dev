@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 import { getSession } from '@/lib/auth'
 
 function revalidateTemplatePaths() {
@@ -46,37 +46,30 @@ export async function createTemplate(payload: {
   const role = session.profile?.role
   const isPlatformStaff = role === 'admin' || role === 'expert'
 
-  // Only platform staff can create global templates
-  if (payload.isGlobal && !isPlatformStaff) {
-    return { error: 'Forbidden' }
+  if (payload.isGlobal && !isPlatformStaff) return { error: 'Forbidden' }
+  if (!isPlatformStaff && !payload.agencyId) return { error: 'Agency ID required' }
+
+  const variables = extractVariables(payload.content)
+  const isGlobal = isPlatformStaff ? (payload.isGlobal ?? false) : false
+  const agencyId = isGlobal ? null : (payload.agencyId ?? null)
+  const subject = payload.type === 'email' ? (payload.subject?.trim() || null) : null
+
+  try {
+    const [data] = await sql<{ id: string }[]>`
+      INSERT INTO templates (name, type, category, description, subject, content, variables_used, is_global, agency_id, created_by)
+      VALUES (
+        ${payload.name.trim()}, ${payload.type}, ${payload.category},
+        ${payload.description?.trim() || null}, ${subject}, ${payload.content},
+        ${variables}, ${isGlobal}, ${agencyId}, ${session.user.id}
+      )
+      RETURNING id
+    `
+    if (!data) return { error: 'Insert failed' }
+    revalidateTemplatePaths()
+    return { error: null, templateId: data.id }
+  } catch (err: any) {
+    return { error: err.message || 'Failed to create template' }
   }
-
-  // Agency users must provide an agencyId
-  if (!isPlatformStaff && !payload.agencyId) {
-    return { error: 'Agency ID required' }
-  }
-
-  const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('templates')
-    .insert({
-      name: payload.name.trim(),
-      type: payload.type,
-      category: payload.category,
-      description: payload.description?.trim() || null,
-      subject: payload.type === 'email' ? (payload.subject?.trim() || null) : null,
-      content: payload.content,
-      variables_used: extractVariables(payload.content),
-      is_global: isPlatformStaff ? (payload.isGlobal ?? false) : false,
-      agency_id: payload.isGlobal ? null : (payload.agencyId ?? null),
-      created_by: session.user.id,
-    })
-    .select('id')
-    .single()
-
-  if (error) return { error: error.message }
-  revalidateTemplatePaths()
-  return { error: null, templateId: data.id }
 }
 
 // ——— Update ————————————————————————————————————————————————————
@@ -99,16 +92,9 @@ export async function updateTemplate(
 
   const role = session.profile?.role
   const isPlatformStaff = role === 'admin' || role === 'expert'
+  if (payload.isGlobal !== undefined && !isPlatformStaff) return { error: 'Forbidden' }
 
-  if (payload.isGlobal !== undefined && !isPlatformStaff) {
-    return { error: 'Forbidden' }
-  }
-
-  const supabase = createAdminClient()
-
-  const updates: Record<string, unknown> = {
-    updated_at: new Date().toISOString(),
-  }
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (payload.name !== undefined)        updates.name = payload.name.trim()
   if (payload.type !== undefined)        updates.type = payload.type
   if (payload.category !== undefined)    updates.category = payload.category
@@ -121,12 +107,12 @@ export async function updateTemplate(
     updates.variables_used = extractVariables(payload.content)
   }
 
-  const { error } = await supabase
-    .from('templates')
-    .update(updates)
-    .eq('id', templateId)
+  try {
+    await sql`UPDATE templates SET ${sql(updates)} WHERE id = ${templateId}`
+  } catch (err: any) {
+    return { error: err.message || 'Failed to update template' }
+  }
 
-  if (error) return { error: error.message }
   revalidateTemplatePaths()
   revalidatePath(`/pages/admin/templates/${templateId}`)
   revalidatePath(`/pages/agency/templates/${templateId}`)
@@ -142,16 +128,15 @@ export async function toggleTemplateActive(templateId: string, isActive: boolean
 // ——— Delete ————————————————————————————————————————————————————
 
 export async function deleteTemplate(templateId: string) {
-  const { error: authErr, session } = await requireAuthenticated()
-  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+  const { error: authErr } = await requireAuthenticated()
+  if (authErr) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('templates')
-    .delete()
-    .eq('id', templateId)
+  try {
+    await sql`DELETE FROM templates WHERE id = ${templateId}`
+  } catch (err: any) {
+    return { error: err.message || 'Failed to delete template' }
+  }
 
-  if (error) return { error: error.message }
   revalidateTemplatePaths()
   return { error: null }
 }
@@ -162,34 +147,34 @@ export async function duplicateTemplate(templateId: string, agencyId: string) {
   const { error: authErr, session } = await requireAuthenticated()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
+  const [source] = await sql<{
+    name: string
+    type: string
+    category: string
+    description: string | null
+    subject: string | null
+    content: string
+    variables_used: string[]
+  }[]>`
+    SELECT name, type, category, description, subject, content, variables_used
+    FROM templates WHERE id = ${templateId} LIMIT 1
+  `
+  if (!source) return { error: 'Template not found' }
 
-  const { data: source, error: fetchErr } = await supabase
-    .from('templates')
-    .select('*')
-    .eq('id', templateId)
-    .single()
-
-  if (fetchErr || !source) return { error: 'Template not found' }
-
-  const { data, error } = await supabase
-    .from('templates')
-    .insert({
-      name: `${source.name} (Copy)`,
-      type: source.type,
-      category: source.category,
-      description: source.description,
-      subject: source.subject,
-      content: source.content,
-      variables_used: source.variables_used,
-      is_global: false,
-      agency_id: agencyId,
-      created_by: session.user.id,
-    })
-    .select('id')
-    .single()
-
-  if (error) return { error: error.message }
-  revalidateTemplatePaths()
-  return { error: null, templateId: data.id }
+  try {
+    const [data] = await sql<{ id: string }[]>`
+      INSERT INTO templates (name, type, category, description, subject, content, variables_used, is_global, agency_id, created_by)
+      VALUES (
+        ${`${source.name} (Copy)`}, ${source.type}, ${source.category},
+        ${source.description}, ${source.subject}, ${source.content},
+        ${source.variables_used}, false, ${agencyId}, ${session.user.id}
+      )
+      RETURNING id
+    `
+    if (!data) return { error: 'Insert failed' }
+    revalidateTemplatePaths()
+    return { error: null, templateId: data.id }
+  } catch (err: any) {
+    return { error: err.message || 'Failed to duplicate template' }
+  }
 }

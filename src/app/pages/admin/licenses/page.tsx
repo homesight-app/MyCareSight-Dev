@@ -14,8 +14,8 @@ export default async function AdminLicensesPage() {
     { data: allApplicationsData, error: allAppsError },
     { data: playbooksData },
   ] = await Promise.all([
-    q.getApplicationsByStatus(supabase, 'requested'),
-    q.getApplicationsByStatuses(supabase, [
+    q.getApplicationsByStatus('requested'),
+    q.getApplicationsByStatuses([
     'in_progress',
     'under_review',
     'needs_revision',
@@ -23,7 +23,7 @@ export default async function AdminLicensesPage() {
     'rejected',
     ],
   ),
-    q.getPlaybooksWithRequirements(supabase),
+    q.getPlaybooksWithRequirements(),
   ])
 
   const requestedOwnerIds = requestedApplicationsData?.map(app => app.company_owner_id).filter(id => id !== null) || []
@@ -32,7 +32,7 @@ export default async function AdminLicensesPage() {
 
   type OwnerProfileRow = { id: string; full_name: string | null; email: string | null }
   const { data: ownerProfilesRaw, error: profilesError } =
-    ownerIds.length > 0 ? await q.getUserProfilesByIds(supabase, ownerIds, 'id, full_name, email') : { data: [], error: null }
+    ownerIds.length > 0 ? await q.getUserProfilesByIds(ownerIds, 'id, full_name, email') : { data: [], error: null }
   const ownerProfiles = (ownerProfilesRaw ?? []) as unknown as OwnerProfileRow[]
 
   // Create a map of owner profiles by ID for quick lookup
@@ -72,9 +72,7 @@ export default async function AdminLicensesPage() {
 
 
   type ExpertProfileRow = { id: string; email: string | null; full_name: string | null; role: string | null }
-  const { data: expertsDataRaw, error: expertsError } = await q.getUserProfilesByRole(
-    supabase,
-    'expert',
+  const { data: expertsDataRaw, error: expertsError } = await q.getUserProfilesByRole('expert',
     'id, email, full_name, role'
   )
   const expertsData = (expertsDataRaw ?? []) as unknown as ExpertProfileRow[]

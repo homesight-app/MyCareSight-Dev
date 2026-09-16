@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { EXPERT_STEP_PHASES } from '@/lib/constants'
 import ApplicationNotesModal from './ApplicationNotesModal'
 
@@ -71,7 +71,6 @@ export default function ExpertStepsPanel({
     setTogglingStepId(step.id)
     try {
       const { error } = await q.updateApplicationStepCompleteById(
-        createClient(),
         step.id,
         applicationId,
         {

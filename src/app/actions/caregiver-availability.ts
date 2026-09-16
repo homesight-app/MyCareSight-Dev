@@ -1,55 +1,55 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql, { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import type { CaregiverAvailabilitySlotInput } from '@/lib/supabase/query'
-import type { Supabase } from '@/lib/supabase/types'
 
 type SlotPayload = Omit<CaregiverAvailabilitySlotInput, 'caregiver_member_id' | 'agency_id'>
 
-async function resolveMember(supabase: Supabase, caregiverMemberId: string) {
-  const { data } = await supabase
-    .from('caregiver_members')
-    .select('agency_id, user_id')
-    .eq('id', caregiverMemberId)
-    .maybeSingle()
-  return data
+async function resolveMember(caregiverMemberId: string): Promise<{ agency_id: string | null; user_id: string | null } | null> {
+  const rows = await sql`SELECT agency_id, user_id FROM caregiver_members WHERE id = ${caregiverMemberId} LIMIT 1`
+  return (rows[0] as { agency_id: string | null; user_id: string | null } | undefined) ?? null
 }
 
 export async function insertAvailabilitySlotAction(
   caregiverMemberId: string,
   payload: SlotPayload
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated' }
+  if (!session?.user) return { error: 'Not authenticated' }
 
-  const member = await resolveMember(supabase, caregiverMemberId)
-  if (!member) return { error: 'Caregiver record not found' }
-  if (member.user_id !== user.id) return { error: 'Forbidden' }
+  try {
+    return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
+      const member = await resolveMember(caregiverMemberId)
+      if (!member) return { error: 'Caregiver record not found' }
+      if (member.user_id !== session.user.id) return { error: 'Forbidden' }
 
-  const { data, error } = await q.insertCaregiverAvailabilitySlot(supabase, {
-    ...payload,
-    caregiver_member_id: caregiverMemberId,
-    agency_id: member.agency_id ?? null,
-  })
-  if (error) return { error: error.message }
+      const { data, error } = await q.insertCaregiverAvailabilitySlot({
+        ...payload,
+        caregiver_member_id: caregiverMemberId,
+        agency_id: member.agency_id ?? null,
+      })
+      if (error) return { error: error.message }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: member.agency_id ?? null,
-    table_name: 'caregiver_availability_slots',
-    record_id: data?.id ?? caregiverMemberId,
-    action: 'CREATE',
-    performed_by_user_id: user.id,
-    details: { is_recurring: payload.is_recurring, specific_date: payload.specific_date ?? null },
-  })
-  if (auditErr) console.error('[caregiver-availability/insert] Audit log failed. memberId=%s err=%s', caregiverMemberId, auditErr.message)
+      const { error: auditErr } = await q.insertAuditLog({
+        agency_id: member.agency_id ?? null,
+        table_name: 'caregiver_availability_slots',
+        record_id: data?.id ?? caregiverMemberId,
+        action: 'CREATE',
+        performed_by_user_id: session.user.id,
+        details: { is_recurring: payload.is_recurring, specific_date: payload.specific_date ?? null },
+      })
+      if (auditErr) console.error('[caregiver-availability/insert] Audit log failed. memberId=%s err=%s', caregiverMemberId, auditErr.message)
 
-  revalidatePath('/pages/caregiver/calendar')
-  return { error: null }
+      revalidatePath('/pages/caregiver/calendar')
+      return { error: null }
+    })
+  } catch (err) {
+    console.error('[caregiver-availability/insertAvailabilitySlotAction]', err)
+    return { error: 'Internal error' }
+  }
 }
 
 export async function updateAvailabilitySlotAction(
@@ -57,58 +57,68 @@ export async function updateAvailabilitySlotAction(
   slotId: string,
   payload: SlotPayload
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated' }
+  if (!session?.user) return { error: 'Not authenticated' }
 
-  const member = await resolveMember(supabase, caregiverMemberId)
-  if (!member) return { error: 'Caregiver record not found' }
-  if (member.user_id !== user.id) return { error: 'Forbidden' }
+  try {
+    return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
+      const member = await resolveMember(caregiverMemberId)
+      if (!member) return { error: 'Caregiver record not found' }
+      if (member.user_id !== session.user.id) return { error: 'Forbidden' }
 
-  const { error } = await q.updateCaregiverAvailabilitySlot(supabase, slotId, caregiverMemberId, payload)
-  if (error) return { error: error.message }
+      const { error } = await q.updateCaregiverAvailabilitySlot(slotId, caregiverMemberId, payload)
+      if (error) return { error: error.message }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: member.agency_id ?? null,
-    table_name: 'caregiver_availability_slots',
-    record_id: slotId,
-    action: 'UPDATE',
-    performed_by_user_id: user.id,
-    details: { is_recurring: payload.is_recurring, specific_date: payload.specific_date ?? null },
-  })
-  if (auditErr) console.error('[caregiver-availability/update] Audit log failed. slotId=%s err=%s', slotId, auditErr.message)
+      const { error: auditErr } = await q.insertAuditLog({
+        agency_id: member.agency_id ?? null,
+        table_name: 'caregiver_availability_slots',
+        record_id: slotId,
+        action: 'UPDATE',
+        performed_by_user_id: session.user.id,
+        details: { is_recurring: payload.is_recurring, specific_date: payload.specific_date ?? null },
+      })
+      if (auditErr) console.error('[caregiver-availability/update] Audit log failed. slotId=%s err=%s', slotId, auditErr.message)
 
-  revalidatePath('/pages/caregiver/calendar')
-  return { error: null }
+      revalidatePath('/pages/caregiver/calendar')
+      return { error: null }
+    })
+  } catch (err) {
+    console.error('[caregiver-availability/updateAvailabilitySlotAction]', err)
+    return { error: 'Internal error' }
+  }
 }
 
 export async function deleteAvailabilitySlotAction(
   caregiverMemberId: string,
   slotId: string
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated' }
+  if (!session?.user) return { error: 'Not authenticated' }
 
-  const member = await resolveMember(supabase, caregiverMemberId)
-  if (!member) return { error: 'Caregiver record not found' }
-  if (member.user_id !== user.id) return { error: 'Forbidden' }
+  try {
+    return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
+      const member = await resolveMember(caregiverMemberId)
+      if (!member) return { error: 'Caregiver record not found' }
+      if (member.user_id !== session.user.id) return { error: 'Forbidden' }
 
-  const { error } = await q.deleteCaregiverAvailabilitySlot(supabase, slotId, caregiverMemberId)
-  if (error) return { error: error.message }
+      const { error } = await q.deleteCaregiverAvailabilitySlot(slotId, caregiverMemberId)
+      if (error) return { error: error.message }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: member.agency_id ?? null,
-    table_name: 'caregiver_availability_slots',
-    record_id: slotId,
-    action: 'DELETE',
-    performed_by_user_id: user.id,
-    details: {},
-  })
-  if (auditErr) console.error('[caregiver-availability/delete] Audit log failed. slotId=%s err=%s', slotId, auditErr.message)
+      const { error: auditErr } = await q.insertAuditLog({
+        agency_id: member.agency_id ?? null,
+        table_name: 'caregiver_availability_slots',
+        record_id: slotId,
+        action: 'DELETE',
+        performed_by_user_id: session.user.id,
+        details: {},
+      })
+      if (auditErr) console.error('[caregiver-availability/delete] Audit log failed. slotId=%s err=%s', slotId, auditErr.message)
 
-  revalidatePath('/pages/caregiver/calendar')
-  return { error: null }
+      revalidatePath('/pages/caregiver/calendar')
+      return { error: null }
+    })
+  } catch (err) {
+    console.error('[caregiver-availability/deleteAvailabilitySlotAction]', err)
+    return { error: 'Internal error' }
+  }
 }

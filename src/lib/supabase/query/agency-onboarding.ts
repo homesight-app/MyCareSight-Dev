@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 export interface OnboardingToken {
   id: string
@@ -36,117 +36,170 @@ export interface AgencyKeyStaff {
   updated_at: string
 }
 
-export async function getActiveOnboardingToken(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agency_onboarding_tokens')
-    .select('*')
-    .eq('agency_id', agencyId)
-    .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+export async function getActiveOnboardingToken(agencyId: string) {
+  try {
+    const now = new Date().toISOString()
+    const rows = await sql`
+      SELECT * FROM agency_onboarding_tokens
+      WHERE agency_id = ${agencyId}
+        AND expires_at > ${now}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `
+    return { data: (rows[0] ?? null) as OnboardingToken | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getOnboardingTokenByValue(supabase: Supabase, tokenValue: string) {
-  return supabase
-    .from('agency_onboarding_tokens')
-    .select('*')
-    .eq('token', tokenValue)
-    .maybeSingle()
+export async function getOnboardingTokenByValue(tokenValue: string) {
+  try {
+    const rows = await sql`
+      SELECT * FROM agency_onboarding_tokens
+      WHERE token = ${tokenValue}
+      LIMIT 1
+    `
+    return { data: (rows[0] ?? null) as OnboardingToken | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function insertOnboardingToken(
-  supabase: Supabase,
   payload: { agency_id: string; created_by: string; expires_at: string; note?: string | null }
 ) {
-  return supabase
-    .from('agency_onboarding_tokens')
-    .insert(payload)
-    .select('*')
-    .single()
+  try {
+    const rows = await sql`
+      INSERT INTO agency_onboarding_tokens ${sql(payload)}
+      RETURNING *
+    `
+    if (!rows[0]) throw new Error('Insert returned no rows')
+    return { data: rows[0] as OnboardingToken, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function expireTokensForAgency(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agency_onboarding_tokens')
-    .update({ expires_at: new Date().toISOString() })
-    .eq('agency_id', agencyId)
-    .gt('expires_at', new Date().toISOString())
+export async function expireTokensForAgency(agencyId: string) {
+  try {
+    const now = new Date().toISOString()
+    await sql`
+      UPDATE agency_onboarding_tokens
+      SET expires_at = ${now}
+      WHERE agency_id = ${agencyId}
+        AND expires_at > ${now}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function incrementTokenUseCount(supabase: Supabase, tokenId: string, currentCount: number) {
-  return supabase
-    .from('agency_onboarding_tokens')
-    .update({ use_count: currentCount + 1 })
-    .eq('id', tokenId)
+export async function incrementTokenUseCount(tokenId: string, currentCount: number) {
+  try {
+    await sql`
+      UPDATE agency_onboarding_tokens
+      SET use_count = ${currentCount + 1}
+      WHERE id = ${tokenId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getKeyStaffByAgencyId(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agency_key_staff')
-    .select('*')
-    .eq('agency_id', agencyId)
-    .eq('status', 'active')
-    .order('created_at', { ascending: true })
+export async function getKeyStaffByAgencyId(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT * FROM agency_key_staff
+      WHERE agency_id = ${agencyId}
+        AND status = 'active'
+      ORDER BY created_at ASC
+    `
+    return { data: rows as unknown as AgencyKeyStaff[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function insertKeyStaffMember(
-  supabase: Supabase,
   agencyId: string,
   officerRole: string,
   payload: Record<string, unknown>
 ) {
-  return supabase
-    .from('agency_key_staff')
-    .insert({ agency_id: agencyId, officer_role: officerRole, officer_roles: [officerRole], ...payload })
-    .select('*')
-    .single()
+  try {
+    const data = { agency_id: agencyId, officer_role: officerRole, officer_roles: [officerRole], ...payload }
+    const keys = Object.keys(data) as unknown as any[]
+    const rows = await sql`INSERT INTO agency_key_staff ${sql(data, ...keys)} RETURNING *`
+    if (!rows[0]) throw new Error('Insert returned no rows')
+    return { data: rows[0] as AgencyKeyStaff, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function upsertKeyStaffMember(
-  supabase: Supabase,
   agencyId: string,
   officerRole: string,
   payload: Record<string, unknown>
 ) {
-  const { data: existing } = await supabase
-    .from('agency_key_staff')
-    .select('id, officer_roles')
-    .eq('agency_id', agencyId)
-    .eq('officer_role', officerRole)
-    .eq('status', 'active')
-    .maybeSingle()
+  try {
+    const existingRows = await sql`
+      SELECT id, officer_roles FROM agency_key_staff
+      WHERE agency_id = ${agencyId}
+        AND officer_role = ${officerRole}
+        AND status = 'active'
+      LIMIT 1
+    `
+    const existing = existingRows[0] as any | undefined
 
-  if (existing?.id) {
-    // Ensure this role is in the array (may have been backfilled as empty)
-    const existingRoles = existing.officer_roles as string[]
-    const mergedRoles = existingRoles.includes(officerRole) ? existingRoles : [...existingRoles, officerRole]
-    return supabase
-      .from('agency_key_staff')
-      .update({ ...payload, officer_roles: mergedRoles, updated_at: new Date().toISOString() })
-      .eq('id', existing.id)
-      .select('*')
-      .single()
+    if (existing?.id) {
+      // Ensure this role is in the array (may have been backfilled as empty)
+      const existingRoles = existing.officer_roles as unknown as string[]
+      const mergedRoles = existingRoles.includes(officerRole) ? existingRoles : [...existingRoles, officerRole]
+      const updateData = { ...payload, officer_roles: mergedRoles, updated_at: new Date().toISOString() }
+      const updateKeys = Object.keys(updateData) as unknown as any[]
+      const rows = await sql`
+        UPDATE agency_key_staff
+        SET ${sql(updateData, ...updateKeys)}
+        WHERE id = ${existing.id}
+        RETURNING *
+      `
+      if (!rows[0]) throw new Error('Update returned no rows')
+      return { data: rows[0] as AgencyKeyStaff, error: null }
+    }
+
+    const insertData = { agency_id: agencyId, officer_role: officerRole, officer_roles: [officerRole], ...payload }
+    const insertKeys = Object.keys(insertData) as unknown as any[]
+    const rows = await sql`INSERT INTO agency_key_staff ${sql(insertData, ...insertKeys)} RETURNING *`
+    if (!rows[0]) throw new Error('Insert returned no rows')
+    return { data: rows[0] as AgencyKeyStaff, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
-  return supabase
-    .from('agency_key_staff')
-    .insert({ agency_id: agencyId, officer_role: officerRole, officer_roles: [officerRole], ...payload })
-    .select('*')
-    .single()
 }
 
-export async function updateKeyStaffById(supabase: Supabase, id: string, payload: Record<string, unknown>) {
-  return supabase
-    .from('agency_key_staff')
-    .update({ ...payload, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*')
-    .single()
+export async function updateKeyStaffById(id: string, payload: Record<string, unknown>) {
+  try {
+    const data = { ...payload, updated_at: new Date().toISOString() }
+    const keys = Object.keys(data) as unknown as any[]
+    const rows = await sql`UPDATE agency_key_staff SET ${sql(data, ...keys)} WHERE id = ${id} RETURNING *`
+    if (!rows[0]) throw new Error('Not found')
+    return { data: rows[0] as AgencyKeyStaff, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function deactivateKeyStaffById(supabase: Supabase, id: string) {
-  return supabase
-    .from('agency_key_staff')
-    .update({ status: 'inactive', updated_at: new Date().toISOString() })
-    .eq('id', id)
+export async function deactivateKeyStaffById(id: string) {
+  try {
+    await sql`
+      UPDATE agency_key_staff
+      SET status = 'inactive', updated_at = ${new Date().toISOString()}
+      WHERE id = ${id}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }

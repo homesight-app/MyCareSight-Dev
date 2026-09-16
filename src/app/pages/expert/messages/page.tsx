@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 
 import {
   MessageSquare,
@@ -85,14 +85,14 @@ function ExpertMessagesContent() {
       setUser(currentUser)
       const supabase = createClient()
 
-      const { data: profileData } = await q.getUserProfileFull(supabase, currentUser.id)
+      const { data: profileData } = await q.getUserProfileFull(currentUser.id)
       if (profileData?.role !== 'expert') {
         router.push('/pages/agency')
         return
       }
       setProfile(profileData)
 
-      const { data: expertRecord } = await q.getLicensingExpertByUserId(supabase, currentUser.id)
+      const { data: expertRecord } = await q.getLicensingExpertByUserId(currentUser.id)
       if (!expertRecord) {
         setMessageDashboardTotals({ total: 0, unread: 0 })
         setLoading(false)
@@ -101,22 +101,20 @@ function ExpertMessagesContent() {
         return
       }
 
-      const { data: clientsData } = await q.getClientsByExpertId(supabase, currentUser.id)
+      const { data: clientsData } = await q.getClientsByExpertId(currentUser.id)
       setClients(clientsData || [])
 
-      const { data: applicationsData } = await q.getApplicationsByAssignedExpertIdSelect(
-        supabase,
-        currentUser.id,
+      const { data: applicationsData } = await q.getApplicationsByAssignedExpertIdSelect(currentUser.id,
         'id, application_name, state, company_owner_id'
       )
       const applicationIds = ((applicationsData || []) as unknown as { id: string }[]).map(app => app.id)
       const { data: conversationsData } = applicationIds.length > 0
-        ? await q.getConversationsWithApplicationByApplicationIds(supabase, applicationIds)
+        ? await q.getConversationsWithApplicationByApplicationIds(applicationIds)
         : { data: [] }
 
       const conversationIds = (conversationsData || []).map(c => c.id)
       const { data: unreadCounts } = conversationIds.length > 0
-        ? await q.rpcCountUnreadMessagesForUser(supabase, conversationIds, currentUser.id)
+        ? await q.rpcCountUnreadMessagesForUser(conversationIds, currentUser.id)
         : { data: [] }
 
       const unreadCountsByConv: Record<string, number> = {}
@@ -135,9 +133,7 @@ function ExpertMessagesContent() {
 
       const [unreadRes, countRes] = await Promise.all([
         conversationIds.length > 0
-          ? q.rpcGetUnreadMessagesForUserInConversations(
-              supabase,
-              conversationIds,
+          ? q.rpcGetUnreadMessagesForUserInConversations(conversationIds,
               currentUser.id,
               2000
             )
@@ -173,12 +169,12 @@ function ExpertMessagesContent() {
       if (!currentUser) return
       const supabase = createClient()
 
-      const { data: messagesData } = await q.getMessagesByConversationId(supabase, conversationId)
+      const { data: messagesData } = await q.getMessagesByConversationId(conversationId)
 
       if (messagesData && messagesData.length > 0) {
         const senderIds = Array.from(new Set(messagesData.map(m => m.sender_id)))
         const { data: userProfilesData } = senderIds.length > 0
-          ? await q.getUserProfilesByIds(supabase, senderIds, 'id, full_name, role')
+          ? await q.getUserProfilesByIds(senderIds, 'id, full_name, role')
           : { data: [] }
         type ProfileShape = { id: string; full_name: string | null; role: string | null }
         const profilesList = (userProfilesData ?? []) as unknown as ProfileShape[]
@@ -207,7 +203,7 @@ function ExpertMessagesContent() {
         if (unreadMessages.length > 0) {
           const ids = unreadMessages.map((m) => m.id).filter((id) => typeof id === 'string' && id.length > 0)
           if (ids.length > 0) {
-            const { error: markReadErr } = await q.rpcMarkMessagesAsReadByUser(supabase, ids, currentUser.id)
+            const { error: markReadErr } = await q.rpcMarkMessagesAsReadByUser(ids, currentUser.id)
             if (markReadErr) console.error('Error marking messages read:', markReadErr)
           }
         }
@@ -279,7 +275,7 @@ function ExpertMessagesContent() {
           // Get the new message
           const newMessage = payload.new as Message
           
-          const { data: userProfiles } = await q.getUserProfilesByIds(supabase, [newMessage.sender_id], 'id, full_name, role')
+          const { data: userProfiles } = await q.getUserProfilesByIds([newMessage.sender_id], 'id, full_name, role')
           type ProfileShape = { id: string; full_name: string | null; role: string | null }
           const userProfile = (userProfiles?.[0] ?? null) as ProfileShape | null
 
@@ -308,7 +304,7 @@ function ExpertMessagesContent() {
             const isRead = newMessage.is_read
             const isReadByUser = Array.isArray(isRead) && isRead.includes(user.id)
             if (!isReadByUser) {
-              await q.rpcMarkMessageAsReadByUser(supabase, newMessage.id, user.id)
+              await q.rpcMarkMessageAsReadByUser(newMessage.id, user.id)
             }
           }
         }
@@ -329,29 +325,29 @@ function ExpertMessagesContent() {
       if (!currentUser) return
       const supabase = createClient()
 
-      const { data: client } = await q.getClientById(supabase, selectedClient)
+      const { data: client } = await q.getClientById(selectedClient)
       if (!client) throw new Error('Client not found')
 
       const { data: application } = client.agency_id
-        ? await q.getApplicationByAgencyAndExpert(supabase, client.agency_id, currentUser.id)
+        ? await q.getApplicationByAgencyAndExpert(client.agency_id, currentUser.id)
         : { data: null }
       if (!application) {
         throw new Error('No application found for this client. Please ensure you are assigned to an application.')
       }
 
       let conversationId: string | null = null
-      const { data: existingConv } = await q.getConversationByApplicationId(supabase, application.id)
+      const { data: existingConv } = await q.getConversationByApplicationId(application.id)
 
       if (existingConv?.id) {
         conversationId = existingConv.id
       } else {
-        const { data: newConv, error: convError } = await q.insertConversation(supabase, {
+        const { data: newConv, error: convError } = await q.insertConversation({
           client_id: selectedClient,
           application_id: application.id
         })
         if (convError) {
-          if (convError.code === '23505') {
-            const { data: existing } = await q.getConversationByApplicationId(supabase, application.id)
+          if ((convError as any).code === '23505') {
+            const { data: existing } = await q.getConversationByApplicationId(application.id)
             if (existing?.id) conversationId = existing.id
             else throw convError
           } else throw convError
@@ -361,14 +357,14 @@ function ExpertMessagesContent() {
       }
 
       if (!conversationId) throw new Error('Conversation not found')
-      const { error: messageError } = await q.insertMessage(supabase, {
+      const { error: messageError } = await q.insertMessage({
         conversation_id: conversationId,
         sender_id: currentUser.id,
         content: messageContent.trim()
       })
       if (messageError) throw messageError
 
-      const { data: currentUserProfiles } = await q.getUserProfilesByIds(supabase, [currentUser.id], 'id, full_name, role')
+      const { data: currentUserProfiles } = await q.getUserProfilesByIds([currentUser.id], 'id, full_name, role')
       type SenderProfile = { id: string; full_name: string | null; role: string | null }
       const currentUserProfile = (currentUserProfiles?.[0] ?? null) as SenderProfile | null
 

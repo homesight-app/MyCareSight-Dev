@@ -1,8 +1,8 @@
-'use server'
+﻿'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbooks'
 import { removeFiles } from '@/lib/storage/client'
@@ -39,31 +39,26 @@ export async function getOrCreatePlaybook(licenseRequirementId: string) {
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden', playbook: null }
 
-  const supabase = createAdminClient()
-
-  const { data: existing } = await q.getPlaybookByRequirementId(supabase, licenseRequirementId)
+  const { data: existing } = await q.getPlaybookByRequirementId(licenseRequirementId)
   if (existing) return { error: null, playbook: existing }
 
-  const { data: lr } = await supabase
-    .from('license_requirements')
-    .select('state, license_type')
-    .eq('id', licenseRequirementId)
-    .maybeSingle()
+  const [lr] = await sql<{ state: string; license_type: string }[]>`
+    SELECT state, license_type FROM license_requirements WHERE id = ${licenseRequirementId} LIMIT 1
+  `
 
   const name = lr ? `${lr.state} – ${lr.license_type}` : 'Playbook'
 
   // Pre-populate all display fields from the matching license type
-  let ltFields: Partial<Parameters<typeof q.insertPlaybook>[1]> = {}
+  let ltFields: Partial<Parameters<typeof q.insertPlaybook>[0]> = {}
   if (lr?.license_type) {
-    const { data: lt } = await supabase
-      .from('license_types')
-      .select('description, cost_min, cost_max, cost_display, service_fee, service_fee_display, processing_time_min, processing_time_max, processing_time_display, renewal_period_years, renewal_period_display, icon_type, requirements')
-      .eq('name', lr.license_type)
-      .maybeSingle()
+    const [lt] = await sql<{ description: string | null; cost_min: number | null; cost_max: number | null; cost_display: string | null; service_fee: number | null; service_fee_display: string | null; processing_time_min: number | null; processing_time_max: number | null; processing_time_display: string | null; renewal_period_years: number | null; renewal_period_display: string | null; icon_type: string | null; requirements: string[] | null }[]>`
+      SELECT description, cost_min, cost_max, cost_display, service_fee, service_fee_display, processing_time_min, processing_time_max, processing_time_display, renewal_period_years, renewal_period_display, icon_type, requirements
+      FROM license_types WHERE name = ${lr.license_type} LIMIT 1
+    `
     if (lt) ltFields = lt
   }
 
-  const { data, error } = await q.insertPlaybook(supabase, {
+  const { data, error } = await q.insertPlaybook({
     name,
     license_requirement_id: licenseRequirementId,
     state: lr?.state ?? null,
@@ -80,8 +75,7 @@ export async function getPlaybookItems(playbookId: string): Promise<{ error: str
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, items: [] }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.getPlaybookItems(supabase, playbookId)
+  const { data, error } = await q.getPlaybookItems(playbookId)
   if (error) return { error: error.message, items: [] }
   return { error: null, items: (data ?? []) as PlaybookItem[] }
 }
@@ -95,31 +89,28 @@ export async function importFromRequirement(playbookId: string, licenseRequireme
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = createAdminClient()
-
   // Guard: don't double-import
-  const { data: existing } = await q.getPlaybookItems(supabase, playbookId)
+  const { data: existing } = await q.getPlaybookItems(playbookId)
   if (existing && existing.length > 0) return { error: 'Playbook already has items' }
 
-  const [stepsRes, docsRes] = await Promise.all([
-    supabase
-      .from('license_requirement_steps')
-      .select('id, step_name, step_order, description, instructions, estimated_days, is_required, is_expert_step, phase')
-      .eq('license_requirement_id', licenseRequirementId)
-      .order('step_order', { ascending: true }),
-    supabase
-      .from('license_requirement_documents')
-      .select('id, document_name, document_type, description, is_required')
-      .eq('license_requirement_id', licenseRequirementId),
+  const [steps, docs] = await Promise.all([
+    sql<{ id: string; step_name: string; step_order: number; description: string | null; instructions: string | null; estimated_days: number | null; is_required: boolean; is_expert_step: boolean; phase: string | null }[]>`
+      SELECT id, step_name, step_order, description, instructions, estimated_days, is_required, is_expert_step, phase
+      FROM license_requirement_steps
+      WHERE license_requirement_id = ${licenseRequirementId}
+      ORDER BY step_order ASC
+    `,
+    sql<{ id: string; document_name: string; document_type: string | null; description: string | null; is_required: boolean }[]>`
+      SELECT id, document_name, document_type, description, is_required
+      FROM license_requirement_documents
+      WHERE license_requirement_id = ${licenseRequirementId}
+    `,
   ])
-
-  const steps = stepsRes.data ?? []
-  const docs = docsRes.data ?? []
 
   if (steps.length === 0 && docs.length === 0) return { error: 'No steps or documents to import' }
 
   let order = 1
-  const items: Parameters<typeof q.bulkInsertPlaybookItems>[1] = []
+  const items: Parameters<typeof q.bulkInsertPlaybookItems>[0] = []
 
   for (const s of steps) {
     items.push({
@@ -157,32 +148,31 @@ export async function importFromRequirement(playbookId: string, licenseRequireme
     })
   }
 
-  const { error } = await q.bulkInsertPlaybookItems(supabase, items)
+  const { error } = await q.bulkInsertPlaybookItems(items)
   if (error) return { error: error.message }
 
   // ── General Info + Templates are best-effort — don't fail the whole import ─
   try {
-    const [lrRes, lrTemplatesRes] = await Promise.all([
-      supabase
-        .from('license_requirements')
-        .select('state, license_type')
-        .eq('id', licenseRequirementId)
-        .maybeSingle(),
-      supabase
-        .from('license_requirement_templates')
-        .select('template_name, description, file_url, file_name')
-        .eq('license_requirement_id', licenseRequirementId),
+    const [lrRows, lrTemplates] = await Promise.all([
+      sql<{ state: string; license_type: string }[]>`
+        SELECT state, license_type FROM license_requirements WHERE id = ${licenseRequirementId} LIMIT 1
+      `,
+      sql<{ template_name: string; description: string | null; file_url: string; file_name: string }[]>`
+        SELECT template_name, description, file_url, file_name
+        FROM license_requirement_templates
+        WHERE license_requirement_id = ${licenseRequirementId}
+      `,
     ])
 
-    if (lrRes.data) {
-      const { data: lt } = await supabase
-        .from('license_types')
-        .select('description, cost_min, cost_max, cost_display, service_fee, service_fee_display, processing_time_min, processing_time_max, processing_time_display, renewal_period_years, renewal_period_display, icon_type, requirements')
-        .eq('name', lrRes.data.license_type)
-        .maybeSingle()
+    const lr2 = lrRows[0]
+    if (lr2) {
+      const [lt] = await sql<{ description: string | null; cost_min: number | null; cost_max: number | null; cost_display: string | null; service_fee: number | null; service_fee_display: string | null; processing_time_min: number | null; processing_time_max: number | null; processing_time_display: string | null; renewal_period_years: number | null; renewal_period_display: string | null; icon_type: string | null; requirements: string[] | null }[]>`
+        SELECT description, cost_min, cost_max, cost_display, service_fee, service_fee_display, processing_time_min, processing_time_max, processing_time_display, renewal_period_years, renewal_period_display, icon_type, requirements
+        FROM license_types WHERE name = ${lr2.license_type} LIMIT 1
+      `
 
       if (lt) {
-        await q.updatePlaybookRecord(supabase, playbookId, {
+        await q.updatePlaybookRecord(playbookId, {
           description: lt.description,
           cost_min: lt.cost_min,
           cost_max: lt.cost_max,
@@ -200,17 +190,14 @@ export async function importFromRequirement(playbookId: string, licenseRequireme
       }
     }
 
-    const lrTemplates = lrTemplatesRes.data ?? []
     if (lrTemplates.length > 0) {
-      await supabase
-        .from('playbook_templates')
-        .insert(lrTemplates.map(t => ({
-          playbook_id: playbookId,
-          template_name: t.template_name,
-          description: t.description ?? null,
-          file_url: t.file_url,
-          file_name: t.file_name,
-        })))
+      await sql`INSERT INTO playbook_templates ${sql(lrTemplates.map(t => ({
+        playbook_id: playbookId,
+        template_name: t.template_name,
+        description: t.description ?? null,
+        file_url: t.file_url,
+        file_name: t.file_name,
+      })))}`
     }
   } catch {
     // General info / template import is non-critical — items already committed above
@@ -238,15 +225,13 @@ export async function addPlaybookItem(
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden', item: null }
 
-  const supabase = createAdminClient()
-
   // Get max order
-  const { data: existing } = await q.getPlaybookItems(supabase, playbookId)
+  const { data: existing } = await q.getPlaybookItems(playbookId)
   const maxOrder = existing && existing.length > 0
     ? Math.max(...existing.map((i: PlaybookItem) => i.item_order))
     : 0
 
-  const { data, error } = await q.insertPlaybookItem(supabase, {
+  const { data, error } = await q.insertPlaybookItem({
     playbook_id: playbookId,
     item_order: maxOrder + 1,
     ...payload,
@@ -254,7 +239,7 @@ export async function addPlaybookItem(
 
   if (error) return { error: error.message, item: null }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: null,
     table_name: 'playbook_items',
     record_id: (data as { id: string } | null)?.id ?? playbookId,
@@ -284,11 +269,10 @@ export async function updatePlaybookItem(
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await q.updatePlaybookItem(supabase, itemId, payload)
+  const { error } = await q.updatePlaybookItem(itemId, payload)
   if (error) return { error: error.message }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: null,
     table_name: 'playbook_items',
     record_id: itemId,
@@ -306,11 +290,10 @@ export async function deletePlaybookItem(itemId: string) {
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await q.deletePlaybookItem(supabase, itemId)
+  const { error } = await q.deletePlaybookItem(itemId)
   if (error) return { error: error.message }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: null,
     table_name: 'playbook_items',
     record_id: itemId,
@@ -325,8 +308,7 @@ export async function deletePlaybookItem(itemId: string) {
 
 /** Fetch the active validation rule library (small, cacheable). */
 export async function getValidationRuleLibrary(): Promise<{ error: string | null; rules: ValidationRule[] }> {
-  const supabase = createAdminClient()
-  const { data, error } = await q.getValidationRuleLibrary(supabase)
+  const { data, error } = await q.getValidationRuleLibrary()
   if (error) return { error: error.message, rules: [] }
   return { error: null, rules: (data ?? []) as ValidationRule[] }
 }
@@ -336,8 +318,7 @@ export async function getPlaybookItemRules(playbookItemId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, ruleIds: [] as string[] }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.getPlaybookItemValidationRules(supabase, playbookItemId)
+  const { data, error } = await q.getPlaybookItemValidationRules(playbookItemId)
   if (error) return { error: error.message, ruleIds: [] as string[] }
   return { error: null, ruleIds: (data ?? []).map((r: { validation_rule_id: string }) => r.validation_rule_id) }
 }
@@ -350,13 +331,12 @@ export async function setPlaybookItemRules(playbookItemId: string, selectedRuleI
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = createAdminClient()
   const rules = selectedRuleIds.map((validation_rule_id, idx) => ({
     validation_rule_id,
     rule_order: idx + 1,
     is_required: true,
   }))
-  const { error } = await q.setPlaybookItemValidationRules(supabase, playbookItemId, rules)
+  const { error } = await q.setPlaybookItemValidationRules(playbookItemId, rules)
   if (error) return { error: (error as { message: string }).message }
   return { error: null }
 }
@@ -371,29 +351,27 @@ export async function copyPlaybookItems(
 
   if (sourceItemIds.length === 0) return { error: 'No items selected', items: [] }
 
-  const supabase = createAdminClient()
-
-  const ITEM_SELECT = 'id, playbook_id, item_order, item_type, name, description, instructions, estimated_days, document_type, phase, assignment, requirement_type, source_step_id, source_document_id, created_at, updated_at'
-
   // 1. Fetch source items
-  const { data: sourceItems, error: fetchErr } = await supabase
-    .from('playbook_items')
-    .select('id, item_type, name, description, instructions, estimated_days, document_type, phase, assignment, requirement_type')
-    .in('id', sourceItemIds)
-    .order('item_order', { ascending: true })
+  type SourceItem = { id: string; item_type: string; name: string; description: string | null; instructions: string | null; estimated_days: number | null; document_type: string | null; phase: string | null; assignment: string; requirement_type: string }
+  const sourceItems = await sql<SourceItem[]>`
+    SELECT id, item_type, name, description, instructions, estimated_days, document_type, phase, assignment, requirement_type
+    FROM playbook_items
+    WHERE id = ANY(${sourceItemIds}::uuid[])
+    ORDER BY item_order ASC
+  `
 
-  if (fetchErr || !sourceItems || sourceItems.length === 0) {
-    return { error: fetchErr?.message ?? 'No items found', items: [] }
-  }
+  if (sourceItems.length === 0) return { error: 'No items found', items: [] }
 
   // 2. Fetch validation rules for source items
-  const { data: sourceRules } = await supabase
-    .from('playbook_item_validation_rules')
-    .select('playbook_item_id, validation_rule_id, rule_order, is_required')
-    .in('playbook_item_id', sourceItemIds)
+  type SourceRule = { playbook_item_id: string; validation_rule_id: string; rule_order: number; is_required: boolean }
+  const sourceRules = await sql<SourceRule[]>`
+    SELECT playbook_item_id, validation_rule_id, rule_order, is_required
+    FROM playbook_item_validation_rules
+    WHERE playbook_item_id = ANY(${sourceItemIds}::uuid[])
+  `
 
   const rulesByItem: Record<string, Array<{ validation_rule_id: string; rule_order: number; is_required: boolean }>> = {}
-  for (const rule of sourceRules ?? []) {
+  for (const rule of sourceRules) {
     if (!rulesByItem[rule.playbook_item_id]) rulesByItem[rule.playbook_item_id] = []
     rulesByItem[rule.playbook_item_id].push({
       validation_rule_id: rule.validation_rule_id,
@@ -403,7 +381,7 @@ export async function copyPlaybookItems(
   }
 
   // 3. Get max item_order for target playbook
-  const { data: existing } = await q.getPlaybookItems(supabase, targetPlaybookId)
+  const { data: existing } = await q.getPlaybookItems(targetPlaybookId)
   const maxOrder = existing && existing.length > 0
     ? Math.max(...(existing as PlaybookItem[]).map(i => i.item_order))
     : 0
@@ -413,28 +391,26 @@ export async function copyPlaybookItems(
   const insertPayloads = sourceItems.map((item, idx) => ({
     playbook_id: targetPlaybookId,
     item_order: maxOrder + idx + 1,
-    item_type: item.item_type as 'step' | 'document',
+    item_type: item.item_type,
     name: item.name,
     description: item.description ?? null,
     instructions: item.instructions ?? null,
     estimated_days: item.estimated_days ?? null,
     document_type: item.document_type ?? null,
     phase: item.phase ?? null,
-    assignment: item.assignment as 'client' | 'expert' | 'both',
-    requirement_type: item.requirement_type as 'required' | 'optional',
-    source_step_id: null,
-    source_document_id: null,
+    assignment: item.assignment,
+    requirement_type: item.requirement_type,
+    source_step_id: null as string | null,
+    source_document_id: null as string | null,
     updated_at: now,
   }))
 
-  const { data: insertedItems, error: insertErr } = await supabase
-    .from('playbook_items')
-    .insert(insertPayloads)
-    .select(ITEM_SELECT)
+  const insertedItems = await sql<PlaybookItem[]>`
+    INSERT INTO playbook_items ${sql(insertPayloads)}
+    RETURNING id, playbook_id, item_order, item_type, name, description, instructions, estimated_days, document_type, phase, assignment, requirement_type, source_step_id, source_document_id, created_at, updated_at
+  `
 
-  if (insertErr || !insertedItems) {
-    return { error: insertErr?.message ?? 'Insert failed', items: [] }
-  }
+  if (insertedItems.length === 0) return { error: 'Insert failed', items: [] }
 
   // 5. Copy validation rules preserving order
   const ruleInserts: Array<{ playbook_item_id: string; validation_rule_id: string; rule_order: number; is_required: boolean }> = []
@@ -447,13 +423,13 @@ export async function copyPlaybookItems(
     }
   }
   if (ruleInserts.length > 0) {
-    await supabase.from('playbook_item_validation_rules').insert(ruleInserts)
+    await sql`INSERT INTO playbook_item_validation_rules ${sql(ruleInserts)}`
   }
 
   revalidatePath('/pages/admin/playbooks')
   revalidatePath('/pages/admin/license-requirements')
 
-  return { error: null, items: insertedItems as PlaybookItem[] }
+  return { error: null, items: insertedItems }
 }
 
 /** Fetch all active playbooks except the current one (for Copy tab dropdown). */
@@ -461,8 +437,7 @@ export async function getOtherPlaybooksForCopy(currentPlaybookId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, playbooks: [] as OtherPlaybook[] }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.getOtherPlaybooks(supabase, currentPlaybookId)
+  const { data, error } = await q.getOtherPlaybooks(currentPlaybookId)
   if (error) return { error: error.message, playbooks: [] as OtherPlaybook[] }
   return { error: null, playbooks: (data ?? []) as unknown as OtherPlaybook[] }
 }
@@ -472,8 +447,7 @@ export async function getAllItemsForBrowse(excludePlaybookId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, items: [] as PlaybookItemWithPlaybook[] }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.getAllPlaybookItemsWithPlaybookInfo(supabase, excludePlaybookId)
+  const { data, error } = await q.getAllPlaybookItemsWithPlaybookInfo(excludePlaybookId)
   if (error) return { error: error.message, items: [] as PlaybookItemWithPlaybook[] }
   return { error: null, items: (data ?? []) as unknown as PlaybookItemWithPlaybook[] }
 }
@@ -483,8 +457,7 @@ export async function reorderPlaybookItems(playbookId: string, orderedIds: strin
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = createAdminClient()
-  const { error } = await q.reorderPlaybookItems(supabase, orderedIds)
+  const { error } = await q.reorderPlaybookItems(orderedIds)
   if (error) return { error: typeof error === 'string' ? error : (error as { message: string }).message }
   return { error: null }
 }
@@ -506,50 +479,36 @@ export async function addProgramItem(
   const { error: authError, session } = await requireStaff()
   if (authError || !session) return { error: authError ?? 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
-
-  const [{ data: maxRow }, { data: appRow }] = await Promise.all([
-    supabase
-      .from('application_playbook_items')
-      .select('item_order')
-      .eq('application_id', applicationId)
-      .order('item_order', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('applications')
-      .select('agency_id')
-      .eq('id', applicationId)
-      .maybeSingle(),
+  const [[maxRow], [appRow]] = await Promise.all([
+    sql<{ item_order: number | null }[]>`
+      SELECT item_order FROM application_playbook_items WHERE application_id = ${applicationId} ORDER BY item_order DESC LIMIT 1
+    `,
+    sql<{ agency_id: string | null }[]>`
+      SELECT agency_id FROM applications WHERE id = ${applicationId} LIMIT 1
+    `,
   ])
 
   const nextOrder = (maxRow?.item_order ?? 0) + 1
 
-  const { data, error } = await supabase
-    .from('application_playbook_items')
-    .insert({
-      application_id: applicationId,
-      item_order: nextOrder,
-      item_type: item.item_type,
-      name: item.name.trim(),
-      description: item.description ?? null,
-      instructions: item.instructions ?? null,
-      document_type: item.document_type ?? null,
-      phase: item.phase ?? null,
-      assignment: item.assignment,
-      requirement_type: item.requirement_type,
-      status: 'not_started',
-      updated_by: session.user.id,
-    })
-    .select()
-    .single()
+  const [data] = await sql<Record<string, unknown>[]>`
+    INSERT INTO application_playbook_items (
+      application_id, item_order, item_type, name, description, instructions,
+      document_type, phase, assignment, requirement_type, status, updated_by
+    ) VALUES (
+      ${applicationId}, ${nextOrder}, ${item.item_type}, ${item.name.trim()},
+      ${item.description ?? null}, ${item.instructions ?? null},
+      ${item.document_type ?? null}, ${item.phase ?? null},
+      ${item.assignment}, ${item.requirement_type}, 'not_started', ${session.user.id}
+    )
+    RETURNING *
+  `
 
-  if (error) return { error: error.message, data: null }
+  if (!data) return { error: 'Insert failed', data: null }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: appRow?.agency_id ?? null,
     table_name: 'application_playbook_items',
-    record_id: (data as { id: string } | null)?.id ?? applicationId,
+    record_id: (data.id as string) ?? applicationId,
     action: 'CREATE',
     performed_by_user_id: session.user.id,
     details: { application_id: applicationId, item_type: item.item_type, name: item.name.trim() },
@@ -573,12 +532,10 @@ import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
  * Called on first load of the Requirements tab for any application.
  */
 export async function migrateApplicationToProgram(applicationId: string): Promise<{ error: string | null; count: number }> {
-  const supabase = createAdminClient()
-
   // Fetch existing program items to know what's already been migrated.
   // If this SELECT fails (e.g. missing column, RLS), bail out — never proceed
   // blindly with an empty set or we risk re-inserting every item on every load.
-  const { data: existingItems, error: fetchError } = await q.getApplicationPlaybookItems(supabase, applicationId)
+  const { data: existingItems, error: fetchError } = await q.getApplicationPlaybookItems(applicationId)
   if (fetchError) return { error: fetchError.message, count: 0 }
   const existing = existingItems ?? []
 
@@ -588,50 +545,42 @@ export async function migrateApplicationToProgram(applicationId: string): Promis
   const maxOrder = existing.length > 0 ? Math.max(...existing.map(i => i.item_order)) : 0
 
   // Resolve the application details (license type for LRD lookup, agency_id for note migration)
-  const { data: app } = await supabase
-    .from('applications')
-    .select('license_type_id, state, agency_id')
-    .eq('id', applicationId)
-    .single()
+  const [app] = await sql<{ license_type_id: string | null; state: string | null; agency_id: string | null }[]>`
+    SELECT license_type_id, state, agency_id FROM applications WHERE id = ${applicationId} LIMIT 1
+  `
+
+  type StepRow = { id: string; step_name: string; step_order: number; description: string | null; instructions: string | null; phase: string | null; is_expert_step: boolean; is_completed: boolean | null; completed_at: string | null; completed_by: string | null; notes: string | null }
+  type LrdRow = { id: string; document_name: string; document_type: string | null; description: string | null; is_required: boolean }
 
   // Fetch old steps + license requirement documents in parallel
-  const [stepsRes, lrdRes] = await Promise.all([
-    supabase
-      .from('application_steps')
-      .select('id, step_name, step_order, description, instructions, phase, is_expert_step, is_completed, completed_at, completed_by, notes')
-      .eq('application_id', applicationId)
-      .order('step_order', { ascending: true }),
-    app?.license_type_id && app?.state
-      ? supabase
-          .from('license_types')
-          .select('name')
-          .eq('id', app.license_type_id)
-          .single()
-          .then(async ({ data: lt }) => {
-            if (!lt) return { data: [] }
-            const { data: lr } = await supabase
-              .from('license_requirements')
-              .select('id')
-              .eq('license_type', lt.name)
-              .eq('state', app.state)
-              .maybeSingle()
-            if (!lr) return { data: [] }
-            return supabase
-              .from('license_requirement_documents')
-              .select('id, document_name, document_type, description, is_required')
-              .eq('license_requirement_id', lr.id)
-              .order('id', { ascending: true })
-          })
-      : Promise.resolve({ data: [] }),
+  const [allSteps, allLrds] = await Promise.all([
+    sql<StepRow[]>`
+      SELECT id, step_name, step_order, description, instructions, phase, is_expert_step, is_completed, completed_at, completed_by, notes
+      FROM application_steps
+      WHERE application_id = ${applicationId}
+      ORDER BY step_order ASC
+    `,
+    (async (): Promise<LrdRow[]> => {
+      if (!app?.license_type_id || !app?.state) return []
+      const [lt] = await sql<{ name: string }[]>`SELECT name FROM license_types WHERE id = ${app.license_type_id} LIMIT 1`
+      if (!lt) return []
+      const [lr] = await sql<{ id: string }[]>`SELECT id FROM license_requirements WHERE license_type = ${lt.name} AND state = ${app.state} LIMIT 1`
+      if (!lr) return []
+      return sql<LrdRow[]>`
+        SELECT id, document_name, document_type, description, is_required
+        FROM license_requirement_documents
+        WHERE license_requirement_id = ${lr.id}
+        ORDER BY id ASC
+      `
+    })(),
   ])
 
   // If step items already exist (by count), never add more steps regardless of source ID tracking.
   // This prevents duplication when source IDs are missing due to earlier schema gaps.
   const steps = existingStepCount > 0
     ? []
-    : (stepsRes.data ?? []).filter(s => !alreadyMigratedStepIds.has(s.id))
-  const lrds  = ((lrdRes as { data: { id: string; document_name: string; document_type: string | null; description: string | null; is_required: boolean }[] | null }).data ?? [])
-    .filter(d => !alreadyMigratedLrdIds.has(d.id))
+    : allSteps.filter(s => !alreadyMigratedStepIds.has(s.id))
+  const lrds = allLrds.filter(d => !alreadyMigratedLrdIds.has(d.id))
 
   if (steps.length === 0 && lrds.length === 0) return { error: null, count: existing.length }
 
@@ -639,15 +588,16 @@ export async function migrateApplicationToProgram(applicationId: string): Promis
   const lrdIds = lrds.map(d => d.id)
   const uploadedByLrd: Record<string, string> = {}
   if (lrdIds.length > 0) {
-    const { data: appDocs } = await supabase
-      .from('application_documents')
-      .select('license_requirement_document_id, status')
-      .eq('application_id', applicationId)
-      .in('license_requirement_document_id', lrdIds)
+    const appDocs = await sql<{ license_requirement_document_id: string | null; status: string }[]>`
+      SELECT license_requirement_document_id, status
+      FROM application_documents
+      WHERE application_id = ${applicationId}
+      AND license_requirement_document_id = ANY(${lrdIds}::uuid[])
+    `
     const docStatusMap: Record<string, ApplicationPlaybookItem['status']> = {
       approved: 'approved', pending: 'review_needed', draft: 'not_started', rejected: 'not_started',
     }
-    for (const ad of appDocs ?? []) {
+    for (const ad of appDocs) {
       if (ad.license_requirement_document_id) {
         uploadedByLrd[ad.license_requirement_document_id] = docStatusMap[ad.status as string] ?? 'not_started'
       }
@@ -711,14 +661,14 @@ export async function migrateApplicationToProgram(applicationId: string): Promis
     })
   }
 
-  const { error } = await q.bulkInsertApplicationPlaybookItems(supabase, items)
+  const { error } = await q.bulkInsertApplicationPlaybookItems(items)
   if (error) return { error: (error as { message: string }).message, count: 0 }
 
   // Migrate step notes: for each new step item whose source step had a notes value,
   // create an internal_note record so it's visible in the Notes tab.
   const stepsWithNotes = steps.filter(s => s.notes?.trim())
   if (stepsWithNotes.length > 0 && app?.agency_id) {
-    const { data: freshItems } = await q.getApplicationPlaybookItems(supabase, applicationId)
+    const { data: freshItems } = await q.getApplicationPlaybookItems(applicationId)
     const itemByStepId = Object.fromEntries(
       (freshItems ?? [])
         .filter(i => i.source_application_step_id)
@@ -727,22 +677,22 @@ export async function migrateApplicationToProgram(applicationId: string): Promis
     const session = await getSession()
     const authorId = session?.user?.id ?? null
 
-    const noteInserts = stepsWithNotes
-      .map(s => {
-        const pi = itemByStepId[s.id]
-        if (!pi || !authorId) return null
-        return {
-          agency_id: app.agency_id,
-          subject_type: 'application_playbook_item',
-          subject_id: pi.id,
-          content: s.notes!.trim(),
-          created_by: authorId,
-        }
+    type NoteInsert = { agency_id: string | null; subject_type: string; subject_id: string; content: string; created_by: string }
+    const noteInserts: NoteInsert[] = []
+    for (const s of stepsWithNotes) {
+      const pi = itemByStepId[s.id]
+      if (!pi || !authorId) continue
+      noteInserts.push({
+        agency_id: app.agency_id,
+        subject_type: 'application_playbook_item',
+        subject_id: pi.id,
+        content: s.notes!.trim(),
+        created_by: authorId,
       })
-      .filter(Boolean)
+    }
 
     if (noteInserts.length > 0) {
-      await supabase.from('internal_notes').insert(noteInserts)
+      await sql`INSERT INTO internal_notes ${sql(noteInserts)}`
     }
   }
 
@@ -753,22 +703,20 @@ export async function migrateApplicationToProgram(applicationId: string): Promis
 
 /** Fetch all program items for an application. No auth guard — agency can view their own. */
 export async function getApplicationProgramItems(applicationId: string): Promise<{ error: string | null; items: ApplicationPlaybookItem[] }> {
-  const supabase = createAdminClient()
-  const { data, error } = await q.getApplicationPlaybookItems(supabase, applicationId)
+  const { data, error } = await q.getApplicationPlaybookItems(applicationId)
   if (error) return { error: error.message, items: [] }
   return { error: null, items: (data ?? []) as ApplicationPlaybookItem[] }
 }
 
 export async function getProgramItemNoteCounts(itemIds: string[]): Promise<Record<string, number>> {
   if (itemIds.length === 0) return {}
-  const supabase = createAdminClient()
-  const { data } = await supabase
-    .from('internal_notes')
-    .select('subject_id')
-    .eq('subject_type', 'application_playbook_item')
-    .in('subject_id', itemIds)
+  const rows = await sql<{ subject_id: string }[]>`
+    SELECT subject_id FROM internal_notes
+    WHERE subject_type = 'application_playbook_item'
+    AND subject_id = ANY(${itemIds}::uuid[])
+  `
   const counts: Record<string, number> = {}
-  for (const row of data ?? []) {
+  for (const row of rows) {
     counts[row.subject_id] = (counts[row.subject_id] ?? 0) + 1
   }
   return counts
@@ -782,18 +730,14 @@ export async function applyPlaybookToApplication(applicationId: string): Promise
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr ?? 'Forbidden', count: 0 }
 
-  const supabase = createAdminClient()
-
   // Guard: already has items
-  const { count: existing } = await q.getApplicationPlaybookItemCount(supabase, applicationId)
+  const { count: existing } = await q.getApplicationPlaybookItemCount(applicationId)
   if (existing && existing > 0) return { error: 'Already applied', count: existing }
 
   // Find the playbook — either via direct playbook_id (standalone) or via license_type + state
-  const { data: app } = await supabase
-    .from('applications')
-    .select('id, license_type_id, state, playbook_id')
-    .eq('id', applicationId)
-    .single()
+  const [app] = await sql<{ id: string; license_type_id: string | null; state: string | null; playbook_id: string | null }[]>`
+    SELECT id, license_type_id, state, playbook_id FROM applications WHERE id = ${applicationId} LIMIT 1
+  `
 
   let resolvedPlaybookId: string | null = null
 
@@ -804,34 +748,26 @@ export async function applyPlaybookToApplication(applicationId: string): Promise
     // License-requirement-linked playbook: resolve via license_type + state
     if (!app?.license_type_id || !app?.state) return { error: 'Application has no license type or state', count: 0 }
 
-    const { data: lr } = await supabase
-      .from('license_requirements')
-      .select('id')
-      .eq('license_type_id', app.license_type_id)
-      .eq('state', app.state)
-      .maybeSingle()
+    const [lr] = await sql<{ id: string }[]>`
+      SELECT id FROM license_requirements WHERE license_type_id = ${app.license_type_id} AND state = ${app.state} LIMIT 1
+    `
 
     if (!lr) return { error: 'No license requirement found for this application', count: 0 }
 
-    const { data: playbook } = await q.getPlaybookByRequirementId(supabase, lr.id)
+    const { data: playbook } = await q.getPlaybookByRequirementId(lr.id)
     if (!playbook) return { error: 'No playbook has been built for this license requirement yet', count: 0 }
     resolvedPlaybookId = playbook.id
   }
 
   // Copy category/subcategory from the resolved playbook to the application
-  const { data: resolvedPlaybook } = await supabase
-    .from('playbooks')
-    .select('category_id, subcategory_id')
-    .eq('id', resolvedPlaybookId!)
-    .maybeSingle()
+  const [resolvedPlaybook] = await sql<{ category_id: string | null; subcategory_id: string | null }[]>`
+    SELECT category_id, subcategory_id FROM playbooks WHERE id = ${resolvedPlaybookId!} LIMIT 1
+  `
   if (resolvedPlaybook?.category_id) {
-    await supabase.from('applications').update({
-      category_id: resolvedPlaybook.category_id,
-      subcategory_id: resolvedPlaybook.subcategory_id ?? null,
-    }).eq('id', applicationId)
+    await sql`UPDATE applications SET category_id = ${resolvedPlaybook.category_id}, subcategory_id = ${resolvedPlaybook.subcategory_id ?? null} WHERE id = ${applicationId}`
   }
 
-  const { data: playbookItems } = await q.getPlaybookItems(supabase, resolvedPlaybookId!)
+  const { data: playbookItems } = await q.getPlaybookItems(resolvedPlaybookId!)
   if (!playbookItems || playbookItems.length === 0) return { error: 'The playbook has no items', count: 0 }
 
   const now = new Date().toISOString()
@@ -858,20 +794,20 @@ export async function applyPlaybookToApplication(applicationId: string): Promise
     source_license_requirement_document_id: null,
   }))
 
-  const { error: insertErr } = await q.bulkInsertApplicationPlaybookItems(supabase, items)
+  const { error: insertErr } = await q.bulkInsertApplicationPlaybookItems(items)
   if (insertErr) return { error: (insertErr as { message: string }).message, count: 0 }
 
   // Copy validation rules for document items
   const docItems = (playbookItems as import('@/lib/supabase/query/playbooks').PlaybookItem[]).filter(pi => pi.item_type === 'document')
   if (docItems.length > 0) {
     // Get the newly inserted items to get their IDs
-    const { data: newItems } = await q.getApplicationPlaybookItems(supabase, applicationId)
+    const { data: newItems } = await q.getApplicationPlaybookItems(applicationId)
     const newItemsByPlaybookItemId = Object.fromEntries(
       (newItems ?? []).filter(i => i.playbook_item_id).map(i => [i.playbook_item_id, i])
     )
 
     for (const docItem of docItems) {
-      const { data: rules } = await q.getPlaybookItemValidationRules(supabase, docItem.id)
+      const { data: rules } = await q.getPlaybookItemValidationRules(docItem.id)
       if (!rules || rules.length === 0) continue
       const newItem = newItemsByPlaybookItemId[docItem.id]
       if (!newItem) continue
@@ -893,12 +829,11 @@ export async function applyPlaybookToApplication(applicationId: string): Promise
 
       // Get rule details
       const ruleIds = rules.map((r: import('@/lib/supabase/query/playbooks').PlaybookItemValidationRule) => r.validation_rule_id)
-      const { data: ruleDetails } = await supabase
-        .from('validation_rules')
-        .select('id, name, field_key, description')
-        .in('id', ruleIds)
+      const ruleDetails = await sql<{ id: string; name: string; field_key: string; description: string | null }[]>`
+        SELECT id, name, field_key, description FROM validation_rules WHERE id = ANY(${ruleIds}::uuid[])
+      `
 
-      const ruleMap = Object.fromEntries((ruleDetails ?? []).map(rd => [rd.id, rd]))
+      const ruleMap = Object.fromEntries(ruleDetails.map(rd => [rd.id, rd]))
       for (const check of checks) {
         const rd = ruleMap[check.validation_rule_id ?? '']
         if (rd) {
@@ -908,7 +843,7 @@ export async function applyPlaybookToApplication(applicationId: string): Promise
         }
       }
 
-      await supabase.from('application_playbook_item_rule_checks').insert(checks)
+      await sql`INSERT INTO application_playbook_item_rule_checks ${sql(checks)}`
     }
   }
 
@@ -935,45 +870,27 @@ export async function updateProgramItem(
     update.approved_by = null
   }
 
-  const supabase = createAdminClient()
-  const { error } = await q.updateApplicationPlaybookItemRow(supabase, itemId, update as Parameters<typeof q.updateApplicationPlaybookItemRow>[2])
+  const { error } = await q.updateApplicationPlaybookItemRow(itemId, update as Parameters<typeof q.updateApplicationPlaybookItemRow>[1])
   if (error) return { error: error.message }
 
   // ── Auto-transition application to under_review when all items complete ──────
   if (payload.status === 'approved') {
-    const { data: itemRow } = await supabase
-      .from('application_playbook_items')
-      .select('application_id')
-      .eq('id', itemId)
-      .single()
+    const [itemRow] = await sql<{ application_id: string | null }[]>`
+      SELECT application_id FROM application_playbook_items WHERE id = ${itemId} LIMIT 1
+    `
 
     if (itemRow?.application_id) {
       const appId = itemRow.application_id
-      const [{ count: incomplete }, { count: total }] = await Promise.all([
-        supabase
-          .from('application_playbook_items')
-          .select('id', { count: 'exact', head: true })
-          .eq('application_id', appId)
-          .in('status', ['not_started', 'in_progress', 'review_needed']),
-        supabase
-          .from('application_playbook_items')
-          .select('id', { count: 'exact', head: true })
-          .eq('application_id', appId),
+      const [[incompleteRow], [totalRow]] = await Promise.all([
+        sql<{ count: number }[]>`SELECT COUNT(*)::int AS count FROM application_playbook_items WHERE application_id = ${appId} AND status = ANY(ARRAY['not_started','in_progress','review_needed'])`,
+        sql<{ count: number }[]>`SELECT COUNT(*)::int AS count FROM application_playbook_items WHERE application_id = ${appId}`,
       ])
 
-      if (incomplete === 0 && (total ?? 0) > 0) {
-        const { data: app } = await supabase
-          .from('applications')
-          .select('status')
-          .eq('id', appId)
-          .single()
+      if ((incompleteRow?.count ?? 1) === 0 && (totalRow?.count ?? 0) > 0) {
+        const [appRow] = await sql<{ status: string }[]>`SELECT status FROM applications WHERE id = ${appId} LIMIT 1`
 
-        if (app?.status === 'in_progress' || app?.status === 'approved') {
-          const adminSupabase = await createAdminClient()
-          await adminSupabase
-            .from('applications')
-            .update({ status: 'under_review', last_updated_date: new Date().toISOString() })
-            .eq('id', appId)
+        if (appRow?.status === 'in_progress' || appRow?.status === 'approved') {
+          await sql`UPDATE applications SET status = 'under_review', last_updated_date = ${new Date().toISOString()} WHERE id = ${appId}`
 
           revalidatePath(`/pages/admin/programs/${appId}`)
           revalidatePath(`/pages/expert/programs/${appId}`)
@@ -996,8 +913,7 @@ export async function toggleProgramRuleCheck(
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await q.updateApplicationRuleCheck(supabase, ruleCheckId, {
+  const { error } = await q.updateApplicationRuleCheck(ruleCheckId, {
     is_checked: isChecked,
     checked_by: isChecked ? session.user.id : null,
     checked_at: isChecked ? new Date().toISOString() : null,
@@ -1009,30 +925,26 @@ export async function toggleProgramRuleCheck(
 
 /** Get validation rule checks for a program document item. No auth guard. */
 export async function getProgramItemRuleChecks(applicationPlaybookItemId: string) {
-  const supabase = createAdminClient()
-  const { data, error } = await q.getRuleChecksForApplicationItem(supabase, applicationPlaybookItemId)
+  const { data, error } = await q.getRuleChecksForApplicationItem(applicationPlaybookItemId)
   if (error) return { error: error.message, checks: [] as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[] }
   return { error: null, checks: (data ?? []) as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[] }
 }
 
 /** Get documents uploaded for a specific program requirement item. No auth guard. */
 export async function getProgramItemDocuments(applicationPlaybookItemId: string) {
-  const supabase = createAdminClient()
-  const { data, error } = await q.getDocumentsByPlaybookItem(supabase, applicationPlaybookItemId)
+  const { data, error } = await q.getDocumentsByPlaybookItem(applicationPlaybookItemId)
   if (error) return { error: error.message, documents: [] as { id: string; document_name: string; document_url: string; document_type: string | null; status: string | null; description: string | null; expert_review_notes: string | null; created_at: string }[] }
   return { error: null, documents: data ?? [] }
 }
 
 /** Get agency field values needed for document validation display. No auth guard. */
 export async function getAgencyFieldValues(agencyId: string) {
-  const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('agencies')
-    .select('legal_entity_name, name, dba_name, licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code')
-    .eq('id', agencyId)
-    .single()
-  if (error) return { error: error.message, agency: null }
-  return { error: null, agency: data }
+  const [agency] = await sql<AgencyFields[]>`
+    SELECT legal_entity_name, name, dba_name, licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code
+    FROM agencies WHERE id = ${agencyId} LIMIT 1
+  `
+  if (!agency) return { error: 'Agency not found', agency: null }
+  return { error: null, agency }
 }
 
 // ─── Application rule check management ───────────────────────────────────────
@@ -1103,21 +1015,17 @@ export async function addApplicationItemRule(itemId: string, validationRuleId: s
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, check: null }
 
-  const supabase = createAdminClient()
+  const [rule] = await sql<{ id: string; name: string; field_key: string; description: string | null }[]>`
+    SELECT id, name, field_key, description FROM validation_rules WHERE id = ${validationRuleId} LIMIT 1
+  `
+  if (!rule) return { error: 'Rule not found', check: null }
 
-  const { data: rule, error: ruleErr } = await supabase
-    .from('validation_rules')
-    .select('id, name, field_key, description')
-    .eq('id', validationRuleId)
-    .single()
-  if (ruleErr || !rule) return { error: ruleErr?.message ?? 'Rule not found', check: null }
-
-  const { data: existing } = await q.getRuleChecksForApplicationItem(supabase, itemId)
+  const { data: existing } = await q.getRuleChecksForApplicationItem(itemId)
   const maxOrder = existing && existing.length > 0
     ? Math.max(...existing.map((r: import('@/lib/supabase/query/playbooks').ApplicationRuleCheck) => r.rule_order))
     : 0
 
-  const { data, error } = await q.insertApplicationRuleCheck(supabase, {
+  const { data, error } = await q.insertApplicationRuleCheck({
     application_playbook_item_id: itemId,
     validation_rule_id: validationRuleId,
     rule_name: rule.name,
@@ -1135,8 +1043,7 @@ export async function removeApplicationItemRule(ruleCheckId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = createAdminClient()
-  const { error } = await q.deleteApplicationRuleCheck(supabase, ruleCheckId)
+  const { error } = await q.deleteApplicationRuleCheck(ruleCheckId)
   if (error) return { error: error.message }
   return { error: null }
 }
@@ -1164,22 +1071,16 @@ export async function runDocumentValidation(itemId: string, agencyId: string | n
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, extractionStatus: 'failed', draftResults: [] }
 
-  const supabase = createAdminClient()
-
-  const [checksRes, agencyRes, docsRes] = await Promise.all([
-    q.getRuleChecksForApplicationItem(supabase, itemId),
+  const [checksRes, agencyRows, docsRes] = await Promise.all([
+    q.getRuleChecksForApplicationItem(itemId),
     agencyId
-      ? supabase
-          .from('agencies')
-          .select('legal_entity_name, name, dba_name, licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code')
-          .eq('id', agencyId)
-          .single()
-      : Promise.resolve({ data: null }),
-    q.getDocumentsByPlaybookItem(supabase, itemId),
+      ? sql<AgencyFields[]>`SELECT legal_entity_name, name, dba_name, licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code FROM agencies WHERE id = ${agencyId} LIMIT 1`
+      : Promise.resolve([] as AgencyFields[]),
+    q.getDocumentsByPlaybookItem(itemId),
   ])
 
   const checks = (checksRes.data ?? []) as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[]
-  const agency = agencyRes.data as AgencyFields | null
+  const agency = agencyRows[0] ?? null
   const documents = docsRes.data ?? []
 
   let extractedText = ''
@@ -1285,11 +1186,10 @@ export async function saveValidationRun(
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
   const now = new Date().toISOString()
 
   if (runNumber > 1) {
-    const { error: resetErr } = await q.resetApplicationRuleChecks(supabase, itemId)
+    const { error: resetErr } = await q.resetApplicationRuleChecks(itemId)
     if (resetErr) return { error: (resetErr as { message: string }).message }
   }
 
@@ -1301,7 +1201,7 @@ export async function saveValidationRun(
     notes: r.notes,
   }))
 
-  const { error: updateErr } = await q.bulkUpdateApplicationRuleChecks(supabase, updates)
+  const { error: updateErr } = await q.bulkUpdateApplicationRuleChecks(updates)
   if (updateErr) return { error: (updateErr as { message: string }).message }
 
   const results = confirmedResults.map(r => ({
@@ -1319,7 +1219,7 @@ export async function saveValidationRun(
   const failedCount      = confirmedResults.filter(r => !r.isChecked).length
   const needsReviewCount = 0
 
-  const { error: insertErr } = await q.insertValidationRun(supabase, {
+  const { error: insertErr } = await q.insertValidationRun({
     application_playbook_item_id: itemId,
     run_number: runNumber,
     extraction_status: extractionStatus,
@@ -1339,22 +1239,18 @@ export async function getValidationHistory(itemId: string) {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, runs: [] as import('@/lib/supabase/query/playbooks').ValidationRun[] }
 
-  const supabase = createAdminClient()
-  const { data, error } = await q.getValidationRunsForItem(supabase, itemId)
+  const { data, error } = await q.getValidationRunsForItem(itemId)
   if (error) return { error: error.message, runs: [] as import('@/lib/supabase/query/playbooks').ValidationRun[] }
   return { error: null, runs: (data ?? []) as unknown as import('@/lib/supabase/query/playbooks').ValidationRun[] }
 }
 
 /** Fetch the latest validation run summary for an item (staff + agency members). */
 export async function getLatestValidationSummary(itemId: string): Promise<{ passed: number; failed: number } | null> {
-  const supabase = createAdminClient()
-  const { data } = await supabase
-    .from('validation_runs')
-    .select('passed_count, failed_count')
-    .eq('application_playbook_item_id', itemId)
-    .order('run_number', { ascending: false })
-    .limit(1)
-    .single()
+  const [data] = await sql<{ passed_count: number; failed_count: number }[]>`
+    SELECT passed_count, failed_count FROM validation_runs
+    WHERE application_playbook_item_id = ${itemId}
+    ORDER BY run_number DESC LIMIT 1
+  `
   if (!data) return null
   return { passed: data.passed_count, failed: data.failed_count }
 }
@@ -1366,30 +1262,19 @@ export async function deleteApplicationDocument(documentId: string): Promise<{ e
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = createAdminClient()
-
-  const { data: doc } = await supabase
-    .from('application_documents')
-    .select('id, document_url, application_id')
-    .eq('id', documentId)
-    .single()
+  const [doc] = await sql<{ id: string; document_url: string | null; application_id: string }[]>`
+    SELECT id, document_url, application_id FROM application_documents WHERE id = ${documentId} LIMIT 1
+  `
   if (!doc) return { error: 'Document not found' }
 
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') {
-    const { data: app } = await supabase
-      .from('applications')
-      .select('agency_id')
-      .eq('id', doc.application_id)
-      .single()
+    const [app] = await sql<{ agency_id: string }[]>`SELECT agency_id FROM applications WHERE id = ${doc.application_id} LIMIT 1`
     if (!app) return { error: 'Access denied' }
 
-    const { data: membership } = await supabase
-      .from('agency_admins')
-      .select('user_id')
-      .eq('agency_id', app.agency_id)
-      .eq('user_id', session.user.id)
-      .maybeSingle()
+    const [membership] = await sql<{ user_id: string }[]>`
+      SELECT user_id FROM agency_admins WHERE agency_id = ${app.agency_id} AND user_id = ${session.user.id} LIMIT 1
+    `
     if (!membership) return { error: 'Access denied' }
   }
 
@@ -1397,8 +1282,7 @@ export async function deleteApplicationDocument(documentId: string): Promise<{ e
     await removeFiles(STORAGE_BUCKET.APPLICATION, [doc.document_url])
   }
 
-  const { error } = await supabase.from('application_documents').delete().eq('id', documentId)
-  if (error) return { error: error.message }
+  await sql`DELETE FROM application_documents WHERE id = ${documentId}`
   return { error: null }
 }
 
@@ -1411,13 +1295,9 @@ export async function submitProgramItem(itemId: string): Promise<{ error: string
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = createAdminClient()
-
-  const { data: item } = await supabase
-    .from('application_playbook_items')
-    .select('id, application_id, item_type, status, name')
-    .eq('id', itemId)
-    .single()
+  const [item] = await sql<{ id: string; application_id: string; item_type: string; status: string; name: string }[]>`
+    SELECT id, application_id, item_type, status, name FROM application_playbook_items WHERE id = ${itemId} LIMIT 1
+  `
   if (!item) return { error: 'Item not found' }
 
   if (item.status !== 'not_started' && item.status !== 'review_needed') {
@@ -1425,34 +1305,32 @@ export async function submitProgramItem(itemId: string): Promise<{ error: string
   }
 
   if (item.item_type === 'document') {
-    const { count } = await supabase
-      .from('application_documents')
-      .select('id', { count: 'exact', head: true })
-      .eq('application_playbook_item_id', itemId)
-    if (!count || count === 0) return { error: 'Upload a document first' }
+    const [countRow] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM application_documents WHERE application_playbook_item_id = ${itemId}
+    `
+    if (!countRow?.count || countRow.count === 0) return { error: 'Upload a document first' }
   }
 
-  const { error: updateErr } = await supabase
-    .from('application_playbook_items')
-    .update({ status: 'in_progress', updated_by: session.user.id, updated_at: new Date().toISOString() })
-    .eq('id', itemId)
-  if (updateErr) return { error: updateErr.message }
+  await sql`
+    UPDATE application_playbook_items
+    SET status = 'in_progress', updated_by = ${session.user.id}, updated_at = ${new Date().toISOString()}
+    WHERE id = ${itemId}
+  `
 
-  const { data: app } = await supabase
-    .from('applications')
-    .select('assigned_expert_id, application_name')
-    .eq('id', item.application_id)
-    .single()
+  const [app] = await sql<{ assigned_expert_id: string | null; application_name: string }[]>`
+    SELECT assigned_expert_id, application_name FROM applications WHERE id = ${item.application_id} LIMIT 1
+  `
 
   if (app?.assigned_expert_id) {
-    const adminSupabase = createAdminClient()
-    await adminSupabase.from('notifications').insert({
-      user_id: app.assigned_expert_id,
-      title: 'Item Submitted for Review',
-      message: `"${item.name}" in "${app.application_name}" has been submitted and is ready for your review.`,
-      type: 'application_update',
-      icon_type: 'document',
-    })
+    await sql`
+      INSERT INTO notifications (user_id, title, message, type, icon_type) VALUES (
+        ${app.assigned_expert_id},
+        ${'Item Submitted for Review'},
+        ${`"${item.name}" in "${app.application_name}" has been submitted and is ready for your review.`},
+        ${'application_update'},
+        ${'document'}
+      )
+    `
   }
 
   revalidatePath('/pages/agency/programs')
@@ -1472,47 +1350,36 @@ export async function sendBackProgramItem(itemId: string, notes: string): Promis
   const { error: authErr, session } = await requireStaff()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-
-  const { data: item } = await supabase
-    .from('application_playbook_items')
-    .select('id, application_id, name, status')
-    .eq('id', itemId)
-    .single()
+  const [item] = await sql<{ id: string; application_id: string; name: string; status: string }[]>`
+    SELECT id, application_id, name, status FROM application_playbook_items WHERE id = ${itemId} LIMIT 1
+  `
   if (!item) return { error: 'Item not found' }
   if (item.status !== 'in_progress') return { error: 'Item must be in progress to send back' }
 
-  const { error: updateErr } = await supabase
-    .from('application_playbook_items')
-    .update({ status: 'review_needed', notes, updated_by: session.user.id, updated_at: new Date().toISOString() })
-    .eq('id', itemId)
-  if (updateErr) return { error: updateErr.message }
+  await sql`
+    UPDATE application_playbook_items
+    SET status = 'review_needed', notes = ${notes}, updated_by = ${session.user.id}, updated_at = ${new Date().toISOString()}
+    WHERE id = ${itemId}
+  `
 
-  const { data: app } = await supabase
-    .from('applications')
-    .select('company_owner_id, agency_id, application_name')
-    .eq('id', item.application_id)
-    .single()
+  const [app] = await sql<{ company_owner_id: string | null; agency_id: string | null; application_name: string }[]>`
+    SELECT company_owner_id, agency_id, application_name FROM applications WHERE id = ${item.application_id} LIMIT 1
+  `
 
   if (app) {
-    const adminSupabase = createAdminClient()
-    const notifPayload = {
-      title: 'Action Required on Program Item',
-      message: `"${item.name}" in "${app.application_name}" needs your attention: ${notes}`,
-      type: 'application_update',
-      icon_type: 'warning',
-    }
+    const title = 'Action Required on Program Item'
+    const message = `"${item.name}" in "${app.application_name}" needs your attention: ${notes}`
+    const type = 'application_update'
+    const icon_type = 'warning'
 
     if (app.company_owner_id) {
-      await adminSupabase.from('notifications').insert({ ...notifPayload, user_id: app.company_owner_id })
+      await sql`INSERT INTO notifications (user_id, title, message, type, icon_type) VALUES (${app.company_owner_id}, ${title}, ${message}, ${type}, ${icon_type})`
     } else if (app.agency_id) {
-      const { data: admins } = await adminSupabase
-        .from('agency_admins')
-        .select('user_id')
-        .eq('agency_id', app.agency_id)
-        .not('user_id', 'is', null)
-      for (const admin of admins ?? []) {
-        await adminSupabase.from('notifications').insert({ ...notifPayload, user_id: admin.user_id })
+      const admins = await sql<{ user_id: string }[]>`
+        SELECT user_id FROM agency_admins WHERE agency_id = ${app.agency_id} AND user_id IS NOT NULL
+      `
+      for (const admin of admins) {
+        await sql`INSERT INTO notifications (user_id, title, message, type, icon_type) VALUES (${admin.user_id}, ${title}, ${message}, ${type}, ${icon_type})`
       }
     }
   }
@@ -1557,8 +1424,7 @@ export async function createPlaybook(
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
-  const { data: row, error } = await q.insertPlaybookRecord(supabase, {
+  const { data: row, error } = await q.insertPlaybookRecord({
     ...data,
     is_active: true,
     created_by: session.user.id,
@@ -1577,8 +1443,7 @@ export async function updatePlaybook(
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await q.updatePlaybookRecord(supabase, playbookId, data)
+  const { error } = await q.updatePlaybookRecord(playbookId, data)
   if (error) return { error: error.message }
 
   revalidatePath('/pages/admin/playbooks')
@@ -1598,8 +1463,7 @@ export async function createPlaybookTemplate(data: {
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr, data: null }
 
-  const supabase = createAdminClient()
-  const { data: row, error } = await q.insertPlaybookTemplate(supabase, {
+  const { data: row, error } = await q.insertPlaybookTemplate({
     playbook_id: data.playbookId,
     template_name: data.templateName,
     description: data.description || null,
@@ -1619,8 +1483,7 @@ export async function updatePlaybookTemplateAction(
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = createAdminClient()
-  const { error } = await q.updatePlaybookTemplateById(supabase, id, {
+  const { error } = await q.updatePlaybookTemplateById(id, {
     template_name: data.templateName,
     description: data.description || null,
   })
@@ -1634,8 +1497,7 @@ export async function deletePlaybookTemplateAction(id: string): Promise<{ error:
   const { error: authErr } = await requireStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = createAdminClient()
-  const { error } = await q.deletePlaybookTemplateById(supabase, id)
+  const { error } = await q.deletePlaybookTemplateById(id)
   if (error) return { error: error.message }
   revalidatePath('/pages/admin/playbooks')
   return { error: null }

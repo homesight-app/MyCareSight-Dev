@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { requireAdmin } from '@/lib/auth-helpers'
@@ -17,8 +17,8 @@ export default async function AdminProgramDetailPage({
   const supabase = await createClient()
 
   const [{ data: application }, { data: items }] = await Promise.all([
-    q.getApplicationById(supabase, applicationId),
-    q.getApplicationPlaybookItems(supabase, applicationId),
+    q.getApplicationById(applicationId),
+    q.getApplicationPlaybookItems(applicationId),
   ])
 
   if (!application) redirect('/pages/admin/programs')
@@ -40,7 +40,7 @@ export default async function AdminProgramDetailPage({
   const app = application as unknown as AppRow
 
   const [{ data: agencyData }, categoryResult, subcategoryResult] = await Promise.all([
-    app.agency_id ? q.getAgencyNameById(supabase, app.agency_id) : Promise.resolve({ data: null }),
+    app.agency_id ? q.getAgencyNameById(app.agency_id) : Promise.resolve({ data: null }),
     app.category_id
       ? supabase.from('configuration_values').select('name').eq('id', app.category_id).maybeSingle()
       : Promise.resolve({ data: null }),

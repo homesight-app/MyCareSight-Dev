@@ -19,10 +19,10 @@ export default async function AdminLeadDetailPage({
 
   const [{ data: lead }, { data: notes }, { data: tasks }, { data: documents }, { data: platformStaff }] =
     await Promise.all([
-      q.getLeadById(supabase, id),
-      q.getLeadNotes(supabase, id),
-      q.getLeadTasks(supabase, id),
-      q.getLeadDocuments(supabase, id),
+      q.getLeadById(id),
+      q.getLeadNotes(id),
+      q.getLeadTasks(id),
+      q.getLeadDocuments(id),
       supabase.from('user_profiles').select('id, full_name').in('role', ['admin', 'expert']).order('full_name'),
     ])
 

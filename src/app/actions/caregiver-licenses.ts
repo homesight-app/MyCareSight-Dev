@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
-import { createAdminClient } from '@/lib/supabase/admin'
 
 export type InsertCaregiverLicenseInput = {
   staffMemberId: string
@@ -14,47 +14,23 @@ export type InsertCaregiverLicenseInput = {
   issueDate?: string | null
 }
 
-/**
- * Inserts a caregiver_credentials row for caregiver licenses/certifications.
- * Uses the service role after verifying the signed-in user may manage this caregiver,
- * so inserts work even when RLS has not been extended yet in the target environment.
- */
 export async function insertCaregiverLicenseApplicationAction(
   input: InsertCaregiverLicenseInput
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const session = await getSession()
-  if (!session?.user?.id) {
-    return { ok: false, error: 'You must be signed in.' }
-  }
+  if (!session?.user?.id) return { ok: false, error: 'You must be signed in.' }
 
-  const userId = session.user.id
-  const supabase = createAdminClient()
-
-  const { data: up } = await q.getAgencyIdFromProfile(supabase, userId)
+  const { data: up } = await q.getAgencyIdFromProfile(session.user.id)
   const viewerAgencyId = up?.agency_id ?? null
-  if (!viewerAgencyId) {
-    return { ok: false, error: 'No organization scope found for this user.' }
-  }
+  if (!viewerAgencyId) return { ok: false, error: 'No organization scope found for this user.' }
 
-  const { data: staff, error: staffErr } = await supabase
-    .from('caregiver_members')
-    .select('id, agency_id, user_id')
-    .eq('id', input.staffMemberId)
-    .maybeSingle()
-
-  if (staffErr || !staff) {
-    return { ok: false, error: 'Caregiver not found or you do not have access.' }
-  }
-
-  if (!staff.agency_id) {
-    return { ok: false, error: 'Caregiver has no agency; cannot attach a credential.' }
-  }
-
+  const [staff] = await sql<{ id: string; agency_id: string; user_id: string | null }[]>`
+    SELECT id, agency_id, user_id FROM caregiver_members WHERE id = ${input.staffMemberId} LIMIT 1
+  `
+  if (!staff) return { ok: false, error: 'Caregiver not found or you do not have access.' }
+  if (!staff.agency_id) return { ok: false, error: 'Caregiver has no agency; cannot attach a credential.' }
   if (staff.agency_id !== viewerAgencyId) {
-    return {
-      ok: false,
-      error: 'You can only add licenses for caregivers in your organization.',
-    }
+    return { ok: false, error: 'You can only add licenses for caregivers in your organization.' }
   }
 
   const today = new Date()
@@ -65,95 +41,50 @@ export async function insertCaregiverLicenseApplicationAction(
   let daysUntilExpiry: number | null = null
   if (expiryDate) {
     const expiryDateObj = new Date(expiryDate)
-    const diffTime = expiryDateObj.getTime() - today.getTime()
-    daysUntilExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    daysUntilExpiry = Math.ceil((expiryDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
   }
 
   let status: 'active' | 'expiring' | 'expired' = 'active'
-  if (daysUntilExpiry !== null && daysUntilExpiry <= 0) {
-    status = 'expired'
-  } else if (daysUntilExpiry !== null && daysUntilExpiry <= 30) {
-    status = 'expiring'
-  }
-
-  const row = {
-    agency_id: staff.agency_id,
-    caregiver_member_id: input.staffMemberId,
-    user_id: staff.user_id,
-    license_type: input.licenseType.trim(),
-    license_number: input.licenseNumber.trim(),
-    state: input.state.trim() || '—',
-    status,
-    issue_date: issueDate,
-    expiry_date: expiryDate,
-  }
+  if (daysUntilExpiry !== null && daysUntilExpiry <= 0) status = 'expired'
+  else if (daysUntilExpiry !== null && daysUntilExpiry <= 30) status = 'expiring'
 
   try {
-    const admin = createAdminClient()
-    const { data, error } = await admin.from('caregiver_credentials').insert({
-      agency_id: row.agency_id,
-      caregiver_member_id: row.caregiver_member_id,
-      user_id: row.user_id,
-      source_credential_name: row.license_type,
-      credential_number: row.license_number,
-      state: row.state,
-      status: row.status,
-      issue_date: row.issue_date,
-      expiration_date: row.expiry_date,
-    }).select('id').single()
+    const [inserted] = await sql<{ id: string }[]>`
+      INSERT INTO caregiver_credentials (
+        agency_id, caregiver_member_id, user_id,
+        source_credential_name, credential_number, state, status,
+        issue_date, expiration_date
+      ) VALUES (
+        ${staff.agency_id}, ${input.staffMemberId}, ${staff.user_id},
+        ${input.licenseType.trim()}, ${input.licenseNumber.trim()},
+        ${input.state.trim() || '—'}, ${status},
+        ${issueDate}, ${expiryDate}
+      )
+      RETURNING id
+    `
+    if (!inserted?.id) return { ok: false, error: 'License was not saved. Please try again.' }
 
-    if (error) {
-      return { ok: false, error: error.message || 'Failed to save license.' }
-    }
-    if (!data?.id) {
-      return { ok: false, error: 'License was not saved. Please try again.' }
-    }
-
-    const { error: auditErr } = await supabase.from('audit_log').insert({
-      agency_id: row.agency_id,
+    const { error: auditErr } = await q.insertAuditLog({
+      agency_id: staff.agency_id,
       table_name: 'caregiver_credentials',
-      record_id: data.id,
+      record_id: inserted.id,
       action: 'INSERT',
-      performed_by_user_id: userId,
+      performed_by_user_id: session.user.id,
       details: {
-        caregiver_member_id: row.caregiver_member_id,
-        license_type:        row.license_type,
-        state:               row.state,
-        status:              row.status,
-        issue_date:          row.issue_date,
-        expiry_date:         row.expiry_date,
+        caregiver_member_id: input.staffMemberId,
+        license_type:        input.licenseType.trim(),
+        state:               input.state.trim() || '—',
+        status,
+        issue_date:          issueDate,
+        expiry_date:         expiryDate,
       },
     })
-    if (auditErr) console.error('[caregiver-licenses/insert] Audit log failed. credentialId=%s err=%s', data.id, auditErr.message)
+    if (auditErr) console.error('[caregiver-licenses/insert] Audit log failed. credentialId=%s err=%s', inserted.id, auditErr.message)
 
     revalidatePath(`/pages/agency/caregiver/${input.staffMemberId}`)
     revalidatePath('/pages/agency/caregiver')
-    return { ok: true, id: data.id }
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    const missingServiceRole =
-      msg.includes('SUPABASE_SERVICE_ROLE_KEY') || msg.includes('Missing SUPABASE_SERVICE_ROLE_KEY')
-
-    if (missingServiceRole) {
-      const { data, error } = await q.insertStaffLicenseRow(supabase, row)
-      if (error) {
-        return {
-          ok: false,
-          error:
-            `${error.message} If this is an RLS error, apply caregiver_credentials policies in Supabase, or set SUPABASE_SERVICE_ROLE_KEY on the server.`,
-        }
-      }
-      if (!data?.id) {
-        return {
-          ok: false,
-          error:
-            'License was not saved. Set SUPABASE_SERVICE_ROLE_KEY on the server or apply caregiver_credentials RLS migration.',
-        }
-      }
-      revalidatePath(`/pages/agency/caregiver/${input.staffMemberId}`)
-      revalidatePath('/pages/agency/caregiver')
-      return { ok: true, id: data.id }
-    }
-    return { ok: false, error: msg || 'Failed to save license.' }
+    return { ok: true, id: inserted.id }
+  } catch (err: any) {
+    return { ok: false, error: err.message || 'Failed to save license.' }
   }
 }

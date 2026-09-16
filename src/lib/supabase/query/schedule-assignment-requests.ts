@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 export type ScheduleAssignmentStatus = 'pending' | 'approved' | 'declined'
 
@@ -15,86 +15,128 @@ export interface ScheduleAssignmentRequestRow {
   updated_at: string
 }
 
-const requestSelect = `
-  id,
-  schedule_id,
-  caregiver_member_id,
-  status,
-  caregiver_note,
-  decline_reason,
-  resolved_at,
-  resolved_by,
-  created_at,
-  updated_at
-`
-
-/** Pending assignment requests (RLS limits to accessible patients). */
-export async function getPendingScheduleAssignmentRequests(supabase: Supabase) {
-  return supabase
-    .from('schedule_assignment_requests')
-    .select(requestSelect)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
+/** Pending assignment requests. */
+export async function getPendingScheduleAssignmentRequests(agencyId?: string | null): Promise<{
+  data: ScheduleAssignmentRequestRow[] | null
+  error: Error | null
+}> {
+  try {
+    const agencyFilter = agencyId
+      ? sql`AND EXISTS (
+          SELECT 1 FROM scheduled_visits sv
+          WHERE sv.id = schedule_assignment_requests.schedule_id
+            AND sv.agency_id = ${agencyId}
+        )`
+      : sql``
+    const rows = await sql`
+      SELECT
+        id, schedule_id, caregiver_member_id, status, caregiver_note,
+        decline_reason, resolved_at, resolved_by, created_at, updated_at
+      FROM schedule_assignment_requests
+      WHERE status = 'pending'
+      ${agencyFilter}
+      ORDER BY created_at ASC
+    `
+    return { data: rows as unknown as ScheduleAssignmentRequestRow[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Recently resolved requests for coordinator history. */
-export async function getRecentResolvedScheduleAssignmentRequests(supabase: Supabase, limit = 40) {
-  return supabase
-    .from('schedule_assignment_requests')
-    .select(requestSelect)
-    .in('status', ['approved', 'declined'])
-    .not('resolved_at', 'is', null)
-    .order('resolved_at', { ascending: false })
-    .limit(limit)
+export async function getRecentResolvedScheduleAssignmentRequests(
+  limit = 40,
+  agencyId?: string | null
+): Promise<{ data: ScheduleAssignmentRequestRow[] | null; error: Error | null }> {
+  try {
+    const agencyFilter = agencyId
+      ? sql`AND EXISTS (
+          SELECT 1 FROM scheduled_visits sv
+          WHERE sv.id = schedule_assignment_requests.schedule_id
+            AND sv.agency_id = ${agencyId}
+        )`
+      : sql``
+    const rows = await sql`
+      SELECT
+        id, schedule_id, caregiver_member_id, status, caregiver_note,
+        decline_reason, resolved_at, resolved_by, created_at, updated_at
+      FROM schedule_assignment_requests
+      WHERE status IN ('approved', 'declined')
+        AND resolved_at IS NOT NULL
+        ${agencyFilter}
+      ORDER BY resolved_at DESC
+      LIMIT ${limit}
+    `
+    return { data: rows as unknown as ScheduleAssignmentRequestRow[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-export async function approveScheduleAssignmentRequestRpc(supabase: Supabase, requestId: string) {
-  return supabase.rpc('approve_schedule_assignment_request', { p_request_id: requestId })
+export async function approveScheduleAssignmentRequestRpc(
+  requestId: string
+): Promise<{ data: unknown; error: Error | null }> {
+  try {
+    const rows = await sql`SELECT approve_schedule_assignment_request(${requestId}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export async function declineScheduleAssignmentRequestRpc(
-  supabase: Supabase,
   requestId: string,
   reason: string | null
-) {
-  return supabase.rpc('decline_schedule_assignment_request', {
-    p_request_id: requestId,
-    p_reason: reason ?? '',
-  })
+): Promise<{ data: unknown; error: Error | null }> {
+  try {
+    const rows = await sql`SELECT decline_schedule_assignment_request(${requestId}, ${reason ?? ''}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-/** Caregiver submits a request via RPC (bypasses brittle INSERT RLS; server validates agency + open visit). */
+/** Caregiver submits a request via RPC. */
 export async function submitScheduleAssignmentRequestRpc(
-  supabase: Supabase,
   scheduleId: string,
   caregiverNote: string | null
-) {
-  return supabase.rpc('submit_schedule_assignment_request', {
-    p_schedule_id: scheduleId,
-    p_caregiver_note: caregiverNote ?? '',
-  })
+): Promise<{ data: unknown; error: Error | null }> {
+  try {
+    const rows = await sql`SELECT submit_schedule_assignment_request(${scheduleId}, ${caregiverNote ?? ''}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-/** Caregiver withdraws their pending request via RPC (notifies coordinators; same validation as DELETE RLS). */
-export async function cancelScheduleAssignmentRequestRpc(supabase: Supabase, requestId: string) {
-  return supabase.rpc('cancel_schedule_assignment_request', { p_request_id: requestId })
+/** Caregiver withdraws their pending request via RPC. */
+export async function cancelScheduleAssignmentRequestRpc(
+  requestId: string
+): Promise<{ data: unknown; error: Error | null }> {
+  try {
+    const rows = await sql`SELECT cancel_schedule_assignment_request(${requestId}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Direct insert (coordinator tooling / tests). Prefer {@link submitScheduleAssignmentRequestRpc} for caregivers. */
 export async function insertScheduleAssignmentRequest(
-  supabase: Supabase,
   data: { schedule_id: string; caregiver_member_id: string; caregiver_note?: string | null }
-) {
-  return supabase
-    .from('schedule_assignment_requests')
-    .insert({
-      schedule_id: data.schedule_id,
-      caregiver_member_id: data.caregiver_member_id,
-      status: 'pending',
-      caregiver_note: data.caregiver_note ?? null,
-    })
-    .select('id')
-    .single()
+): Promise<{ data: { id: string } | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      INSERT INTO schedule_assignment_requests
+        (schedule_id, caregiver_member_id, status, caregiver_note)
+      VALUES
+        (${data.schedule_id}, ${data.caregiver_member_id}, 'pending', ${data.caregiver_note ?? null})
+      RETURNING id
+    `
+    return { data: (rows[0] ?? null) as { id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export type ScheduleUnassignmentRequestRow = {
@@ -109,56 +151,104 @@ export type ScheduleUnassignmentRequestRow = {
   updated_at: string
 }
 
-const unassignmentSelect = `
-  id,
-  schedule_id,
-  caregiver_member_id,
-  status,
-  decline_reason,
-  resolved_at,
-  resolved_by,
-  created_at,
-  updated_at
-`
-
-export async function getPendingScheduleUnassignmentRequests(supabase: Supabase) {
-  return supabase
-    .from('schedule_unassignment_requests')
-    .select(unassignmentSelect)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
+export async function getPendingScheduleUnassignmentRequests(agencyId?: string | null): Promise<{
+  data: ScheduleUnassignmentRequestRow[] | null
+  error: Error | null
+}> {
+  try {
+    const agencyFilter = agencyId
+      ? sql`AND EXISTS (
+          SELECT 1 FROM scheduled_visits sv
+          WHERE sv.id = schedule_unassignment_requests.schedule_id
+            AND sv.agency_id = ${agencyId}
+        )`
+      : sql``
+    const rows = await sql`
+      SELECT
+        id, schedule_id, caregiver_member_id, status,
+        decline_reason, resolved_at, resolved_by, created_at, updated_at
+      FROM schedule_unassignment_requests
+      WHERE status = 'pending'
+      ${agencyFilter}
+      ORDER BY created_at ASC
+    `
+    return { data: rows as unknown as ScheduleUnassignmentRequestRow[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Recently resolved unassignment requests for coordinator history. */
-export async function getRecentResolvedScheduleUnassignmentRequests(supabase: Supabase, limit = 40) {
-  return supabase
-    .from('schedule_unassignment_requests')
-    .select(unassignmentSelect)
-    .in('status', ['approved', 'declined'])
-    .not('resolved_at', 'is', null)
-    .order('resolved_at', { ascending: false })
-    .limit(limit)
+export async function getRecentResolvedScheduleUnassignmentRequests(
+  limit = 40,
+  agencyId?: string | null
+): Promise<{ data: ScheduleUnassignmentRequestRow[] | null; error: Error | null }> {
+  try {
+    const agencyFilter = agencyId
+      ? sql`AND EXISTS (
+          SELECT 1 FROM scheduled_visits sv
+          WHERE sv.id = schedule_unassignment_requests.schedule_id
+            AND sv.agency_id = ${agencyId}
+        )`
+      : sql``
+    const rows = await sql`
+      SELECT
+        id, schedule_id, caregiver_member_id, status,
+        decline_reason, resolved_at, resolved_by, created_at, updated_at
+      FROM schedule_unassignment_requests
+      WHERE status IN ('approved', 'declined')
+        AND resolved_at IS NOT NULL
+        ${agencyFilter}
+      ORDER BY resolved_at DESC
+      LIMIT ${limit}
+    `
+    return { data: rows as unknown as ScheduleUnassignmentRequestRow[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-export async function submitScheduleUnassignmentRequestRpc(supabase: Supabase, scheduleId: string) {
-  return supabase.rpc('submit_schedule_unassignment_request', { p_schedule_id: scheduleId })
+export async function submitScheduleUnassignmentRequestRpc(
+  scheduleId: string
+): Promise<{ data: unknown; error: Error | null }> {
+  try {
+    const rows = await sql`SELECT submit_schedule_unassignment_request(${scheduleId}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-export async function approveScheduleUnassignmentRequestRpc(supabase: Supabase, requestId: string) {
-  return supabase.rpc('approve_schedule_unassignment_request', { p_request_id: requestId })
+export async function approveScheduleUnassignmentRequestRpc(
+  requestId: string
+): Promise<{ data: unknown; error: Error | null }> {
+  try {
+    const rows = await sql`SELECT approve_schedule_unassignment_request(${requestId}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export async function declineScheduleUnassignmentRequestRpc(
-  supabase: Supabase,
   requestId: string,
   reason: string | null
-) {
-  return supabase.rpc('decline_schedule_unassignment_request', {
-    p_request_id: requestId,
-    p_reason: reason ?? '',
-  })
+): Promise<{ data: unknown; error: Error | null }> {
+  try {
+    const rows = await sql`SELECT decline_schedule_unassignment_request(${requestId}, ${reason ?? ''}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-export async function cancelScheduleUnassignmentRequestRpc(supabase: Supabase, requestId: string) {
-  return supabase.rpc('cancel_schedule_unassignment_request', { p_request_id: requestId })
+export async function cancelScheduleUnassignmentRequestRpc(
+  requestId: string
+): Promise<{ data: unknown; error: Error | null }> {
+  try {
+    const rows = await sql`SELECT cancel_schedule_unassignment_request(${requestId}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }

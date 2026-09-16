@@ -16,7 +16,7 @@ import {
   Percent
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
 
 interface Application {
@@ -121,11 +121,11 @@ export default function ExpertApplicationsContent({
       const supabase = createClient()
 
       if (reviewAction === 'approve') {
-        const { error } = await q.updateApplicationStatus(supabase, selectedApplication.id, { status: 'approved', revision_reason: null })
+        const { error } = await q.updateApplicationStatus(selectedApplication.id, { status: 'approved', revision_reason: null })
         if (error) throw error
         router.refresh()
       } else {
-        const { error } = await q.updateApplicationStatus(supabase, selectedApplication.id, { status: 'needs_revision', revision_reason: revisionReason.trim() })
+        const { error } = await q.updateApplicationStatus(selectedApplication.id, { status: 'needs_revision', revision_reason: revisionReason.trim() })
         if (error) throw error
         router.refresh()
       }

@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { clientSchema, type ClientFormData } from '@/lib/schemas/client'
 import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
@@ -75,7 +75,7 @@ export default function EditClientModal({
     try {
       const supabase = createClient()
 
-      const { error: updateError } = await q.updateClientById(supabase, client.id, {
+      const { error: updateError } = await q.updateClientById(client.id, {
         company_name: data.company_name,
         contact_name: data.contact_name,
         contact_email: data.contact_email,

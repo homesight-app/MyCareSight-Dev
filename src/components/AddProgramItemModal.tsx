@@ -80,7 +80,7 @@ export default function AddProgramItemModal({ isOpen, onClose, applicationId, de
     })
 
     if (result.error) { setError(result.error); setIsSaving(false); return }
-    if (result.data) onItemAdded(result.data as ApplicationPlaybookItem)
+    if (result.data) onItemAdded(result.data as unknown as ApplicationPlaybookItem)
     setIsSaving(false)
   }
 

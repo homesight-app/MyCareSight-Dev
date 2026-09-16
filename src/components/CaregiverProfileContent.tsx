@@ -4,8 +4,14 @@ import { CalendarDays, Key, MapPin } from 'lucide-react'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
+import {
+  getCaregiverPayRateHistoryAction,
+  getCaregiverSchedulesAction,
+  type CaregiverPayRateHistoryRow,
+  type CaregiverScheduleRow,
+} from '@/app/actions/caregiver-profile'
+import { getPatientNamesByIdsAction } from '@/app/actions/patients'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { CaregiverDocumentsPanel } from './CaregiverDocumentsPanel'
 import InternalNotesPanel from './InternalNotesPanel'
@@ -39,27 +45,6 @@ interface StaffLicense {
   status: string
   expiry_date?: string | null
   days_until_expiry?: number | null
-}
-
-type CaregiverPayRateHistoryRow = {
-  id: string
-  pay_rate: number | null
-  unit_type: string | null
-  service_type: string | null
-  effective_start: string
-  effective_end: string | null
-  created_at: string
-}
-
-type CaregiverScheduleRow = {
-  id: string
-  patient_id: string | null
-  visit_date: string | null
-  scheduled_start_time: string | null
-  scheduled_end_time: string | null
-  service_type: string | null
-  status: string | null
-  is_recurring: boolean | null
 }
 
 type TabId = 'overview' | 'credentials' | 'schedule' | 'notes'
@@ -137,8 +122,7 @@ export default function CaregiverProfileContent({
   useEffect(() => {
     let cancelled = false
     const run = async () => {
-      const supabase = createClient()
-      const { data } = await q.getCaregiverSkillCatalogFromTaskRequirements(supabase)
+      const { data } = await q.getCaregiverSkillCatalogFromTaskRequirements()
       if (!cancelled) setSkillCatalog(data ?? [])
     }
     run()
@@ -149,14 +133,9 @@ export default function CaregiverProfileContent({
     let cancelled = false
     const run = async () => {
       setIsPayRateHistoryLoading(true)
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('caregiver_pay_rates')
-        .select('id, pay_rate, unit_type, service_type, effective_start, effective_end, created_at')
-        .eq('caregiver_member_id', staff.id)
-        .order('effective_start', { ascending: false })
+      const { data } = await getCaregiverPayRateHistoryAction(staff.id)
       if (cancelled) return
-      setPayRateHistory((data ?? []) as CaregiverPayRateHistoryRow[])
+      setPayRateHistory(data ?? [])
       setIsPayRateHistoryLoading(false)
     }
     run()
@@ -168,50 +147,24 @@ export default function CaregiverProfileContent({
     const run = async () => {
       setIsSchedulesLoading(true)
       setSchedulesError(null)
-      const supabase = createClient()
-      const { data: upcomingData, error: upcomingErr } = await supabase
-        .from('scheduled_visits')
-        .select('id, patient_id, visit_date, scheduled_start_time, scheduled_end_time, service_type, status, is_recurring')
-        .eq('caregiver_member_id', staff.id)
-        .gte('visit_date', todayYmd)
-        .order('visit_date', { ascending: true })
-        .limit(20)
-
+      const { data, error } = await getCaregiverSchedulesAction(staff.id, todayYmd)
       if (cancelled) return
-      if (upcomingErr) {
-        setSchedulesError(upcomingErr.message ?? 'Failed to load schedules.')
+      if (error) {
+        setSchedulesError(error)
         setIsSchedulesLoading(false)
         return
       }
 
-      let rows = (upcomingData ?? []) as CaregiverScheduleRow[]
-      if (rows.length === 0) {
-        const { data: recentData, error: recentErr } = await supabase
-          .from('scheduled_visits')
-          .select('id, patient_id, visit_date, scheduled_start_time, scheduled_end_time, service_type, status, is_recurring')
-          .eq('caregiver_member_id', staff.id)
-          .order('visit_date', { ascending: false })
-          .limit(10)
-        if (cancelled) return
-        if (recentErr) {
-          setSchedulesError(recentErr.message ?? 'Failed to load schedules.')
-          setIsSchedulesLoading(false)
-          return
-        }
-        rows = (recentData ?? []) as CaregiverScheduleRow[]
-      }
+      const rows = data ?? []
 
       setCaregiverSchedules(rows)
 
       const patientIds = Array.from(new Set(rows.flatMap((r) => (r.patient_id ? [r.patient_id] : []))))
       if (patientIds.length > 0) {
-        const { data: patientsData } = await supabase
-          .from('patients')
-          .select('id, first_name, last_name')
-          .in('id', patientIds)
+        const patientsData = await getPatientNamesByIdsAction(patientIds)
         if (!cancelled) {
           const map: Record<string, string> = {}
-          for (const row of patientsData ?? []) {
+          for (const row of patientsData) {
             map[String(row.id)] = patientFullName(row as { first_name: string; last_name: string })
           }
           setPatientNameById(map)

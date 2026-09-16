@@ -1,6 +1,6 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 import { getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
@@ -23,18 +23,7 @@ export type MyStaffCertificationUi = {
   updated_at: string
 }
 
-function computeExpiryFields(expiryDateStr: string) {
-  const today = new Date()
-  const expiryDateObj = new Date(expiryDateStr)
-  const diffTime = expiryDateObj.getTime() - today.getTime()
-  const daysUntilExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-  let status: 'active' | 'expiring' | 'expired' = 'active'
-  if (daysUntilExpiry <= 0) status = 'expired'
-  else if (daysUntilExpiry <= 30) status = 'expiring'
-  return { days_until_expiry: daysUntilExpiry, status }
-}
-
-function mapCredentialRowToUi(row: {
+type CredentialRow = {
   id: string
   source_credential_name: string | null
   credential_number: string | null
@@ -46,7 +35,20 @@ function mapCredentialRowToUi(row: {
   document_url: string | null
   created_at: string
   updated_at: string
-}): MyStaffCertificationUi {
+}
+
+function computeExpiryFields(expiryDateStr: string) {
+  const today = new Date()
+  const expiryDateObj = new Date(expiryDateStr)
+  const diffTime = expiryDateObj.getTime() - today.getTime()
+  const daysUntilExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+  let status: 'active' | 'expiring' | 'expired' = 'active'
+  if (daysUntilExpiry <= 0) status = 'expired'
+  else if (daysUntilExpiry <= 30) status = 'expiring'
+  return { days_until_expiry: daysUntilExpiry, status }
+}
+
+function mapCredentialRowToUi(row: CredentialRow): MyStaffCertificationUi {
   const expStr = row.expiration_date || ''
   const statusRaw = (row.status || '').toLowerCase()
   let displayStatus = 'Active'
@@ -81,35 +83,29 @@ export async function getMyStaffCertifications(): Promise<{
   error: string | null
   hasStaffProfile: boolean
 }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
+  if (!session) return { data: null, error: 'You must be logged in', hasStaffProfile: false }
 
-  if (!user) {
-    return { data: null, error: 'You must be logged in', hasStaffProfile: false }
+  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(session.user.id)
+  if (staffError) return { data: null, error: staffError.message, hasStaffProfile: false }
+
+  try {
+    const rows = staff?.id
+      ? await sql<CredentialRow[]>`
+          SELECT * FROM caregiver_credentials
+          WHERE caregiver_member_id = ${staff.id}
+          ORDER BY expiration_date ASC
+        `
+      : await sql<CredentialRow[]>`
+          SELECT * FROM caregiver_credentials
+          WHERE user_id = ${session.user.id}
+          ORDER BY expiration_date ASC
+        `
+
+    return { data: rows.map(mapCredentialRowToUi), error: null, hasStaffProfile: Boolean(staff?.id) }
+  } catch (err: any) {
+    return { data: null, error: err.message, hasStaffProfile: Boolean(staff?.id) }
   }
-
-  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(supabase, user.id)
-  if (staffError) {
-    return { data: null, error: staffError.message, hasStaffProfile: false }
-  }
-
-  let query = supabase.from('caregiver_credentials').select('*').order('expiration_date', { ascending: true })
-  if (staff?.id) {
-    query = query.eq('caregiver_member_id', staff.id)
-  } else {
-    query = query.eq('user_id', user.id)
-  }
-
-  const { data: rows, error: credError } = await query
-  if (credError) {
-    return { data: null, error: credError.message, hasStaffProfile: Boolean(staff?.id) }
-  }
-
-  const list = (rows || []).map((r) =>
-    mapCredentialRowToUi(r as Parameters<typeof mapCredentialRowToUi>[0])
-  )
-  return { data: list, error: null, hasStaffProfile: Boolean(staff?.id) }
 }
 
 export async function createMyStaffCertification(data: CreateCertificationData) {
@@ -118,20 +114,14 @@ export async function createMyStaffCertification(data: CreateCertificationData) 
     return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   }
 
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
+  if (!session) return { success: false as const, error: 'You must be logged in to create a certification', data: null }
 
-  if (!user) {
-    return { success: false as const, error: 'You must be logged in to create a certification', data: null }
-  }
-
-  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(supabase, user.id)
+  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(session.user.id)
   if (staffError || !staff?.id || !staff.agency_id) {
     return {
       success: false as const,
-      error:
-        'Your login is not linked to an agency staff profile. Ask your agency to connect your account so certifications stay in sync with the agency dashboard.',
+      error: 'Your login is not linked to an agency staff profile. Ask your agency to connect your account so certifications stay in sync with the agency dashboard.',
       data: null,
     }
   }
@@ -142,34 +132,28 @@ export async function createMyStaffCertification(data: CreateCertificationData) 
   const expiryDate = data.expiration_date.trim()
   const { status } = computeExpiryFields(expiryDate)
 
-  const { data: inserted, error: insertError } = await supabase
-    .from('caregiver_credentials')
-    .insert({
-      agency_id: staff.agency_id,
-      caregiver_member_id: staff.id,
-      user_id: user.id,
-      source_credential_name: data.type.trim(),
-      credential_number: data.license_number.trim(),
-      state: (data.state?.trim() || '—') || '—',
-      status,
-      issue_date: issueDate,
-      expiration_date: expiryDate,
-      issuing_authority: data.issuing_authority.trim(),
-      document_url: data.document_url ?? null,
-    })
-    .select()
-    .single()
+  try {
+    const [inserted] = await sql<CredentialRow[]>`
+      INSERT INTO caregiver_credentials (
+        agency_id, caregiver_member_id, user_id,
+        source_credential_name, credential_number, state, status,
+        issue_date, expiration_date, issuing_authority, document_url
+      ) VALUES (
+        ${staff.agency_id}, ${staff.id}, ${session.user.id},
+        ${data.type.trim()}, ${data.license_number.trim()},
+        ${(data.state?.trim() || '—') || '—'}, ${status},
+        ${issueDate}, ${expiryDate},
+        ${data.issuing_authority.trim()}, ${data.document_url ?? null}
+      )
+      RETURNING *
+    `
+    if (!inserted) return { success: false as const, error: 'Insert failed', data: null }
 
-  if (insertError) {
-    return { success: false as const, error: insertError.message, data: null }
-  }
-
-  revalidatePath('/pages/caregiver/my-certifications')
-  revalidatePath('/pages/caregiver')
-  return {
-    success: true as const,
-    error: null,
-    data: inserted ? mapCredentialRowToUi(inserted as Parameters<typeof mapCredentialRowToUi>[0]) : null,
+    revalidatePath('/pages/caregiver/my-certifications')
+    revalidatePath('/pages/caregiver')
+    return { success: true as const, error: null, data: mapCredentialRowToUi(inserted) }
+  } catch (err: any) {
+    return { success: false as const, error: err.message, data: null }
   }
 }
 
@@ -179,15 +163,10 @@ export async function updateMyStaffCertification(certificationId: string, data: 
     return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   }
 
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
+  if (!session) return { success: false as const, error: 'You must be logged in to update a certification', data: null }
 
-  if (!user) {
-    return { success: false as const, error: 'You must be logged in to update a certification', data: null }
-  }
-
-  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(supabase, user.id)
+  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(session.user.id)
   if (staffError || !staff?.id) {
     return {
       success: false as const,
@@ -196,79 +175,57 @@ export async function updateMyStaffCertification(certificationId: string, data: 
     }
   }
 
-  let fetchQuery = supabase.from('caregiver_credentials').select('id').eq('id', certificationId)
-  fetchQuery = fetchQuery.eq('caregiver_member_id', staff.id)
-
-  const { data: existing, error: fetchError } = await fetchQuery.maybeSingle()
-
-  if (fetchError || !existing) {
-    return { success: false as const, error: 'Certification not found or you do not have access.', data: null }
-  }
+  // Verify ownership
+  const [existing] = await sql<{ id: string }[]>`
+    SELECT id FROM caregiver_credentials
+    WHERE id = ${certificationId} AND caregiver_member_id = ${staff.id}
+    LIMIT 1
+  `
+  if (!existing) return { success: false as const, error: 'Certification not found or you do not have access.', data: null }
 
   const expiryDate = data.expiration_date.trim()
   const { status } = computeExpiryFields(expiryDate)
 
-  const { data: updated, error: updateError } = await supabase
-    .from('caregiver_credentials')
-    .update({
-      source_credential_name: data.type.trim(),
-      credential_number: data.license_number.trim(),
-      state: (data.state?.trim() || '—') || '—',
-      issue_date: data.issue_date?.trim() || null,
-      expiration_date: expiryDate,
-      status,
-      issuing_authority: data.issuing_authority.trim(),
-      document_url: data.document_url ?? null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', certificationId)
-    .eq('caregiver_member_id', staff.id)
-    .select()
-    .single()
+  try {
+    const [updated] = await sql<CredentialRow[]>`
+      UPDATE caregiver_credentials SET
+        source_credential_name = ${data.type.trim()},
+        credential_number      = ${data.license_number.trim()},
+        state                  = ${(data.state?.trim() || '—') || '—'},
+        issue_date             = ${data.issue_date?.trim() || null},
+        expiration_date        = ${expiryDate},
+        status                 = ${status},
+        issuing_authority      = ${data.issuing_authority.trim()},
+        document_url           = ${data.document_url ?? null},
+        updated_at             = ${new Date().toISOString()}
+      WHERE id = ${certificationId} AND caregiver_member_id = ${staff.id}
+      RETURNING *
+    `
+    if (!updated) return { success: false as const, error: 'Update failed', data: null }
 
-  if (updateError) {
-    return { success: false as const, error: updateError.message, data: null }
-  }
-
-  revalidatePath('/pages/caregiver/my-certifications')
-  revalidatePath(`/pages/caregiver/my-certifications/${certificationId}`)
-  revalidatePath('/pages/caregiver')
-  return {
-    success: true as const,
-    error: null,
-    data: updated ? mapCredentialRowToUi(updated as Parameters<typeof mapCredentialRowToUi>[0]) : null,
+    revalidatePath('/pages/caregiver/my-certifications')
+    revalidatePath(`/pages/caregiver/my-certifications/${certificationId}`)
+    revalidatePath('/pages/caregiver')
+    return { success: true as const, error: null, data: mapCredentialRowToUi(updated) }
+  } catch (err: any) {
+    return { success: false as const, error: err.message, data: null }
   }
 }
 
 export async function getMyStaffCertificationById(certificationId: string) {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
+  if (!session) return { error: 'You must be logged in', data: null }
 
-  if (!user) {
-    return { error: 'You must be logged in', data: null }
-  }
+  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(session.user.id)
+  if (staffError || !staff?.id) return { error: 'Staff profile not found', data: null }
 
-  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(supabase, user.id)
-  if (staffError || !staff?.id) {
-    return { error: 'Staff profile not found', data: null }
-  }
-
-  const { data: row, error } = await supabase
-    .from('caregiver_credentials')
-    .select('*')
-    .eq('id', certificationId)
-    .eq('caregiver_member_id', staff.id)
-    .maybeSingle()
-
-  if (error) {
-    return { error: error.message, data: null }
-  }
-  if (!row) {
-    return { error: 'Not found', data: null }
-  }
-
-  return { error: null, data: mapCredentialRowToUi(row as Parameters<typeof mapCredentialRowToUi>[0]) }
+  const [row] = await sql<CredentialRow[]>`
+    SELECT * FROM caregiver_credentials
+    WHERE id = ${certificationId} AND caregiver_member_id = ${staff.id}
+    LIMIT 1
+  `
+  if (!row) return { error: 'Not found', data: null }
+  return { error: null, data: mapCredentialRowToUi(row) }
 }
 
 export async function updateUnifiedCaregiverCertification(
@@ -281,9 +238,7 @@ export async function updateUnifiedCaregiverCertification(
   if (err.includes('not found') || err.includes('access')) {
     const { updateCertification } = await import('@/app/actions/certifications')
     const legacyResult = await updateCertification(certificationId, data)
-    if (legacyResult.error) {
-      return { success: false as const, error: legacyResult.error, data: null }
-    }
+    if (legacyResult.error) return { success: false as const, error: legacyResult.error, data: null }
     return { success: true as const, error: null, data: legacyResult.data }
   }
   return staffTry
@@ -294,9 +249,8 @@ export async function getUnifiedCaregiverCertificationDetail(certificationId: st
   data: MyStaffCertificationUi | null
 }> {
   const staffResult = await getMyStaffCertificationById(certificationId)
-  if (!staffResult.error && staffResult.data) {
-    return { error: null, data: staffResult.data }
-  }
+  if (!staffResult.error && staffResult.data) return { error: null, data: staffResult.data }
+
   const legacyResult = await getCredentialByIdForUser(certificationId)
   if (!legacyResult.error && legacyResult.data) {
     const d = legacyResult.data as Record<string, unknown>
@@ -317,8 +271,5 @@ export async function getUnifiedCaregiverCertificationDetail(certificationId: st
       }),
     }
   }
-  return {
-    error: staffResult.error || legacyResult.error || 'Not found',
-    data: null,
-  }
+  return { error: staffResult.error || legacyResult.error || 'Not found', data: null }
 }

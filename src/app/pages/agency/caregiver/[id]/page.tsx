@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -22,7 +22,7 @@ export default async function CaregiverProfilePage({
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency/caregiver')
 
-  const { data: staff, error: staffError } = await q.getStaffMemberByIdAndAgencyId(supabase, staffId, agencyId)
+  const { data: staff, error: staffError } = await q.getStaffMemberByIdAndAgencyId(staffId, agencyId)
 
   if (staffError || !staff) redirect('/pages/agency/caregiver')
 
@@ -47,7 +47,7 @@ export default async function CaregiverProfilePage({
     if (Number.isFinite(n)) currentPayRate = n
   }
 
-  const { data: staffLicensesData } = await q.getStaffLicensesByStaffMemberIds(supabase, [staffId])
+  const { data: staffLicensesData } = await q.getStaffLicensesByStaffMemberIds([staffId])
   const allStaffLicenses = (staffLicensesData ?? []).map((license: any) => ({
     id: license.id,
     caregiver_member_id: license.caregiver_member_id,

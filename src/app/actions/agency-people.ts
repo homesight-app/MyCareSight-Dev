@@ -1,6 +1,6 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 import { getAgencyKeyStaff, getAgencyAdmins, getAgencyCareCoordinators } from '@/lib/supabase/query/agency-people'
 
@@ -56,12 +56,10 @@ export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> 
   const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { keyStaff: [], admins: [], coordinators: [], error: authErr }
 
-  const supabase = createAdminClient()
-
   const [staffRes, adminsRes, coordsRes] = await Promise.all([
-    getAgencyKeyStaff(supabase, agencyId),
-    getAgencyAdmins(supabase, agencyId),
-    getAgencyCareCoordinators(supabase, agencyId),
+    getAgencyKeyStaff(agencyId),
+    getAgencyAdmins(agencyId),
+    getAgencyCareCoordinators(agencyId),
   ])
 
   const err = staffRes.error || adminsRes.error || coordsRes.error
@@ -77,22 +75,21 @@ export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> 
   ]
   const isActiveByUserId = new Map<string, boolean>()
   if (userIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from('user_profiles')
-      .select('id, is_active')
-      .in('id', userIds)
-    profiles?.forEach(p => isActiveByUserId.set(p.id, p.is_active))
+    const profiles = await sql<{ id: string; is_active: boolean }[]>`
+      SELECT id, is_active FROM user_profiles WHERE id = ANY(${userIds}::uuid[])
+    `
+    profiles.forEach(p => isActiveByUserId.set(p.id, p.is_active))
   }
 
   const admins: RawAdmin[] = (adminsRes.data ?? []).map(a => ({
     ...a,
     is_active: a.user_id ? (isActiveByUserId.get(a.user_id) ?? null) : null,
-  }))
+  })) as RawAdmin[]
 
   const coordinators: RawCoordinator[] = (coordsRes.data ?? []).map(c => ({
     ...c,
     is_active: c.user_id ? (isActiveByUserId.get(c.user_id) ?? null) : null,
-  }))
+  })) as RawCoordinator[]
 
   const keyStaff: RawKeyStaff[] = (staffRes.data ?? []).map(s => ({
     ...(s as Omit<RawKeyStaff, 'is_active'>),

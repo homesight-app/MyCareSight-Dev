@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 
@@ -12,11 +12,10 @@ function todayUtcDate(): string {
 }
 
 async function getViewerAgencyId(): Promise<string | null> {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return null
-  const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
+  const { data: up } = await q.getAgencyIdFromProfile(user.id)
   return up?.agency_id ?? null
 }
 
@@ -38,43 +37,42 @@ export async function appendCaregiverPayRateAction(input: {
   if (!caregiverMemberId) return { error: 'Missing caregiver.' }
   if (!Number.isFinite(payRate) || payRate < 0) return { error: 'Invalid pay rate.' }
 
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not signed in.' }
+  if (!session) return { error: 'Not signed in.' }
 
   const viewerAgencyId = await getViewerAgencyId()
   if (!viewerAgencyId) return { error: 'No agency context.' }
 
-  const { data: cm, error: cmErr } = await supabase
-    .from('caregiver_members')
-    .select('id, agency_id')
-    .eq('id', caregiverMemberId)
-    .maybeSingle()
-
-  if (cmErr) return { error: cmErr.message }
+  const [cm] = await sql<{ id: string; agency_id: string }[]>`
+    SELECT id, agency_id FROM caregiver_members WHERE id = ${caregiverMemberId} LIMIT 1
+  `
   if (!cm?.agency_id || cm.agency_id !== viewerAgencyId) {
     return { error: 'Caregiver not found for this agency.' }
   }
 
-  const agencyId = cm.agency_id as string
+  const agencyId = cm.agency_id
 
-  const { error: rpcErr } = await supabase.rpc('append_caregiver_pay_rate', {
-    p_caregiver_member_id: caregiverMemberId,
-    p_agency_id: agencyId,
-    p_pay_rate: payRate,
-    p_effective: effectiveDate,
-    p_service_type: serviceType,
-    p_unit_type: 'hour',
-  })
+  try {
+    await sql`
+      SELECT append_caregiver_pay_rate(
+        p_caregiver_member_id => ${caregiverMemberId},
+        p_agency_id           => ${agencyId},
+        p_pay_rate            => ${payRate},
+        p_effective           => ${effectiveDate},
+        p_service_type        => ${serviceType},
+        p_unit_type           => 'hour'
+      )
+    `
+  } catch (err: any) {
+    return { error: err.message }
+  }
 
-  if (rpcErr) return { error: rpcErr.message }
-
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'caregiver_pay_rates',
+    record_id: caregiverMemberId,
     action: 'INSERT',
-    performed_by_user_id: user.id,
+    performed_by_user_id: session.user.id,
     details: {
       caregiver_member_id: caregiverMemberId,
       pay_rate:            payRate,

@@ -1,4 +1,4 @@
-import { getSession } from '@/lib/auth'
+﻿import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ExpertClientsContent from '@/components/ExpertClientsContent'
@@ -20,7 +20,7 @@ export default async function ExpertClientsPage({
 
   const [appsResult, { count: totalCount }, { count: activeCount }, { count: pendingCount }] =
     await Promise.all([
-      q.getApplicationsByAssignedExpertIdPaginated(supabase, expertUserId, { page, pageSize: PAGE_SIZE, search }),
+      q.getApplicationsByAssignedExpertIdPaginated(expertUserId, { page, pageSize: PAGE_SIZE, search }),
       supabase.from('applications').select('id', { count: 'exact', head: true }).eq('assigned_expert_id', expertUserId),
       supabase.from('applications').select('id', { count: 'exact', head: true }).eq('assigned_expert_id', expertUserId).in('status', ['requested', 'in_progress', 'under_review', 'needs_revision']),
       supabase.from('applications').select('id', { count: 'exact', head: true }).eq('assigned_expert_id', expertUserId).in('status', ['under_review', 'needs_revision']),
@@ -30,7 +30,7 @@ export default async function ExpertClientsPage({
     (appsResult.data ?? []).map(a => (a as Record<string, unknown>).agency_id as string).filter(Boolean)
   ))
   const { data: agenciesData } = agencyIds.length > 0
-    ? await q.getAgenciesByIds(supabase, agencyIds)
+    ? await q.getAgenciesByIds(agencyIds)
     : { data: [] }
   const agencyNames: Record<string, string> = {}
   for (const a of agenciesData ?? []) agencyNames[a.id] = a.name

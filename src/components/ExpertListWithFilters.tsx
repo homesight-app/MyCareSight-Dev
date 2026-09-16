@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { fetchFilteredExpertsAction } from '@/app/actions/admin-list-filters'
 import { Search, Mail, Phone, MapPin, Briefcase } from 'lucide-react'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
@@ -129,7 +129,7 @@ export default function ExpertListWithFilters({
       const supabase = createClient()
       const newStatus = isActive ? 'inactive' : 'active'
 
-      const { error } = await q.updateLicensingExpertById(supabase, expert.id, {
+      const { error } = await q.updateLicensingExpertById(expert.id, {
         status: newStatus,
         updated_at: new Date().toISOString(),
       })

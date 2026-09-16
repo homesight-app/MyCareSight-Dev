@@ -67,7 +67,7 @@ const sql = postgres(NEON_URL, {
 //       belt-and-suspenders, not strictly required.
 
 const ALL_TABLES = [
-  // Wave 1
+  // Wave 1 — no FK dependencies
   'agencies',
   'license_types',
   'user_profiles',
@@ -77,7 +77,12 @@ const ALL_TABLES = [
   'pricing',
   'plan_features',
   'system_settings',
-  // Wave 2
+  'billing_codes',
+  'feature_plans',
+  'templates',
+  'patients',
+  'task_catalog',
+  // Wave 2 — FK to wave 1
   'configuration_values',     // self-ref parent_id — NULL-parents fetched first
   'agency_admins',
   'care_coordinators',
@@ -91,7 +96,18 @@ const ALL_TABLES = [
   'playbooks',
   'license_requirements',
   'licenses',
-  // Wave 3
+  'agency_configurations',
+  'agency_lead_stages',
+  'agency_notes',
+  'caregiver_availability_slots',
+  'caregiver_credentials',
+  'patient_incidents',
+  'patients_representatives',
+  'patient_service_contracts',
+  'patient_care_plan_tasks',
+  'visit_series',
+  'task_required_credentials',
+  // Wave 3 — FK to wave 2
   'playbook_items',
   'playbook_templates',
   'license_requirement_templates',
@@ -99,7 +115,12 @@ const ALL_TABLES = [
   'lead_documents',
   'license_documents',
   'cases',
-  // Wave 4
+  'lead_notes',
+  'lead_tasks',
+  'license_requirement_documents',
+  'license_requirement_steps',
+  'scheduled_visits',
+  // Wave 4 — FK to wave 3
   'playbook_item_validation_rules',
   'application_steps',
   'application_documents',
@@ -111,7 +132,9 @@ const ALL_TABLES = [
   'schedule_assignment_requests',
   'schedule_unassignment_requests',
   'validation_runs',
-  // Wave 5
+  'application_playbook_items',
+  'scheduled_visit_tasks',
+  // Wave 5 — FK to wave 4
   'application_playbook_item_rule_checks',
   'messages',
   'notifications',

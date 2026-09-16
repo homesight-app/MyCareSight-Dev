@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { requireAdmin } from '@/lib/auth-helpers'
@@ -25,9 +25,9 @@ export default async function AdminPlaybookDetailPage({
   const supabase = await createClient()
 
   const [{ data: playbook }, { data: items }, { data: templates }, { data: categories }] = await Promise.all([
-    q.getPlaybookById(supabase, playbookId),
-    q.getPlaybookItems(supabase, playbookId),
-    q.getPlaybookTemplates(supabase, playbookId),
+    q.getPlaybookById(playbookId),
+    q.getPlaybookItems(playbookId),
+    q.getPlaybookTemplates(playbookId),
     getConfigurationValues('PLAYBOOK_CATEGORY'),
   ])
 

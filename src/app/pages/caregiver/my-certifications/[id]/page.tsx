@@ -35,12 +35,10 @@ export default async function CertificationDetailPage({
   let application = null
 
   if (!certification) {
-    const { data: staffMember } = await q.getStaffMemberByUserId(supabase, session.user.id)
+    const { data: staffMember } = await q.getStaffMemberByUserId(session.user.id)
 
     if (staffMember) {
-      const { data: appData, error: appError } = await q.getApplicationByIdAndStaffMemberId(
-        supabase,
-        id,
+      const { data: appData, error: appError } = await q.getApplicationByIdAndStaffMemberId(id,
         staffMember.id
       )
 

@@ -1,4 +1,4 @@
-import { requireAdmin } from '@/lib/auth-helpers'
+﻿import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ClientListWithFilters from '@/components/ClientListWithFilters'
@@ -24,10 +24,10 @@ export default async function ClientsPage({
     { data: allExperts },
     { data: allClientIdRows },
   ] = await Promise.all([
-    q.getAllClientsOrderedPaginated(supabase, page, PAGE_SIZE),
+    q.getAllClientsOrderedPaginated(page, PAGE_SIZE),
     supabase.from('applications').select('id', { count: 'exact', head: true }).in('status', ['requested', 'in_progress', 'under_review', 'needs_revision']),
     supabase.from('applications').select('id', { count: 'exact', head: true }).eq('status', 'under_review'),
-    q.getLicensingExpertsActive(supabase),
+    q.getLicensingExpertsActive(),
     supabase.from('agency_admins').select('id'),
   ])
 
@@ -45,14 +45,14 @@ export default async function ClientsPage({
     { data: expertsForClients },
     { data: unreadRows, error: unreadRpcError },
   ] = await Promise.all([
-    clientIds.length > 0 ? q.getClientStatesByClientIds(supabase, clientIds) : Promise.resolve({ data: [], error: null }),
+    clientIds.length > 0 ? q.getClientStatesByClientIds(clientIds) : Promise.resolve({ data: [], error: null }),
     clientIds.length > 0
-      ? q.getCasesByClientIds(supabase, clientIds, 'client_id, progress_percentage, status')
+      ? q.getCasesByClientIds(clientIds, 'client_id, progress_percentage, status')
       : Promise.resolve({ data: [], error: null }),
-    expertIds.length > 0 ? q.getLicensingExpertsByIds(supabase, expertIds, '*') : Promise.resolve({ data: [], error: null }),
+    expertIds.length > 0 ? q.getLicensingExpertsByIds(expertIds, '*') : Promise.resolve({ data: [], error: null }),
     // Unread stat: use all client IDs for the global count
     (allClientIdRows ?? []).length > 0
-      ? q.rpcAdminUnreadMessageCountsByClient(supabase, user.id, (allClientIdRows ?? []).map(r => r.id))
+      ? q.rpcAdminUnreadMessageCountsByClient(user.id, (allClientIdRows ?? []).map(r => r.id))
       : Promise.resolve({ data: [], error: null }),
   ])
 

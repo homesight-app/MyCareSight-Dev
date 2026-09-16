@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidateTag } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import { CACHE_TAG_AGENCY_LEAD_STAGES } from '@/lib/cache-tags'
 
@@ -18,8 +18,7 @@ async function requireAgencyOwner(agencyId: string) {
 export async function getAgencyLeadStagesAction(agencyId: string) {
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error, data: null }
-  const supabase = createAdminClient()
-  const { data, error: dbErr } = await q.getAgencyLeadStages(supabase, agencyId)
+  const { data, error: dbErr } = await q.getAgencyLeadStages(agencyId)
   if (dbErr) return { success: false as const, error: dbErr.message, data: null }
   return { success: true as const, error: null, data }
 }
@@ -33,8 +32,7 @@ export async function createAgencyLeadStageAction(
   }
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error, data: null }
-  const supabase = createAdminClient()
-  const { data, error: dbErr } = await q.createAgencyLeadStage(supabase, agencyId, stageData)
+  const { data, error: dbErr } = await q.createAgencyLeadStage(agencyId, stageData)
   if (dbErr) return { success: false as const, error: dbErr.message, data: null }
   revalidateTag(CACHE_TAG_AGENCY_LEAD_STAGES)
   return { success: true as const, error: null, data }
@@ -50,8 +48,7 @@ export async function updateAgencyLeadStageAction(
   }
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error, data: null }
-  const supabase = createAdminClient()
-  const { data, error: dbErr } = await q.updateAgencyLeadStage(supabase, stageId, updates)
+  const { data, error: dbErr } = await q.updateAgencyLeadStage(stageId, updates)
   if (dbErr) return { success: false as const, error: dbErr.message, data: null }
   revalidateTag(CACHE_TAG_AGENCY_LEAD_STAGES)
   return { success: true as const, error: null, data }
@@ -60,19 +57,18 @@ export async function updateAgencyLeadStageAction(
 export async function deleteAgencyLeadStageAction(agencyId: string, stageId: string) {
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error }
-  const supabase = createAdminClient()
-  // First verify the stage is not locked
-  const { data: stage } = await supabase
-    .from('agency_lead_stages')
-    .select('is_entry, is_won, is_lost')
-    .eq('id', stageId)
-    .eq('agency_id', agencyId)
-    .single()
+  // Verify the stage is not locked before deleting
+  const [stage] = await sql<{ is_entry: boolean; is_won: boolean; is_lost: boolean }[]>`
+    SELECT is_entry, is_won, is_lost
+    FROM agency_lead_stages
+    WHERE id = ${stageId} AND agency_id = ${agencyId}
+    LIMIT 1
+  `
   if (!stage) return { success: false as const, error: 'Stage not found' }
   if (stage.is_entry || stage.is_won || stage.is_lost) {
     return { success: false as const, error: 'This stage is locked and cannot be deleted' }
   }
-  const { error: dbErr } = await q.deleteAgencyLeadStage(supabase, stageId)
+  const { error: dbErr } = await q.deleteAgencyLeadStage(stageId)
   if (dbErr) return { success: false as const, error: dbErr.message }
   revalidateTag(CACHE_TAG_AGENCY_LEAD_STAGES)
   return { success: true as const, error: null }
@@ -81,8 +77,7 @@ export async function deleteAgencyLeadStageAction(agencyId: string, stageId: str
 export async function reorderAgencyLeadStagesAction(agencyId: string, orderedIds: string[]) {
   const { error } = await requireAgencyOwner(agencyId)
   if (error) return { success: false as const, error }
-  const supabase = createAdminClient()
-  const { error: dbErr } = await q.reorderAgencyLeadStages(supabase, agencyId, orderedIds)
+  const { error: dbErr } = await q.reorderAgencyLeadStages(agencyId, orderedIds)
   if (dbErr) return { success: false as const, error: (dbErr as { message?: string }).message ?? 'Reorder failed' }
   revalidateTag(CACHE_TAG_AGENCY_LEAD_STAGES)
   return { success: true as const, error: null }

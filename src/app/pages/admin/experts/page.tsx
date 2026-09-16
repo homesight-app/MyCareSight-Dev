@@ -14,12 +14,11 @@ export default async function ExpertsPage() {
   await requireAdmin()
   const supabase = await createClient()
 
-  const { data: experts } = await q.getLicensingExpertsOrdered(supabase)
+  const { data: experts } = await q.getLicensingExpertsOrdered()
   const expertIds = experts?.map(e => e.id) || []
   const { data: expertStates } =
-    expertIds.length > 0 ? await q.getExpertStatesByExpertIds(supabase, expertIds) : { data: [] }
+    expertIds.length > 0 ? await q.getExpertStatesByExpertIds(expertIds) : { data: [] }
   const { data: clients } = await q.getClientsByExpertIds(
-    supabase,
     expertIds.filter((id): id is string => id != null)
   )
 

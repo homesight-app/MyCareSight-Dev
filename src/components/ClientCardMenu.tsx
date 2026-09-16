@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { MoreVertical, Eye, MessageSquare, UserCog, FileText, Edit } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import EditClientModal from './EditClientModal'
 
 interface Client {
@@ -76,7 +76,7 @@ export default function ClientCardMenu({
     // Always fetch fresh data from the database to ensure we have the latest information
     try {
       const supabase = createClient()
-      const { data, error } = await q.getClientById(supabase, clientId)
+      const { data, error } = await q.getClientById(clientId)
 
       if (error) {
         console.error('Error fetching client:', error)

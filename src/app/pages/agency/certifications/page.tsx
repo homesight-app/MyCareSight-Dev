@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -16,7 +16,7 @@ export default async function AgencyCertificationsPage() {
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency')
 
-  const { data: certifications } = await q.getAgencyCertificationsWithHistory(supabase, agencyId)
+  const { data: certifications } = await q.getAgencyCertificationsWithHistory(agencyId)
 
   return (
     <AgencyCertificationsContent

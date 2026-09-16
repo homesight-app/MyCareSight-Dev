@@ -6,7 +6,7 @@ import PlanManagementContent from '@/components/PlanManagementContent'
 export default async function AdminPlansPage() {
   await requireAdmin()
   const supabase = createAdminClient()
-  const { data: plans } = await q.getFeaturePlans(supabase)
+  const { data: plans } = await q.getFeaturePlans()
 
   return <PlanManagementContent plans={plans ?? []} />
 }

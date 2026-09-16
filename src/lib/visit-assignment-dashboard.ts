@@ -1,5 +1,5 @@
 import zipcodes from 'zipcodes'
-import type { Supabase } from '@/lib/supabase/types'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import type {
@@ -33,7 +33,6 @@ export type AssignmentVisitCardDTO = {
   requests: AssignmentRequestCardDTO[]
 }
 
-/** One pending unassignment row for Visit Management → Caregiver Requests → Unassignment (no scoring bars). */
 export type UnassignmentRequestListItemDTO = {
   requestId: string
   visitId: string
@@ -74,8 +73,7 @@ function formatScheduleDate(isoDate: string): string {
 
 function formatTimePart(t: string | null | undefined): string {
   if (!t) return ''
-  const s = String(t).slice(0, 5)
-  return s
+  return String(t).slice(0, 5)
 }
 
 function formatTimeRange(start: string | null | undefined, end: string | null | undefined): string {
@@ -146,7 +144,6 @@ function isUuidLike(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 }
 
-/** Drop null/undefined/string "null" so `.in('id', ids)` never sends invalid uuid text to Postgres. */
 function sanitizeUuidList(ids: unknown[]): string[] {
   return Array.from(new Set(ids.filter((x): x is string => typeof x === 'string' && x.length > 0 && x !== 'null')))
 }
@@ -192,13 +189,11 @@ type StaffRow = {
   last_name?: string | null
   zip_code?: string | null
   skills?: string[] | null
-  /** Staff role label stored on the row (not a FK to caregiver_roles in this schema). */
   role?: string | null
   job_title?: string | null
 }
 
-/** Load and shape data for Visit Management → Caregiver Requests (assignment + unassignment). */
-export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Promise<{
+export async function fetchVisitAssignmentDashboardData(agencyId: string | null): Promise<{
   visits: AssignmentVisitCardDTO[]
   unassignmentItems: UnassignmentRequestListItemDTO[]
   resolved: ResolvedAssignmentRowDTO[]
@@ -208,26 +203,6 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
   unassignmentDeclinedTotal: number
   error?: string
 }> {
-  const [
-    pendingRes,
-    resolvedRes,
-    approvedAssignmentCountRes,
-    declinedAssignmentCountRes,
-    pendingUnassignRes,
-    resolvedUnassignRes,
-    approvedUnassignmentCountRes,
-    declinedUnassignmentCountRes,
-  ] = await Promise.all([
-    q.getPendingScheduleAssignmentRequests(supabase),
-    q.getRecentResolvedScheduleAssignmentRequests(supabase, 40),
-    supabase.from('schedule_assignment_requests').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
-    supabase.from('schedule_assignment_requests').select('id', { count: 'exact', head: true }).eq('status', 'declined'),
-    q.getPendingScheduleUnassignmentRequests(supabase),
-    q.getRecentResolvedScheduleUnassignmentRequests(supabase, 40),
-    supabase.from('schedule_unassignment_requests').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
-    supabase.from('schedule_unassignment_requests').select('id', { count: 'exact', head: true }).eq('status', 'declined'),
-  ])
-
   const empty = {
     visits: [] as AssignmentVisitCardDTO[],
     unassignmentItems: [] as UnassignmentRequestListItemDTO[],
@@ -238,35 +213,73 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
     unassignmentDeclinedTotal: 0,
   }
 
-  if (pendingRes.error) {
-    return { ...empty, error: pendingRes.error.message }
-  }
-  if (resolvedRes.error) {
-    return { ...empty, error: resolvedRes.error.message }
-  }
-  if (approvedAssignmentCountRes.error) {
-    return { ...empty, error: approvedAssignmentCountRes.error.message }
-  }
-  if (declinedAssignmentCountRes.error) {
-    return { ...empty, error: declinedAssignmentCountRes.error.message }
-  }
-  if (pendingUnassignRes.error) {
-    return { ...empty, error: pendingUnassignRes.error.message }
-  }
-  if (resolvedUnassignRes.error) {
-    return { ...empty, error: resolvedUnassignRes.error.message }
-  }
-  if (approvedUnassignmentCountRes.error) {
-    return { ...empty, error: approvedUnassignmentCountRes.error.message }
-  }
-  if (declinedUnassignmentCountRes.error) {
-    return { ...empty, error: declinedUnassignmentCountRes.error.message }
-  }
+  if (!agencyId) return empty
 
-  const assignmentApprovedTotal = approvedAssignmentCountRes.count ?? 0
-  const assignmentDeclinedTotal = declinedAssignmentCountRes.count ?? 0
-  const unassignmentApprovedTotal = approvedUnassignmentCountRes.count ?? 0
-  const unassignmentDeclinedTotal = declinedUnassignmentCountRes.count ?? 0
+  const [
+    pendingRes,
+    resolvedRes,
+    pendingUnassignRes,
+    resolvedUnassignRes,
+    assignApproved,
+    assignDeclined,
+    unassignApproved,
+    unassignDeclined,
+  ] = await Promise.all([
+    q.getPendingScheduleAssignmentRequests(agencyId),
+    q.getRecentResolvedScheduleAssignmentRequests(40, agencyId),
+    q.getPendingScheduleUnassignmentRequests(agencyId),
+    q.getRecentResolvedScheduleUnassignmentRequests(40, agencyId),
+    sql<[{ count: string }]>`
+      SELECT COUNT(*) AS count
+      FROM schedule_assignment_requests sar
+      WHERE sar.status = 'approved'
+        AND EXISTS (
+          SELECT 1 FROM scheduled_visits sv
+          WHERE sv.id = sar.schedule_id
+            AND sv.agency_id = ${agencyId}
+        )
+    `,
+    sql<[{ count: string }]>`
+      SELECT COUNT(*) AS count
+      FROM schedule_assignment_requests sar
+      WHERE sar.status = 'declined'
+        AND EXISTS (
+          SELECT 1 FROM scheduled_visits sv
+          WHERE sv.id = sar.schedule_id
+            AND sv.agency_id = ${agencyId}
+        )
+    `,
+    sql<[{ count: string }]>`
+      SELECT COUNT(*) AS count
+      FROM schedule_unassignment_requests sur
+      WHERE sur.status = 'approved'
+        AND EXISTS (
+          SELECT 1 FROM scheduled_visits sv
+          WHERE sv.id = sur.schedule_id
+            AND sv.agency_id = ${agencyId}
+        )
+    `,
+    sql<[{ count: string }]>`
+      SELECT COUNT(*) AS count
+      FROM schedule_unassignment_requests sur
+      WHERE sur.status = 'declined'
+        AND EXISTS (
+          SELECT 1 FROM scheduled_visits sv
+          WHERE sv.id = sur.schedule_id
+            AND sv.agency_id = ${agencyId}
+        )
+    `,
+  ])
+
+  if (pendingRes.error) return { ...empty, error: pendingRes.error.message }
+  if (resolvedRes.error) return { ...empty, error: resolvedRes.error.message }
+  if (pendingUnassignRes.error) return { ...empty, error: pendingUnassignRes.error.message }
+  if (resolvedUnassignRes.error) return { ...empty, error: resolvedUnassignRes.error.message }
+
+  const assignmentApprovedTotal = Number(assignApproved[0]?.count ?? 0)
+  const assignmentDeclinedTotal = Number(assignDeclined[0]?.count ?? 0)
+  const unassignmentApprovedTotal = Number(unassignApproved[0]?.count ?? 0)
+  const unassignmentDeclinedTotal = Number(unassignDeclined[0]?.count ?? 0)
 
   const pendingRows = (pendingRes.data ?? []) as ScheduleAssignmentRequestRow[]
   const resolvedRows = (resolvedRes.data ?? []) as ScheduleAssignmentRequestRow[]
@@ -299,10 +312,7 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
     scheduleIds.concat(resolvedScheduleIds).concat(unassignScheduleIds).concat(resolvedUnassignScheduleIds)
   )
 
-  const { data: schedulesData, error: schedErr } = await q.getScheduledVisitsByIdsAsScheduleRows(
-    supabase,
-    allScheduleIds
-  )
+  const { data: schedulesData, error: schedErr } = await q.getScheduledVisitsByIdsAsScheduleRows(allScheduleIds)
 
   if (schedErr) {
     return {
@@ -330,13 +340,18 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
   )
   const taskNameById = new Map<string, string>()
   if (taskIdTokens.length > 0) {
-    const { data: taskRows } = await supabase.from('task_catalog').select('id, name, code').in('id', taskIdTokens)
-    for (const row of taskRows ?? []) {
-      const r = row as { id?: string | null; name?: string | null; code?: string | null }
-      const id = (r.id ?? '').trim()
-      if (!id) continue
-      const label = (r.name ?? '').trim() || (r.code ?? '').trim()
-      if (label) taskNameById.set(id, label)
+    try {
+      const taskRows = await sql<{ id: string; name: string | null; code: string | null }[]>`
+        SELECT id, name, code FROM task_catalog WHERE id = ANY(${taskIdTokens}::uuid[])
+      `
+      for (const row of taskRows) {
+        const id = (row.id ?? '').trim()
+        if (!id) continue
+        const label = (row.name ?? '').trim() || (row.code ?? '').trim()
+        if (label) taskNameById.set(id, label)
+      }
+    } catch {
+      // Non-fatal: task names fall back to raw tokens
     }
   }
 
@@ -356,52 +371,25 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
   }
   const staffIdList = sanitizeUuidList(Array.from(staffIds))
 
-  const { data: patientsData, error: patErr } =
+  const [patientsData, staffData] = await Promise.all([
     patientIds.length === 0
-      ? { data: [] as PatientRow[], error: null }
-      : await supabase
-          .from('patients')
-          .select('id, first_name, last_name, zip_code, state, city, street_address')
-          .in('id', patientIds)
-
-  if (patErr) {
-    return {
-      visits: [],
-      unassignmentItems: [],
-      resolved: [],
-      assignmentApprovedTotal,
-      assignmentDeclinedTotal,
-      unassignmentApprovedTotal,
-      unassignmentDeclinedTotal,
-      error: patErr.message,
-    }
-  }
-
-  const { data: staffData, error: staffErr } =
+      ? Promise.resolve([] as PatientRow[])
+      : sql<PatientRow[]>`
+          SELECT id, first_name, last_name, zip_code, state, city, street_address
+          FROM patients WHERE id = ANY(${patientIds}::uuid[])
+        `,
     staffIdList.length === 0
-      ? { data: [] as StaffRow[], error: null }
-      : await supabase
-          .from('caregiver_members')
-          .select('id, first_name, last_name, zip_code, skills, role, job_title')
-          .in('id', staffIdList)
+      ? Promise.resolve([] as StaffRow[])
+      : sql<StaffRow[]>`
+          SELECT id, first_name, last_name, zip_code, skills, role, job_title
+          FROM caregiver_members WHERE id = ANY(${staffIdList}::uuid[])
+        `,
+  ])
 
-  if (staffErr) {
-    return {
-      visits: [],
-      unassignmentItems: [],
-      resolved: [],
-      assignmentApprovedTotal,
-      assignmentDeclinedTotal,
-      unassignmentApprovedTotal,
-      unassignmentDeclinedTotal,
-      error: staffErr.message,
-    }
-  }
+  const patientById = new Map(patientsData.map((p) => [p.id, p]))
+  const staffById = new Map(staffData.map((s) => [s.id, s]))
 
-  const patientById = new Map((patientsData as PatientRow[] | null)?.map((p) => [p.id, p]) ?? [])
-  const staffById = new Map((staffData as StaffRow[] | null)?.map((s) => [s.id, s]) ?? [])
-
-  const { data: reqRows } = await q.getCaregiverRequirementsByPatientIds(supabase, patientIds)
+  const { data: reqRows } = await q.getCaregiverRequirementsByPatientIds(patientIds)
   const requirementsByPatient = new Map<string, string[]>()
   for (const row of reqRows ?? []) {
     const pr = row as { patient_id?: string; skill_codes?: string[] }
@@ -410,10 +398,7 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
     }
   }
 
-  type PendingAgg = {
-    scheduleId: string
-    requests: AssignmentRequestCardDTO[]
-  }
+  type PendingAgg = { scheduleId: string; requests: AssignmentRequestCardDTO[] }
   const bySchedule = new Map<string, PendingAgg>()
 
   for (const row of pendingRows) {
@@ -424,7 +409,6 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
     const staff = staffById.get(row.caregiver_member_id)
     if (!patient || !staff) continue
 
-    // Use the visit's specific address ZIP if set; fall back to patient's default ZIP
     const visitAddrZip = sched.patient_address?.zip_code ?? null
     const clientZip = normalizeUsZipForLookup(visitAddrZip ?? patient.zip_code)
     const staffZip = normalizeUsZipForLookup(staff.zip_code)
@@ -434,8 +418,6 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
       if (d != null && Number.isFinite(d)) distanceMiles = d
     }
 
-    // Do not drop requests when proximity is null (distance >20 mi, or unknown/infinite when
-    // ZIPs are missing). Coordinators must still see every pending row; use 0% proximity for sort.
     const proximity = proximityPercentFromMiles(distanceMiles) ?? 0
 
     const caregiverSkills = Array.isArray(staff.skills) ? staff.skills : []
@@ -464,10 +446,7 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
     if (existing) {
       existing.requests.push(card)
     } else {
-      bySchedule.set(sched.id, {
-        scheduleId: sched.id,
-        requests: [card],
-      })
+      bySchedule.set(sched.id, { scheduleId: sched.id, requests: [card] })
     }
   }
 
@@ -584,13 +563,10 @@ export async function fetchVisitAssignmentDashboardData(supabase: Supabase): Pro
   }
 }
 
-/**
- * Count of pending caregiver requests (assignment + unassignment) for Visit Management + sidebar badge.
- */
 export async function getPendingAssignmentRequestCountForBadge(
-  supabase: Supabase
+  agencyId: string | null
 ): Promise<{ count: number; error?: string }> {
-  const data = await fetchVisitAssignmentDashboardData(supabase)
+  const data = await fetchVisitAssignmentDashboardData(agencyId)
   if (data.error) return { count: 0, error: data.error }
   const assignmentCount = data.visits.reduce((sum, v) => sum + v.requests.length, 0)
   const count = assignmentCount + data.unassignmentItems.length

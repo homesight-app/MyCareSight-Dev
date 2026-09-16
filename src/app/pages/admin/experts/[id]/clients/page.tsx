@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -23,10 +23,10 @@ export default async function ExpertClientsPage({
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: expert } = await q.getLicensingExpertById(supabase, id)
+  const { data: expert } = await q.getLicensingExpertById(id)
 
   const [{ data: clients }] = await Promise.all([
-    expert?.user_id ? q.getClientsByExpertId(supabase, expert.user_id) : Promise.resolve({ data: [] })
+    expert?.user_id ? q.getClientsByExpertId(expert.user_id) : Promise.resolve({ data: [] })
   ])
 
   if (!expert) {
@@ -35,7 +35,7 @@ export default async function ExpertClientsPage({
 
   const clientIds = clients?.map(c => c.id) || []
   const { data: clientStates } =
-    clientIds.length > 0 ? await q.getClientStatesByClientIds(supabase, clientIds) : { data: [] }
+    clientIds.length > 0 ? await q.getClientStatesByClientIds(clientIds) : { data: [] }
 
   const statesByClient: Record<string, string[]> = {}
   clientStates?.forEach(cs => {

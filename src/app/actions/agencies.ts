@@ -1,8 +1,8 @@
-'use server'
+﻿'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import * as q from '@/lib/supabase/query'
+import sql from '@/db'
 import { getSession } from '@/lib/auth'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
@@ -70,10 +70,9 @@ export async function createAgency(data: AgencyFormData) {
   const parsed = agencyFormSchema.safeParse(data)
   if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   const validData = parsed.data
-  const supabase = createAdminClient()
   try {
     const ids = (validData.agencyAdminIds || []).filter(Boolean)
-    const { data: newAgency, error } = await q.insertAgency(supabase, {
+    const { data: newAgency, error } = await q.insertAgency({
       ...buildAgencyPayload(validData),
       agency_admin_ids: ids,
     })
@@ -87,7 +86,7 @@ export async function createAgency(data: AgencyFormData) {
     if (ids.length > 0) {
       const updates: { company_name: string; agency_id?: string } = { company_name: trimmedName }
       if (agencyId) updates.agency_id = agencyId
-      const { error: clientError } = await q.updateClientCompanyAndAgencyForIds(supabase, ids, updates)
+      const { error: clientError } = await q.updateClientCompanyAndAgencyForIds(ids, updates)
       // Non-blocking: agency was created. Log with context so ops team can manually fix if needed.
       if (clientError) console.error('[agencies/createAgency] Failed to set client company_name/agency_id. agencyId=%s clientIds=%j err=%s', agencyId, ids, clientError.message)
     }
@@ -114,14 +113,13 @@ export async function updateAgency(
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
   try {
     const newIds = (validData.agencyAdminIds || []).filter(Boolean)
     const newSet = new Set(newIds)
 
     // One fetch for all peer agencies; keep admin-id arrays in memory so multiple newIds
     // removed from the same other agency stay consistent (refetch-per-clientId was redundant).
-    const { data: otherAgencies } = await q.getAgenciesExceptId(supabase, id)
+    const { data: otherAgencies } = await q.getAgenciesExceptId(id)
     const others = otherAgencies ?? []
     const adminIdsByAgency = new Map<string, string[]>(
       others.map((ag) => [ag.id, [...((ag.agency_admin_ids as string[]) || [])]])
@@ -134,17 +132,17 @@ export async function updateAgency(
         if (!arr.includes(clientId)) continue
         const updated = arr.filter((x) => x !== clientId)
         adminIdsByAgency.set(ag.id, updated)
-        const { error: stripErr } = await q.updateAgencyAdminIds(supabase, ag.id, updated)
+        const { error: stripErr } = await q.updateAgencyAdminIds(ag.id, updated)
         if (stripErr) console.error('[agencies/updateAgency] Failed to strip admin from peer agency. agencyId=%s clientId=%s err=%s', ag.id, clientId, stripErr.message)
         strippedAdminIds.add(clientId)
       }
     }
     if (strippedAdminIds.size > 0) {
-      const { error: clearErr } = await q.updateClientClearAgencyForIds(supabase, Array.from(strippedAdminIds))
+      const { error: clearErr } = await q.updateClientClearAgencyForIds(Array.from(strippedAdminIds))
       if (clearErr) console.error('[agencies/updateAgency] Failed to clear client agency (batch). clientIds=%j err=%s', Array.from(strippedAdminIds), clearErr.message)
     }
 
-    const { error } = await q.updateAgencyById(supabase, id, {
+    const { error } = await q.updateAgencyById(id, {
       ...buildAgencyPayload(validData),
       agency_admin_ids: newIds,
     })
@@ -155,13 +153,13 @@ export async function updateAgency(
 
     const removedAdminIds = previousAgencyAdminIds.filter((clientId) => !newSet.has(clientId))
     if (removedAdminIds.length > 0) {
-      const { error: removedClearErr } = await q.updateClientClearAgencyForIds(supabase, removedAdminIds)
+      const { error: removedClearErr } = await q.updateClientClearAgencyForIds(removedAdminIds)
       if (removedClearErr) console.error('[agencies/updateAgency] Failed to clear removed admins agency (batch). clientIds=%j err=%s', removedAdminIds, removedClearErr.message)
     }
 
     const trimmedName = validData.companyName.trim()
     if (newIds.length > 0) {
-      const { error: clientError } = await q.updateClientCompanyAndAgencyForIds(supabase, newIds, {
+      const { error: clientError } = await q.updateClientCompanyAndAgencyForIds(newIds, {
         company_name: trimmedName,
         agency_id: id,
       })
@@ -184,7 +182,6 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
   const parsed = companyDetailsSchema.safeParse(data)
   if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   const validData = parsed.data
-  const supabase = createAdminClient()
   try {
     const session = await getSession()
     const user = session ? { id: session.user.id } : null
@@ -192,7 +189,7 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
       return { error: 'Not authenticated', data: null }
     }
 
-    const { data: client, error: clientError } = await q.getClientByCompanyOwnerId(supabase, user.id)
+    const { data: client, error: clientError } = await q.getClientByCompanyOwnerId(user.id)
 
     if (clientError || !client) {
       return { error: 'No client record found for your account.', data: null }
@@ -225,17 +222,17 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
       updated_at: new Date().toISOString(),
     }
 
-    const { data: existingAgency } = await q.getAgencyByAdminId(supabase, client.id)
+    const { data: existingAgency } = await q.getAgencyByAdminId(client.id)
 
     if (existingAgency) {
-      const { error: updateError } = await q.updateAgencyById(supabase, existingAgency.id, payload)
+      const { error: updateError } = await q.updateAgencyById(existingAgency.id, payload)
 
       if (updateError) {
         return { error: updateError.message, data: null }
       }
-      await q.updateClientAgencyId(supabase, client.id, existingAgency.id)
+      await q.updateClientAgencyId(client.id, existingAgency.id)
     } else {
-      const { data: newAgency, error: insertError } = await q.insertAgencyWithAdmin(supabase, {
+      const { data: newAgency, error: insertError } = await q.insertAgencyWithAdmin({
         ...payload,
         agency_admin_ids: [client.id],
       })
@@ -244,11 +241,11 @@ export async function saveCompanyDetails(data: CompanyDetailsFormData) {
         return { error: insertError.message, data: null }
       }
       if (newAgency?.id) {
-        await q.updateClientAgencyId(supabase, client.id, newAgency.id)
+        await q.updateClientAgencyId(client.id, newAgency.id)
       }
     }
 
-    const { error: clientUpdateError } = await q.updateClientCompanyName(supabase, client.id, validData.companyName.trim())
+    const { error: clientUpdateError } = await q.updateClientCompanyName(client.id, validData.companyName.trim())
 
     if (clientUpdateError) {
       console.error('Failed to update client company_name:', clientUpdateError)
@@ -274,28 +271,27 @@ export async function addAdminToAgency(agencyId: string, adminId: string) {
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabaseAdmin = createAdminClient()
   try {
-    const { data: agency, error: fetchErr } = await q.getAgencyById(supabaseAdmin, agencyId)
+    const { data: agency, error: fetchErr } = await q.getAgencyById(agencyId)
     if (fetchErr || !agency) return { error: 'Agency not found', data: null }
 
     const currentIds = normalizeAgencyAdminIds(agency.agency_admin_ids as string[] | string | null)
     if (currentIds.includes(adminId)) return { error: null, data: { success: true } }
 
     // Strip this admin from any other agency they're currently assigned to
-    const { data: otherAgencies } = await q.getAgenciesExceptId(supabaseAdmin, agencyId)
+    const { data: otherAgencies } = await q.getAgenciesExceptId(agencyId)
     for (const other of otherAgencies ?? []) {
       const otherIds = normalizeAgencyAdminIds(other.agency_admin_ids as string[] | string | null)
       if (otherIds.includes(adminId)) {
-        await q.updateAgencyAdminIds(supabaseAdmin, other.id, otherIds.filter((id) => id !== adminId))
+        await q.updateAgencyAdminIds(other.id, otherIds.filter((id) => id !== adminId))
       }
     }
 
     const newIds = [...currentIds, adminId]
-    const { error: updateAgencyErr } = await q.updateAgencyAdminIds(supabaseAdmin, agencyId, newIds)
+    const { error: updateAgencyErr } = await q.updateAgencyAdminIds(agencyId, newIds)
     if (updateAgencyErr) return { error: updateAgencyErr.message, data: null }
 
-    const { error: updateAdminErr } = await q.updateClientCompanyAndAgencyForIds(supabaseAdmin, [adminId], {
+    const { error: updateAdminErr } = await q.updateClientCompanyAndAgencyForIds([adminId], {
       company_name: agency.name,
       agency_id: agencyId,
     })
@@ -319,9 +315,8 @@ export async function createShellAgency(name: string) {
   const trimmed = name.trim()
   if (!trimmed) return { error: 'Agency name is required', data: null }
 
-  const supabase = createAdminClient()
   try {
-    const { data: newAgency, error } = await q.insertAgency(supabase, {
+    const { data: newAgency, error } = await q.insertAgency({
       name: trimmed,
       onboarding_status: 'shell',
       agency_admin_ids: [],
@@ -344,18 +339,17 @@ export async function removeAdminFromAgency(agencyId: string, adminId: string) {
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabaseAdmin = createAdminClient()
   try {
-    const { data: agency, error: fetchErr } = await q.getAgencyById(supabaseAdmin, agencyId)
+    const { data: agency, error: fetchErr } = await q.getAgencyById(agencyId)
     if (fetchErr || !agency) return { error: 'Agency not found', data: null }
 
     const currentIds = normalizeAgencyAdminIds(agency.agency_admin_ids as string[] | string | null)
     const newIds = currentIds.filter((id) => id !== adminId)
 
-    const { error: updateAgencyErr } = await q.updateAgencyAdminIds(supabaseAdmin, agencyId, newIds)
+    const { error: updateAgencyErr } = await q.updateAgencyAdminIds(agencyId, newIds)
     if (updateAgencyErr) return { error: updateAgencyErr.message, data: null }
 
-    const { error: clearErr } = await q.updateClientClearAgencyForIds(supabaseAdmin, [adminId])
+    const { error: clearErr } = await q.updateClientClearAgencyForIds([adminId])
     if (clearErr) console.error('Failed to clear agency_admins record:', clearErr)
 
     revalidateAgencyDetailPages()
@@ -375,24 +369,19 @@ export async function setAgencyStatus(agencyId: string, status: 'active' | 'inac
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
   const isActive = status === 'active'
   const now = new Date().toISOString()
 
   try {
-    const { error: agencyError } = await supabase
-      .from('agencies')
-      .update({ status, updated_at: now })
-      .eq('id', agencyId)
-    if (agencyError) return { error: agencyError.message, data: null }
+    await sql`UPDATE agencies SET status = ${status}, updated_at = ${now} WHERE id = ${agencyId}`
 
     // Cascade to user_profiles only — agency-scoped roles, never admin/expert
-    const { error: profilesError } = await supabase
-      .from('user_profiles')
-      .update({ is_active: isActive, updated_at: now })
-      .eq('agency_id', agencyId)
-      .in('role', ['company_owner', 'care_coordinator', 'staff_member'])
-    if (profilesError) return { error: `Agency updated but failed to sync user accounts: ${profilesError.message}`, data: null }
+    await sql`
+      UPDATE user_profiles
+      SET is_active = ${isActive}, updated_at = ${now}
+      WHERE agency_id = ${agencyId}
+        AND role = ANY(ARRAY['company_owner', 'care_coordinator', 'staff_member']::text[])
+    `
 
     revalidateAgencyDetailPages()
     revalidateAgencyListCaches()
@@ -411,43 +400,46 @@ export async function addAgencyNote(
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = createAdminClient()
-  const { data: note, error } = await supabase.from('agency_notes').insert({
-    agency_id: agencyId,
-    author_id: session.user.id,
-    content: payload.content,
-    note_type: payload.noteType,
-  }).select('id').single()
+  let noteId: string
+  try {
+    const [note] = await sql<{ id: string }[]>`
+      INSERT INTO agency_notes (agency_id, author_id, content, note_type)
+      VALUES (${agencyId}, ${session.user.id}, ${payload.content}, ${payload.noteType})
+      RETURNING id
+    `
+    noteId = note.id
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to add note' }
+  }
 
-  if (error) return { error: error.message }
-
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'agency_notes',
-    record_id: note.id,
+    record_id: noteId,
     action: 'CREATE',
     performed_by_user_id: session.user.id,
     details: { note_type: payload.noteType },
   })
-  if (auditErr) console.error('[agencies/addAgencyNote] Audit log failed. noteId=%s err=%s', note.id, auditErr.message)
+  if (auditErr) console.error('[agencies/addAgencyNote] Audit log failed. noteId=%s err=%s', noteId, auditErr.message)
 
   revalidateAgencyDetailPages()
   return { error: null }
 }
 
 export async function deleteAgencyNote(agencyId: string, noteId: string) {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  const { error } = await supabase.from('agency_notes').delete().eq('id', noteId)
-  if (error) return { error: error.message }
+  try {
+    await sql`DELETE FROM agency_notes WHERE id = ${noteId}`
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to delete note' }
+  }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'agency_notes',
     record_id: noteId,
     action: 'DELETE',
-    performed_by_user_id: user?.id ?? null,
+    performed_by_user_id: session?.user?.id ?? null,
     details: {},
   })
   if (auditErr) console.error('[agencies/deleteAgencyNote] Audit log failed. noteId=%s err=%s', noteId, auditErr.message)
@@ -471,14 +463,13 @@ export async function uploadAgencyDocument(
 
   if (!file || !documentName?.trim()) return { error: 'File and document name are required' }
 
-  const supabase = createAdminClient()
   const ext = file.name.split('.').pop()
   const filePath = `${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
   const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.AGENCY, filePath, file)
   if (uploadErr) return { error: uploadErr.message }
 
-  const { data, error: insertErr } = await q.insertAgencyDocument(supabase, {
+  const { data, error: insertErr } = await q.insertAgencyDocument({
     agency_id: agencyId,
     document_name: documentName.trim(),
     file_url: filePath,
@@ -493,7 +484,7 @@ export async function uploadAgencyDocument(
     return { error: insertErr.message }
   }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'agency_documents',
     record_id: data!.id,
@@ -508,15 +499,14 @@ export async function uploadAgencyDocument(
 }
 
 export async function deleteAgencyDocumentAction(agencyId: string, docId: string, filePath: string) {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   const { error: storageErr } = await removeFiles(STORAGE_BUCKET.AGENCY, [filePath])
   if (storageErr) console.error('[agencies/deleteAgencyDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
-  const { error } = await q.deleteAgencyDocument(supabase, docId)
+  const { error } = await q.deleteAgencyDocument(docId)
   if (error) return { error: error.message }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'agency_documents',
     record_id: docId,
@@ -538,8 +528,7 @@ function agencyBrandingPublicUrl(path: string | null | undefined): string | null
 }
 
 export async function getAgencyBrandingAction(agencyId: string) {
-  const supabase = createAdminClient()
-  const { data } = await q.getAgencyBranding(supabase, agencyId)
+  const { data } = await q.getAgencyBranding(agencyId)
   return {
     logoUrl: agencyBrandingPublicUrl(data?.logo_path),
     logoIconUrl: agencyBrandingPublicUrl(data?.logo_icon_path),
@@ -552,8 +541,7 @@ export async function updateAgencyBrandingAction(
   agencyId: string,
   payload: { primaryColor: string; sidebarColor: string }
 ): Promise<{ success: boolean; error: string | null }> {
-  const supabase = createAdminClient()
-  const { error } = await q.updateAgencyBrandingColors(supabase, agencyId, {
+  const { error } = await q.updateAgencyBrandingColors(agencyId, {
     primary_color: payload.primaryColor,
     sidebar_color: payload.sidebarColor,
   })
@@ -568,7 +556,6 @@ export async function uploadAgencyLogoAction(
   formData: FormData,
   variant: 'full' | 'icon'
 ): Promise<{ url: string | null; error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return { url: null, error: 'Unauthorized' }
@@ -581,7 +568,7 @@ export async function uploadAgencyLogoAction(
   const colKey = variant === 'full' ? 'logo_path' : 'logo_icon_path'
   const pathPrefix = variant === 'full' ? 'logo' : 'logo-icon'
 
-  const { data: existing } = await q.getAgencyBranding(supabase, agencyId)
+  const { data: existing } = await q.getAgencyBranding(agencyId)
   const oldPath = existing?.[colKey]
   if (oldPath) {
     await removeFiles(STORAGE_BUCKET.AGENCY_PUBLIC, [oldPath])
@@ -593,7 +580,7 @@ export async function uploadAgencyLogoAction(
   const { error: uploadError } = await uploadFile(STORAGE_BUCKET.AGENCY_PUBLIC, path, file, { upsert: true, contentType: file.type })
   if (uploadError) return { url: null, error: uploadError.message }
 
-  await supabase.from('agencies').update({ [colKey]: path }).eq('id', agencyId)
+  await sql`UPDATE agencies SET ${sql({ [colKey]: path })} WHERE id = ${agencyId}`
 
   revalidatePath('/pages/agency', 'layout')
   revalidatePath('/pages/caregiver', 'layout')
@@ -602,18 +589,17 @@ export async function uploadAgencyLogoAction(
 }
 
 export async function resetAgencyBrandingAction(agencyId: string): Promise<{ success: boolean; error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return { success: false, error: 'Unauthorized' }
 
-  const { data: existing } = await q.getAgencyBranding(supabase, agencyId)
+  const { data: existing } = await q.getAgencyBranding(agencyId)
   const pathsToRemove = [existing?.logo_path, existing?.logo_icon_path].filter(Boolean) as string[]
   if (pathsToRemove.length > 0) {
     await removeFiles(STORAGE_BUCKET.AGENCY_PUBLIC, pathsToRemove)
   }
 
-  await q.clearAgencyBranding(supabase, agencyId)
+  await q.clearAgencyBranding(agencyId)
   revalidatePath('/pages/agency', 'layout')
   revalidatePath('/pages/caregiver', 'layout')
   return { success: true, error: null }

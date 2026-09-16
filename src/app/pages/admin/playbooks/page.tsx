@@ -10,7 +10,7 @@ export default async function AdminPlaybooksPage() {
 
   const [{ data: playbooks }, { data: categories }] =
     await Promise.all([
-      q.getAllPlaybooks(supabase),
+      q.getAllPlaybooks(),
       getConfigurationValues('PLAYBOOK_CATEGORY'),
     ])
 

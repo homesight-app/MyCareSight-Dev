@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
 import { createClient } from '@/lib/supabase/server'
@@ -16,7 +16,7 @@ export default async function LeadPipelineReportPage() {
   const supabase = await createClient()
 
   const [stagesResult, leadsResult] = await Promise.all([
-    q.getAgencyLeadStages(supabase, agencyId),
+    q.getAgencyLeadStages(agencyId),
     supabase
       .from('leads')
       .select('stage')

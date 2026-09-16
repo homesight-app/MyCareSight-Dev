@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { licenseSchema, type CreateLicenseFormData } from '@/lib/schemas/license'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { useSession } from 'next-auth/react'
 import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertification, createCertificationAndLink } from '@/app/actions/licenses'
 import { uploadLicenseDocumentAction, uploadLicenseDocumentsForCreationAction, removeUploadedLicenseFilesAction } from '@/app/actions/license-documents'
@@ -145,7 +145,7 @@ export default function CreateLicenseModal({
 
       // ── Edit mode ──────────────────────────────────────────────────────────
       if (isEditMode && licenseToEdit) {
-        const { error: updateError } = await q.updateLicenseById(supabase, licenseToEdit.id, {
+        const { error: updateError } = await q.updateLicenseById(licenseToEdit.id, {
           license_name: data.license_name,
           license_number: data.license_number || null,
           state: data.state || null,
@@ -232,7 +232,7 @@ export default function CreateLicenseModal({
       const authUser = session?.user
       if (!authUser) { showValidationToast({ error: 'You must be logged in to create a license' }); setIsSubmitting(false); return }
 
-      const { data: newLicense, error } = await q.insertLicenseReturning(supabase, {
+      const { data: newLicense, error } = await q.insertLicenseReturning({
         company_owner_id: authUser.id,
         license_name: data.license_name,
         license_number: data.license_number || null,

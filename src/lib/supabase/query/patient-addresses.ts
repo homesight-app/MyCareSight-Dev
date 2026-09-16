@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 export type PatientAddress = {
   id: string
@@ -17,52 +17,87 @@ export type PatientAddress = {
 export type PatientAddressInsert = Omit<PatientAddress, 'id' | 'created_at' | 'updated_at'>
 export type PatientAddressUpdate = Partial<Omit<PatientAddress, 'id' | 'patient_id' | 'agency_id' | 'created_at' | 'updated_at'>>
 
-export async function getPatientAddresses(supabase: Supabase, patientId: string) {
-  return supabase
-    .from('patient_addresses')
-    .select('id, patient_id, agency_id, label, street_address, city, state, zip_code, is_primary, created_at, updated_at')
-    .eq('patient_id', patientId)
-    .order('is_primary', { ascending: false })
-    .order('created_at', { ascending: true })
+const pgError = (err: unknown) => ({
+  message: err instanceof Error ? err.message : String(err),
+  code: '',
+  details: '',
+  hint: '',
+  name: 'Error',
+})
+
+export async function getPatientAddresses(patientId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, patient_id, agency_id, label, street_address, city, state, zip_code, is_primary, created_at, updated_at
+      FROM patient_addresses
+      WHERE patient_id = ${patientId}
+      ORDER BY is_primary DESC, created_at ASC
+    `
+    return { data: rows as unknown as PatientAddress[], error: null }
+  } catch (err) {
+    return { data: null, error: pgError(err) }
+  }
 }
 
-export async function insertPatientAddress(supabase: Supabase, payload: PatientAddressInsert) {
-  return supabase
-    .from('patient_addresses')
-    .insert(payload)
-    .select()
-    .single()
+export async function insertPatientAddress(payload: PatientAddressInsert) {
+  try {
+    const keys = Object.keys(payload) as (keyof typeof payload)[]
+    const rows = await sql`
+      INSERT INTO patient_addresses ${sql(payload as Record<string, unknown>, ...keys)}
+      RETURNING *
+    `
+    if (!rows[0]) throw new Error('Insert did not return a row')
+    return { data: rows[0] as PatientAddress, error: null }
+  } catch (err) {
+    return { data: null, error: pgError(err) }
+  }
 }
 
-export async function updatePatientAddress(supabase: Supabase, id: string, payload: PatientAddressUpdate) {
-  return supabase
-    .from('patient_addresses')
-    .update(payload)
-    .eq('id', id)
-    .select()
-    .single()
+export async function updatePatientAddress(id: string, payload: PatientAddressUpdate) {
+  try {
+    const keys = Object.keys(payload) as (keyof typeof payload)[]
+    const rows = await sql`
+      UPDATE patient_addresses
+      SET ${sql(payload as Record<string, unknown>, ...keys)}
+      WHERE id = ${id}
+      RETURNING *
+    `
+    if (!rows[0]) throw new Error('Update did not return a row')
+    return { data: rows[0] as PatientAddress, error: null }
+  } catch (err) {
+    return { data: null, error: pgError(err) }
+  }
 }
 
-export async function deletePatientAddress(supabase: Supabase, id: string) {
-  return supabase
-    .from('patient_addresses')
-    .delete()
-    .eq('id', id)
+export async function deletePatientAddress(id: string) {
+  try {
+    await sql`DELETE FROM patient_addresses WHERE id = ${id}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: pgError(err) }
+  }
 }
 
 /** Promotes addressId to primary and demotes all other addresses for the same patient. */
-export async function setPrimaryPatientAddress(supabase: Supabase, patientId: string, addressId: string) {
-  // Clear existing primary first to avoid unique index conflict
-  await supabase
-    .from('patient_addresses')
-    .update({ is_primary: false })
-    .eq('patient_id', patientId)
-    .neq('id', addressId)
-
-  return supabase
-    .from('patient_addresses')
-    .update({ is_primary: true })
-    .eq('id', addressId)
-    .select()
-    .single()
+export async function setPrimaryPatientAddress(patientId: string, addressId: string) {
+  try {
+    // Clear existing primary first to avoid unique index conflict
+    await sql`
+      UPDATE patient_addresses
+      SET is_primary = false
+      WHERE patient_id = ${patientId}
+        AND id != ${addressId}
+    `
+    const rows = await sql`
+      UPDATE patient_addresses
+      SET is_primary = true
+      WHERE id = ${addressId}
+        AND patient_id = ${patientId}
+      RETURNING *
+    `
+    if (!rows[0]) throw new Error('Update did not return a row')
+    return { data: rows[0] as PatientAddress, error: null }
+  } catch (err) {
+    return { data: null, error: pgError(err) }
+  }
 }

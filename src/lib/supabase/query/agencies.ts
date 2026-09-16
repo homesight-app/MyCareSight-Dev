@@ -1,119 +1,257 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
-const AGENCY_COLS = 'id, name, created_at, updated_at, business_type, tax_id, primary_license_number, website, physical_street_address, physical_city, physical_state, physical_zip_code, same_as_physical, mailing_street_address, mailing_city, mailing_state, mailing_zip_code, agency_admin_ids, dba_name, hours_of_operation, fax_number, date_of_formation, npi, onboarding_status, state_specific_data, phone_number, email, region_service_area, is_on_call, previously_licensed, prev_license_closed_date, status, legal_entity_name, entity_type, state_of_incorporation, date_of_incorporation, licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip, licensed_same_as_physical, plan_id, primary_contact_first_name, primary_contact_last_name'
+const AGENCY_COLS = `id, name, created_at, updated_at, business_type, tax_id, primary_license_number, website,
+  physical_street_address, physical_city, physical_state, physical_zip_code, same_as_physical,
+  mailing_street_address, mailing_city, mailing_state, mailing_zip_code, agency_admin_ids, dba_name,
+  hours_of_operation, fax_number, date_of_formation, npi, onboarding_status, state_specific_data,
+  phone_number, email, region_service_area, is_on_call, previously_licensed, prev_license_closed_date,
+  status, legal_entity_name, entity_type, state_of_incorporation, date_of_incorporation,
+  licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip,
+  licensed_same_as_physical, plan_id, primary_contact_first_name, primary_contact_last_name`
 
-export async function getAgencyById(supabase: Supabase, agencyId: string) {
-  return supabase.from('agencies').select(AGENCY_COLS).eq('id', agencyId).single()
+export async function getAgencyById(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, name, created_at, updated_at, business_type, tax_id, primary_license_number, website,
+        physical_street_address, physical_city, physical_state, physical_zip_code, same_as_physical,
+        mailing_street_address, mailing_city, mailing_state, mailing_zip_code, agency_admin_ids, dba_name,
+        hours_of_operation, fax_number, date_of_formation, npi, onboarding_status, state_specific_data,
+        phone_number, email, region_service_area, is_on_call, previously_licensed, prev_license_closed_date,
+        status, legal_entity_name, entity_type, state_of_incorporation, date_of_incorporation,
+        licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip,
+        licensed_same_as_physical, plan_id, primary_contact_first_name, primary_contact_last_name
+      FROM agencies WHERE id = ${agencyId}
+    `
+    if (!rows[0]) throw new Error('Row not found')
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function insertAgency(supabase: Supabase, payload: Record<string, unknown>) {
-  return supabase.from('agencies').insert(payload).select('id').single()
+export async function insertAgency(payload: Record<string, unknown>) {
+  try {
+    const keys = Object.keys(payload) as (keyof typeof payload)[]
+    const rows = await sql`INSERT INTO agencies ${sql(payload, ...keys)} RETURNING id`
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function updateClientCompanyAndAgency(
-  supabase: Supabase,
   adminId: string,
   updates: { company_name: string; agency_id?: string }
 ) {
-  return supabase.from('agency_admins').update(updates).eq('id', adminId)
+  try {
+    const keys = Object.keys(updates) as (keyof typeof updates)[]
+    await sql`UPDATE agency_admins SET ${sql(updates, ...keys)} WHERE id = ${adminId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Same payload for many `agency_admins.id` rows — one UPDATE ... WHERE id IN (...). */
 export async function updateClientCompanyAndAgencyForIds(
-  supabase: Supabase,
   adminIds: string[],
   updates: { company_name: string; agency_id?: string | null }
 ) {
   if (adminIds.length === 0) return { data: null, error: null }
-  return supabase.from('agency_admins').update(updates).in('id', adminIds)
+  try {
+    const keys = Object.keys(updates) as (keyof typeof updates)[]
+    await sql`UPDATE agency_admins SET ${sql(updates, ...keys)} WHERE id IN ${sql(adminIds)}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAgenciesExceptId(supabase: Supabase, excludeId: string) {
-  return supabase.from('agencies').select('id, agency_admin_ids').neq('id', excludeId)
+export async function getAgenciesExceptId(excludeId: string) {
+  try {
+    const rows = await sql`SELECT id, agency_admin_ids FROM agencies WHERE id != ${excludeId}`
+    return { data: rows as unknown as { id: string; agency_admin_ids: string[] }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function updateAgencyAdminIds(supabase: Supabase, agencyId: string, agencyAdminIds: string[]) {
-  return supabase
-    .from('agencies')
-    .update({ agency_admin_ids: agencyAdminIds, updated_at: new Date().toISOString() })
-    .eq('id', agencyId)
+export async function updateAgencyAdminIds(agencyId: string, agencyAdminIds: string[]) {
+  try {
+    await sql`UPDATE agencies SET agency_admin_ids = ${agencyAdminIds}, updated_at = ${new Date().toISOString()} WHERE id = ${agencyId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function updateAgencyById(supabase: Supabase, id: string, payload: Record<string, unknown>) {
-  return supabase.from('agencies').update(payload).eq('id', id)
+export async function updateAgencyById(id: string, payload: Record<string, unknown>) {
+  try {
+    const keys = Object.keys(payload) as (keyof typeof payload)[]
+    await sql`UPDATE agencies SET ${sql(payload, ...keys)} WHERE id = ${id}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function updateClientClearAgency(supabase: Supabase, adminId: string) {
-  return supabase.from('agency_admins').update({ company_name: '', agency_id: null }).eq('id', adminId)
+export async function updateClientClearAgency(adminId: string) {
+  try {
+    await sql`UPDATE agency_admins SET company_name = '', agency_id = NULL WHERE id = ${adminId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function updateClientClearAgencyForIds(supabase: Supabase, adminIds: string[]) {
+export async function updateClientClearAgencyForIds(adminIds: string[]) {
   if (adminIds.length === 0) return { data: null, error: null }
-  return supabase
-    .from('agency_admins')
-    .update({ company_name: '', agency_id: null })
-    .in('id', adminIds)
+  try {
+    await sql`UPDATE agency_admins SET company_name = '', agency_id = NULL WHERE id IN ${sql(adminIds)}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getClientByCompanyOwnerId(supabase: Supabase, companyOwnerId: string) {
-  return supabase.from('agency_admins').select('id').eq('user_id', companyOwnerId).maybeSingle()
+export async function getClientByCompanyOwnerId(companyOwnerId: string) {
+  try {
+    const rows = await sql`SELECT id FROM agency_admins WHERE user_id = ${companyOwnerId} LIMIT 1`
+    return { data: (rows[0] ?? null) as { id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-
-export async function getAgencyNameById(supabase: Supabase, agencyId: string) {
-  return supabase.from('agencies').select('name').eq('id', agencyId).single()
+export async function getAgencyNameById(agencyId: string) {
+  try {
+    const rows = await sql`SELECT name FROM agencies WHERE id = ${agencyId}`
+    if (!rows[0]) throw new Error('Row not found')
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAgenciesByIds(supabase: Supabase, ids: string[]) {
+export async function getAgenciesByIds(ids: string[]) {
   if (ids.length === 0) return { data: [] as { id: string; name: string }[], error: null }
-  return supabase.from('agencies').select('id, name').in('id', ids)
+  try {
+    const rows = await sql`SELECT id, name FROM agencies WHERE id IN ${sql(ids)}`
+    return { data: rows as unknown as { id: string; name: string }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Full agency admin row by id. */
-export async function getClientById(supabase: Supabase, adminId: string) {
-  return supabase.from('agency_admins').select('*').eq('id', adminId).single()
+export async function getClientById(adminId: string) {
+  try {
+    const rows = await sql`SELECT * FROM agency_admins WHERE id = ${adminId}`
+    if (!rows[0]) throw new Error('Row not found')
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function updateClientById(supabase: Supabase, adminId: string, data: Record<string, unknown>) {
-  return supabase.from('agency_admins').update(data).eq('id', adminId)
+export async function updateClientById(adminId: string, data: Record<string, unknown>) {
+  try {
+    const keys = Object.keys(data) as (keyof typeof data)[]
+    await sql`UPDATE agency_admins SET ${sql(data, ...keys)} WHERE id = ${adminId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAgencyByAdminId(supabase: Supabase, adminId: string) {
-  const { data: aa, error } = await supabase
-    .from('agency_admins')
-    .select('agency_id')
-    .eq('id', adminId)
-    .eq('status', 'active')
-    .maybeSingle()
-  if (error || !aa?.agency_id) return { data: null, error }
-  return supabase.from('agencies').select('id').eq('id', aa.agency_id).maybeSingle()
+export async function getAgencyByAdminId(adminId: string) {
+  try {
+    const aaRows = await sql`
+      SELECT agency_id FROM agency_admins
+      WHERE id = ${adminId} AND status = 'active'
+      LIMIT 1
+    `
+    const aa = aaRows[0] as any | undefined
+    if (!aa?.agency_id) return { data: null, error: null }
+    const rows = await sql`SELECT id FROM agencies WHERE id = ${aa.agency_id} LIMIT 1`
+    return { data: (rows[0] ?? null) as { id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAgencyByAdminIdFull(supabase: Supabase, adminId: string) {
-  const { data: aa, error } = await supabase
-    .from('agency_admins')
-    .select('agency_id')
-    .eq('id', adminId)
-    .eq('status', 'active')
-    .maybeSingle()
-  if (error || !aa?.agency_id) return { data: null, error }
-  return supabase.from('agencies').select(AGENCY_COLS).eq('id', aa.agency_id).maybeSingle()
+export async function getAgencyByAdminIdFull(adminId: string) {
+  try {
+    const aaRows = await sql`
+      SELECT agency_id FROM agency_admins
+      WHERE id = ${adminId} AND status = 'active'
+      LIMIT 1
+    `
+    const aa = aaRows[0] as any | undefined
+    if (!aa?.agency_id) return { data: null, error: null }
+    const rows = await sql`
+      SELECT id, name, created_at, updated_at, business_type, tax_id, primary_license_number, website,
+        physical_street_address, physical_city, physical_state, physical_zip_code, same_as_physical,
+        mailing_street_address, mailing_city, mailing_state, mailing_zip_code, agency_admin_ids, dba_name,
+        hours_of_operation, fax_number, date_of_formation, npi, onboarding_status, state_specific_data,
+        phone_number, email, region_service_area, is_on_call, previously_licensed, prev_license_closed_date,
+        status, legal_entity_name, entity_type, state_of_incorporation, date_of_incorporation,
+        licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip,
+        licensed_same_as_physical, plan_id, primary_contact_first_name, primary_contact_last_name
+      FROM agencies WHERE id = ${aa.agency_id}
+      LIMIT 1
+    `
+    return { data: (rows[0] as any ?? null), error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function updateClientAgencyId(supabase: Supabase, adminId: string, agencyId: string) {
-  return supabase.from('agency_admins').update({ agency_id: agencyId }).eq('id', adminId)
+export async function updateClientAgencyId(adminId: string, agencyId: string) {
+  try {
+    await sql`UPDATE agency_admins SET agency_id = ${agencyId} WHERE id = ${adminId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function insertAgencyWithAdmin(supabase: Supabase, payload: Record<string, unknown>) {
-  return supabase.from('agencies').insert(payload).select('id').single()
+export async function insertAgencyWithAdmin(payload: Record<string, unknown>) {
+  try {
+    const keys = Object.keys(payload) as (keyof typeof payload)[]
+    const rows = await sql`INSERT INTO agencies ${sql(payload, ...keys)} RETURNING id`
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function updateClientCompanyName(supabase: Supabase, adminId: string, companyName: string) {
-  return supabase.from('agency_admins').update({ company_name: companyName }).eq('id', adminId)
+export async function updateClientCompanyName(adminId: string, companyName: string) {
+  try {
+    await sql`UPDATE agency_admins SET company_name = ${companyName} WHERE id = ${adminId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAgenciesOrdered(supabase: Supabase) {
-  return supabase.from('agencies').select(AGENCY_COLS).order('created_at', { ascending: false })
+export async function getAgenciesOrdered() {
+  try {
+    const rows = await sql`
+      SELECT id, name, created_at, updated_at, business_type, tax_id, primary_license_number, website,
+        physical_street_address, physical_city, physical_state, physical_zip_code, same_as_physical,
+        mailing_street_address, mailing_city, mailing_state, mailing_zip_code, agency_admin_ids, dba_name,
+        hours_of_operation, fax_number, date_of_formation, npi, onboarding_status, state_specific_data,
+        phone_number, email, region_service_area, is_on_call, previously_licensed, prev_license_closed_date,
+        status, legal_entity_name, entity_type, state_of_incorporation, date_of_incorporation,
+        licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip,
+        licensed_same_as_physical, plan_id, primary_contact_first_name, primary_contact_last_name
+      FROM agencies ORDER BY created_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export interface GetAgenciesPaginatedOpts {
@@ -125,100 +263,135 @@ export interface GetAgenciesPaginatedOpts {
   sortDir?: 'asc' | 'desc'
 }
 
-export async function getAgenciesFilteredPaginated(
-  supabase: Supabase,
-  opts?: GetAgenciesPaginatedOpts
-) {
+export async function getAgenciesFilteredPaginated(opts?: GetAgenciesPaginatedOpts) {
   const page     = opts?.page     ?? 0
   const pageSize = opts?.pageSize ?? 50
   const from     = page * pageSize
-  const to       = from + pageSize - 1
 
-  const sortCol = opts?.sortKey === 'created' ? 'created_at'
-                : opts?.sortKey === 'status'  ? 'status'
-                : 'name'
-  const ascending = (opts?.sortDir ?? 'asc') === 'asc'
+  const sortCol = opts?.sortKey === 'created' ? sql`created_at`
+                : opts?.sortKey === 'status'  ? sql`status`
+                : sql`name`
+  const sortDir = (opts?.sortDir ?? 'asc') === 'asc' ? sql`ASC` : sql`DESC`
 
-  let dataQuery = supabase
-    .from('agencies')
-    .select('*')
-    .order(sortCol, { ascending })
-    .range(from, to)
+  const searchCond = opts?.search?.trim()
+    ? sql`AND name ILIKE ${'%' + opts.search.trim() + '%'}`
+    : sql``
+  const statusCond = opts?.status && opts.status !== 'all'
+    ? sql`AND status = ${opts.status}`
+    : sql``
 
-  let countQuery = supabase
-    .from('agencies')
-    .select('id', { count: 'exact', head: true })
-
-  if (opts?.search?.trim()) {
-    const term = `%${opts.search.trim()}%`
-    dataQuery  = dataQuery.ilike('name', term)
-    countQuery = countQuery.ilike('name', term)
-  }
-
-  if (opts?.status && opts.status !== 'all') {
-    dataQuery  = dataQuery.eq('status', opts.status)
-    countQuery = countQuery.eq('status', opts.status)
-  }
-
-  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
-  return {
-    data:  dataResult.data  ?? [],
-    count: countResult.count ?? 0,
-    error: dataResult.error ?? countResult.error,
+  try {
+    const [dataRows, countRows] = await Promise.all([
+      sql`SELECT * FROM agencies WHERE TRUE ${searchCond} ${statusCond} ORDER BY ${sortCol} ${sortDir} LIMIT ${pageSize} OFFSET ${from}`,
+      sql`SELECT COUNT(*)::int AS count FROM agencies WHERE TRUE ${searchCond} ${statusCond}`,
+    ])
+    return {
+      data:  (dataRows as unknown as any[]) ?? [],
+      count: (countRows[0] as any | undefined)?.count ?? 0,
+      error: null,
+    }
+  } catch (err) {
+    return {
+      data:  [],
+      count: 0,
+      error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' },
+    }
   }
 }
 
-export async function getAgenciesForBilling(supabase: Supabase) {
-  return supabase
-    .from('agencies')
-    .select('id, name, agency_admin_ids')
-    .order('name', { ascending: true })
+export async function getAgenciesForBilling() {
+  try {
+    const rows = await sql`SELECT id, name, agency_admin_ids FROM agencies ORDER BY name ASC`
+    return { data: rows as unknown as { id: string; name: string; agency_admin_ids: string[] }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAgenciesIdName(supabase: Supabase) {
-  return supabase.from('agencies').select('id, name').order('name', { ascending: true })
+export async function getAllAgencyAdminIds() {
+  try {
+    const rows = await sql`SELECT agency_admin_ids FROM agencies`
+    return { data: rows as unknown as { agency_admin_ids: string[] | string | null }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getClientsWithCompanyOwner(supabase: Supabase) {
-  return supabase
-    .from('agency_admins')
-    .select('id, contact_name, contact_email')
-    .not('user_id', 'is', null)
-    .order('contact_name', { ascending: true })
+export async function getAgenciesIdName() {
+  try {
+    const rows = await sql`SELECT id, name FROM agencies ORDER BY name ASC`
+    return { data: rows as unknown as { id: string; name: string }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
+}
+
+export async function getClientsWithCompanyOwner() {
+  try {
+    const rows = await sql`
+      SELECT id, contact_name, contact_email FROM agency_admins
+      WHERE user_id IS NOT NULL
+      ORDER BY contact_name ASC
+    `
+    return { data: rows as unknown as { id: string; contact_name: string | null; contact_email: string | null }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Agency admins not currently assigned to any agency — used for "add admin" dropdowns. */
-export async function getUnassignedAgencyAdmins(supabase: Supabase) {
-  return supabase
-    .from('agency_admins')
-    .select('id, contact_name, contact_email')
-    .is('agency_id', null)
-    .not('user_id', 'is', null)
-    .order('contact_name', { ascending: true })
+export async function getUnassignedAgencyAdmins() {
+  try {
+    const rows = await sql`
+      SELECT id, contact_name, contact_email FROM agency_admins
+      WHERE agency_id IS NULL AND user_id IS NOT NULL
+      ORDER BY contact_name ASC
+    `
+    return { data: rows as unknown as { id: string; contact_name: string | null; contact_email: string | null }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Rows by primary key — includes admins without user_id (still listed on agencies). */
-export async function getAgencyAdminsByIds(supabase: Supabase, ids: string[]) {
+export async function getAgencyAdminsByIds(ids: string[]) {
   const uniq = Array.from(new Set(ids.map((id) => String(id).trim()).filter(Boolean)))
   if (uniq.length === 0) return { data: [] as { id: string; contact_name: string | null; contact_email: string | null }[], error: null }
-  return supabase.from('agency_admins').select('id, contact_name, contact_email').in('id', uniq)
+  try {
+    const rows = await sql`SELECT id, contact_name, contact_email FROM agency_admins WHERE id IN ${sql(uniq)}`
+    return { data: rows as unknown as { id: string; contact_name: string | null; contact_email: string | null }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAllClientsOrdered(supabase: Supabase) {
-  return supabase.from('agency_admins').select('*').order('created_at', { ascending: false })
+export async function getAllClientsOrdered() {
+  try {
+    const rows = await sql`SELECT * FROM agency_admins ORDER BY created_at DESC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAllClientsOrderedPaginated(supabase: Supabase, page: number, pageSize: number) {
+export async function getAllClientsOrderedPaginated(page: number, pageSize: number) {
   const from = page * pageSize
-  const to   = from + pageSize - 1
-  const [dataResult, countResult] = await Promise.all([
-    supabase.from('agency_admins').select('*').order('created_at', { ascending: false }).range(from, to),
-    supabase.from('agency_admins').select('id', { count: 'exact', head: true }),
-  ])
-  return {
-    data:  dataResult.data  ?? [],
-    count: countResult.count ?? 0,
-    error: dataResult.error ?? countResult.error,
+  try {
+    const [dataRows, countRows] = await Promise.all([
+      sql`SELECT * FROM agency_admins ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${from}`,
+      sql`SELECT COUNT(*)::int AS count FROM agency_admins`,
+    ])
+    return {
+      data:  (dataRows as unknown as any[]) ?? [],
+      count: (countRows[0] as any | undefined)?.count ?? 0,
+      error: null,
+    }
+  } catch (err) {
+    return {
+      data:  [],
+      count: 0,
+      error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' },
+    }
   }
 }
 
@@ -238,85 +411,116 @@ export type AgencyAdminListFilters = {
 }
 
 /** Filtered agency admin list for admin UI (ILIKE search + optional status / expert / state). */
-export async function getAgencyAdminsFiltered(supabase: Supabase, filters: AgencyAdminListFilters) {
-  let qb = supabase.from('agency_admins').select('*').order('created_at', { ascending: false })
+export async function getAgencyAdminsFiltered(filters: AgencyAdminListFilters) {
+  try {
+    const search = filters.search?.trim()
+    const searchCond = search
+      ? sql`AND (company_name ILIKE ${'%' + escapeIlikePattern(search) + '%'} OR contact_name ILIKE ${'%' + escapeIlikePattern(search) + '%'} OR contact_email ILIKE ${'%' + escapeIlikePattern(search) + '%'})`
+      : sql``
 
-  const search = filters.search?.trim()
-  if (search) {
-    const p = `%${escapeIlikePattern(search)}%`
-    qb = qb.or(`company_name.ilike.${p},contact_name.ilike.${p},contact_email.ilike.${p}`)
+    const statusCond = filters.status && filters.status !== 'All Status'
+      ? sql`AND status = ${filters.status.trim().toLowerCase()}`
+      : sql``
+
+    const expertCond = filters.expertUserId && filters.expertUserId !== 'All Experts'
+      ? sql`AND expert_id = ${filters.expertUserId}`
+      : sql``
+
+    // state filter intentionally ignored (legacy `client_states` removed)
+
+    const rows = await sql`
+      SELECT * FROM agency_admins
+      WHERE TRUE ${searchCond} ${statusCond} ${expertCond}
+      ORDER BY created_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
-
-  if (filters.status && filters.status !== 'All Status') {
-    qb = qb.eq('status', filters.status.trim().toLowerCase())
-  }
-
-  if (filters.expertUserId && filters.expertUserId !== 'All Experts') {
-    qb = qb.eq('expert_id', filters.expertUserId)
-  }
-
-  // state filter intentionally ignored (legacy `client_states` removed)
-
-  return qb
 }
 
-export async function getClientsByIds(supabase: Supabase, adminIds: string[], select = 'id, company_name') {
+export async function getClientsByIds(adminIds: string[], select = 'id, company_name') {
   if (adminIds.length === 0) return { data: [], error: null }
-  return supabase.from('agency_admins').select(select).in('id', adminIds)
+  try {
+    // select is a trusted internal string — use sql.unsafe only for the column list
+    const rows = await sql`SELECT ${sql.unsafe(select)} FROM agency_admins WHERE id IN ${sql(adminIds)}`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function getClientsByCompanyOwnerIds(
-  supabase: Supabase,
   companyOwnerIds: string[],
   select = 'user_id, company_name, agency_id'
 ) {
   if (companyOwnerIds.length === 0) return { data: [], error: null }
-  return supabase.from('agency_admins').select(select).in('user_id', companyOwnerIds)
+  try {
+    const rows = await sql`SELECT ${sql.unsafe(select)} FROM agency_admins WHERE user_id IN ${sql(companyOwnerIds)}`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get the payroll configuration for an agency. Returns null if not yet configured. */
-export async function getAgencyConfiguration(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agency_configurations')
-    .select('*')
-    .eq('agency_id', agencyId)
-    .maybeSingle()
+export async function getAgencyConfiguration(agencyId: string) {
+  try {
+    const rows = await sql`SELECT * FROM agency_configurations WHERE agency_id = ${agencyId} LIMIT 1`
+    return { data: (rows[0] as any ?? null), error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Create or update the payroll configuration for an agency (upsert on agency_id). */
 export async function upsertAgencyConfiguration(
-  supabase: Supabase,
   agencyId: string,
   payload: Record<string, unknown>
 ) {
-  return supabase
-    .from('agency_configurations')
-    .upsert(
-      { ...payload, agency_id: agencyId, updated_at: new Date().toISOString() },
-      { onConflict: 'agency_id' }
-    )
-    .select()
-    .single()
+  try {
+    const merged = { ...payload, agency_id: agencyId, updated_at: new Date().toISOString() }
+    const keys = Object.keys(merged) as (keyof typeof merged)[]
+    const rows = await sql`
+      INSERT INTO agency_configurations ${sql(merged, ...keys)}
+      ON CONFLICT (agency_id) DO UPDATE SET ${sql(merged, ...keys)}
+      RETURNING *
+    `
+    return { data: (rows as unknown as any[])[0] ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAgencyNotes(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agency_notes')
-    .select('id, agency_id, author_id, content, note_type, created_at')
-    .eq('agency_id', agencyId)
-    .order('created_at', { ascending: false })
+export async function getAgencyNotes(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, agency_id, author_id, content, note_type, created_at
+      FROM agency_notes
+      WHERE agency_id = ${agencyId}
+      ORDER BY created_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getAgencyDocuments(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agency_documents')
-    .select('id, agency_id, document_name, file_url, file_name, document_type, description, uploaded_by, created_at')
-    .eq('agency_id', agencyId)
-    .order('created_at', { ascending: false })
+export async function getAgencyDocuments(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, agency_id, document_name, file_url, file_name, document_type, description, uploaded_by, created_at
+      FROM agency_documents
+      WHERE agency_id = ${agencyId}
+      ORDER BY created_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function insertAgencyDocument(
-  supabase: Supabase,
   data: {
     agency_id: string
     document_name: string
@@ -327,14 +531,23 @@ export async function insertAgencyDocument(
     uploaded_by: string
   }
 ) {
-  return supabase.from('agency_documents').insert(data).select('id').single()
+  try {
+    const keys = Object.keys(data) as (keyof typeof data)[]
+    const rows = await sql`INSERT INTO agency_documents ${sql(data, ...keys)} RETURNING id`
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function deleteAgencyDocument(supabase: Supabase, docId: string) {
-  return supabase.from('agency_documents').delete().eq('id', docId)
+export async function deleteAgencyDocument(docId: string) {
+  try {
+    await sql`DELETE FROM agency_documents WHERE id = ${docId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
-
-const BRANDING_COLS = 'logo_path, logo_icon_path, primary_color, sidebar_color'
 
 export interface AgencyBrandingRow {
   logo_path: string | null
@@ -343,27 +556,41 @@ export interface AgencyBrandingRow {
   sidebar_color: string | null
 }
 
-export async function getAgencyBranding(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agencies')
-    .select(BRANDING_COLS)
-    .eq('id', agencyId)
-    .single()
+export async function getAgencyBranding(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT logo_path, logo_icon_path, primary_color, sidebar_color
+      FROM agencies WHERE id = ${agencyId}
+    `
+    if (!rows[0]) throw new Error('Row not found')
+    return { data: rows[0] as AgencyBrandingRow, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function updateAgencyBrandingColors(
-  supabase: Supabase,
   agencyId: string,
   payload: { primary_color: string; sidebar_color: string }
 ) {
-  return supabase.from('agencies').update(payload).eq('id', agencyId)
+  try {
+    const keys = Object.keys(payload) as (keyof typeof payload)[]
+    await sql`UPDATE agencies SET ${sql(payload, ...keys)} WHERE id = ${agencyId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function clearAgencyBranding(supabase: Supabase, agencyId: string) {
-  return supabase.from('agencies').update({
-    logo_path: null,
-    logo_icon_path: null,
-    primary_color: null,
-    sidebar_color: null,
-  }).eq('id', agencyId)
+export async function clearAgencyBranding(agencyId: string) {
+  try {
+    await sql`
+      UPDATE agencies
+      SET logo_path = NULL, logo_icon_path = NULL, primary_color = NULL, sidebar_color = NULL
+      WHERE id = ${agencyId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }

@@ -1,26 +1,44 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
-export function getAgencyKeyStaff(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agency_key_staff')
-    .select('id, agency_id, officer_role, officer_roles, full_legal_name, telephone, email, ownership_percentage, user_profile_id, status')
-    .eq('agency_id', agencyId)
-    .eq('status', 'active')
-    .order('created_at', { ascending: true })
+export async function getAgencyKeyStaff(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, agency_id, officer_role, officer_roles, full_legal_name, telephone, email, ownership_percentage, user_profile_id, status
+      FROM agency_key_staff
+      WHERE agency_id = ${agencyId}
+        AND status = 'active'
+      ORDER BY created_at ASC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export function getAgencyAdmins(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('agency_admins')
-    .select('id, user_id, contact_name, contact_email, contact_phone, status')
-    .eq('agency_id', agencyId)
-    .order('contact_name', { ascending: true })
+export async function getAgencyAdmins(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, user_id, contact_name, contact_email, contact_phone, status
+      FROM agency_admins
+      WHERE agency_id = ${agencyId}
+      ORDER BY contact_name ASC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export function getAgencyCareCoordinators(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('care_coordinators')
-    .select('id, user_id, first_name, last_name, email, status')
-    .eq('agency_id', agencyId)
-    .order('first_name', { ascending: true })
+export async function getAgencyCareCoordinators(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, user_id, first_name, last_name, email, status
+      FROM care_coordinators
+      WHERE agency_id = ${agencyId}
+      ORDER BY first_name ASC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }

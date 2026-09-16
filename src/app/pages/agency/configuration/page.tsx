@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -19,14 +19,14 @@ export default async function AgencyConfigurationPage() {
   const userRole = (session!.profile as { role?: string } | null)?.role ?? null
 
   const [configResult, stagesResult, branding] = await Promise.all([
-    agencyId ? q.getAgencyConfiguration(supabase, agencyId) : Promise.resolve({ data: null }),
-    agencyId ? q.getAgencyLeadStages(supabase, agencyId) : Promise.resolve({ data: null }),
+    agencyId ? q.getAgencyConfiguration(agencyId) : Promise.resolve({ data: null }),
+    agencyId ? q.getAgencyLeadStages(agencyId) : Promise.resolve({ data: null }),
     agencyId ? getAgencyBrandingAction(agencyId) : Promise.resolve({ logoUrl: null, logoIconUrl: null, primaryColor: null, sidebarColor: null }),
   ])
 
   let stages = stagesResult.data ?? []
   if (stages.length === 0 && agencyId) {
-    const seeded = await q.seedDefaultAgencyLeadStages(supabase, agencyId)
+    const seeded = await q.seedDefaultAgencyLeadStages(agencyId)
     stages = seeded.data ?? []
   }
 

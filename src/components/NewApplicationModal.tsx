@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { applicationSchema, type ApplicationFormData } from '@/lib/schemas/application'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { useSession } from 'next-auth/react'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
@@ -49,7 +49,7 @@ export default function NewApplicationModal({ isOpen, onClose, onSuccess }: NewA
 
       const today = new Date().toISOString().split('T')[0]
 
-      const { data: application, error: insertError } = await q.insertApplication(supabase, {
+      const { data: application, error: insertError } = await q.insertApplication({
         company_owner_id: user.id,
         application_name: data.application_name,
         state: data.state,

@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
@@ -59,7 +59,6 @@ export async function createLead(payload: {
   serviceStates?: string[] | null
 }) {
   let userId: string
-
   if (payload.leadType === 'agency') {
     const { error: authErr, session } = await requirePlatformStaff()
     if (authErr || !session) return { error: authErr ?? 'Forbidden' }
@@ -70,41 +69,31 @@ export async function createLead(payload: {
     userId = session.user.id
   }
 
-  const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('leads')
-    .insert({
-      lead_type: payload.leadType,
-      agency_id: payload.agencyId ?? null,
-      created_by: userId,
-      assigned_to: payload.assignedTo ?? null,
-      contact_first_name: payload.contactFirstName,
-      contact_last_name: payload.contactLastName,
-      contact_email: payload.contactEmail ?? null,
-      contact_phone: payload.contactPhone ?? null,
-      company_name: payload.companyName ?? null,
-      service_type: payload.serviceType ?? null,
-      stage: payload.stage ?? 'new',
-      price: payload.price ?? null,
-      retainer_amount: payload.retainerAmount ?? null,
-      retainer_paid_date: payload.retainerPaidDate ?? null,
-      installments: payload.installments ?? null,
-      installment_amount: payload.installmentAmount ?? null,
-      signed_date: payload.signedDate ?? null,
-      notes: payload.notes ?? null,
-      source: payload.source ?? null,
-      converted_agency_id: payload.convertedAgencyId ?? null,
-      lead_owner_id: payload.leadOwnerId ?? null,
-      service_states: payload.serviceStates ?? null,
-      status: 'active',
-      updated_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single()
-
-  if (error) return { error: error.message }
-  revalidateLeadPaths()
-  return { error: null, leadId: data.id }
+  try {
+    const [data] = await sql<{ id: string }[]>`
+      INSERT INTO leads (
+        lead_type, agency_id, created_by, assigned_to,
+        contact_first_name, contact_last_name, contact_email, contact_phone,
+        company_name, service_type, stage, price,
+        retainer_amount, retainer_paid_date, installments, installment_amount,
+        signed_date, notes, source, converted_agency_id, lead_owner_id,
+        service_states, status, updated_at
+      ) VALUES (
+        ${payload.leadType}, ${payload.agencyId ?? null}, ${userId}, ${payload.assignedTo ?? null},
+        ${payload.contactFirstName}, ${payload.contactLastName}, ${payload.contactEmail ?? null}, ${payload.contactPhone ?? null},
+        ${payload.companyName ?? null}, ${payload.serviceType ?? null}, ${payload.stage ?? 'new'}, ${payload.price ?? null},
+        ${payload.retainerAmount ?? null}, ${payload.retainerPaidDate ?? null}, ${payload.installments ?? null}, ${payload.installmentAmount ?? null},
+        ${payload.signedDate ?? null}, ${payload.notes ?? null}, ${payload.source ?? null}, ${payload.convertedAgencyId ?? null}, ${payload.leadOwnerId ?? null},
+        ${payload.serviceStates ?? null}, 'active', ${new Date().toISOString()}
+      )
+      RETURNING id
+    `
+    if (!data) return { error: 'Insert failed' }
+    revalidateLeadPaths()
+    return { error: null, leadId: data.id }
+  } catch (err: any) {
+    return { error: err.message || 'Failed to create lead' }
+  }
 }
 
 export async function updateLead(
@@ -131,8 +120,7 @@ export async function updateLead(
     serviceStates?: string[] | null
   }
 ) {
-  const supabase = createAdminClient()
-  const updateData: Record<string, unknown> = {
+  const raw: Record<string, unknown> = {
     contact_first_name: payload.contactFirstName,
     contact_last_name: payload.contactLastName,
     contact_email: payload.contactEmail,
@@ -149,64 +137,58 @@ export async function updateLead(
     assigned_to: payload.assignedTo,
     updated_at: new Date().toISOString(),
   }
-  if (payload.source !== undefined) updateData.source = payload.source
-  if ('convertedAgencyId' in payload) updateData.converted_agency_id = payload.convertedAgencyId ?? null
-  if ('leadOwnerId' in payload) updateData.lead_owner_id = payload.leadOwnerId ?? null
-  if ('proposalSentDate' in payload) updateData.proposal_sent_date = payload.proposalSentDate ?? null
-  if ('serviceStates' in payload) updateData.service_states = payload.serviceStates ?? null
+  if (payload.source !== undefined)            raw.source = payload.source
+  if ('convertedAgencyId' in payload)          raw.converted_agency_id = payload.convertedAgencyId ?? null
+  if ('leadOwnerId' in payload)               raw.lead_owner_id = payload.leadOwnerId ?? null
+  if ('proposalSentDate' in payload)          raw.proposal_sent_date = payload.proposalSentDate ?? null
+  if ('serviceStates' in payload)             raw.service_states = payload.serviceStates ?? null
 
-  const { error } = await supabase
-    .from('leads')
-    .update(updateData)
-    .eq('id', leadId)
+  // Drop undefined so we don't overwrite fields not in the payload
+  const updateData = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
 
-  if (error) return { error: error.message }
+  try {
+    await sql`UPDATE leads SET ${sql(updateData)} WHERE id = ${leadId}`
+  } catch (err: any) {
+    return { error: err.message || 'Failed to update lead' }
+  }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
 
 export async function updateLeadStage(leadId: string, stage: string) {
-  const supabase = createAdminClient()
   const updates: Record<string, unknown> = { stage, updated_at: new Date().toISOString() }
 
   if (stage === 'proposal_sent') {
-    const { data: existing } = await supabase
-      .from('leads')
-      .select('proposal_sent_date')
-      .eq('id', leadId)
-      .single()
+    const [existing] = await sql<{ proposal_sent_date: string | null }[]>`
+      SELECT proposal_sent_date FROM leads WHERE id = ${leadId} LIMIT 1
+    `
     if (!existing?.proposal_sent_date) {
       updates.proposal_sent_date = new Date().toISOString().split('T')[0]
     }
   }
 
-  const { error } = await supabase.from('leads').update(updates).eq('id', leadId)
-  if (error) return { error: error.message }
+  try {
+    await sql`UPDATE leads SET ${sql(updates)} WHERE id = ${leadId}`
+  } catch (err: any) {
+    return { error: err.message || 'Failed to update lead stage' }
+  }
   revalidateLeadDetail(leadId)
   revalidateLeadPaths()
   return { error: null }
 }
 
 export async function archiveLead(leadId: string) {
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('leads')
-    .update({ status: 'archived', updated_at: new Date().toISOString() })
-    .eq('id', leadId)
-
-  if (error) return { error: error.message }
+  try {
+    await sql`UPDATE leads SET status = 'archived', updated_at = ${new Date().toISOString()} WHERE id = ${leadId}`
+  } catch (err: any) { return { error: err.message } }
   revalidateLeadPaths()
   return { error: null }
 }
 
 export async function unarchiveLead(leadId: string) {
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('leads')
-    .update({ status: 'active', updated_at: new Date().toISOString() })
-    .eq('id', leadId)
-
-  if (error) return { error: error.message }
+  try {
+    await sql`UPDATE leads SET status = 'active', updated_at = ${new Date().toISOString()} WHERE id = ${leadId}`
+  } catch (err: any) { return { error: err.message } }
   revalidateLeadPaths()
   return { error: null }
 }
@@ -220,25 +202,20 @@ export async function addLeadNote(
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('lead_notes')
-    .insert({
-      lead_id: leadId,
-      author_id: session.user.id,
-      content: payload.content,
-      note_type: payload.noteType,
-    })
-
-  if (error) return { error: error.message }
+  try {
+    await sql`
+      INSERT INTO lead_notes (lead_id, author_id, content, note_type)
+      VALUES (${leadId}, ${session.user.id}, ${payload.content}, ${payload.noteType})
+    `
+  } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
 
 export async function deleteLeadNote(leadId: string, noteId: string) {
-  const supabase = createAdminClient()
-  const { error } = await supabase.from('lead_notes').delete().eq('id', noteId)
-  if (error) return { error: error.message }
+  try {
+    await sql`DELETE FROM lead_notes WHERE id = ${noteId}`
+  } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
@@ -252,51 +229,37 @@ export async function addLeadTask(
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
 
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('lead_tasks')
-    .insert({
-      lead_id: leadId,
-      created_by: session.user.id,
-      assigned_to: payload.assignedTo ?? null,
-      title: payload.title,
-      due_date: payload.dueDate ?? null,
-      updated_at: new Date().toISOString(),
-    })
-
-  if (error) return { error: error.message }
+  try {
+    await sql`
+      INSERT INTO lead_tasks (lead_id, created_by, assigned_to, title, due_date, updated_at)
+      VALUES (${leadId}, ${session.user.id}, ${payload.assignedTo ?? null}, ${payload.title}, ${payload.dueDate ?? null}, ${new Date().toISOString()})
+    `
+  } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
 
 export async function completeLeadTask(leadId: string, taskId: string) {
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('lead_tasks')
-    .update({ completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq('id', taskId)
-
-  if (error) return { error: error.message }
+  const now = new Date().toISOString()
+  try {
+    await sql`UPDATE lead_tasks SET completed_at = ${now}, updated_at = ${now} WHERE id = ${taskId}`
+  } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
 
 export async function uncompleteLeadTask(leadId: string, taskId: string) {
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('lead_tasks')
-    .update({ completed_at: null, updated_at: new Date().toISOString() })
-    .eq('id', taskId)
-
-  if (error) return { error: error.message }
+  try {
+    await sql`UPDATE lead_tasks SET completed_at = null, updated_at = ${new Date().toISOString()} WHERE id = ${taskId}`
+  } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
 
 export async function deleteLeadTask(leadId: string, taskId: string) {
-  const supabase = createAdminClient()
-  const { error } = await supabase.from('lead_tasks').delete().eq('id', taskId)
-  if (error) return { error: error.message }
+  try {
+    await sql`DELETE FROM lead_tasks WHERE id = ${taskId}`
+  } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
@@ -307,16 +270,23 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
 
-  const supabase = createAdminClient()
-  const supabaseAdmin = createAdminClient()
-
-  const { data: lead, error: fetchErr } = await supabase
-    .from('leads')
-    .select('id, lead_type, stage, converted_agency_id, converted_at, company_name, contact_first_name, contact_last_name, contact_phone, contact_email')
-    .eq('id', leadId)
-    .single()
-
-  if (fetchErr || !lead) return { error: 'Lead not found' }
+  const [lead] = await sql<{
+    id: string
+    lead_type: string
+    stage: string
+    converted_agency_id: string | null
+    converted_at: string | null
+    company_name: string | null
+    contact_first_name: string | null
+    contact_last_name: string | null
+    contact_phone: string | null
+    contact_email: string | null
+  }[]>`
+    SELECT id, lead_type, stage, converted_agency_id, converted_at, company_name,
+           contact_first_name, contact_last_name, contact_phone, contact_email
+    FROM leads WHERE id = ${leadId} LIMIT 1
+  `
+  if (!lead) return { error: 'Lead not found' }
   if (lead.lead_type !== 'agency') return { error: 'Not an agency lead' }
   if (lead.converted_agency_id && lead.converted_at) return { error: 'Already converted' }
   if (lead.stage !== 'signed') return { error: 'Lead must be at the Signed stage before converting to an agency' }
@@ -324,50 +294,49 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
   const agencyName = agencyNameOverride?.trim() || lead.company_name?.trim()
   if (!agencyName) return { error: 'NEEDS_AGENCY_NAME' }
 
-  const { data: agency, error: agencyErr } = await supabaseAdmin
-    .from('agencies')
-    .insert({
-      name: agencyName,
-      onboarding_status: 'shell',
-      status: 'active',
-      state_specific_data: {},
-      primary_contact_first_name: lead.contact_first_name || null,
-      primary_contact_last_name: lead.contact_last_name || null,
-      phone_number: lead.contact_phone || null,
-      email: lead.contact_email || null,
-      updated_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single()
+  const now = new Date().toISOString()
+  let agencyId: string
+  try {
+    const [agency] = await sql<{ id: string }[]>`
+      INSERT INTO agencies (name, onboarding_status, status, state_specific_data,
+        primary_contact_first_name, primary_contact_last_name, phone_number, email, updated_at)
+      VALUES (
+        ${agencyName}, 'shell', 'active', '{}',
+        ${lead.contact_first_name || null}, ${lead.contact_last_name || null},
+        ${lead.contact_phone || null}, ${lead.contact_email || null}, ${now}
+      )
+      RETURNING id
+    `
+    if (!agency) return { error: 'Failed to create agency' }
+    agencyId = agency.id
+  } catch (err: any) {
+    return { error: err.message ?? 'Failed to create agency' }
+  }
 
-  if (agencyErr || !agency) return { error: agencyErr?.message ?? 'Failed to create agency' }
+  await q.seedDefaultAgencyLeadStages(agencyId)
 
-  // Seed default patient-lead pipeline stages for the new agency
-  await q.seedDefaultAgencyLeadStages(supabase, agency.id)
-
-  const { error: updateErr } = await supabase
-    .from('leads')
-    .update({
-      converted_agency_id: agency.id,
-      converted_at: new Date().toISOString(),
-      stage: 'signed',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', leadId)
-
-  if (updateErr) return { error: updateErr.message }
+  try {
+    await sql`
+      UPDATE leads SET
+        converted_agency_id = ${agencyId},
+        converted_at = ${now},
+        stage = 'signed',
+        updated_at = ${now}
+      WHERE id = ${leadId}
+    `
+  } catch (err: any) {
+    return { error: err.message }
+  }
 
   revalidateLeadDetail(leadId)
   revalidatePath('/pages/admin/agencies')
-  return { error: null, agencyId: agency.id }
+  return { error: null, agencyId }
 }
 
 export async function linkLeadToExistingAgency(leadId: string, agencyId: string) {
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
-
-  const supabase = createAdminClient()
-  const { error } = await q.linkLeadToExistingAgency(supabase, leadId, agencyId)
+  const { error } = await q.linkLeadToExistingAgency(leadId, agencyId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
   return { error: null }
@@ -376,9 +345,7 @@ export async function linkLeadToExistingAgency(leadId: string, agencyId: string)
 export async function unlinkLeadFromAgency(leadId: string) {
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
-
-  const supabase = createAdminClient()
-  const { error } = await q.unlinkLeadFromAgency(supabase, leadId)
+  const { error } = await q.unlinkLeadFromAgency(leadId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
   return { error: null }
@@ -397,14 +364,13 @@ export async function uploadLeadDocument(
 
   if (!file || !documentName?.trim()) return { error: 'File and document name are required' }
 
-  const supabase = createAdminClient()
   const ext = file.name.split('.').pop()
   const filePath = `${leadId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
   const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.LEAD, filePath, file)
   if (uploadErr) return { error: uploadErr.message }
 
-  const { data, error: insertErr } = await q.insertLeadDocument(supabase, {
+  const { data, error: insertErr } = await q.insertLeadDocument({
     lead_id: leadId,
     document_name: documentName.trim(),
     file_url: filePath,
@@ -426,11 +392,9 @@ export async function uploadLeadDocument(
 export async function deleteLeadDocumentAction(leadId: string, docId: string, filePath: string) {
   const { error: authErr } = await requirePlatformStaff()
   if (authErr) return { error: authErr }
-
-  const supabase = createAdminClient()
   const { error: storageErr } = await removeFiles(STORAGE_BUCKET.LEAD, [filePath])
   if (storageErr) console.error('[leads/deleteLeadDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
-  const { error } = await q.deleteLeadDocument(supabase, docId)
+  const { error } = await q.deleteLeadDocument(docId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
   return { error: null }
@@ -439,15 +403,13 @@ export async function deleteLeadDocumentAction(leadId: string, docId: string, fi
 // ——— On-demand reads (called from client components) ——————————————————————
 
 export async function fetchLeadDocumentsAction(leadId: string) {
-  const supabase = createAdminClient()
-  const { data, error } = await q.getLeadDocuments(supabase, leadId)
+  const { data, error } = await q.getLeadDocuments(leadId)
   if (error) return { error: error.message, data: null }
   return { error: null, data: data ?? [] }
 }
 
 export async function fetchLeadNotesAction(leadId: string) {
-  const supabase = createAdminClient()
-  const { data, error } = await q.getLeadNotes(supabase, leadId)
+  const { data, error } = await q.getLeadNotes(leadId)
   if (error) return { error: error.message, data: null }
   return { error: null, data: data ?? [] }
 }
@@ -476,20 +438,16 @@ export async function updatePatientLeadDetailsAction(
   const { error: authErr, session } = await requireAgencyMember()
   if (authErr || !session) return { success: false, error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
   const agencyId = session.profile?.agency_id
 
-  const { data: lead } = await supabase
-    .from('leads')
-    .select('id, lead_type, agency_id')
-    .eq('id', leadId)
-    .single()
-
+  const [lead] = await sql<{ id: string; lead_type: string; agency_id: string | null }[]>`
+    SELECT id, lead_type, agency_id FROM leads WHERE id = ${leadId} LIMIT 1
+  `
   if (!lead) return { success: false, error: 'Lead not found' }
   if (lead.lead_type !== 'patient') return { success: false, error: 'Not a patient lead' }
   if (lead.agency_id !== agencyId) return { success: false, error: 'Forbidden' }
 
-  const { data: upserted, error } = await q.upsertPatientLeadDetails(supabase, leadId, {
+  const { data: upserted, error } = await q.upsertPatientLeadDetails(leadId, {
     poc_name: data.pocName ?? null,
     poc_phone: data.pocPhone ?? null,
     poc_relationship: data.pocRelationship ?? null,
@@ -509,7 +467,7 @@ export async function updatePatientLeadDetailsAction(
   })
   if (error) return { success: false, error: error.message }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     table_name: 'patient_lead_details',
     record_id: upserted?.id ?? leadId,
     action: 'UPSERT',
@@ -526,12 +484,10 @@ export async function createRepresentativeFromLeadAction(leadId: string, patient
   const { error: authErr, session } = await requireAgencyMember()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { data: details } = await q.getPatientLeadDetails(supabase, leadId)
-
+  const { data: details } = await q.getPatientLeadDetails(leadId)
   if (!details?.poc_name?.trim()) return { error: null }
 
-  const { error } = await q.insertRepresentative(supabase, {
+  const { error } = await q.insertRepresentative({
     patient_id: patientId,
     name: details.poc_name,
     relationship: details.poc_relationship ?? null,
@@ -539,7 +495,6 @@ export async function createRepresentativeFromLeadAction(leadId: string, patient
     email_address: details.poc_email ?? null,
     display_order: 0,
   })
-
   if (error) return { error: error.message }
   return { error: null }
 }
@@ -548,43 +503,32 @@ export async function linkLeadToPatient(leadId: string, patientId: string) {
   const { error: authErr, session } = await requireAgencyMember()
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
   const agencyId = session.profile?.agency_id
   if (!agencyId) return { error: 'No agency found for this user' }
 
-  // Verify the lead belongs to this agency and is a patient lead
-  const { data: lead } = await supabase
-    .from('leads')
-    .select('id, lead_type, agency_id, stage')
-    .eq('id', leadId)
-    .single()
-
+  const [lead] = await sql<{ id: string; lead_type: string; agency_id: string | null; stage: string }[]>`
+    SELECT id, lead_type, agency_id, stage FROM leads WHERE id = ${leadId} LIMIT 1
+  `
   if (!lead) return { error: 'Lead not found' }
   if (lead.lead_type !== 'patient') return { error: 'Not a patient lead' }
   if (lead.agency_id !== agencyId) return { error: 'Forbidden' }
 
-  // Verify the lead is at the Closed-Won stage
-  const { data: wonStage } = await supabase
-    .from('agency_lead_stages')
-    .select('key')
-    .eq('agency_id', agencyId)
-    .eq('is_won', true)
-    .single()
-
+  const [wonStage] = await sql<{ key: string }[]>`
+    SELECT key FROM agency_lead_stages WHERE agency_id = ${agencyId} AND is_won = true LIMIT 1
+  `
   if (wonStage && lead.stage !== wonStage.key) {
     return { error: `Lead must be at the "${wonStage.key}" stage before converting to a client` }
   }
 
-  const { error } = await supabase
-    .from('leads')
-    .update({
-      converted_client_id: patientId,
-      converted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', leadId)
-
-  if (error) return { error: error.message }
+  const now = new Date().toISOString()
+  try {
+    await sql`
+      UPDATE leads SET converted_client_id = ${patientId}, converted_at = ${now}, updated_at = ${now}
+      WHERE id = ${leadId}
+    `
+  } catch (err: any) {
+    return { error: err.message }
+  }
   revalidateLeadDetail(leadId)
   return { error: null }
 }

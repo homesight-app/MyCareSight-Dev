@@ -1,4 +1,6 @@
-import type { Supabase } from '@/lib/supabase/types'
+import 'server-only'
+
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { patientFullName } from '@/lib/patient-name'
@@ -97,11 +99,6 @@ function serviceTypeTag(serviceType: string | null | undefined): string {
   return 'Personal Care'
 }
 
-function firstRel<T>(x: T | T[] | null | undefined): T | null {
-  if (x == null) return null
-  return Array.isArray(x) ? (x[0] ?? null) : x
-}
-
 function deriveStatusLabel(
   row: ScheduleRow,
   clockInAt: string | null,
@@ -114,20 +111,16 @@ function deriveStatusLabel(
   return 'Not Started'
 }
 
-type TaskCatalogEmbed = {
-  name: string
-  code: string
-  task_categories: { name: string } | { name: string }[] | null
-}
-
-type TaskRowDb = {
+type FlatTaskRow = {
   id: string
   legacy_task_code: string | null
   sort_order: number
   completed_at: string | null
+  notes: string | null
   task_id: string | null
-  notes?: string | null
-  task_catalog: TaskCatalogEmbed | TaskCatalogEmbed[] | null
+  task_catalog_name: string | null
+  task_catalog_code: string | null
+  task_category_name: string | null
 }
 
 export type CaregiverPastVisitSummaryTaskDTO = {
@@ -176,14 +169,50 @@ function formatInstantAmPm(iso: string | null | undefined): string | null {
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
 
+async function loadTasksWithCatalog(visitId: string): Promise<FlatTaskRow[]> {
+  return sql<FlatTaskRow[]>`
+    SELECT svt.id, svt.legacy_task_code, svt.sort_order, svt.completed_at, svt.notes, svt.task_id,
+           tc.name  AS task_catalog_name,
+           tc.code  AS task_catalog_code,
+           tcat.name AS task_category_name
+    FROM scheduled_visit_tasks svt
+    LEFT JOIN task_catalog tc ON tc.id = svt.task_id
+    LEFT JOIN task_categories tcat ON tcat.id = tc.category_id
+    WHERE svt.scheduled_visit_id = ${visitId}
+    ORDER BY svt.sort_order ASC
+  `
+}
+
+async function resolveUuidTaskNames(rawTasks: FlatTaskRow[]): Promise<Map<string, string>> {
+  const uuidTokens = Array.from(
+    new Set(
+      rawTasks
+        .map((t) => extractTaskToken(t.legacy_task_code ?? ''))
+        .filter((token) => token && isUuidLike(token))
+    )
+  )
+  const taskNameById = new Map<string, string>()
+  if (uuidTokens.length > 0) {
+    const catRows = await sql<{ id: string; name: string | null; code: string | null }[]>`
+      SELECT id, name, code FROM task_catalog WHERE id = ANY(${uuidTokens}::uuid[])
+    `
+    for (const r of catRows) {
+      const id = (r.id ?? '').trim()
+      if (!id) continue
+      const label = (r.name ?? '').trim() || (r.code ?? '').trim()
+      if (label) taskNameById.set(id, label)
+    }
+  }
+  return taskNameById
+}
+
 /** Read-only summary for Past tab modal (assigned caregiver only). */
 export async function fetchCaregiverPastVisitSummary(
-  supabase: Supabase,
   visitId: string,
   caregiverMemberId: string,
   caregiverAgencyId: string | null
 ): Promise<{ data: CaregiverPastVisitSummaryDTO | null; error?: string }> {
-  const { data: rows, error: visitErr } = await q.getScheduledVisitsByIdsAsScheduleRows(supabase, [visitId])
+  const { data: rows, error: visitErr } = await q.getScheduledVisitsByIdsAsScheduleRows([visitId])
   if (visitErr || !rows?.length) {
     return { data: null, error: visitErr?.message || 'Visit not found.' }
   }
@@ -197,150 +226,86 @@ export async function fetchCaregiverPastVisitSummary(
     return { data: null, error: 'Visit not found.' }
   }
 
-  const { data: patient } = await supabase
-    .from('patients')
-    .select('id, first_name, last_name, city, state, street_address')
-    .eq('id', row.patient_id)
-    .maybeSingle()
-
-  const p = patient as PatientRow | null
-  const locationShort = [p?.city?.trim(), p?.state?.trim()].filter(Boolean).join(', ') || '-'
-  const clientName = p ? patientFullName(p as { first_name: string; last_name: string }) : 'Client'
-
-  const taskSelectFull = `
-      id,
-      legacy_task_code,
-      sort_order,
-      completed_at,
-      notes,
-      task_id,
-      task_catalog (
-        name,
-        code,
-        task_categories ( name )
-      )
+  try {
+    const [patient] = await sql<PatientRow[]>`
+      SELECT id, first_name, last_name, city, state, street_address
+      FROM patients WHERE id = ${row.patient_id} LIMIT 1
     `
-  const taskFull = await supabase
-    .from('scheduled_visit_tasks')
-    .select(taskSelectFull)
-    .eq('scheduled_visit_id', visitId)
-    .order('sort_order', { ascending: true })
+    const p = patient ?? null
+    const locationShort = [p?.city?.trim(), p?.state?.trim()].filter(Boolean).join(', ') || '-'
+    const clientName = p ? patientFullName(p as { first_name: string; last_name: string }) : 'Client'
 
-  const taskBasic =
-    taskFull.error != null
-      ? await supabase
-          .from('scheduled_visit_tasks')
-          .select('id, legacy_task_code, sort_order, task_id, notes, completed_at')
-          .eq('scheduled_visit_id', visitId)
-          .order('sort_order', { ascending: true })
-      : null
+    const rawTasks = await loadTasksWithCatalog(visitId)
+    const taskNameById = await resolveUuidTaskNames(rawTasks)
 
-  if (taskFull.error != null && taskBasic?.error) {
-    return { data: null, error: taskBasic.error.message }
-  }
+    const svcTag = serviceTypeTag(row.service_type)
+    const typeLabel = (row.type ?? '').trim() || svcTag
 
-  const rawTasks = (taskFull.error != null ? (taskBasic?.data ?? []) : (taskFull.data ?? [])) as TaskRowDb[]
-  const uuidTokens = Array.from(
-    new Set(
-      rawTasks
-        .map((t) => extractTaskToken(t.legacy_task_code ?? ''))
-        .filter((token) => token && isUuidLike(token))
-    )
-  )
+    const tasks: CaregiverPastVisitSummaryTaskDTO[] = rawTasks.map((t) => {
+      const legacy = t.legacy_task_code ?? ''
+      const token = extractTaskToken(legacy)
+      const fromCatalog = t.task_catalog_name?.trim()
+      const fromMap = token ? taskNameById.get(token) : undefined
+      const name = (fromCatalog && fromCatalog.length > 0 ? fromCatalog : fromMap) || token || 'Task'
 
-  const taskNameById = new Map<string, string>()
-  if (uuidTokens.length > 0) {
-    const { data: catRows } = await supabase.from('task_catalog').select('id, name, code').in('id', uuidTokens)
-    for (const r of catRows ?? []) {
-      const rec = r as { id?: string; name?: string | null; code?: string | null }
-      const id = (rec.id ?? '').trim()
-      if (!id) continue
-      const label = (rec.name ?? '').trim() || (rec.code ?? '').trim()
-      if (label) taskNameById.set(id, label)
-    }
-  }
+      const categoryName = t.task_category_name?.trim() || null
+      const categoryLabel = (categoryName || typeLabel || 'Tasks').toUpperCase()
 
-  const svcTag = serviceTypeTag(row.service_type)
-  const typeLabel = (row.type ?? '').trim() || svcTag
+      const completed = !!t.completed_at
+      const instructions = t.notes?.trim() ? t.notes.trim() : null
 
-  const tasks: CaregiverPastVisitSummaryTaskDTO[] = rawTasks.map((t) => {
-    const legacy = t.legacy_task_code ?? ''
-    const token = extractTaskToken(legacy)
-    const catRow = firstRel(t.task_catalog)
-    const fromCatalog = catRow?.name?.trim()
-    const fromMap = token ? taskNameById.get(token) : undefined
-    const name = (fromCatalog && fromCatalog.length > 0 ? fromCatalog : fromMap) || token || 'Task'
+      return {
+        id: t.id,
+        name,
+        categoryLabel,
+        completed,
+        completedAtLabel: completed ? formatInstantAmPm(t.completed_at) : null,
+        instructions,
+      }
+    })
 
-    const catMeta = firstRel(catRow?.task_categories as { name?: string | null } | null)
-    const categoryName = catMeta?.name?.trim() || null
-    const categoryLabel = (categoryName || typeLabel || 'Tasks').toUpperCase()
+    const [entry] = await sql<{
+      clock_in_time: string | null
+      clock_out_time: string | null
+      caregiver_notes: string | null
+    }[]>`
+      SELECT clock_in_time, clock_out_time, caregiver_notes
+      FROM visit_time_entries
+      WHERE scheduled_visit_id = ${visitId}
+      LIMIT 1
+    `
 
-    const completed = !!t.completed_at
-    const instructions = t.notes?.trim() ? t.notes.trim() : null
+    const clockInAt = entry?.clock_in_time ?? null
+    const clockOutAt = entry?.clock_out_time ?? null
+    const statusLabel = deriveStatusLabel(row, clockInAt, clockOutAt)
 
     return {
-      id: t.id,
-      name,
-      categoryLabel,
-      completed,
-      completedAtLabel: completed ? formatInstantAmPm(t.completed_at) : null,
-      instructions,
+      data: {
+        visitId: row.id,
+        clientName,
+        dateSubtitle: formatDateLabelLong(row.date),
+        serviceName: typeLabel,
+        locationShort,
+        scheduledTimeRange: formatScheduleWindowAmPm(row.start_time, row.end_time),
+        statusLabel,
+        clockInLabel: formatInstantAmPm(clockInAt),
+        clockOutLabel: formatInstantAmPm(clockOutAt),
+        caregiverNotes: entry?.caregiver_notes?.trim() ? entry.caregiver_notes.trim() : null,
+        scheduleNotes: row.notes?.trim() ? row.notes.trim() : null,
+        tasks,
+      },
     }
-  })
-
-  let vteRes = await supabase
-    .from('visit_time_entries')
-    .select('clock_in_time, clock_out_time, caregiver_notes')
-    .eq('scheduled_visit_id', visitId)
-    .maybeSingle()
-
-  if (vteRes.error) {
-    vteRes = await supabase
-      .from('visit_time_entries')
-      .select('clock_in_time, clock_out_time')
-      .eq('scheduled_visit_id', visitId)
-      .maybeSingle()
-  }
-
-  if (vteRes.error) {
-    return { data: null, error: vteRes.error.message }
-  }
-
-  const entry = vteRes.data as {
-    clock_in_time: string | null
-    clock_out_time: string | null
-    caregiver_notes?: string | null
-  } | null
-
-  const clockInAt = entry?.clock_in_time ?? null
-  const clockOutAt = entry?.clock_out_time ?? null
-  const statusLabel = deriveStatusLabel(row, clockInAt, clockOutAt)
-
-  return {
-    data: {
-      visitId: row.id,
-      clientName,
-      dateSubtitle: formatDateLabelLong(row.date),
-      serviceName: typeLabel,
-      locationShort,
-      scheduledTimeRange: formatScheduleWindowAmPm(row.start_time, row.end_time),
-      statusLabel,
-      clockInLabel: formatInstantAmPm(clockInAt),
-      clockOutLabel: formatInstantAmPm(clockOutAt),
-      caregiverNotes: entry?.caregiver_notes?.trim() ? entry.caregiver_notes.trim() : null,
-      scheduleNotes: row.notes?.trim() ? row.notes.trim() : null,
-      tasks,
-    },
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : 'Could not load visit summary.' }
   }
 }
 
 export async function fetchCaregiverVisitExecutionDetail(
-  supabase: Supabase,
   visitId: string,
   caregiverMemberId: string,
   caregiverAgencyId: string | null
 ): Promise<{ data: CaregiverVisitExecutionDTO | null; error?: string }> {
-  const { data: rows, error: visitErr } = await q.getScheduledVisitsByIdsAsScheduleRows(supabase, [visitId])
+  const { data: rows, error: visitErr } = await q.getScheduledVisitsByIdsAsScheduleRows([visitId])
   if (visitErr || !rows?.length) {
     return { data: null, error: visitErr?.message || 'Visit not found.' }
   }
@@ -350,152 +315,87 @@ export async function fetchCaregiverVisitExecutionDetail(
   if (!assignedId || assignedId !== memberId) {
     return { data: null, error: 'You are not assigned to this visit.' }
   }
-  // When agency_id is set on the caregiver row, it must match the visit (list view uses the same rule).
   if (caregiverAgencyId && row.agency_id !== caregiverAgencyId) {
     return { data: null, error: 'Visit not found.' }
   }
 
-  const { data: patient } = await supabase
-    .from('patients')
-    .select('id, first_name, last_name, city, state, street_address')
-    .eq('id', row.patient_id)
-    .maybeSingle()
-
-  const p = patient as PatientRow | null
-  const locationShort = [p?.city?.trim(), p?.state?.trim()].filter(Boolean).join(', ') || '-'
-  const clientName = p ? patientFullName(p as { first_name: string; last_name: string }) : 'Client'
-  const locationLine = p?.street_address?.trim() || '-'
-
-  const taskSelectFull = `
-      id,
-      legacy_task_code,
-      sort_order,
-      completed_at,
-      task_id,
-      task_catalog (
-        name,
-        code,
-        task_categories ( name )
-      )
+  try {
+    const [patient] = await sql<PatientRow[]>`
+      SELECT id, first_name, last_name, city, state, street_address
+      FROM patients WHERE id = ${row.patient_id} LIMIT 1
     `
-  const taskFull = await supabase
-    .from('scheduled_visit_tasks')
-    .select(taskSelectFull)
-    .eq('scheduled_visit_id', visitId)
-    .order('sort_order', { ascending: true })
+    const p = patient ?? null
+    const locationShort = [p?.city?.trim(), p?.state?.trim()].filter(Boolean).join(', ') || '-'
+    const clientName = p ? patientFullName(p as { first_name: string; last_name: string }) : 'Client'
+    const locationLine = p?.street_address?.trim() || '-'
 
-  const taskBasic =
-    taskFull.error != null
-      ? await supabase
-          .from('scheduled_visit_tasks')
-          .select('id, legacy_task_code, sort_order, task_id')
-          .eq('scheduled_visit_id', visitId)
-          .order('sort_order', { ascending: true })
-      : null
+    const rawTasks = await loadTasksWithCatalog(visitId)
+    const taskNameById = await resolveUuidTaskNames(rawTasks)
 
-  if (taskFull.error != null) {
-    if (taskBasic?.error) {
-      return { data: null, error: taskBasic.error.message }
-    }
-  }
+    const svcTag = serviceTypeTag(row.service_type)
+    const typeLabel = (row.type ?? '').trim() || svcTag
 
-  const rawTasks = (taskFull.error != null ? (taskBasic?.data ?? []) : (taskFull.data ?? [])) as TaskRowDb[]
-  const uuidTokens = Array.from(
-    new Set(
-      rawTasks
-        .map((t) => extractTaskToken(t.legacy_task_code ?? ''))
-        .filter((token) => token && isUuidLike(token))
-    )
-  )
+    const tasks: CaregiverExecutionTaskDTO[] = rawTasks.map((t) => {
+      const legacy = t.legacy_task_code ?? ''
+      const token = extractTaskToken(legacy)
+      const asNeeded = slotKeyFromLegacy(legacy) === 'as_needed'
+      const fromCatalog = t.task_catalog_name?.trim()
+      const fromMap = token ? taskNameById.get(token) : undefined
+      const name = (fromCatalog && fromCatalog.length > 0 ? fromCatalog : fromMap) || token || 'Task'
 
-  const taskNameById = new Map<string, string>()
-  if (uuidTokens.length > 0) {
-    const { data: catRows } = await supabase.from('task_catalog').select('id, name, code').in('id', uuidTokens)
-    for (const r of catRows ?? []) {
-      const rec = r as { id?: string; name?: string | null; code?: string | null }
-      const id = (rec.id ?? '').trim()
-      if (!id) continue
-      const label = (rec.name ?? '').trim() || (rec.code ?? '').trim()
-      if (label) taskNameById.set(id, label)
-    }
-  }
+      const categoryName = t.task_category_name?.trim() || null
+      const tags = [categoryName, typeLabel !== categoryName ? typeLabel : null].filter(Boolean) as string[]
 
-  const svcTag = serviceTypeTag(row.service_type)
-  const typeLabel = (row.type ?? '').trim() || svcTag
+      return {
+        id: t.id,
+        name,
+        tags,
+        asNeeded,
+        completed: !!t.completed_at,
+      }
+    })
 
-  const tasks: CaregiverExecutionTaskDTO[] = rawTasks.map((t) => {
-    const legacy = t.legacy_task_code ?? ''
-    const token = extractTaskToken(legacy)
-    const asNeeded = slotKeyFromLegacy(legacy) === 'as_needed'
-    const catRow = firstRel(t.task_catalog)
-    const fromCatalog = catRow?.name?.trim()
-    const fromMap = token ? taskNameById.get(token) : undefined
-    const name = (fromCatalog && fromCatalog.length > 0 ? fromCatalog : fromMap) || token || 'Task'
+    const [entry] = await sql<{
+      id: string
+      clock_in_time: string | null
+      clock_out_time: string | null
+      caregiver_notes: string | null
+    }[]>`
+      SELECT id, clock_in_time, clock_out_time, caregiver_notes
+      FROM visit_time_entries
+      WHERE scheduled_visit_id = ${visitId}
+      LIMIT 1
+    `
 
-    const catMeta = firstRel(catRow?.task_categories as { name?: string | null } | null)
-    const categoryName = catMeta?.name?.trim() || null
-    const tags = [categoryName, typeLabel !== categoryName ? typeLabel : null].filter(Boolean) as string[]
+    const clockInAt = entry?.clock_in_time ?? null
+    const clockOutAt = entry?.clock_out_time ?? null
+    const statusLabel = deriveStatusLabel(row, clockInAt, clockOutAt)
+
+    const st = (row.status ?? '').toLowerCase().trim()
+    const canExecute = st !== 'missed' && st !== 'completed'
 
     return {
-      id: t.id,
-      name,
-      tags,
-      asNeeded,
-      completed: !!t.completed_at,
+      data: {
+        visitId: row.id,
+        clientName,
+        serviceName: typeLabel,
+        dateLabel: formatDateLabel(row.date),
+        dateLabelLong: formatDateLabelLong(row.date),
+        timeLabel: formatTimeLabel(row.start_time, row.end_time),
+        durationLabel: formatDurationLabel(row.start_time, row.end_time),
+        locationLine,
+        locationShort,
+        visitStatus: row.status ?? 'scheduled',
+        statusLabel,
+        tasks,
+        timeEntryId: entry?.id ?? null,
+        clockInAt,
+        clockOutAt,
+        caregiverNotes: entry?.caregiver_notes?.trim() ? entry.caregiver_notes : null,
+        canExecute,
+      },
     }
-  })
-
-  let vteRes = await supabase
-    .from('visit_time_entries')
-    .select('id, clock_in_time, clock_out_time, caregiver_notes')
-    .eq('scheduled_visit_id', visitId)
-    .maybeSingle()
-
-  if (vteRes.error) {
-    vteRes = await supabase
-      .from('visit_time_entries')
-      .select('id, clock_in_time, clock_out_time')
-      .eq('scheduled_visit_id', visitId)
-      .maybeSingle()
-  }
-
-  if (vteRes.error) {
-    return { data: null, error: vteRes.error.message }
-  }
-
-  const entry = vteRes.data as {
-    id: string
-    clock_in_time: string | null
-    clock_out_time: string | null
-    caregiver_notes?: string | null
-  } | null
-
-  const clockInAt = entry?.clock_in_time ?? null
-  const clockOutAt = entry?.clock_out_time ?? null
-  const statusLabel = deriveStatusLabel(row, clockInAt, clockOutAt)
-
-  const st = (row.status ?? '').toLowerCase().trim()
-  const canExecute = st !== 'missed' && st !== 'completed'
-
-  return {
-    data: {
-      visitId: row.id,
-      clientName,
-      serviceName: typeLabel,
-      dateLabel: formatDateLabel(row.date),
-      dateLabelLong: formatDateLabelLong(row.date),
-      timeLabel: formatTimeLabel(row.start_time, row.end_time),
-      durationLabel: formatDurationLabel(row.start_time, row.end_time),
-      locationLine,
-      locationShort,
-      visitStatus: row.status ?? 'scheduled',
-      statusLabel,
-      tasks,
-      timeEntryId: entry?.id ?? null,
-      clockInAt,
-      clockOutAt,
-      caregiverNotes: entry?.caregiver_notes?.trim() ? entry.caregiver_notes : null,
-      canExecute,
-    },
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : 'Could not load visit detail.' }
   }
 }

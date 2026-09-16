@@ -19,7 +19,7 @@ export default async function ExpertAgencyDetailPage({
   const supabase = await createClient()
   const supabaseAdmin = createAdminClient()
 
-  const { data: agency } = await q.getAgencyById(supabaseAdmin, id)
+  const { data: agency } = await q.getAgencyById(id)
 
   if (!agency) redirect('/pages/expert/agencies')
 
@@ -27,12 +27,12 @@ export default async function ExpertAgencyDetailPage({
 
   const [{ data: agencyAdmins }, { data: licenses }, { data: availableAdmins }, { data: programs }, { data: rawFeaturePlans }] = await Promise.all([
     adminIds.length > 0
-      ? q.getAgencyAdminsByIds(supabaseAdmin, adminIds)
+      ? q.getAgencyAdminsByIds(adminIds)
       : Promise.resolve({ data: [] }),
-    q.getAgencyCertificationsWithHistory(supabaseAdmin, id),
-    q.getUnassignedAgencyAdmins(supabaseAdmin),
-    q.getApplicationsWithProgramsByAgencyId(supabaseAdmin, id),
-    q.getFeaturePlans(supabaseAdmin),
+    q.getAgencyCertificationsWithHistory(id),
+    q.getUnassignedAgencyAdmins(),
+    q.getApplicationsWithProgramsByAgencyId(id),
+    q.getFeaturePlans(),
   ])
 
   const featurePlans: FeaturePlanSummary[] = (rawFeaturePlans ?? []).map(p => ({

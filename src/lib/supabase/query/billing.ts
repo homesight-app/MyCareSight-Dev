@@ -1,5 +1,4 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { PostgrestError } from '@supabase/supabase-js'
+import sql from '@/db'
 
 export interface BillingCode {
   id: string
@@ -8,13 +7,16 @@ export interface BillingCode {
   unit_type: 'hour' | 'visit' | '15_min_unit'
 }
 
-export async function getActiveBillingCodes(
-  supabase: SupabaseClient
-): Promise<{ data: BillingCode[] | null; error: PostgrestError | null }> {
-  const { data, error } = await supabase
-    .from('billing_codes')
-    .select('id, code, name, unit_type')
-    .eq('is_active', true)
-    .order('code', { ascending: true })
-  return { data: data as BillingCode[] | null, error }
+export async function getActiveBillingCodes(): Promise<{ data: BillingCode[] | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      SELECT id, code, name, unit_type
+      FROM billing_codes
+      WHERE is_active = true
+      ORDER BY code ASC
+    `
+    return { data: rows as unknown as BillingCode[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }

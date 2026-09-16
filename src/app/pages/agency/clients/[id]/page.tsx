@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 import ClientDetailContent from '@/components/ClientDetailContent'
 import { getCachedAgencyClientDetailBundle } from '@/lib/server-cache/agency-client-detail-bundle'
@@ -18,17 +18,20 @@ export default async function ClientDetailPage({
   }
 
   const { id } = await params
-  const supabase = await createClient()
+  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
+  const role = session!.profile?.role ?? ''
 
-  const bundle = await getCachedAgencyClientDetailBundle(id, session.user.id)
+  const [bundle, addresses] = await withUserContext(session!.user.id, role, agencyId, () =>
+    Promise.all([
+      getCachedAgencyClientDetailBundle(id, session!.user.id),
+      q.getPatientAddresses(id),
+    ])
+  )
+
   if (!bundle) {
     redirect('/pages/agency/clients')
   }
 
-  const { data: addresses } = await q.getPatientAddresses(supabase, id)
-  const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
-
-  const role = session!.profile?.role ?? ''
   const canManageNotes =
     role === 'company_owner' || role === 'care_coordinator'
 
@@ -49,7 +52,7 @@ export default async function ClientDetailPage({
       skilledCarePlanTasks={bundle.skilledCarePlanTasks}
       skilledSchedules={bundle.skilledSchedulesList}
       serviceContracts={bundle.serviceContracts}
-      initialAddresses={addresses ?? []}
+      initialAddresses={addresses.data ?? []}
       canManageNotes={canManageNotes}
       agencyId={agencyId ?? undefined}
       canSchedule={canSchedule}

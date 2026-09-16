@@ -1,50 +1,54 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 const APPLICATIONS_COLUMNS = 'id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id'
 const APPLICATION_STEPS_COLUMNS = 'id, application_id, step_name, step_order, is_completed, completed_at, completed_by, notes, created_at, updated_at, is_expert_step, created_by_expert_id, description, phase, instructions'
 const APPLICATION_DOCUMENTS_COLUMNS = 'id, application_id, document_name, document_url, document_type, status, created_at, description, expert_review_notes, license_requirement_document_id'
 
 /** Fetch application by id for close check (id, progress_percentage, status). */
-export async function getApplicationForClose(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('applications')
-    .select('id, progress_percentage, status')
-    .eq('id', applicationId)
-    .single()
+export async function getApplicationForClose(applicationId: string) {
+  try {
+    const rows = await sql`SELECT id, progress_percentage, status FROM applications WHERE id = ${applicationId}`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application license_type_id, state, status by id. */
-export async function getApplicationLicenseTypeState(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('applications')
-    .select('license_type_id, state, status')
-    .eq('id', applicationId)
-    .single()
+export async function getApplicationLicenseTypeState(applicationId: string) {
+  try {
+    const rows = await sql`SELECT license_type_id, state, status FROM applications WHERE id = ${applicationId}`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application assigned_expert_id, application_name, company_owner_id by id. */
-export async function getApplicationExpertAndOwner(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('applications')
-    .select('assigned_expert_id, application_name, company_owner_id')
-    .eq('id', applicationId)
-    .single()
+export async function getApplicationExpertAndOwner(applicationId: string) {
+  try {
+    const rows = await sql`SELECT assigned_expert_id, application_name, company_owner_id FROM applications WHERE id = ${applicationId}`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Set application status to closed and last_updated_date. */
-export async function closeApplicationUpdate(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('applications')
-    .update({
-      status: 'closed',
-      last_updated_date: new Date().toISOString(),
-    })
-    .eq('id', applicationId)
+export async function closeApplicationUpdate(applicationId: string) {
+  try {
+    await sql`UPDATE applications SET status = 'closed', last_updated_date = ${new Date().toISOString()} WHERE id = ${applicationId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Insert a new application and return the row. */
 export async function insertApplication(
-  supabase: Supabase,
   data: {
     company_owner_id?: string | null
     agency_id?: string | null
@@ -59,345 +63,400 @@ export async function insertApplication(
     submitted_date?: string | null
   }
 ) {
-  return supabase.from('applications').insert(data as Record<string, unknown>).select().single()
+  try {
+    const rows = await sql`INSERT INTO applications ${sql(data as Record<string, unknown>, ...Object.keys(data) as any)} RETURNING *`
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Insert application row with arbitrary columns (e.g. staff licenses). Returns row so RLS failures are visible. */
-export async function insertApplicationRow(supabase: Supabase, data: Record<string, unknown>) {
-  return supabase.from('applications').insert(data).select('id').single()
+export async function insertApplicationRow(data: Record<string, unknown>) {
+  try {
+    const rows = await sql`INSERT INTO applications ${sql(data, ...Object.keys(data) as any)} RETURNING id`
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Delete application by id. */
-export async function deleteApplicationById(supabase: Supabase, applicationId: string) {
-  return supabase.from('applications').delete().eq('id', applicationId)
+export async function deleteApplicationById(applicationId: string) {
+  try {
+    await sql`DELETE FROM applications WHERE id = ${applicationId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** RPC: copy expert steps from license requirement to application. */
 export async function rpcCopyExpertStepsToApplication(
-  supabase: Supabase,
   p_application_id: string,
   p_state: string,
   p_license_type_name: string
 ) {
-  return supabase.rpc('copy_expert_steps_to_application', {
-    p_application_id,
-    p_state,
-    p_license_type_name,
-  })
+  try {
+    const rows = await sql`SELECT copy_expert_steps_to_application(${p_application_id}, ${p_state}, ${p_license_type_name}) AS result`
+    return { data: rows[0]?.result ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Application documents by application_id, ordered by created_at desc. */
-export async function getApplicationDocumentsByApplicationId(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('application_documents')
-    .select(APPLICATION_DOCUMENTS_COLUMNS)
-    .eq('application_id', applicationId)
-    .order('created_at', { ascending: false })
-    .limit(100)
+export async function getApplicationDocumentsByApplicationId(applicationId: string) {
+  try {
+    const rows = await sql`SELECT id, application_id, document_name, document_url, document_type, status, created_at, description, expert_review_notes, license_requirement_document_id FROM application_documents WHERE application_id = ${applicationId} ORDER BY created_at DESC LIMIT 100`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Insert application_document and return. */
-export async function insertApplicationDocument(
-  supabase: Supabase,
-  data: Record<string, unknown>
-) {
-  return supabase.from('application_documents').insert(data).select().single()
+export async function insertApplicationDocument(data: Record<string, unknown>) {
+  try {
+    const rows = await sql`INSERT INTO application_documents ${sql(data, ...Object.keys(data) as any)} RETURNING *`
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Replace the file of an existing application_document record (url, name, type, description). */
 export async function updateApplicationDocumentFile(
-  supabase: Supabase,
   documentId: string,
   applicationId: string,
   data: { document_url: string; document_name: string; document_type: string | null; description: string | null }
 ) {
-  return supabase
-    .from('application_documents')
-    .update(data)
-    .eq('id', documentId)
-    .eq('application_id', applicationId)
+  try {
+    await sql`UPDATE application_documents SET ${sql(data as Record<string, unknown>, ...Object.keys(data) as any)} WHERE id = ${documentId} AND application_id = ${applicationId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Application steps by application_id, ordered by step_order. */
-export async function getApplicationStepsByApplicationId(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('application_steps')
-    .select(APPLICATION_STEPS_COLUMNS)
-    .eq('application_id', applicationId)
-    .order('step_order', { ascending: true })
+export async function getApplicationStepsByApplicationId(applicationId: string) {
+  try {
+    const rows = await sql`SELECT id, application_id, step_name, step_order, is_completed, completed_at, completed_by, notes, created_at, updated_at, is_expert_step, created_by_expert_id, description, phase, instructions FROM application_steps WHERE application_id = ${applicationId} ORDER BY step_order ASC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Expert application steps (is_expert_step = true) by application_id, ordered by step_order. */
-export async function getExpertApplicationStepsByApplicationId(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('application_steps')
-    .select(APPLICATION_STEPS_COLUMNS)
-    .eq('application_id', applicationId)
-    .eq('is_expert_step', true)
-    .order('step_order', { ascending: true })
+export async function getExpertApplicationStepsByApplicationId(applicationId: string) {
+  try {
+    const rows = await sql`SELECT id, application_id, step_name, step_order, is_completed, completed_at, completed_by, notes, created_at, updated_at, is_expert_step, created_by_expert_id, description, phase, instructions FROM application_steps WHERE application_id = ${applicationId} AND is_expert_step = true ORDER BY step_order ASC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get max step_order for expert steps in an application (for adding new expert step). */
-export async function getMaxExpertStepOrderForApplication(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('application_steps')
-    .select('step_order')
-    .eq('application_id', applicationId)
-    .eq('is_expert_step', true)
-    .order('step_order', { ascending: false })
-    .limit(1)
+export async function getMaxExpertStepOrderForApplication(applicationId: string) {
+  try {
+    const rows = await sql`SELECT step_order FROM application_steps WHERE application_id = ${applicationId} AND is_expert_step = true ORDER BY step_order DESC LIMIT 1`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Update application_document status (e.g. to 'pending'). */
 export async function updateApplicationDocumentStatus(
-  supabase: Supabase,
   documentId: string,
   applicationId: string,
   status: string
 ) {
-  return supabase
-    .from('application_documents')
-    .update({ status })
-    .eq('id', documentId)
-    .eq('application_id', applicationId)
+  try {
+    await sql`UPDATE application_documents SET status = ${status} WHERE id = ${documentId} AND application_id = ${applicationId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Update application_document review (status, expert_review_notes). */
 export async function updateApplicationDocumentReview(
-  supabase: Supabase,
   documentId: string,
   data: { status: string; expert_review_notes: string | null }
 ) {
-  return supabase.from('application_documents').update(data).eq('id', documentId)
+  try {
+    await sql`UPDATE application_documents SET ${sql(data as Record<string, unknown>, ...Object.keys(data) as any)} WHERE id = ${documentId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application assigned_expert_id. */
-export async function getApplicationAssignedExpertId(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('applications')
-    .select('assigned_expert_id')
-    .eq('id', applicationId)
-    .single()
+export async function getApplicationAssignedExpertId(applicationId: string) {
+  try {
+    const rows = await sql`SELECT assigned_expert_id FROM applications WHERE id = ${applicationId}`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Update application_steps is_completed and completed_at. */
 export async function updateApplicationStepComplete(
-  supabase: Supabase,
   stepId: string,
   applicationId: string,
   isCompleted: boolean,
   completedAt: string | null
 ) {
-  return supabase
-    .from('application_steps')
-    .update({ is_completed: isCompleted, completed_at: completedAt })
-    .eq('id', stepId)
-    .eq('application_id', applicationId)
+  try {
+    await sql`UPDATE application_steps SET is_completed = ${isCompleted}, completed_at = ${completedAt} WHERE id = ${stepId} AND application_id = ${applicationId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application_steps row by application_id and step id. */
-export async function getApplicationStepByAppAndId(supabase: Supabase, applicationId: string, stepId: string) {
-  return supabase
-    .from('application_steps')
-    .select('id')
-    .eq('application_id', applicationId)
-    .eq('id', stepId)
-    .maybeSingle()
+export async function getApplicationStepByAppAndId(applicationId: string, stepId: string) {
+  try {
+    const rows = await sql`SELECT id FROM application_steps WHERE application_id = ${applicationId} AND id = ${stepId} LIMIT 1`
+    return { data: (rows[0] ?? null), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application_steps row by application_id, step_name, step_order. */
 export async function getApplicationStepByAppNameOrder(
-  supabase: Supabase,
   applicationId: string,
   stepName: string,
   stepOrder: number
 ) {
-  return supabase
-    .from('application_steps')
-    .select('id')
-    .eq('application_id', applicationId)
-    .eq('step_name', stepName)
-    .eq('step_order', stepOrder)
-    .maybeSingle()
+  try {
+    const rows = await sql`SELECT id FROM application_steps WHERE application_id = ${applicationId} AND step_name = ${stepName} AND step_order = ${stepOrder} LIMIT 1`
+    return { data: (rows[0] ?? null), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Insert a single application_steps row. */
-export async function insertApplicationStepRow(supabase: Supabase, row: Record<string, unknown>) {
-  return supabase.from('application_steps').insert(row)
+export async function insertApplicationStepRow(row: Record<string, unknown>) {
+  try {
+    await sql`INSERT INTO application_steps ${sql(row, ...Object.keys(row) as any)}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Insert multiple application_steps rows. */
-export async function insertApplicationStepsRows(supabase: Supabase, rows: Record<string, unknown>[]) {
-  return supabase.from('application_steps').insert(rows)
+export async function insertApplicationStepsRows(rows: Record<string, unknown>[]) {
+  try {
+    if (rows.length === 0) return { data: null, error: null }
+    await sql`INSERT INTO application_steps ${sql(rows)}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** List applications for dropdown (id, application_name, state), exclude one id, limit 100. */
-export async function getApplicationsListForDropdown(supabase: Supabase, excludeApplicationId: string) {
-  return supabase
-    .from('applications')
-    .select('id, application_name, state')
-    .neq('id', excludeApplicationId)
-    .order('created_at', { ascending: false })
-    .limit(100)
+export async function getApplicationsListForDropdown(excludeApplicationId: string) {
+  try {
+    const rows = await sql`SELECT id, application_name, state FROM applications WHERE id != ${excludeApplicationId} ORDER BY created_at DESC LIMIT 100`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Update application_steps row by id (e.g. step_name, description, phase). */
 export async function updateApplicationStepById(
-  supabase: Supabase,
   stepId: string,
   data: Record<string, unknown>
 ) {
-  return supabase.from('application_steps').update(data).eq('id', stepId)
+  try {
+    await sql`UPDATE application_steps SET ${sql(data, ...Object.keys(data) as any)} WHERE id = ${stepId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Update application_steps is_completed/completed_at by id and application_id. */
 export async function updateApplicationStepCompleteById(
-  supabase: Supabase,
   stepId: string,
   applicationId: string,
   data: { is_completed: boolean; completed_at: string | null }
 ) {
-  return supabase
-    .from('application_steps')
-    .update(data)
-    .eq('id', stepId)
-    .eq('application_id', applicationId)
+  try {
+    await sql`UPDATE application_steps SET ${sql(data as Record<string, unknown>, ...Object.keys(data) as any)} WHERE id = ${stepId} AND application_id = ${applicationId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Delete application_steps row (expert step) by id. */
-export async function deleteApplicationExpertStepById(supabase: Supabase, stepId: string) {
-  return supabase.from('application_steps').delete().eq('id', stepId).eq('is_expert_step', true)
+export async function deleteApplicationExpertStepById(stepId: string) {
+  try {
+    await sql`DELETE FROM application_steps WHERE id = ${stepId} AND is_expert_step = true`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Update application status (and optional revision_reason). */
 export async function updateApplicationStatus(
-  supabase: Supabase,
   applicationId: string,
   data: { status: string; revision_reason?: string | null }
 ) {
-  return supabase.from('applications').update(data).eq('id', applicationId)
+  try {
+    await sql`UPDATE applications SET ${sql(data as Record<string, unknown>, ...Object.keys(data) as any)} WHERE id = ${applicationId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Update application by id with arbitrary fields. */
 export async function updateApplicationById(
-  supabase: Supabase,
   applicationId: string,
   data: Record<string, unknown>
 ) {
-  return supabase.from('applications').update(data).eq('id', applicationId)
+  try {
+    await sql`UPDATE applications SET ${sql(data, ...Object.keys(data) as any)} WHERE id = ${applicationId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get latest application_document by application_id (document_url, document_name). */
 export async function getLatestApplicationDocumentByApplicationId(
-  supabase: Supabase,
   applicationId: string
 ) {
-  return supabase
-    .from('application_documents')
-    .select('document_url, document_name')
-    .eq('application_id', applicationId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
+  try {
+    const rows = await sql`SELECT document_url, document_name FROM application_documents WHERE application_id = ${applicationId} ORDER BY created_at DESC LIMIT 1`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application by id if user is company_owner or assigned_expert. */
 export async function getApplicationByIdForOwnerOrExpert(
-  supabase: Supabase,
   applicationId: string,
   userId: string
 ) {
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .eq('id', applicationId)
-    .or(`company_owner_id.eq.${userId},assigned_expert_id.eq.${userId}`)
-    .single()
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE id = ${applicationId} AND (company_owner_id = ${userId} OR assigned_expert_id = ${userId})`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application ids by company_owner_id. */
-export async function getApplicationIdsByCompanyOwnerId(supabase: Supabase, companyOwnerId: string) {
-  return supabase.from('applications').select('id').eq('company_owner_id', companyOwnerId)
+export async function getApplicationIdsByCompanyOwnerId(companyOwnerId: string) {
+  try {
+    const rows = await sql`SELECT id FROM applications WHERE company_owner_id = ${companyOwnerId}`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get applications by company_owner_id, ordered by last_updated_date desc. */
-export async function getApplicationsByCompanyOwnerId(supabase: Supabase, companyOwnerId: string) {
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .eq('company_owner_id', companyOwnerId)
-    .order('last_updated_date', { ascending: false })
-    .limit(500)
+export async function getApplicationsByCompanyOwnerId(companyOwnerId: string) {
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE company_owner_id = ${companyOwnerId} ORDER BY last_updated_date DESC LIMIT 500`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get one application by company_owner_id and assigned_expert_id (for expert send message). */
 export async function getApplicationByCompanyOwnerAndExpert(
-  supabase: Supabase,
   companyOwnerId: string,
   expertUserId: string
 ) {
-  return supabase
-    .from('applications')
-    .select('id')
-    .eq('company_owner_id', companyOwnerId)
-    .eq('assigned_expert_id', expertUserId)
-    .order('last_updated_date', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  try {
+    const rows = await sql`SELECT id FROM applications WHERE company_owner_id = ${companyOwnerId} AND assigned_expert_id = ${expertUserId} ORDER BY last_updated_date DESC LIMIT 1`
+    return { data: (rows[0] ?? null), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application_id for each row in application_documents (for counting docs per application). */
 export async function getApplicationDocumentsApplicationIds(
-  supabase: Supabase,
   applicationIds: string[]
 ) {
   if (applicationIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('application_documents')
-    .select('application_id')
-    .in('application_id', applicationIds)
+  try {
+    const rows = await sql`SELECT application_id FROM application_documents WHERE application_id = ANY(${applicationIds as any})`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get applications by caregiver_member_id (e.g. staff licenses, status approved). */
 export async function getApplicationsByStaffMemberIds(
-  supabase: Supabase,
   staffMemberIds: string[]
 ) {
   if (staffMemberIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .in('caregiver_member_id', staffMemberIds)
-    .not('caregiver_member_id', 'is', null)
-    .eq('status', 'approved')
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE caregiver_member_id = ANY(${staffMemberIds as any}) AND caregiver_member_id IS NOT NULL AND status = 'approved'`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get all applications by caregiver_member_ids (any status, for caregiver dashboard). */
 export async function getApplicationsByStaffMemberIdsAll(
-  supabase: Supabase,
   staffMemberIds: string[]
 ) {
   if (staffMemberIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .in('caregiver_member_id', staffMemberIds)
-    .not('caregiver_member_id', 'is', null)
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE caregiver_member_id = ANY(${staffMemberIds as any}) AND caregiver_member_id IS NOT NULL`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application ids by assigned_expert_id. */
-export async function getApplicationIdsByAssignedExpertId(supabase: Supabase, expertId: string) {
-  return supabase.from('applications').select('id').eq('assigned_expert_id', expertId)
+export async function getApplicationIdsByAssignedExpertId(expertId: string) {
+  try {
+    const rows = await sql`SELECT id FROM applications WHERE assigned_expert_id = ${expertId}`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get applications by assigned_expert_id (user_id), ordered by created_at desc. */
-export async function getApplicationsByAssignedExpertId(supabase: Supabase, expertUserId: string) {
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .eq('assigned_expert_id', expertUserId)
-    .order('created_at', { ascending: false })
-    .limit(500)
+export async function getApplicationsByAssignedExpertId(expertUserId: string) {
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE assigned_expert_id = ${expertUserId} ORDER BY created_at DESC LIMIT 500`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export interface GetApplicationsByExpertPaginatedOpts {
@@ -408,194 +467,184 @@ export interface GetApplicationsByExpertPaginatedOpts {
 
 /** Paginated applications for an expert. Searches application_name and state. */
 export async function getApplicationsByAssignedExpertIdPaginated(
-  supabase: Supabase,
   expertUserId: string,
   opts?: GetApplicationsByExpertPaginatedOpts
 ) {
   const page     = opts?.page     ?? 0
   const pageSize = opts?.pageSize ?? 50
   const from     = page * pageSize
-  const to       = from + pageSize - 1
 
-  let dataQuery = supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .eq('assigned_expert_id', expertUserId)
-    .order('created_at', { ascending: false })
-    .range(from, to)
+  try {
+    const searchTerm = opts?.search?.trim()
 
-  let countQuery = supabase
-    .from('applications')
-    .select('id', { count: 'exact', head: true })
-    .eq('assigned_expert_id', expertUserId)
+    let dataRows: any[]
+    let countRows: any[]
 
-  if (opts?.search?.trim()) {
-    const term = `%${opts.search.trim()}%`
-    dataQuery  = dataQuery.or(`application_name.ilike.${term},state.ilike.${term}`)
-    countQuery = countQuery.or(`application_name.ilike.${term},state.ilike.${term}`)
-  }
+    if (searchTerm) {
+      const term = `%${searchTerm}%`
+      ;[dataRows, countRows] = await Promise.all([
+        sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE assigned_expert_id = ${expertUserId} AND (application_name ILIKE ${term} OR state ILIKE ${term}) ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${from}`,
+        sql`SELECT COUNT(*) AS count FROM applications WHERE assigned_expert_id = ${expertUserId} AND (application_name ILIKE ${term} OR state ILIKE ${term})`,
+      ])
+    } else {
+      ;[dataRows, countRows] = await Promise.all([
+        sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE assigned_expert_id = ${expertUserId} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${from}`,
+        sql`SELECT COUNT(*) AS count FROM applications WHERE assigned_expert_id = ${expertUserId}`,
+      ])
+    }
 
-  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
-  return {
-    data:  dataResult.data  ?? [],
-    count: countResult.count ?? 0,
-    error: dataResult.error ?? countResult.error,
+    return {
+      data: dataRows as unknown as any[],
+      count: Number(countRows[0]?.count ?? 0),
+      error: null,
+    }
+  } catch (err) {
+    return { data: [], count: 0, error: err as Error }
   }
 }
 
 /** Get applications by assigned_expert_id with select (e.g. for expert detail). */
 export async function getApplicationsByAssignedExpertIdSelect(
-  supabase: Supabase,
   expertUserId: string,
   select = 'id, application_name, state, status, progress_percentage, created_at'
 ) {
-  return supabase
-    .from('applications')
-    .select(select)
-    .eq('assigned_expert_id', expertUserId)
-    .order('created_at', { ascending: false })
+  try {
+    const rows = await sql.unsafe(`SELECT ${select} FROM applications WHERE assigned_expert_id = $1 ORDER BY created_at DESC`, [expertUserId])
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application by id (no owner/expert filter). */
-export async function getApplicationById(supabase: Supabase, applicationId: string) {
-  return supabase.from('applications').select(APPLICATIONS_COLUMNS).eq('id', applicationId).single()
+export async function getApplicationById(applicationId: string) {
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE id = ${applicationId}`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application by id and caregiver_member_id (for staff dashboard detail). */
 export async function getApplicationByIdAndStaffMemberId(
-  supabase: Supabase,
   applicationId: string,
   staffMemberId: string
 ) {
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .eq('id', applicationId)
-    .eq('caregiver_member_id', staffMemberId)
-    .single()
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE id = ${applicationId} AND caregiver_member_id = ${staffMemberId}`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get applications by status, ordered by created_at desc. */
-export async function getApplicationsByStatus(supabase: Supabase, status: string) {
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .eq('status', status)
-    .order('created_at', { ascending: false })
+export async function getApplicationsByStatus(status: string) {
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE status = ${status} ORDER BY created_at DESC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get all applications for an agency (agency-centric view for admin/expert). */
-export async function getApplicationsByAgencyId(supabase: Supabase, agencyId: string) {
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .eq('agency_id', agencyId)
-    .order('created_at', { ascending: false })
+export async function getApplicationsByAgencyId(agencyId: string) {
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE agency_id = ${agencyId} ORDER BY created_at DESC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application ids for an agency (for notification scoping). */
-export async function getApplicationIdsByAgencyId(supabase: Supabase, agencyId: string) {
-  return supabase.from('applications').select('id').eq('agency_id', agencyId)
+export async function getApplicationIdsByAgencyId(agencyId: string) {
+  try {
+    const rows = await sql`SELECT id FROM applications WHERE agency_id = ${agencyId}`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get one application by agency_id and assigned_expert_id (for expert send message). */
 export async function getApplicationByAgencyAndExpert(
-  supabase: Supabase,
   agencyId: string,
   expertUserId: string
 ) {
-  return supabase
-    .from('applications')
-    .select('id')
-    .eq('agency_id', agencyId)
-    .eq('assigned_expert_id', expertUserId)
-    .order('last_updated_date', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  try {
+    const rows = await sql`SELECT id FROM applications WHERE agency_id = ${agencyId} AND assigned_expert_id = ${expertUserId} ORDER BY last_updated_date DESC LIMIT 1`
+    return { data: (rows[0] ?? null), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get applications by statuses, ordered by created_at desc. */
-export async function getApplicationsByStatuses(supabase: Supabase, statuses: string[]) {
+export async function getApplicationsByStatuses(statuses: string[]) {
   if (statuses.length === 0) return { data: [], error: null }
-  return supabase
-    .from('applications')
-    .select(APPLICATIONS_COLUMNS)
-    .in('status', statuses)
-    .order('created_at', { ascending: false })
+  try {
+    const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE status = ANY(${statuses as any}) ORDER BY created_at DESC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Set application status to 'closed' with audit columns. */
 export async function closeApplicationManualUpdate(
-  supabase: Supabase,
   applicationId: string,
   agencyId: string,
   closedBy: string,
   closeReason: string
 ) {
-  return supabase
-    .from('applications')
-    .update({
-      status: 'closed',
-      closed_by: closedBy,
-      closed_at: new Date().toISOString(),
-      close_reason: closeReason,
-      last_updated_date: new Date().toISOString().split('T')[0],
-    })
-    .eq('id', applicationId)
-    .eq('agency_id', agencyId)
-    .not('status', 'in', '("approved","rejected")')
+  try {
+    await sql`UPDATE applications SET status = 'closed', closed_by = ${closedBy}, closed_at = ${new Date().toISOString()}, close_reason = ${closeReason}, last_updated_date = ${new Date().toISOString().split('T')[0]} WHERE id = ${applicationId} AND agency_id = ${agencyId} AND status NOT IN ('approved', 'rejected')`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Move application to 'under_review' (same as finishing all steps), with audit columns. */
 export async function completeApplicationManualUpdate(
-  supabase: Supabase,
   applicationId: string,
   agencyId: string,
   completedBy: string,
   completeReason: string
 ) {
-  return supabase
-    .from('applications')
-    .update({
-      status: 'under_review',
-      completed_by: completedBy,
-      completed_at: new Date().toISOString(),
-      complete_reason: completeReason,
-      last_updated_date: new Date().toISOString().split('T')[0],
-    })
-    .eq('id', applicationId)
-    .eq('agency_id', agencyId)
-    .not('status', 'in', '("approved","rejected")')
+  try {
+    await sql`UPDATE applications SET status = 'under_review', completed_by = ${completedBy}, completed_at = ${new Date().toISOString()}, complete_reason = ${completeReason}, last_updated_date = ${new Date().toISOString().split('T')[0]} WHERE id = ${applicationId} AND agency_id = ${agencyId} AND status NOT IN ('approved', 'rejected')`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Re-open a closed or complete application back to in_progress, clearing audit columns. */
 export async function reopenApplicationUpdate(
-  supabase: Supabase,
   applicationId: string,
   agencyId: string
 ) {
-  return supabase
-    .from('applications')
-    .update({
-      status: 'in_progress',
-      closed_by: null,
-      closed_at: null,
-      close_reason: null,
-      completed_by: null,
-      completed_at: null,
-      complete_reason: null,
-      last_updated_date: new Date().toISOString().split('T')[0],
-    })
-    .eq('id', applicationId)
-    .eq('agency_id', agencyId)
-    .in('status', ['closed', 'complete'])
+  try {
+    await sql`UPDATE applications SET status = 'in_progress', closed_by = NULL, closed_at = NULL, close_reason = NULL, completed_by = NULL, completed_at = NULL, complete_reason = NULL, last_updated_date = ${new Date().toISOString().split('T')[0]} WHERE id = ${applicationId} AND agency_id = ${agencyId} AND status = ANY(${['closed', 'complete'] as any})`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get application agency_id and status by id (for close/complete/reopen auth checks). */
-export async function getApplicationAgencyAndStatus(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('applications')
-    .select('id, agency_id, status, application_name')
-    .eq('id', applicationId)
-    .single()
+export async function getApplicationAgencyAndStatus(applicationId: string) {
+  try {
+    const rows = await sql`SELECT id, agency_id, status, application_name FROM applications WHERE id = ${applicationId}`
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }

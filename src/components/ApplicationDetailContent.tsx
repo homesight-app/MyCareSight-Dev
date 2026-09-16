@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react'
 import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { replaceApplicationDocumentAction } from '@/app/actions/application-documents'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import {
   copyExpertStepsFromRequirementToApplication,
   getAllLicenseRequirements,
@@ -102,7 +102,7 @@ async function getConversationIdByApplicationDeduped(supabase: ReturnType<typeof
   if (inFlight) return inFlight
 
   const lookupPromise = (async () => {
-    const { data: existingConv } = await q.getConversationByApplicationId(supabase, applicationId)
+    const { data: existingConv } = await q.getConversationByApplicationId(applicationId)
     return existingConv?.id ?? null
   })()
 
@@ -285,7 +285,7 @@ export default function ApplicationDetailContent({
   const refreshDocuments = useCallback(async () => {
     if (!application.id) return
     try {
-      const { data, error } = await q.getApplicationDocumentsByApplicationId(supabase, application.id)
+      const { data, error } = await q.getApplicationDocumentsByApplicationId(application.id)
       if (error) throw error
       if (data) {
         setDocuments(data.map((doc: any) => ({
@@ -341,7 +341,7 @@ export default function ApplicationDetailContent({
     setIsLoadingSteps(true)
     try {
       // First, try to fetch application_steps (steps specific to this application)
-      const { data: applicationSteps, error: appStepsError } = await q.getApplicationStepsByApplicationId(supabase, application.id)
+      const { data: applicationSteps, error: appStepsError } = await q.getApplicationStepsByApplicationId(application.id)
 
       if (appStepsError) {
         console.error('Error fetching application steps:', appStepsError)
@@ -383,7 +383,7 @@ export default function ApplicationDetailContent({
 
       // If no application_steps exist, fetch required steps from license_requirement_steps
       if (application.license_type_id) {
-        const { data: licenseType, error: licenseTypeError } = await q.getLicenseTypeById(supabase, application.license_type_id)
+        const { data: licenseType, error: licenseTypeError } = await q.getLicenseTypeById(application.license_type_id)
 
         if (licenseTypeError || !licenseType || !licenseType.name) {
           setSteps([])
@@ -398,7 +398,7 @@ export default function ApplicationDetailContent({
           return
         }
 
-        const { data: licenseRequirement, error: reqError } = await q.getLicenseRequirementByStateAndTypeSingle(supabase, requirementState, licenseType.name)
+        const { data: licenseRequirement, error: reqError } = await q.getLicenseRequirementByStateAndTypeSingle(requirementState, licenseType.name)
 
         if (reqError || !licenseRequirement) {
           setSteps([])
@@ -406,7 +406,7 @@ export default function ApplicationDetailContent({
           return
         }
 
-        const { data: allRequirementSteps, error: stepsError } = await q.getStepsFromRequirement(supabase, licenseRequirement.id)
+        const { data: allRequirementSteps, error: stepsError } = await q.getStepsFromRequirement(licenseRequirement.id)
         const requiredSteps = (allRequirementSteps || []).filter((s: { is_expert_step?: boolean }) => !s.is_expert_step)
 
         if (stepsError) {
@@ -445,7 +445,7 @@ export default function ApplicationDetailContent({
     }
     setIsLoadingRequirementDocuments(true)
     try {
-      const { data: licenseTypeRow, error: licenseTypeError } = await q.getLicenseTypeById(supabase, application.license_type_id)
+      const { data: licenseTypeRow, error: licenseTypeError } = await q.getLicenseTypeById(application.license_type_id)
       if (licenseTypeError || !licenseTypeRow?.name) {
         setRequirementDocuments([])
         return
@@ -455,12 +455,12 @@ export default function ApplicationDetailContent({
         setRequirementDocuments([])
         return
       }
-      const { data: licenseRequirement, error: reqError } = await q.getLicenseRequirementByStateAndTypeSingle(supabase, requirementState, licenseTypeRow.name)
+      const { data: licenseRequirement, error: reqError } = await q.getLicenseRequirementByStateAndTypeSingle(requirementState, licenseTypeRow.name)
       if (reqError || !licenseRequirement) {
         setRequirementDocuments([])
         return
       }
-      const { data: reqDocs, error: docsError } = await q.getRequirementDocumentsForDisplay(supabase, licenseRequirement.id)
+      const { data: reqDocs, error: docsError } = await q.getRequirementDocumentsForDisplay(licenseRequirement.id)
       if (docsError) {
         setRequirementDocuments([])
         return
@@ -499,7 +499,7 @@ export default function ApplicationDetailContent({
     }
     setIsLoadingTemplates(true)
     try {
-      const { data: licenseTypeRow, error: licenseTypeError } = await q.getLicenseTypeById(supabase, application.license_type_id)
+      const { data: licenseTypeRow, error: licenseTypeError } = await q.getLicenseTypeById(application.license_type_id)
       if (licenseTypeError || !licenseTypeRow?.name) {
         setTemplates([])
         return
@@ -509,12 +509,12 @@ export default function ApplicationDetailContent({
         setTemplates([])
         return
       }
-      const { data: licenseRequirement, error: reqError } = await q.getLicenseRequirementByStateAndTypeSingle(supabase, requirementState, licenseTypeRow.name)
+      const { data: licenseRequirement, error: reqError } = await q.getLicenseRequirementByStateAndTypeSingle(requirementState, licenseTypeRow.name)
       if (reqError || !licenseRequirement) {
         setTemplates([])
         return
       }
-      const { data: templateRows, error: templatesError } = await q.getRequirementTemplatesForDisplay(supabase, licenseRequirement.id)
+      const { data: templateRows, error: templatesError } = await q.getRequirementTemplatesForDisplay(licenseRequirement.id)
       if (templatesError) {
         setTemplates([])
         return
@@ -551,7 +551,7 @@ export default function ApplicationDetailContent({
     
     setIsLoadingExpertSteps(true)
     try {
-      const { data: allSteps, error } = await q.getApplicationStepsByApplicationId(supabase, application.id)
+      const { data: allSteps, error } = await q.getApplicationStepsByApplicationId(application.id)
       const expertStepsData = (allSteps || []).filter((s: { is_expert_step?: boolean }) => s.is_expert_step)
 
       if (error) {
@@ -562,10 +562,10 @@ export default function ApplicationDetailContent({
 
       const steps = expertStepsData || []
       if (steps.length === 0 && application.license_type_id && application.state) {
-        const { data: licenseType } = await q.getLicenseTypeById(supabase, application.license_type_id)
+        const { data: licenseType } = await q.getLicenseTypeById(application.license_type_id)
         if (licenseType?.name) {
           await copyExpertStepsFromRequirementToApplication(application.id, application.state, licenseType.name)
-          const { data: refetched, error: refetchErr } = await q.getApplicationStepsByApplicationId(supabase, application.id)
+          const { data: refetched, error: refetchErr } = await q.getApplicationStepsByApplicationId(application.id)
           const refetchedExpert = (refetched || []).filter((s: { is_expert_step?: boolean }) => s.is_expert_step)
           if (!refetchErr && refetchedExpert?.length) {
             setExpertSteps(refetchedExpert.map((step: any) => ({
@@ -604,7 +604,7 @@ export default function ApplicationDetailContent({
   const refreshExpertStepsSilently = useCallback(async () => {
     if (!application.id) return
     try {
-      const { data: allSteps, error } = await q.getApplicationStepsByApplicationId(supabase, application.id)
+      const { data: allSteps, error } = await q.getApplicationStepsByApplicationId(application.id)
       if (error || !allSteps) return
       const expertStepsData = allSteps.filter((s: { is_expert_step?: boolean }) => s.is_expert_step)
       setExpertSteps(expertStepsData.map((step: any) => ({
@@ -845,7 +845,7 @@ export default function ApplicationDetailContent({
         setIsCopyingExpertSteps(false)
         return
       }
-      const { data: existingSteps } = await q.getMaxApplicationExpertStepOrder(supabase, targetApplicationId)
+      const { data: existingSteps } = await q.getMaxApplicationExpertStepOrder(targetApplicationId)
       let nextOrder = existingSteps?.length ? existingSteps[0].step_order + 1 : 1
       const stepsToInsert = stepsToCopy.map((step) => ({
         application_id: targetApplicationId,
@@ -857,7 +857,7 @@ export default function ApplicationDetailContent({
         is_completed: false,
         created_by_expert_id: currentUserId ?? null,
       }))
-      const { error: insertError } = await q.insertApplicationStepsRows(supabase, stepsToInsert)
+      const { error: insertError } = await q.insertApplicationStepsRows(stepsToInsert)
       if (insertError) throw insertError
       alert(`Successfully copied ${stepsToCopy.length} expert step(s)`)
       setSelectedListExpertStepIds(new Set())
@@ -880,10 +880,10 @@ export default function ApplicationDetailContent({
 
     setIsSubmittingExpertStep(true)
     try {
-      const { data: existingSteps } = await q.getMaxApplicationExpertStepOrder(supabase, application.id)
+      const { data: existingSteps } = await q.getMaxApplicationExpertStepOrder(application.id)
       const nextOrder = existingSteps && existingSteps.length > 0 ? existingSteps[0].step_order + 1 : 1
 
-      const { error: insertError } = await q.insertApplicationStepRow(supabase, {
+      const { error: insertError } = await q.insertApplicationStepRow({
         application_id: application.id,
         step_name: expertStepFormData.stepName.trim(),
         step_order: nextOrder,
@@ -917,7 +917,7 @@ export default function ApplicationDetailContent({
       
       setIsLoadingLicenseType(true)
       try {
-        const { data, error } = await q.getLicenseTypeByIdFull(supabase, application.license_type_id)
+        const { data, error } = await q.getLicenseTypeByIdFull(application.license_type_id)
 
         if (error) throw error
         setLicenseType(data)
@@ -940,7 +940,7 @@ export default function ApplicationDetailContent({
       }
       
       try {
-        const { data, error } = await q.getUserProfileById(supabase, application.assigned_expert_id)
+        const { data, error } = await q.getUserProfileById(application.assigned_expert_id)
 
         if (error) throw error
         setExpertProfile(data)
@@ -961,7 +961,7 @@ export default function ApplicationDetailContent({
         return
       }
       try {
-        const { data, error } = await q.getUserProfileById(supabase, application.company_owner_id)
+        const { data, error } = await q.getUserProfileById(application.company_owner_id)
 
         if (error) throw error
         setClientProfile(data)
@@ -979,7 +979,7 @@ export default function ApplicationDetailContent({
     const userId = session?.user?.id
     if (!userId) return
     setCurrentUserId(userId)
-    q.getUserProfileRoleById(supabase, userId).then(({ data: profile }) => {
+    q.getUserProfileRoleById(userId).then(({ data: profile }) => {
       if (profile) setCurrentUserRole(profile.role)
     })
   }, [session, supabase])
@@ -1008,16 +1008,16 @@ export default function ApplicationDetailContent({
             // Resolve client_id if there is a company owner; null is allowed
             // for admin/expert-created applications (agency_id takes over for access control)
             const clientId = application.company_owner_id
-              ? ((await q.getClientByCompanyOwnerId(supabase, application.company_owner_id)).data?.id ?? null)
+              ? ((await q.getClientByCompanyOwnerId(application.company_owner_id)).data?.id ?? null)
               : null
 
-            const { data: newConv, error: convError } = await q.insertConversation(supabase, {
+            const { data: newConv, error: convError } = await q.insertConversation({
               client_id: clientId,
               application_id: application.id,
             })
 
             if (convError) {
-              if (convError.code === '23505') {
+              if ((convError as any).code === '23505') {
                 const existingConvIdAfterConflict = await getConversationIdByApplicationDeduped(supabase, application.id)
                 if (existingConvIdAfterConflict) {
                   convId = existingConvIdAfterConflict
@@ -1049,7 +1049,7 @@ export default function ApplicationDetailContent({
           return
         }
         // Load existing messages
-        const { data: messagesData, error: messagesError } = await q.getMessagesByConversationId(supabase, convId)
+        const { data: messagesData, error: messagesError } = await q.getMessagesByConversationId(convId)
 
         if (messagesError) {
           console.error('Error loading messages:', messagesError)
@@ -1059,7 +1059,7 @@ export default function ApplicationDetailContent({
         } else {
           // Get sender profiles
           const senderIds = Array.from(new Set(messagesData.map(m => m.sender_id)))
-          const { data: userProfiles, error: profilesError } = senderIds.length > 0 ? await q.getUserProfilesByIds(supabase, senderIds) : { data: [], error: null }
+          const { data: userProfiles, error: profilesError } = senderIds.length > 0 ? await q.getUserProfilesByIds(senderIds) : { data: [], error: null }
 
           if (profilesError) {
             console.error('Error fetching user profiles:', profilesError)
@@ -1097,7 +1097,7 @@ export default function ApplicationDetailContent({
           if (unreadMessages.length > 0) {
             const ids = unreadMessages.map((m) => m.id).filter((id) => typeof id === 'string' && id.length > 0)
             if (ids.length > 0) {
-              const { error: markReadErr } = await q.rpcMarkMessagesAsReadByUser(supabase, ids, currentUserId)
+              const { error: markReadErr } = await q.rpcMarkMessagesAsReadByUser(ids, currentUserId)
               if (markReadErr) console.error('Error marking messages read:', markReadErr)
             }
           }
@@ -1131,7 +1131,7 @@ export default function ApplicationDetailContent({
         async (payload) => {
           const newMessage = payload.new as any
 
-          const { data: userProfile } = await q.getUserProfilesByIds(supabase, [newMessage.sender_id])
+          const { data: userProfile } = await q.getUserProfilesByIds([newMessage.sender_id])
           const senderProfile = userProfile?.[0] ?? null
 
           const messageWithSender = {
@@ -1201,16 +1201,16 @@ export default function ApplicationDetailContent({
           setConversationId(convId)
         } else {
           const clientId = application.company_owner_id
-            ? ((await q.getClientByCompanyOwnerId(supabase, application.company_owner_id)).data?.id ?? null)
+            ? ((await q.getClientByCompanyOwnerId(application.company_owner_id)).data?.id ?? null)
             : null
 
-          const { data: newConv, error: convError } = await q.insertConversation(supabase, {
+          const { data: newConv, error: convError } = await q.insertConversation({
             client_id: clientId,
             application_id: application.id,
           })
 
           if (convError) {
-            if (convError.code === '23505') {
+            if ((convError as any).code === '23505') {
               const existingConvIdAfterConflict = await getConversationIdByApplicationDeduped(supabase, application.id)
               if (existingConvIdAfterConflict) {
                 convId = existingConvIdAfterConflict
@@ -1231,10 +1231,10 @@ export default function ApplicationDetailContent({
       if (!convId || !currentUserId) {
         throw new Error('Conversation or user not available.')
       }
-      const { data: currentUserProfileRows } = await q.getUserProfilesByIds(supabase, [currentUserId])
+      const { data: currentUserProfileRows } = await q.getUserProfilesByIds([currentUserId])
       const currentUserProfile = currentUserProfileRows?.[0] ?? null
 
-      const { data: newMessage, error: messageError } = await q.insertMessage(supabase, {
+      const { data: newMessage, error: messageError } = await q.insertMessage({
         conversation_id: convId,
         sender_id: currentUserId,
         content: messageContent.trim(),
@@ -1242,7 +1242,7 @@ export default function ApplicationDetailContent({
 
       if (messageError) throw messageError
 
-      await q.updateConversationLastMessageAt(supabase, convId)
+      await q.updateConversationLastMessageAt(convId)
 
       // Add message optimistically (real-time subscription will also catch it)
       if (newMessage) {
@@ -1373,36 +1373,30 @@ export default function ApplicationDetailContent({
         throw new Error('Step not found')
       }
 
-      const { data: existingAppStep } = await q.getApplicationStepByAppAndId(supabase, application.id, stepId)
+      const { data: existingAppStep } = await q.getApplicationStepByAppAndId(application.id, stepId)
 
       if (existingAppStep) {
-        const { error: updateError } = await q.updateApplicationStepComplete(
-          supabase,
-          stepId,
+        const { error: updateError } = await q.updateApplicationStepComplete(stepId,
           application.id,
           isCompleted,
           new Date().toISOString()
         )
         if (updateError) throw updateError
       } else {
-        const { data: existingByName } = await q.getApplicationStepByAppNameOrder(
-          supabase,
-          application.id,
+        const { data: existingByName } = await q.getApplicationStepByAppNameOrder(application.id,
           selectedStep.step_name,
           selectedStep.step_order
         )
 
         if (existingByName) {
-          const { error: updateError } = await q.updateApplicationStepComplete(
-            supabase,
-            existingByName.id,
+          const { error: updateError } = await q.updateApplicationStepComplete(existingByName.id,
             application.id,
             isCompleted,
             isCompleted ? new Date().toISOString() : null
           )
           if (updateError) throw updateError
         } else {
-          const { error: insertError } = await q.insertApplicationStepRow(supabase, {
+          const { error: insertError } = await q.insertApplicationStepRow({
             application_id: application.id,
             step_name: selectedStep.step_name,
             step_order: selectedStep.step_order,
@@ -1519,12 +1513,12 @@ export default function ApplicationDetailContent({
     if (!application?.id || submittingDocumentId) return
     setSubmittingDocumentId(documentId)
     try {
-      const { data: app } = await q.getApplicationAssignedExpertId(supabase, application.id)
+      const { data: app } = await q.getApplicationAssignedExpertId(application.id)
       if (!app?.assigned_expert_id) {
         alert('An expert must be assigned to this application before you can submit documents. Please contact support.')
         return
       }
-      const { error } = await q.updateApplicationDocumentStatus(supabase, documentId, application.id, 'pending')
+      const { error } = await q.updateApplicationDocumentStatus(documentId, application.id, 'pending')
 
       if (error) throw error
       await refreshDocuments()
@@ -1542,7 +1536,7 @@ export default function ApplicationDetailContent({
 
     setIsReviewing(true)
     try {
-      const { error } = await q.updateApplicationDocumentReview(supabase, selectedDocumentForReview.id, {
+      const { error } = await q.updateApplicationDocumentReview(selectedDocumentForReview.id, {
         status: action === 'approve' ? 'approved' : 'draft',
         expert_review_notes: reviewNotes.trim() || null,
       })
@@ -2561,7 +2555,7 @@ export default function ApplicationDetailContent({
                       onClick={async () => {
                         setIsLoadingApplications(true)
                         setShowCopyExpertStepsModal(true)
-                        const { data: allApplications } = await q.getApplicationsListForDropdown(supabase, application.id)
+                        const { data: allApplications } = await q.getApplicationsListForDropdown(application.id)
                         if (allApplications) setAvailableApplications(allApplications)
                         setIsLoadingApplications(false)
                       }}

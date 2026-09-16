@@ -15,7 +15,7 @@ export default async function EditExpertPage({
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: expert } = await q.getLicensingExpertById(supabase, id)
+  const { data: expert } = await q.getLicensingExpertById(id)
 
   if (!expert) {
     redirect('/pages/admin/users?tab=experts')

@@ -1,23 +1,20 @@
-import { createAdminClient } from '@/lib/supabase/admin'
-import * as q from '@/lib/supabase/query'
+﻿import * as q from '@/lib/supabase/query'
 
 async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUserId: string) {
-  const supabase = createAdminClient()
-
-  const { data: up } = await q.getAgencyIdFromProfile(supabase, viewerUserId)
+  const { data: up } = await q.getAgencyIdFromProfile(viewerUserId)
   const agencyId = up?.agency_id ?? null
   if (!agencyId) return null
 
-  const { data: client } = await q.getPatientByIdAndAgencyId(supabase, patientId, agencyId)
+  const { data: client } = await q.getPatientByIdAndAgencyId(patientId, agencyId)
   if (!client) return null
 
   const agencyClient = null
 
-  const { data: allClients } = await q.getPatientsByAgencyIdMinimal(supabase, agencyId)
+  const { data: allClients } = await q.getPatientsByAgencyIdMinimal(agencyId)
 
   let representativesList: Awaited<ReturnType<typeof q.getRepresentativesByPatientId>>['data'] = []
   try {
-    const res = await q.getRepresentativesByPatientId(supabase, patientId)
+    const res = await q.getRepresentativesByPatientId(patientId)
     representativesList = res.data ?? []
   } catch {
     representativesList = []
@@ -25,7 +22,7 @@ async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUse
 
   let caregiverRequirements: Awaited<ReturnType<typeof q.getCaregiverRequirementsByPatientId>>['data'] = null
   try {
-    const res = await q.getCaregiverRequirementsByPatientId(supabase, patientId)
+    const res = await q.getCaregiverRequirementsByPatientId(patientId)
     caregiverRequirements = res.data ?? null
   } catch {
     caregiverRequirements = null
@@ -33,7 +30,7 @@ async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUse
 
   let incidentsList: Awaited<ReturnType<typeof q.getIncidentsByPatientId>>['data'] = []
   try {
-    const res = await q.getIncidentsByPatientId(supabase, patientId)
+    const res = await q.getIncidentsByPatientId(patientId)
     incidentsList = res.data ?? []
   } catch {
     incidentsList = []
@@ -43,8 +40,8 @@ async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUse
   let adlSchedulesList: Awaited<ReturnType<typeof q.getPatientAdlDaySchedulesByPatientId>>['data'] = []
   try {
     const [adlsRes, schedulesRes] = await Promise.all([
-      q.getAdlsByPatientId(supabase, patientId),
-      q.getPatientAdlDaySchedulesByPatientId(supabase, patientId),
+      q.getAdlsByPatientId(patientId),
+      q.getPatientAdlDaySchedulesByPatientId(patientId),
     ])
     adlsList = adlsRes.data ?? []
     adlSchedulesList = schedulesRes.data ?? []
@@ -54,12 +51,12 @@ async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUse
   }
 
   let staffList: Awaited<ReturnType<typeof q.getStaffMembersByAgencyId>>['data'] = []
-  const staffRes = await q.getStaffMembersByAgencyId(supabase, agencyId, { status: 'active' })
+  const staffRes = await q.getStaffMembersByAgencyId(agencyId, { status: 'active' })
   staffList = staffRes.data ?? []
 
   let contractedHoursList: Awaited<ReturnType<typeof q.getPatientContractedHoursByPatientId>>['data'] = []
   try {
-    const res = await q.getPatientContractedHoursByPatientId(supabase, patientId)
+    const res = await q.getPatientContractedHoursByPatientId(patientId)
     contractedHoursList = res.data ?? []
   } catch {
     contractedHoursList = []
@@ -67,7 +64,7 @@ async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUse
 
   let serviceContracts: Awaited<ReturnType<typeof q.getPatientServiceContractsByPatientId>>['data'] = []
   try {
-    const res = await q.getPatientServiceContractsByPatientId(supabase, patientId)
+    const res = await q.getPatientServiceContractsByPatientId(patientId)
     serviceContracts = res.data ?? []
   } catch {
     serviceContracts = []
@@ -77,8 +74,8 @@ async function loadAgencyClientDetailBundleUncached(patientId: string, viewerUse
   let skilledSchedulesList: Awaited<ReturnType<typeof q.getPatientSkilledDaySchedulesByPatientId>>['data'] = []
   try {
     const [tasksRes, schedRes] = await Promise.all([
-      q.getPatientSkilledCarePlanTasks(supabase, patientId),
-      q.getPatientSkilledDaySchedulesByPatientId(supabase, patientId),
+      q.getPatientSkilledCarePlanTasks(patientId),
+      q.getPatientSkilledDaySchedulesByPatientId(patientId),
     ])
     skilledCarePlanTasks = tasksRes.data ?? []
     skilledSchedulesList = schedRes.data ?? []

@@ -14,7 +14,7 @@ import {
   Upload
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Button from '@/components/ui/PrimaryButton'
@@ -152,7 +152,7 @@ export default function StaffLicenseDetailContent({
         }
 
         // Create document record
-        const { error: docError } = await q.insertApplicationDocument(supabase, {
+        const { error: docError } = await q.insertApplicationDocument({
           application_id: license.id,
           document_name: file.name,
           document_url: fileName,

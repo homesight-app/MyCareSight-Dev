@@ -1,7 +1,6 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import type { Supabase } from '@/lib/supabase/types'
+import sql from '@/db'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import {
   CACHE_TAG_CAREGIVER_SKILL_CATALOG,
@@ -18,29 +17,25 @@ import {
 } from '@/lib/server-cache/reference-lists'
 
 type ServiceType = 'skilled' | 'non_skilled'
-type TaskCategoryItem = { id: string; name: string }
 type TaskCatalogItem = { id: string; name: string; categoryId: string; categoryName: string }
 
-async function ensureDefaultTaskCategory(supabase: Supabase, serviceType: ServiceType) {
-  const { data: existing, error: readErr } = await supabase
-    .from('task_categories')
-    .select('id')
-    .eq('service_type', serviceType)
-    .eq('name', 'General')
-    .limit(1)
-    .maybeSingle()
+async function ensureDefaultTaskCategory(serviceType: ServiceType) {
+  const [existing] = await sql<{ id: string }[]>`
+    SELECT id FROM task_categories WHERE service_type = ${serviceType} AND name = 'General' LIMIT 1
+  `
+  if (existing) return { error: null, id: existing.id }
 
-  if (readErr) return { error: readErr.message, id: null as string | null }
-  if (existing?.id) return { error: null, id: existing.id as string }
-
-  const { data: inserted, error: insertErr } = await supabase
-    .from('task_categories')
-    .insert({ name: 'General', service_type: serviceType, display_order: 0 })
-    .select('id')
-    .single()
-
-  if (insertErr) return { error: insertErr.message, id: null as string | null }
-  return { error: null, id: inserted.id as string }
+  try {
+    const [inserted] = await sql<{ id: string }[]>`
+      INSERT INTO task_categories (name, service_type, display_order)
+      VALUES ('General', ${serviceType}, 0)
+      RETURNING id
+    `
+    if (!inserted) return { error: 'Insert failed', id: null as string | null }
+    return { error: null, id: inserted.id }
+  } catch (err: any) {
+    return { error: err.message, id: null as string | null }
+  }
 }
 
 function taskCodeFromName(name: string, serviceType: ServiceType): string {
@@ -78,55 +73,55 @@ export async function getNonSkilledTaskCategories() {
 }
 
 async function getTaskCatalogItemById(id: string) {
-  const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('task_catalog')
-    .select('id, name, category_id, task_categories!inner(name)')
-    .eq('id', id)
-    .single()
-
-  if (error) return { error: error.message, data: null }
-
-  const category = Array.isArray(data.task_categories)
-    ? data.task_categories[0]
-    : data.task_categories
+  const [row] = await sql<{
+    id: string
+    name: string
+    category_id: string
+    category_name: string
+  }[]>`
+    SELECT tc.id, tc.name, tc.category_id, tcat.name AS category_name
+    FROM task_catalog tc
+    JOIN task_categories tcat ON tcat.id = tc.category_id
+    WHERE tc.id = ${id}
+    LIMIT 1
+  `
+  if (!row) return { error: 'Task not found', data: null }
   return {
     error: null,
     data: {
-      id: String(data.id),
-      name: String(data.name ?? '').trim(),
-      categoryId: String(data.category_id ?? ''),
-      categoryName: String(category?.name ?? '').trim() || 'General',
+      id: row.id,
+      name: String(row.name ?? '').trim(),
+      categoryId: row.category_id,
+      categoryName: String(row.category_name ?? '').trim() || 'General',
     } satisfies TaskCatalogItem,
   }
 }
 
 export async function createTaskCatalogItem(serviceType: ServiceType, name: string, categoryId?: string | null) {
-  const supabase = createAdminClient()
   try {
     const trimmedName = name.trim()
     if (!trimmedName) return { error: 'Task name is required.', data: null }
 
     let resolvedCategoryId = (categoryId ?? '').trim()
     if (!resolvedCategoryId) {
-      const category = await ensureDefaultTaskCategory(supabase, serviceType)
+      const category = await ensureDefaultTaskCategory(serviceType)
       if (category.error || !category.id) return { error: category.error || 'Could not resolve task category.', data: null }
       resolvedCategoryId = category.id
     }
 
-    const { data, error } = await supabase
-      .from('task_catalog')
-      .insert({
-        code: taskCodeFromName(trimmedName, serviceType),
-        name: trimmedName,
-        category_id: resolvedCategoryId,
-        is_skilled: serviceType === 'skilled',
-      })
-      .select('id')
-      .single()
+    const [data] = await sql<{ id: string }[]>`
+      INSERT INTO task_catalog (code, name, category_id, is_skilled)
+      VALUES (
+        ${taskCodeFromName(trimmedName, serviceType)},
+        ${trimmedName},
+        ${resolvedCategoryId},
+        ${serviceType === 'skilled'}
+      )
+      RETURNING id
+    `
+    if (!data) return { error: 'Insert failed', data: null }
 
-    if (error) return { error: error.message, data: null }
-    const item = await getTaskCatalogItemById(String(data.id))
+    const item = await getTaskCatalogItemById(data.id)
     if (item.error || !item.data) return { error: item.error || 'Task created but could not be loaded.', data: null }
     revalidatePath('/pages/admin/configuration')
     revalidateTaskCatalogCaches()
@@ -137,20 +132,16 @@ export async function createTaskCatalogItem(serviceType: ServiceType, name: stri
 }
 
 export async function updateTaskCatalogItem(id: string, name: string) {
-  const supabase = createAdminClient()
   try {
     const trimmedName = name.trim()
     if (!trimmedName) return { error: 'Task name is required.', data: null }
 
-    const { data, error } = await supabase
-      .from('task_catalog')
-      .update({ name: trimmedName })
-      .eq('id', id)
-      .select('id')
-      .single()
+    const [data] = await sql<{ id: string }[]>`
+      UPDATE task_catalog SET name = ${trimmedName} WHERE id = ${id} RETURNING id
+    `
+    if (!data) return { error: 'Task not found', data: null }
 
-    if (error) return { error: error.message, data: null }
-    const item = await getTaskCatalogItemById(String(data.id))
+    const item = await getTaskCatalogItemById(data.id)
     if (item.error || !item.data) return { error: item.error || 'Task updated but could not be loaded.', data: null }
     revalidatePath('/pages/admin/configuration')
     revalidateTaskCatalogCaches()
@@ -161,10 +152,8 @@ export async function updateTaskCatalogItem(id: string, name: string) {
 }
 
 export async function deleteTaskCatalogItem(id: string) {
-  const supabase = createAdminClient()
   try {
-    const { error } = await supabase.from('task_catalog').delete().eq('id', id)
-    if (error) return { error: error.message }
+    await sql`DELETE FROM task_catalog WHERE id = ${id}`
     revalidatePath('/pages/admin/configuration')
     revalidateTaskCatalogCaches()
     return { error: null }

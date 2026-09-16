@@ -1,6 +1,5 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
-/** Legacy-compatible shape for agency caregiver license lists (from caregiver_credentials). */
 export type StaffLicenseListRow = {
   id: string
   caregiver_member_id: string
@@ -64,57 +63,62 @@ function mapCredentialToLicenseListRow(row: {
   }
 }
 
-/** All caregiver_credentials for caregiver ids (any status), as legacy list shape. */
 export async function getStaffLicensesByStaffMemberIds(
-  supabase: Supabase,
   staffMemberIds: string[]
-) {
-  if (staffMemberIds.length === 0) return { data: [] as StaffLicenseListRow[], error: null }
-  const { data, error } = await supabase
-    .from('caregiver_credentials')
-    .select('*')
-    .in('caregiver_member_id', staffMemberIds)
-  if (error) return { data: null, error }
-  const mapped = (data ?? [])
-    .map((r) => mapCredentialToLicenseListRow(r as Parameters<typeof mapCredentialToLicenseListRow>[0]))
-    .filter((r): r is StaffLicenseListRow => r !== null)
-  return { data: mapped, error: null }
+): Promise<{ data: StaffLicenseListRow[] | null; error: Error | null }> {
+  if (staffMemberIds.length === 0) return { data: [] as unknown as StaffLicenseListRow[], error: null }
+  try {
+    const rows = await sql`
+      SELECT id, caregiver_member_id, source_credential_name, credential_number,
+             state, issue_date, expiration_date, issuing_authority, status,
+             document_url, created_at, updated_at
+      FROM caregiver_credentials
+      WHERE caregiver_member_id = ANY(${staffMemberIds as any})
+    `
+    const mapped = (rows as unknown as Parameters<typeof mapCredentialToLicenseListRow>[0][])
+      .map((r) => mapCredentialToLicenseListRow(r))
+      .filter((r): r is StaffLicenseListRow => r !== null)
+    return { data: mapped, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-/**
- * Insert caregiver_credentials. Pass legacy-shaped fields plus agency_id and user_id:
- * license_type, license_number, state, issue_date, expiry_date, status, document_url?, issuing_authority?
- */
-export async function insertStaffLicenseRow(supabase: Supabase, data: Record<string, unknown>) {
+export async function insertStaffLicenseRow(
+  data: Record<string, unknown>
+): Promise<{ data: { id: string } | null; error: Error | null }> {
   const agencyId = data.agency_id as string | undefined
   if (!agencyId) {
-    return {
-      data: null,
-      error: { message: 'agency_id is required for caregiver_credentials', details: '', hint: '', code: 'MISSING_AGENCY' },
+    return { data: null, error: new Error('agency_id is required for caregiver_credentials') }
+  }
+  try {
+    const payload = {
+      agency_id: agencyId,
+      caregiver_member_id: data.caregiver_member_id as string,
+      user_id: (data.user_id as string | null) ?? null,
+      source_credential_name: (data.license_type as string) || 'Credential',
+      credential_number: (data.license_number as string) || '',
+      state: (data.state as string) || null,
+      issue_date: (data.issue_date as string) || null,
+      expiration_date: (data.expiry_date as string) || (data.expiration_date as string) || null,
+      issuing_authority: (data.issuing_authority as string) || null,
+      status: String(data.status ?? 'active'),
+      document_url: (data.document_url as string) || null,
     }
+    const rows = await sql`
+      INSERT INTO caregiver_credentials ${sql(payload, ...Object.keys(payload) as any)}
+      RETURNING id
+    `
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
   }
-  const payload = {
-    agency_id: agencyId,
-    caregiver_member_id: data.caregiver_member_id as string,
-    user_id: (data.user_id as string | null) ?? null,
-    source_credential_name: (data.license_type as string) || 'Credential',
-    credential_number: (data.license_number as string) || '',
-    state: (data.state as string) || null,
-    issue_date: (data.issue_date as string) || null,
-    expiration_date: (data.expiry_date as string) || (data.expiration_date as string) || null,
-    issuing_authority: (data.issuing_authority as string) || null,
-    status: String(data.status ?? 'active'),
-    document_url: (data.document_url as string) || null,
-  }
-  return supabase.from('caregiver_credentials').insert(payload).select('id').single()
 }
 
-/** Update caregiver_credentials by id (legacy field names mapped). */
 export async function updateStaffLicenseRow(
-  supabase: Supabase,
   id: string,
   data: Record<string, unknown>
-) {
+): Promise<{ data: Record<string, unknown> | null; error: Error | null }> {
   const payload: Record<string, unknown> = {}
   if (data.license_type !== undefined) payload.source_credential_name = data.license_type
   if (data.license_number !== undefined) payload.credential_number = data.license_number
@@ -125,5 +129,15 @@ export async function updateStaffLicenseRow(
   if (data.issuing_authority !== undefined) payload.issuing_authority = data.issuing_authority
   if (data.status !== undefined) payload.status = data.status
   if (data.document_url !== undefined) payload.document_url = data.document_url
-  return supabase.from('caregiver_credentials').update(payload).eq('id', id).select().single()
+  try {
+    const rows = await sql`
+      UPDATE caregiver_credentials
+      SET ${sql(payload, ...Object.keys(payload) as any)}
+      WHERE id = ${id}
+      RETURNING *
+    `
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }

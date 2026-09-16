@@ -1,17 +1,13 @@
-'use server'
+﻿'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 
-async function requireAdminSupabase() {
-  const supabase = createAdminClient()
+async function requireAdmin() {
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user?.id) return { supabase, user: null, error: 'Not authenticated' }
-  const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
-  if (profile?.role !== 'admin') return { supabase, user, error: 'Forbidden' }
-  return { supabase, user, error: null }
+  if (!session?.user?.id) return { user: null, error: 'Not authenticated' as string | null }
+  if (session.profile?.role !== 'admin') return { user: session.user, error: 'Forbidden' as string | null }
+  return { user: session.user, error: null as string | null }
 }
 
 export type FilteredAgencyAdminsPayload = {
@@ -31,15 +27,15 @@ export async function fetchFilteredAgencyAdminsAction(filters: {
   page?: number
   pageSize?: number
 }): Promise<{ error: string | null; data: FilteredAgencyAdminsPayload | null }> {
-  const ctx = await requireAdminSupabase()
+  const ctx = await requireAdmin()
   if (ctx.error) return { error: ctx.error, data: null }
-  const { supabase, user } = ctx
+  const { user } = ctx
   if (!user) return { error: 'Not authenticated', data: null }
 
   const page     = filters.page     ?? 0
   const pageSize = filters.pageSize ?? 50
 
-  const { data: allClients, error } = await q.getAgencyAdminsFiltered(supabase, {
+  const { data: allClients, error } = await q.getAgencyAdminsFiltered({
     search: filters.search.trim() || undefined,
     status: filters.selectedStatus,
     expertUserId: filters.selectedExpert,
@@ -69,9 +65,9 @@ export async function fetchFilteredAgencyAdminsAction(filters: {
   }
 
   const [{ data: clientStates }, { data: casesData }, { data: unreadRows, error: unreadErr }] = await Promise.all([
-    q.getClientStatesByClientIds(supabase, clientIds),
-    q.getCasesByClientIds(supabase, clientIds, 'client_id, progress_percentage, status'),
-    q.rpcAdminUnreadMessageCountsByClient(supabase, user.id, clientIds),
+    q.getClientStatesByClientIds(clientIds),
+    q.getCasesByClientIds(clientIds, 'client_id, progress_percentage, status'),
+    q.rpcAdminUnreadMessageCountsByClient(user.id, clientIds),
   ])
 
   if (unreadErr) {
@@ -105,7 +101,7 @@ export async function fetchFilteredAgencyAdminsAction(filters: {
     new Set(rows.map((c) => c.expert_id as string | null | undefined).filter((id): id is string => Boolean(id)))
   )
   const { data: experts } =
-    expertIds.length > 0 ? await q.getLicensingExpertsByIds(supabase, expertIds, '*') : { data: [] }
+    expertIds.length > 0 ? await q.getLicensingExpertsByIds(expertIds, '*') : { data: [] }
   type ExpertRow = { user_id: string }
   const expertsByUserId: Record<string, Record<string, unknown>> = {}
   for (const e of (experts ?? []) as unknown as ExpertRow[]) {
@@ -136,11 +132,10 @@ export async function fetchFilteredExpertsAction(filters: {
   selectedState: string
   selectedStatus: string
 }): Promise<{ error: string | null; data: FilteredExpertsPayload | null }> {
-  const ctx = await requireAdminSupabase()
+  const ctx = await requireAdmin()
   if (ctx.error) return { error: ctx.error, data: null }
-  const { supabase } = ctx
 
-  const { data: experts, error } = await q.getLicensingExpertsFiltered(supabase, {
+  const { data: experts, error } = await q.getLicensingExpertsFiltered({
     search: filters.search.trim() || undefined,
     status: filters.selectedStatus,
     state: filters.selectedState,
@@ -155,8 +150,8 @@ export async function fetchFilteredExpertsAction(filters: {
   }
 
   const [{ data: expertStates }, { data: clients }] = await Promise.all([
-    q.getExpertStatesByExpertIds(supabase, expertIds),
-    q.getClientsByExpertIds(supabase, expertIds),
+    q.getExpertStatesByExpertIds(expertIds),
+    q.getClientsByExpertIds(expertIds),
   ])
 
   const statesByExpert: Record<string, string[]> = {}

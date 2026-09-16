@@ -2,10 +2,11 @@
 
 import { randomBytes, randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 import bcrypt from 'bcryptjs'
 import { sendInvitationEmail } from '@/lib/email'
+import sql from '@/db'
+import * as q from '@/lib/supabase/query'
 
 function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
@@ -13,10 +14,7 @@ function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/agency/people`)
 }
 
-// Shared creation flow: insert user_profiles + role-table insert + send invitation email.
-// On any failure after profile insert, rolls back by deleting user_profiles row.
 async function createUserForAgency(
-  supabaseAdmin: ReturnType<typeof createAdminClient>,
   agencyId: string,
   role: 'company_owner' | 'care_coordinator' | 'staff_member',
   opts: { firstName: string; lastName: string; email: string; phone?: string }
@@ -25,20 +23,16 @@ async function createUserForAgency(
   const fullName = `${opts.firstName} ${opts.lastName}`
   const tempPassword = randomBytes(16).toString('hex')
 
-  // Check for existing user first
-  const { data: existingProfile } = await supabaseAdmin
-    .from('user_profiles')
-    .select('id')
-    .eq('email', normalizedEmail)
-    .maybeSingle()
+  const [existingProfile] = await sql<{ id: string }[]>`
+    SELECT id FROM user_profiles WHERE email = ${normalizedEmail} LIMIT 1
+  `
 
   if (existingProfile) {
-    // Re-send invitation with a fresh temp password
     const passwordHash = await bcrypt.hash(tempPassword, 12)
-    await supabaseAdmin
-      .from('user_profiles')
-      .update({ password_hash: passwordHash, role, agency_id: agencyId, updated_at: new Date().toISOString() })
-      .eq('id', existingProfile.id)
+    await sql`
+      UPDATE user_profiles SET password_hash = ${passwordHash}, role = ${role}, agency_id = ${agencyId}, updated_at = ${new Date().toISOString()}
+      WHERE id = ${existingProfile.id}
+    `
     await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
     return { userId: existingProfile.id }
   }
@@ -46,80 +40,76 @@ async function createUserForAgency(
   const userId = randomUUID()
   const passwordHash = await bcrypt.hash(tempPassword, 12)
 
-  const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
-    id: userId,
-    email: normalizedEmail,
-    role,
-    full_name: fullName,
-    password_hash: passwordHash,
-    is_active: true,
-    agency_id: agencyId,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  })
-  if (insertError) return { error: insertError.message }
+  try {
+    await sql`INSERT INTO user_profiles ${sql({
+      id: userId,
+      email: normalizedEmail,
+      role,
+      full_name: fullName,
+      password_hash: passwordHash,
+      is_active: true,
+      agency_id: agencyId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to create user profile' }
+  }
 
   if (role === 'care_coordinator') {
-    const { error: roleErr } = await supabaseAdmin.from('care_coordinators').insert({
-      user_id: userId,
-      agency_id: agencyId,
-      first_name: opts.firstName,
-      last_name: opts.lastName,
-      email: normalizedEmail,
-      status: 'active',
-    })
-    if (roleErr) {
-      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
-      return { error: `Failed to create coordinator record: ${roleErr.message}` }
+    try {
+      await sql`INSERT INTO care_coordinators ${sql({
+        user_id: userId,
+        agency_id: agencyId,
+        first_name: opts.firstName,
+        last_name: opts.lastName,
+        email: normalizedEmail,
+        status: 'active',
+      })}`
+    } catch (err) {
+      try { await sql`DELETE FROM user_profiles WHERE id = ${userId}` } catch {}
+      return { error: `Failed to create coordinator record: ${err instanceof Error ? err.message : 'Unknown'}` }
     }
   } else if (role === 'staff_member') {
-    const { data: adminRow } = await supabaseAdmin
-      .from('agency_admins')
-      .select('id')
-      .eq('agency_id', agencyId)
-      .eq('status', 'active')
-      .limit(1)
-      .maybeSingle()
-    const { error: roleErr } = await supabaseAdmin.from('caregiver_members').insert({
-      user_id: userId,
-      company_owner_id: adminRow?.id ?? null,
-      agency_id: agencyId,
-      first_name: opts.firstName,
-      last_name: opts.lastName,
-      email: normalizedEmail,
-      role: 'Caregiver',
-      status: 'active',
-      documents: {},
-    })
-    if (roleErr) {
-      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
-      return { error: `Failed to create caregiver record: ${roleErr.message}` }
+    const [adminRow] = await sql<{ id: string }[]>`
+      SELECT id FROM agency_admins WHERE agency_id = ${agencyId} AND status = 'active' LIMIT 1
+    `
+    try {
+      await sql`INSERT INTO caregiver_members ${sql({
+        user_id: userId,
+        company_owner_id: adminRow?.id ?? null,
+        agency_id: agencyId,
+        first_name: opts.firstName,
+        last_name: opts.lastName,
+        email: normalizedEmail,
+        role: 'Caregiver',
+        status: 'active',
+        documents: {},
+      })}`
+    } catch (err) {
+      try { await sql`DELETE FROM user_profiles WHERE id = ${userId}` } catch {}
+      return { error: `Failed to create caregiver record: ${err instanceof Error ? err.message : 'Unknown'}` }
     }
   } else if (role === 'company_owner') {
-    const { error: roleErr } = await supabaseAdmin.from('agency_admins').insert({
-      user_id: userId,
-      company_owner_id: userId,
-      contact_name: fullName,
-      contact_email: normalizedEmail,
-      contact_phone: opts.phone ?? null,
-      status: 'active',
-      agency_id: agencyId,
-    })
-    if (roleErr) {
-      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
-      return { error: `Failed to create admin record: ${roleErr.message}` }
+    try {
+      await sql`INSERT INTO agency_admins ${sql({
+        user_id: userId,
+        company_owner_id: userId,
+        contact_name: fullName,
+        contact_email: normalizedEmail,
+        contact_phone: opts.phone ?? null,
+        status: 'active',
+        agency_id: agencyId,
+      })}`
+    } catch (err) {
+      try { await sql`DELETE FROM user_profiles WHERE id = ${userId}` } catch {}
+      return { error: `Failed to create admin record: ${err instanceof Error ? err.message : 'Unknown'}` }
     }
-    // Link to agency.agency_admin_ids
-    const { data: agency } = await supabaseAdmin
-      .from('agencies')
-      .select('agency_admin_ids')
-      .eq('id', agencyId)
-      .single()
+    const [agency] = await sql<{ agency_admin_ids: string[] | null }[]>`
+      SELECT agency_admin_ids FROM agencies WHERE id = ${agencyId} LIMIT 1
+    `
     const adminIds = (agency?.agency_admin_ids as string[] | null) ?? []
-    await supabaseAdmin
-      .from('agencies')
-      .update({ agency_admin_ids: [...adminIds, userId], updated_at: new Date().toISOString() })
-      .eq('id', agencyId)
+    await sql`UPDATE agencies SET agency_admin_ids = ${[...adminIds, userId]}, updated_at = ${new Date().toISOString()} WHERE id = ${agencyId}`
   }
 
   await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
@@ -136,23 +126,17 @@ export async function updateAgencyAdminStatus(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { data: current } = await supabase
-    .from('agency_admins')
-    .select('status')
-    .eq('id', adminId)
-    .eq('agency_id', agencyId)
-    .single()
+  const [current] = await sql<{ status: string }[]>`
+    SELECT status FROM agency_admins WHERE id = ${adminId} AND agency_id = ${agencyId} LIMIT 1
+  `
 
-  const { error } = await supabase
-    .from('agency_admins')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', adminId)
-    .eq('agency_id', agencyId)
+  try {
+    await sql`UPDATE agency_admins SET status = ${status}, updated_at = ${new Date().toISOString()} WHERE id = ${adminId} AND agency_id = ${agencyId}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update status' }
+  }
 
-  if (error) return { error: error.message }
-
-  await supabase.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'agency_admins',
     record_id: adminId,
@@ -173,23 +157,17 @@ export async function updateCaregiverStatus(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { data: current } = await supabase
-    .from('caregiver_members')
-    .select('status')
-    .eq('id', caregiverId)
-    .eq('agency_id', agencyId)
-    .single()
+  const [current] = await sql<{ status: string }[]>`
+    SELECT status FROM caregiver_members WHERE id = ${caregiverId} AND agency_id = ${agencyId} LIMIT 1
+  `
 
-  const { error } = await supabase
-    .from('caregiver_members')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', caregiverId)
-    .eq('agency_id', agencyId)
+  try {
+    await sql`UPDATE caregiver_members SET status = ${status}, updated_at = ${new Date().toISOString()} WHERE id = ${caregiverId} AND agency_id = ${agencyId}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update status' }
+  }
 
-  if (error) return { error: error.message }
-
-  await supabase.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'caregiver_members',
     record_id: caregiverId,
@@ -210,23 +188,17 @@ export async function updateCareCoordinatorStatus(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { data: current } = await supabase
-    .from('care_coordinators')
-    .select('status')
-    .eq('id', coordinatorId)
-    .eq('agency_id', agencyId)
-    .single()
+  const [current] = await sql<{ status: string }[]>`
+    SELECT status FROM care_coordinators WHERE id = ${coordinatorId} AND agency_id = ${agencyId} LIMIT 1
+  `
 
-  const { error } = await supabase
-    .from('care_coordinators')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', coordinatorId)
-    .eq('agency_id', agencyId)
+  try {
+    await sql`UPDATE care_coordinators SET status = ${status}, updated_at = ${new Date().toISOString()} WHERE id = ${coordinatorId} AND agency_id = ${agencyId}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update status' }
+  }
 
-  if (error) return { error: error.message }
-
-  await supabase.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'care_coordinators',
     record_id: coordinatorId,
@@ -248,11 +220,10 @@ export async function addCaregiverForAgency(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabaseAdmin = createAdminClient()
-  const result = await createUserForAgency(supabaseAdmin, agencyId, 'staff_member', opts)
+  const result = await createUserForAgency(agencyId, 'staff_member', opts)
   if ('error' in result) return { error: result.error }
 
-  await supabaseAdmin.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'caregiver_members',
     record_id: result.userId,
@@ -272,11 +243,10 @@ export async function addCareCoordinatorForAgency(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabaseAdmin = createAdminClient()
-  const result = await createUserForAgency(supabaseAdmin, agencyId, 'care_coordinator', opts)
+  const result = await createUserForAgency(agencyId, 'care_coordinator', opts)
   if ('error' in result) return { error: result.error }
 
-  await supabaseAdmin.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'care_coordinators',
     record_id: result.userId,
@@ -296,11 +266,10 @@ export async function createAndLinkAgencyAdmin(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabaseAdmin = createAdminClient()
-  const result = await createUserForAgency(supabaseAdmin, agencyId, 'company_owner', opts)
+  const result = await createUserForAgency(agencyId, 'company_owner', opts)
   if ('error' in result) return { error: result.error }
 
-  await supabaseAdmin.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'agency_admins',
     record_id: result.userId,
@@ -323,34 +292,25 @@ export async function updateCaregiverProfile(
   const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { error: authErr }
 
-  const supabaseAdmin = createAdminClient()
+  const [cg] = await sql<{ user_id: string | null }[]>`
+    SELECT user_id FROM caregiver_members WHERE id = ${caregiverId} AND agency_id = ${agencyId} LIMIT 1
+  `
+  if (!cg) return { error: 'Caregiver not found' }
 
-  const { data: cg, error: fetchErr } = await supabaseAdmin
-    .from('caregiver_members')
-    .select('user_id')
-    .eq('id', caregiverId)
-    .eq('agency_id', agencyId)
-    .single()
-  if (fetchErr || !cg) return { error: 'Caregiver not found' }
-
-  const { error: updateErr } = await supabaseAdmin
-    .from('caregiver_members')
-    .update({
+  try {
+    await sql`UPDATE caregiver_members SET ${sql({
       first_name: updates.first_name,
       last_name: updates.last_name,
       ...(updates.phone !== undefined && { phone: updates.phone }),
       ...(updates.job_title !== undefined && { job_title: updates.job_title }),
       updated_at: new Date().toISOString(),
-    })
-    .eq('id', caregiverId)
-    .eq('agency_id', agencyId)
-  if (updateErr) return { error: updateErr.message }
+    })} WHERE id = ${caregiverId} AND agency_id = ${agencyId}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update caregiver' }
+  }
 
   if (cg.user_id) {
-    await supabaseAdmin
-      .from('user_profiles')
-      .update({ full_name: `${updates.first_name} ${updates.last_name}`, updated_at: new Date().toISOString() })
-      .eq('id', cg.user_id)
+    await sql`UPDATE user_profiles SET full_name = ${`${updates.first_name} ${updates.last_name}`}, updated_at = ${new Date().toISOString()} WHERE id = ${cg.user_id}`
   }
 
   revalidateAgencyDetailPages(agencyId)
@@ -365,31 +325,24 @@ export async function updateCareCoordinatorProfile(
   const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { error: authErr }
 
-  const supabaseAdmin = createAdminClient()
+  const [cc] = await sql<{ user_id: string | null }[]>`
+    SELECT user_id FROM care_coordinators WHERE id = ${coordinatorId} AND agency_id = ${agencyId} LIMIT 1
+  `
+  if (!cc) return { error: 'Coordinator not found' }
 
-  const { data: cc, error: fetchErr } = await supabaseAdmin
-    .from('care_coordinators')
-    .select('user_id')
-    .eq('id', coordinatorId)
-    .eq('agency_id', agencyId)
-    .single()
-  if (fetchErr || !cc) return { error: 'Coordinator not found' }
-
-  const { error: updateErr } = await supabaseAdmin
-    .from('care_coordinators')
-    .update({
+  try {
+    await sql`UPDATE care_coordinators SET ${sql({
       first_name: updates.first_name,
       last_name: updates.last_name,
       updated_at: new Date().toISOString(),
-    })
-    .eq('id', coordinatorId)
-    .eq('agency_id', agencyId)
-  if (updateErr) return { error: updateErr.message }
+    })} WHERE id = ${coordinatorId} AND agency_id = ${agencyId}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update coordinator' }
+  }
 
-  await supabaseAdmin
-    .from('user_profiles')
-    .update({ full_name: `${updates.first_name} ${updates.last_name}`, updated_at: new Date().toISOString() })
-    .eq('id', cc.user_id)
+  if (cc.user_id) {
+    await sql`UPDATE user_profiles SET full_name = ${`${updates.first_name} ${updates.last_name}`}, updated_at = ${new Date().toISOString()} WHERE id = ${cc.user_id}`
+  }
 
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
@@ -403,26 +356,18 @@ export async function updateAgencyAdminProfile(
   const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr) return { error: authErr }
 
-  const supabaseAdmin = createAdminClient()
-  const { data: admin, error } = await supabaseAdmin
-    .from('agency_admins')
-    .update({
+  const [admin] = await sql<{ user_id: string | null }[]>`
+    UPDATE agency_admins SET ${sql({
       contact_name: updates.contact_name,
       ...(updates.contact_phone !== undefined && { contact_phone: updates.contact_phone }),
       updated_at: new Date().toISOString(),
-    })
-    .eq('id', adminId)
-    .eq('agency_id', agencyId)
-    .select('user_id')
-    .single()
+    })} WHERE id = ${adminId} AND agency_id = ${agencyId} RETURNING user_id
+  `
 
-  if (error) return { error: error.message }
+  if (!admin) return { error: 'Agency admin not found' }
 
-  if (admin?.user_id) {
-    await supabaseAdmin
-      .from('user_profiles')
-      .update({ full_name: updates.contact_name, updated_at: new Date().toISOString() })
-      .eq('id', admin.user_id)
+  if (admin.user_id) {
+    await sql`UPDATE user_profiles SET full_name = ${updates.contact_name}, updated_at = ${new Date().toISOString()} WHERE id = ${admin.user_id}`
   }
 
   revalidateAgencyDetailPages(agencyId)
@@ -440,70 +385,69 @@ export async function promoteKeyStaffToUser(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabaseAdmin = createAdminClient()
   const normalizedEmail = opts.email.toLowerCase().trim()
   const fullName = `${opts.firstName} ${opts.lastName}`.trim()
-
   const userId = randomUUID()
   const passwordHash = await bcrypt.hash(opts.tempPassword, 12)
 
-  const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
-    id: userId,
-    email: normalizedEmail,
-    role,
-    full_name: fullName,
-    password_hash: passwordHash,
-    is_active: true,
-    agency_id: agencyId,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  })
-  if (insertError) return { error: insertError.message }
+  try {
+    await sql`INSERT INTO user_profiles ${sql({
+      id: userId,
+      email: normalizedEmail,
+      role,
+      full_name: fullName,
+      password_hash: passwordHash,
+      is_active: true,
+      agency_id: agencyId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to create user profile' }
+  }
 
   if (role === 'company_owner') {
-    const { error: roleErr } = await supabaseAdmin.from('agency_admins').insert({
-      user_id: userId,
-      company_owner_id: userId,
-      contact_name: fullName,
-      contact_email: normalizedEmail,
-      status: 'active',
-      agency_id: agencyId,
-    })
-    if (roleErr) {
-      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
-      return { error: `Failed to create admin record: ${roleErr.message}` }
+    try {
+      await sql`INSERT INTO agency_admins ${sql({
+        user_id: userId,
+        company_owner_id: userId,
+        contact_name: fullName,
+        contact_email: normalizedEmail,
+        status: 'active',
+        agency_id: agencyId,
+      })}`
+    } catch (err) {
+      try { await sql`DELETE FROM user_profiles WHERE id = ${userId}` } catch {}
+      return { error: `Failed to create admin record: ${err instanceof Error ? err.message : 'Unknown'}` }
     }
-    const { data: agency } = await supabaseAdmin.from('agencies').select('agency_admin_ids').eq('id', agencyId).single()
+    const [agency] = await sql<{ agency_admin_ids: string[] | null }[]>`SELECT agency_admin_ids FROM agencies WHERE id = ${agencyId} LIMIT 1`
     const adminIds = (agency?.agency_admin_ids as string[] | null) ?? []
-    await supabaseAdmin
-      .from('agencies')
-      .update({ agency_admin_ids: [...adminIds, userId], updated_at: new Date().toISOString() })
-      .eq('id', agencyId)
+    await sql`UPDATE agencies SET agency_admin_ids = ${[...adminIds, userId]}, updated_at = ${new Date().toISOString()} WHERE id = ${agencyId}`
   } else {
-    const { error: roleErr } = await supabaseAdmin.from('care_coordinators').insert({
-      user_id: userId,
-      agency_id: agencyId,
-      first_name: opts.firstName,
-      last_name: opts.lastName,
-      email: normalizedEmail,
-      status: 'active',
-    })
-    if (roleErr) {
-      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
-      return { error: `Failed to create coordinator record: ${roleErr.message}` }
+    try {
+      await sql`INSERT INTO care_coordinators ${sql({
+        user_id: userId,
+        agency_id: agencyId,
+        first_name: opts.firstName,
+        last_name: opts.lastName,
+        email: normalizedEmail,
+        status: 'active',
+      })}`
+    } catch (err) {
+      try { await sql`DELETE FROM user_profiles WHERE id = ${userId}` } catch {}
+      return { error: `Failed to create coordinator record: ${err instanceof Error ? err.message : 'Unknown'}` }
     }
   }
 
   await sendInvitationEmail(normalizedEmail, fullName, opts.tempPassword)
 
-  const { error: linkErr } = await supabaseAdmin
-    .from('agency_key_staff')
-    .update({ user_profile_id: userId, updated_at: new Date().toISOString() })
-    .eq('id', keyStaffId)
-    .eq('agency_id', agencyId)
-  if (linkErr) return { error: `User created but failed to link: ${linkErr.message}` }
+  try {
+    await sql`UPDATE agency_key_staff SET user_profile_id = ${userId}, updated_at = ${new Date().toISOString()} WHERE id = ${keyStaffId} AND agency_id = ${agencyId}`
+  } catch (err) {
+    return { error: `User created but failed to link: ${err instanceof Error ? err.message : 'Unknown'}` }
+  }
 
-  await supabaseAdmin.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: role === 'company_owner' ? 'agency_admins' : 'care_coordinators',
     record_id: userId,
@@ -531,23 +475,25 @@ export async function changePersonCredential(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
+  try {
+    const [row] = await sql<{ change_person_credential: string | null }[]>`
+      SELECT change_person_credential(
+        ${agencyId}::uuid,
+        ${opts.userProfileId}::uuid,
+        ${opts.adminRecordId}::uuid,
+        ${opts.coordinatorRecordId}::uuid,
+        ${opts.toCredential}::text,
+        ${opts.firstName}::text,
+        ${opts.lastName}::text,
+        ${opts.email}::text
+      )
+    `
+    if (row?.change_person_credential) return { error: row.change_person_credential }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to change credential' }
+  }
 
-  const { data: fnError, error: rpcErr } = await supabase.rpc('change_person_credential', {
-    p_agency_id: agencyId,
-    p_user_profile_id: opts.userProfileId,
-    p_admin_record_id: opts.adminRecordId,
-    p_coordinator_record_id: opts.coordinatorRecordId,
-    p_to_credential: opts.toCredential,
-    p_first_name: opts.firstName,
-    p_last_name: opts.lastName,
-    p_email: opts.email,
-  })
-
-  if (rpcErr) return { error: rpcErr.message }
-  if (fnError) return { error: fnError as string }
-
-  await supabase.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: opts.toCredential === 'company_owner' ? 'agency_admins' : 'care_coordinators',
     record_id: opts.userProfileId,

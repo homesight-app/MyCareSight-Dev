@@ -14,7 +14,7 @@ import {
   Timer,
 } from 'lucide-react'
 import type { CaregiverVisitExecutionDTO } from '@/lib/caregiver-visit-execution'
-import { MY_CARE_VISITS_TAB_STORAGE_KEY } from '@/lib/caregiver-care-visits'
+import { MY_CARE_VISITS_TAB_STORAGE_KEY } from '@/lib/caregiver-care-visits-shared'
 import Modal from '@/components/Modal'
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'

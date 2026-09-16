@@ -1,18 +1,13 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import type { Supabase } from '@/lib/supabase/types'
 import { getSession } from '@/lib/auth'
 import { formatDate } from '@/lib/format-date'
+import sql from '@/db'
 
-type ServerSupabase = Supabase
-
-/** Agency admin: own admin row. Care coordinator: primary agency admin for coordinator's agency. */
 type ReportCaregiverScope =
   | { mode: 'ownerOnly'; adminId: string }
   | { mode: 'agency'; adminId: string; agencyId: string }
 
-/** Dynamic `.select(...)` strings are not narrowed by Supabase types; use this after `error` is cleared. */
 type ReportCaregiverMemberRow = {
   id: string
   first_name: string | null
@@ -25,53 +20,59 @@ type ReportCaregiverMemberRow = {
   status?: string | null
 }
 
-async function resolveReportCaregiverScope(
-  supabase: ServerSupabase,
-  userId: string
-): Promise<ReportCaregiverScope | null> {
-  const { data: admin } = await supabase
-    .from('agency_admins')
-    .select('id, agency_id')
-    .eq('user_id', userId)
-    .maybeSingle()
-
+async function resolveReportCaregiverScope(userId: string): Promise<ReportCaregiverScope | null> {
+  const [admin] = await sql<{ id: string; agency_id: string | null }[]>`
+    SELECT id, agency_id FROM agency_admins WHERE user_id = ${userId} LIMIT 1
+  `
   if (admin?.id) {
     if (admin.agency_id) return { mode: 'agency', adminId: admin.id, agencyId: admin.agency_id }
     return { mode: 'ownerOnly', adminId: admin.id }
   }
 
-  const { data: coord } = await supabase
-    .from('care_coordinators')
-    .select('agency_id')
-    .eq('user_id', userId)
-    .maybeSingle()
-
+  const [coord] = await sql<{ agency_id: string | null }[]>`
+    SELECT agency_id FROM care_coordinators WHERE user_id = ${userId} LIMIT 1
+  `
   if (!coord?.agency_id) return null
 
-  const { data: primaryAdmin } = await supabase
-    .from('agency_admins')
-    .select('id')
-    .eq('agency_id', coord.agency_id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-
+  const [primaryAdmin] = await sql<{ id: string }[]>`
+    SELECT id FROM agency_admins WHERE agency_id = ${coord.agency_id} ORDER BY created_at ASC LIMIT 1
+  `
   if (!primaryAdmin?.id) return null
   return { mode: 'agency', adminId: primaryAdmin.id, agencyId: coord.agency_id }
 }
 
-async function queryCaregiverMembersForReport(
-  supabase: ServerSupabase,
-  scope: ReportCaregiverScope,
-  select: string
-) {
-  let q = supabase.from('caregiver_members').select(select).order('first_name', { ascending: true })
+async function queryStaffForCertificationsReport(scope: ReportCaregiverScope): Promise<ReportCaregiverMemberRow[]> {
   if (scope.mode === 'ownerOnly') {
-    q = q.eq('company_owner_id', scope.adminId)
-  } else {
-    q = q.or(`company_owner_id.eq.${scope.adminId},agency_id.eq.${scope.agencyId}`)
+    return sql<ReportCaregiverMemberRow[]>`
+      SELECT id, first_name, last_name, email, phone, user_id
+      FROM caregiver_members
+      WHERE company_owner_id = ${scope.adminId}
+      ORDER BY first_name ASC
+    `
   }
-  return q
+  return sql<ReportCaregiverMemberRow[]>`
+    SELECT id, first_name, last_name, email, phone, user_id
+    FROM caregiver_members
+    WHERE company_owner_id = ${scope.adminId} OR agency_id = ${scope.agencyId}
+    ORDER BY first_name ASC
+  `
+}
+
+async function queryStaffForRosterReport(scope: ReportCaregiverScope): Promise<ReportCaregiverMemberRow[]> {
+  if (scope.mode === 'ownerOnly') {
+    return sql<ReportCaregiverMemberRow[]>`
+      SELECT id, first_name, last_name, email, phone, role, job_title, status
+      FROM caregiver_members
+      WHERE company_owner_id = ${scope.adminId}
+      ORDER BY first_name ASC
+    `
+  }
+  return sql<ReportCaregiverMemberRow[]>`
+    SELECT id, first_name, last_name, email, phone, role, job_title, status
+    FROM caregiver_members
+    WHERE company_owner_id = ${scope.adminId} OR agency_id = ${scope.agencyId}
+    ORDER BY first_name ASC
+  `
 }
 
 export interface StaffCertificationReportRow {
@@ -108,63 +109,54 @@ export interface StaffRosterReportRow {
   status: string
 }
 
-export async function getStaffCertificationsReport() {
-  const supabase = createAdminClient()
+type CredentialRow = {
+  id: string
+  caregiver_member_id: string | null
+  user_id: string | null
+  source_credential_name: string | null
+  credential_number: string | null
+  state: string | null
+  issuing_authority: string | null
+  issue_date: string | null
+  expiration_date: string | null
+  status: string | null
+  document_url: string | null
+}
 
+export async function getStaffCertificationsReport() {
   try {
     const session = await getSession()
-    const user = session ? { id: session.user.id } : null
-    if (!user) {
-      return { error: 'You must be logged in', data: null }
-    }
+    if (!session) return { error: 'You must be logged in', data: null }
 
-    const scope = await resolveReportCaregiverScope(supabase, user.id)
-    if (!scope) {
-      return { error: null, data: [] }
-    }
+    const scope = await resolveReportCaregiverScope(session.user.id)
+    if (!scope) return { error: null, data: [] }
 
-    const { data: staffMembers, error: staffError } = await queryCaregiverMembersForReport(
-      supabase,
-      scope,
-      'id, first_name, last_name, email, phone, user_id'
-    )
+    const members = await queryStaffForCertificationsReport(scope)
+    if (members.length === 0) return { error: null, data: [] }
 
-    if (staffError) {
-      return { error: staffError.message, data: null }
-    }
+    const staffIds = members.map(m => m.id)
+    const credentials = await sql<CredentialRow[]>`
+      SELECT id, caregiver_member_id, user_id, source_credential_name, credential_number,
+             state, issuing_authority, issue_date, expiration_date, status, document_url
+      FROM caregiver_credentials
+      WHERE caregiver_member_id = ANY(${staffIds}::uuid[])
+      ORDER BY expiration_date ASC
+    `
 
-    if (!staffMembers || staffMembers.length === 0) {
-      return { error: null, data: [] }
-    }
+    const staffMap = new Map(members.map(m => [m.user_id, m]))
+    const staffById = new Map(members.map(m => [m.id, m]))
 
-    const members = staffMembers as unknown as ReportCaregiverMemberRow[]
-    const staffIds = members.map((sm) => sm.id)
-
-    const { data: credentials, error: certError } = await supabase
-      .from('caregiver_credentials')
-      .select('*')
-      .in('caregiver_member_id', staffIds)
-      .order('expiration_date', { ascending: true })
-
-    if (certError) {
-      return { error: certError.message, data: null }
-    }
-
-    const staffMap = new Map<string | null | undefined, ReportCaregiverMemberRow>(members.map((sm) => [sm.user_id, sm]))
-    const staffById = new Map(members.map((sm) => [sm.id, sm]))
-
-    const reportData: StaffCertificationReportRow[] = (credentials || []).map((cert) => {
+    const today = new Date()
+    const reportData: StaffCertificationReportRow[] = credentials.map(cert => {
       const staff =
-        (cert.user_id ? staffMap.get(cert.user_id as string) : undefined) ??
-        (cert.caregiver_member_id ? staffById.get(cert.caregiver_member_id as string) : undefined)
-      const expStr = cert.expiration_date as string | null
-      const today = new Date()
+        (cert.user_id ? staffMap.get(cert.user_id) : undefined) ??
+        (cert.caregiver_member_id ? staffById.get(cert.caregiver_member_id) : undefined)
+      const expStr = cert.expiration_date
       const expiry = expStr ? new Date(expStr) : today
       const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 
       let status: 'Active' | 'Expiring Soon' | 'Expired'
-      const st = String(cert.status || '')
-      if (!expStr || daysUntilExpiry <= 0 || st === 'Expired') {
+      if (!expStr || daysUntilExpiry <= 0 || cert.status === 'Expired') {
         status = 'Expired'
       } else if (daysUntilExpiry <= 90) {
         status = 'Expiring Soon'
@@ -172,154 +164,101 @@ export async function getStaffCertificationsReport() {
         status = 'Active'
       }
 
-      const staffName = staff ? `${staff.first_name} ${staff.last_name}` : 'Unknown Staff'
-
-      const contact = staff ? `${staff.email} ${staff.phone ? `(${staff.phone})` : ''}` : 'N/A'
-
       return {
-        staff_name: staffName,
-        contact: contact.trim(),
-        certification: (cert.source_credential_name as string) || 'Credential',
-        cert_number: (cert.credential_number as string) || '',
-        state: (cert.state as string) || 'N/A',
-        issuing_authority: (cert.issuing_authority as string) || 'N/A',
-        issue_date: formatDate(cert.issue_date as string | null),
+        staff_name: staff ? `${staff.first_name} ${staff.last_name}` : 'Unknown Staff',
+        contact: staff ? `${staff.email} ${staff.phone ? `(${staff.phone})` : ''}`.trim() : 'N/A',
+        certification: cert.source_credential_name ?? 'Credential',
+        cert_number: cert.credential_number ?? '',
+        state: cert.state ?? 'N/A',
+        issuing_authority: cert.issuing_authority ?? 'N/A',
+        issue_date: formatDate(cert.issue_date),
         expiration: formatDate(expStr),
         status,
-        certification_id: cert.id as string,
-        document_url: cert.document_url as string | null,
+        certification_id: cert.id,
+        document_url: cert.document_url,
       }
     })
 
     return { error: null, data: reportData }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to fetch report data', data: null }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to fetch report data', data: null }
   }
 }
 
 export async function getExpiringCertificationsReport() {
-  const supabase = createAdminClient()
-
   try {
     const session = await getSession()
-    const user = session ? { id: session.user.id } : null
-    if (!user) {
-      return { error: 'You must be logged in', data: null }
-    }
+    if (!session) return { error: 'You must be logged in', data: null }
 
-    const scope = await resolveReportCaregiverScope(supabase, user.id)
-    if (!scope) {
-      return { error: null, data: [] }
-    }
+    const scope = await resolveReportCaregiverScope(session.user.id)
+    if (!scope) return { error: null, data: [] }
 
-    const { data: staffMembers, error: staffError } = await queryCaregiverMembersForReport(
-      supabase,
-      scope,
-      'id, first_name, last_name, email, phone, user_id'
-    )
+    const members = await queryStaffForCertificationsReport(scope)
+    if (members.length === 0) return { error: null, data: [] }
 
-    if (staffError) {
-      return { error: staffError.message, data: null }
-    }
+    const staffIds = members.map(m => m.id)
+    const credentials = await sql<CredentialRow[]>`
+      SELECT id, caregiver_member_id, user_id, source_credential_name, credential_number,
+             expiration_date, status, document_url
+      FROM caregiver_credentials
+      WHERE caregiver_member_id = ANY(${staffIds}::uuid[])
+      ORDER BY expiration_date ASC
+    `
 
-    if (!staffMembers || staffMembers.length === 0) {
-      return { error: null, data: [] }
-    }
-
-    const members = staffMembers as unknown as ReportCaregiverMemberRow[]
-    const staffIds = members.map((sm) => sm.id)
-
-    const { data: credentials, error: certError } = await supabase
-      .from('caregiver_credentials')
-      .select('*')
-      .in('caregiver_member_id', staffIds)
-      .order('expiration_date', { ascending: true })
-
-    if (certError) {
-      return { error: certError.message, data: null }
-    }
-
-    const staffMap = new Map<string | null | undefined, ReportCaregiverMemberRow>(members.map((sm) => [sm.user_id, sm]))
-    const staffById = new Map(members.map((sm) => [sm.id, sm]))
+    const staffMap = new Map(members.map(m => [m.user_id, m]))
+    const staffById = new Map(members.map(m => [m.id, m]))
 
     const today = new Date()
 
-    const reportData: ExpiringCertificationReportRow[] = (credentials || [])
-      .filter((cert) => {
-        const expStr = cert.expiration_date as string | null
-        if (!expStr) return String(cert.status || '') === 'Expired'
-        const expiry = new Date(expStr)
-        const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    const reportData: ExpiringCertificationReportRow[] = credentials
+      .filter(cert => {
+        const expStr = cert.expiration_date
+        if (!expStr) return cert.status === 'Expired'
+        const daysUntilExpiry = Math.ceil((new Date(expStr).getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
         return daysUntilExpiry <= 90 || cert.status === 'Expired'
       })
-      .map((cert) => {
+      .map(cert => {
         const staff =
-          (cert.user_id ? staffMap.get(cert.user_id as string) : undefined) ??
-          (cert.caregiver_member_id ? staffById.get(cert.caregiver_member_id as string) : undefined)
-        const expStr = cert.expiration_date as string
-        const expiry = new Date(expStr)
-        const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          (cert.user_id ? staffMap.get(cert.user_id) : undefined) ??
+          (cert.caregiver_member_id ? staffById.get(cert.caregiver_member_id) : undefined)
+        const expStr = cert.expiration_date ?? ''
+        const daysUntilExpiry = expStr
+          ? Math.ceil((new Date(expStr).getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          : -1
 
-        let status: 'Expiring Soon' | 'Expired'
-        if (daysUntilExpiry <= 0 || cert.status === 'Expired') {
-          status = 'Expired'
-        } else {
-          status = 'Expiring Soon'
-        }
-
-        const staffName = staff ? `${staff.first_name} ${staff.last_name}` : 'Unknown Staff'
-
-        const contact = staff ? `${staff.email} ${staff.phone ? `(${staff.phone})` : ''}` : 'N/A'
+        const status: 'Expiring Soon' | 'Expired' =
+          daysUntilExpiry <= 0 || cert.status === 'Expired' ? 'Expired' : 'Expiring Soon'
 
         return {
-          staff_name: staffName,
-          contact: contact.trim(),
-          certification: (cert.source_credential_name as string) || 'Credential',
-          cert_number: (cert.credential_number as string) || '',
-          expiration: formatDate(expStr),
+          staff_name: staff ? `${staff.first_name} ${staff.last_name}` : 'Unknown Staff',
+          contact: staff ? `${staff.email} ${staff.phone ? `(${staff.phone})` : ''}`.trim() : 'N/A',
+          certification: cert.source_credential_name ?? 'Credential',
+          cert_number: cert.credential_number ?? '',
+          expiration: formatDate(expStr || null),
           status,
-          certification_id: cert.id as string,
-          document_url: cert.document_url as string | null,
+          certification_id: cert.id,
+          document_url: cert.document_url,
         }
       })
 
     return { error: null, data: reportData }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to fetch report data', data: null }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to fetch report data', data: null }
   }
 }
 
 export async function getStaffRosterReport() {
-  const supabase = createAdminClient()
-
   try {
     const session = await getSession()
-    const user = session ? { id: session.user.id } : null
-    if (!user) {
-      return { error: 'You must be logged in', data: null }
-    }
+    if (!session) return { error: 'You must be logged in', data: null }
 
-    const scope = await resolveReportCaregiverScope(supabase, user.id)
-    if (!scope) {
-      return { error: null, data: [] }
-    }
+    const scope = await resolveReportCaregiverScope(session.user.id)
+    if (!scope) return { error: null, data: [] }
 
-    const { data: staffMembers, error: staffError } = await queryCaregiverMembersForReport(
-      supabase,
-      scope,
-      'id, first_name, last_name, email, phone, role, job_title, status'
-    )
+    const members = await queryStaffForRosterReport(scope)
+    if (members.length === 0) return { error: null, data: [] }
 
-    if (staffError) {
-      return { error: staffError.message, data: null }
-    }
-
-    if (!staffMembers || staffMembers.length === 0) {
-      return { error: null, data: [] }
-    }
-
-    const rosterRows = staffMembers as unknown as ReportCaregiverMemberRow[]
-    const reportData: StaffRosterReportRow[] = rosterRows.map((staff) => ({
+    const reportData: StaffRosterReportRow[] = members.map(staff => ({
       staff_name: `${staff.first_name} ${staff.last_name}`,
       email: staff.email ?? '',
       phone: staff.phone || 'N/A',
@@ -329,7 +268,7 @@ export async function getStaffRosterReport() {
     }))
 
     return { error: null, data: reportData }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to fetch report data', data: null }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to fetch report data', data: null }
   }
 }

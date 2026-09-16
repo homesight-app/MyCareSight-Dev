@@ -1,278 +1,434 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
-export async function getConversationByApplicationId(supabase: Supabase, applicationId: string) {
-  return supabase
-    .from('conversations')
-    .select('id')
-    .eq('application_id', applicationId)
-    .maybeSingle()
+export async function getConversationByApplicationId(applicationId: string) {
+  try {
+    const rows = await sql`
+      SELECT id FROM conversations WHERE application_id = ${applicationId} LIMIT 1
+    `
+    return { data: (rows[0] ?? null) as { id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export async function insertConversation(
-  supabase: Supabase,
   data: { client_id?: string | null; application_id: string }
 ) {
-  return supabase.from('conversations').insert(data).select().single()
+  try {
+    const rows = await sql`
+      INSERT INTO conversations ${sql(data, ...Object.keys(data) as any)} RETURNING *
+    `
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-export async function getMessagesByConversationId(supabase: Supabase, conversationId: string) {
-  return supabase
-    .from('messages')
-    .select('id, conversation_id, sender_id, content, created_at, is_read')
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
+export async function getMessagesByConversationId(conversationId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, conversation_id, sender_id, content, created_at, is_read
+      FROM messages
+      WHERE conversation_id = ${conversationId}
+      ORDER BY created_at ASC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get all messages in given conversation ids (for expert unread list). */
-export async function getMessagesByConversationIds(supabase: Supabase, conversationIds: string[]) {
+export async function getMessagesByConversationIds(conversationIds: string[]) {
   if (conversationIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('messages')
-    .select('id, conversation_id, sender_id, content, created_at, is_read')
-    .in('conversation_id', conversationIds)
-    .order('created_at', { ascending: false })
-    .limit(500)
+  try {
+    const rows = await sql`
+      SELECT id, conversation_id, sender_id, content, created_at, is_read
+      FROM messages
+      WHERE conversation_id = ANY(${conversationIds as any})
+      ORDER BY created_at DESC
+      LIMIT 500
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Unread messages for a user across conversations (newest first), server-capped. Prefer over {@link getMessagesByConversationIds}. */
 export async function rpcGetUnreadMessagesForUserInConversations(
-  supabase: Supabase,
   conversationIds: string[],
   userId: string,
   maxRows = 1500
 ) {
   if (conversationIds.length === 0) return { data: [], error: null }
-  return supabase.rpc('get_unread_messages_for_user_in_conversations', {
-    conversation_ids: conversationIds,
-    p_user_id: userId,
-    max_rows: maxRows,
-  })
+  try {
+    const rows = await sql`
+      SELECT * FROM get_unread_messages_for_user_in_conversations(
+        ${conversationIds as any},
+        ${userId},
+        ${maxRows}
+      )
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Mark all messages in a conversation as read except those sent by excludeSenderId. */
 export async function markConversationMessagesAsReadExceptSender(
-  supabase: Supabase,
   conversationId: string,
   excludeSenderId: string
 ) {
-  return supabase
-    .from('messages')
-    .update({ is_read: true })
-    .eq('conversation_id', conversationId)
-    .neq('sender_id', excludeSenderId)
+  try {
+    await sql`
+      UPDATE messages
+      SET is_read = true
+      WHERE conversation_id = ${conversationId}
+        AND sender_id != ${excludeSenderId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export async function rpcMarkMessageAsReadByUser(
-  supabase: Supabase,
   messageId: string,
   userId: string
 ) {
-  return supabase.rpc('mark_message_as_read_by_user', {
-    message_id: messageId,
-    user_id: userId,
-  })
+  try {
+    const rows = await sql`
+      SELECT * FROM mark_message_as_read_by_user(${messageId}, ${userId})
+    `
+    return { data: (rows as unknown as any[])[0] ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Mark many messages read for one user (single RPC; same semantics as {@link rpcMarkMessageAsReadByUser}). */
 export async function rpcMarkMessagesAsReadByUser(
-  supabase: Supabase,
   messageIds: string[],
   userId: string
 ) {
   if (messageIds.length === 0) return { data: null, error: null }
-  return supabase.rpc('mark_messages_as_read_by_user', {
-    p_message_ids: messageIds,
-    p_user_id: userId,
-  })
+  try {
+    const rows = await sql`
+      SELECT * FROM mark_messages_as_read_by_user(${messageIds as any}, ${userId})
+    `
+    return { data: (rows as unknown as any[])[0] ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export async function insertMessage(
-  supabase: Supabase,
   data: { conversation_id: string; sender_id: string; content: string }
 ) {
-  return supabase.from('messages').insert(data).select().single()
+  try {
+    const rows = await sql`
+      INSERT INTO messages ${sql(data, ...Object.keys(data) as any)} RETURNING *
+    `
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
-export async function updateConversationLastMessageAt(supabase: Supabase, conversationId: string) {
-  return supabase
-    .from('conversations')
-    .update({ last_message_at: new Date().toISOString() })
-    .eq('id', conversationId)
+export async function updateConversationLastMessageAt(conversationId: string) {
+  try {
+    await sql`
+      UPDATE conversations
+      SET last_message_at = ${new Date().toISOString()}
+      WHERE id = ${conversationId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** RPC: get total unread message count for user in given conversations. */
 export async function rpcGetTotalUnreadCountForUser(
-  supabase: Supabase,
   conversationIds: string[],
   userId: string
 ) {
-  return supabase.rpc('get_total_unread_count_for_user', {
-    conversation_ids: conversationIds,
-    user_id: userId,
-  })
+  try {
+    const rows = await sql`
+      SELECT * FROM get_total_unread_count_for_user(${conversationIds as any}, ${userId})
+    `
+    return { data: (rows as unknown as any[])[0] ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get unread notifications for user (id, type, title). */
-export async function getUnreadNotificationsByUserId(supabase: Supabase, userId: string) {
-  return supabase
-    .from('notifications')
-    .select('id, type, title')
-    .eq('user_id', userId)
-    .eq('is_read', false)
+export async function getUnreadNotificationsByUserId(userId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, type, title
+      FROM notifications
+      WHERE user_id = ${userId} AND is_read = false
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get unread notification items for dropdown, limit 20. */
 export async function getUnreadNotificationItems(
-  supabase: Supabase,
   userId: string
 ) {
-  return supabase
-    .from('notifications')
-    .select('id, title, message, type, created_at, action_url')
-    .eq('user_id', userId)
-    .eq('is_read', false)
-    .order('created_at', { ascending: false })
-    .limit(20)
+  try {
+    const rows = await sql`
+      SELECT id, title, message, type, created_at, action_url
+      FROM notifications
+      WHERE user_id = ${userId} AND is_read = false
+      ORDER BY created_at DESC
+      LIMIT 20
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get conversation application_ids (for admin dropdown). */
-export async function getConversationApplicationIds(supabase: Supabase, limitCount = 100) {
-  return supabase
-    .from('conversations')
-    .select('application_id')
-    .not('application_id', 'is', null)
-    .limit(limitCount)
+export async function getConversationApplicationIds(limitCount = 100) {
+  try {
+    const rows = await sql`
+      SELECT application_id
+      FROM conversations
+      WHERE application_id IS NOT NULL
+      LIMIT ${limitCount}
+    `
+    return { data: rows as unknown as { application_id: string }[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get conversation ids (for admin badge count). */
-export async function getConversationIds(supabase: Supabase, limitCount = 500) {
-  return supabase.from('conversations').select('id').limit(limitCount)
+export async function getConversationIds(limitCount = 500) {
+  try {
+    const rows = await sql`
+      SELECT id FROM conversations LIMIT ${limitCount}
+    `
+    return { data: rows as unknown as { id: string }[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get conversations by admin_id (for admin messages page). */
-export async function getConversationsByAdminId(supabase: Supabase, adminId: string) {
-  return supabase
-    .from('conversations')
-    .select('id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id')
-    .eq('admin_id', adminId)
-    .order('last_message_at', { ascending: false })
+export async function getConversationsByAdminId(adminId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id
+      FROM conversations
+      WHERE admin_id = ${adminId}
+      ORDER BY last_message_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get conversations by client ids. */
-export async function getConversationsByClientIds(supabase: Supabase, clientIds: string[]) {
+export async function getConversationsByClientIds(clientIds: string[]) {
   if (clientIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('conversations')
-    .select('id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id')
-    .in('client_id', clientIds)
-    .order('last_message_at', { ascending: false })
+  try {
+    const rows = await sql`
+      SELECT id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id
+      FROM conversations
+      WHERE client_id = ANY(${clientIds as any})
+      ORDER BY last_message_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get conversation by client_id (single). */
-export async function getConversationByClientId(supabase: Supabase, clientId: string) {
-  return supabase
-    .from('conversations')
-    .select('id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id')
-    .eq('client_id', clientId)
-    .maybeSingle()
+export async function getConversationByClientId(clientId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at, application_id
+      FROM conversations
+      WHERE client_id = ${clientId}
+      LIMIT 1
+    `
+    return { data: (rows[0] ?? null) as Record<string, unknown> | null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get conversations by client_id (list, for client messages page). */
-export async function getConversationsByClientId(supabase: Supabase, clientId: string) {
-  return supabase
-    .from('conversations')
-    .select('id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at')
-    .eq('client_id', clientId)
-    .order('last_message_at', { ascending: false })
+export async function getConversationsByClientId(clientId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, client_id, expert_id, admin_id, last_message_at, created_at, updated_at
+      FROM conversations
+      WHERE client_id = ${clientId}
+      ORDER BY last_message_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get conversations with application embed by application ids (for expert messages). */
 export async function getConversationsWithApplicationByApplicationIds(
-  supabase: Supabase,
   applicationIds: string[]
 ) {
   if (applicationIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('conversations')
-    .select(`
-      *,
-      application:applications!inner(id, application_name, state, company_owner_id)
-    `)
-    .in('application_id', applicationIds)
-    .order('last_message_at', { ascending: false, nullsFirst: false })
+  try {
+    const rows = await sql`
+      SELECT
+        c.*,
+        json_build_object(
+          'id', a.id,
+          'application_name', a.application_name,
+          'state', a.state,
+          'company_owner_id', a.company_owner_id
+        ) AS application
+      FROM conversations c
+      INNER JOIN applications a ON a.id = c.application_id
+      WHERE c.application_id = ANY(${applicationIds as any})
+      ORDER BY c.last_message_at DESC NULLS LAST
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** RPC: per-client unread counts for admin list (optional client id filter). */
 export async function rpcAdminUnreadMessageCountsByClient(
-  supabase: Supabase,
   readerUserId: string,
   clientIds?: string[] | null
 ) {
-  return supabase.rpc('admin_unread_message_counts_by_client', {
-    p_reader_id: readerUserId,
-    p_client_ids: clientIds != null && clientIds.length > 0 ? clientIds : null,
-  })
+  try {
+    const resolvedClientIds = clientIds != null && clientIds.length > 0 ? clientIds : null
+    const rows = await sql`
+      SELECT * FROM admin_unread_message_counts_by_client(
+        ${readerUserId},
+        ${resolvedClientIds as any}
+      )
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** RPC: per-conversation unread counts for user. */
 export async function rpcCountUnreadMessagesForUser(
-  supabase: Supabase,
   conversationIds: string[],
   userId: string
 ) {
-  return supabase.rpc('count_unread_messages_for_user', {
-    conversation_ids: conversationIds,
-    user_id: userId,
-  })
+  try {
+    const rows = await sql`
+      SELECT * FROM count_unread_messages_for_user(${conversationIds as any}, ${userId})
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get conversations with application (id, application_id, last_message_at, applications). */
 export async function getConversationsWithApplications(
-  supabase: Supabase,
   applicationIds: string[]
 ) {
   if (applicationIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('conversations')
-    .select('id, application_id, last_message_at, applications(id, application_name, state, company_owner_id)')
-    .in('application_id', applicationIds)
-    .order('last_message_at', { ascending: false })
+  try {
+    const rows = await sql`
+      SELECT
+        c.id,
+        c.application_id,
+        c.last_message_at,
+        json_build_object(
+          'id', a.id,
+          'application_name', a.application_name,
+          'state', a.state,
+          'company_owner_id', a.company_owner_id
+        ) AS applications
+      FROM conversations c
+      LEFT JOIN applications a ON a.id = c.application_id
+      WHERE c.application_id = ANY(${applicationIds as any})
+      ORDER BY c.last_message_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Mark notification as read by id. */
-export async function markNotificationAsRead(supabase: Supabase, notificationId: string) {
-  return supabase.from('notifications').update({ is_read: true }).eq('id', notificationId)
+export async function markNotificationAsRead(notificationId: string) {
+  try {
+    await sql`
+      UPDATE notifications SET is_read = true WHERE id = ${notificationId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Delete notification by id and user_id. */
 export async function deleteNotificationByIdAndUser(
-  supabase: Supabase,
   notificationId: string,
   userId: string
 ) {
-  return supabase.from('notifications').delete().eq('id', notificationId).eq('user_id', userId)
+  try {
+    await sql`
+      DELETE FROM notifications WHERE id = ${notificationId} AND user_id = ${userId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get unread notifications count for user. */
-export async function getUnreadNotificationsCount(supabase: Supabase, userId: string) {
-  return supabase
-    .from('notifications')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('is_read', false)
+export async function getUnreadNotificationsCount(userId: string) {
+  try {
+    const rows = await sql`
+      SELECT COUNT(*) AS count
+      FROM notifications
+      WHERE user_id = ${userId} AND is_read = false
+    `
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Get unread notifications for user (full rows), optional limit, for dashboard. */
 export async function getUnreadNotificationsForUser(
-  supabase: Supabase,
   userId: string,
   limit = 10
 ) {
-  return supabase
-    .from('notifications')
-    .select('id, user_id, title, type, is_read, created_at, message, icon_type')
-    .eq('user_id', userId)
-    .eq('is_read', false)
-    .order('created_at', { ascending: false })
-    .limit(limit)
+  try {
+    const rows = await sql`
+      SELECT id, user_id, title, type, is_read, created_at, message, icon_type
+      FROM notifications
+      WHERE user_id = ${userId} AND is_read = false
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }

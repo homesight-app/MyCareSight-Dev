@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
@@ -22,19 +21,12 @@ export async function uploadCaregiverDocumentsAction(
   formData: FormData,
   existingDocs: PatientDocument[]
 ): Promise<{ error: string | null; data: PatientDocument[] | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated', data: null }
+  if (!session) return { error: 'Not authenticated', data: null }
+  const agencyId = session.profile?.agency_id ?? null
 
   const files = formData.getAll('file') as File[]
   if (files.length === 0) return { error: 'No files provided', data: null }
-
-  const { data: member } = await supabase
-    .from('caregiver_members')
-    .select('agency_id')
-    .eq('id', staffMemberId)
-    .maybeSingle()
 
   const uploadedPaths: string[] = []
   const newDocs: PatientDocument[] = []
@@ -57,18 +49,18 @@ export async function uploadCaregiverDocumentsAction(
   }
 
   const nextDocs = [...existingDocs, ...newDocs]
-  const { data: updated, error: updateErr } = await q.updateStaffMemberDocuments(supabase, staffMemberId, nextDocs)
+  const { data: updated, error: updateErr } = await q.updateStaffMemberDocuments(staffMemberId, nextDocs)
   if (updateErr || !updated) {
     await removeFiles(STORAGE_BUCKET.STAFF_MEMBER, uploadedPaths)
     return { error: updateErr?.message ?? 'Update returned no row', data: null }
   }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: member?.agency_id ?? null,
+  const { error: auditErr } = await q.insertAuditLog({
+    agency_id: agencyId,
     table_name: 'caregiver_members',
     record_id: staffMemberId,
     action: 'UPDATE',
-    performed_by_user_id: user.id,
+    performed_by_user_id: session.user.id,
     details: { field: 'documents', added: newDocs.length, total: nextDocs.length },
   })
   if (auditErr) console.error('[caregiver-documents/upload] Audit log failed. staffMemberId=%s err=%s', staffMemberId, auditErr.message)
@@ -83,28 +75,21 @@ export async function deleteCaregiverDocumentAction(
   docPath: string,
   updatedDocs: PatientDocument[]
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated' }
-
-  const { data: member } = await supabase
-    .from('caregiver_members')
-    .select('agency_id')
-    .eq('id', staffMemberId)
-    .maybeSingle()
+  if (!session) return { error: 'Not authenticated' }
+  const agencyId = session.profile?.agency_id ?? null
 
   await removeFiles(STORAGE_BUCKET.STAFF_MEMBER, [docPath])
 
-  const { data: updated, error: updateErr } = await q.updateStaffMemberDocuments(supabase, staffMemberId, updatedDocs)
+  const { data: updated, error: updateErr } = await q.updateStaffMemberDocuments(staffMemberId, updatedDocs)
   if (updateErr || !updated) return { error: updateErr?.message ?? 'Update returned no row' }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: member?.agency_id ?? null,
+  const { error: auditErr } = await q.insertAuditLog({
+    agency_id: agencyId,
     table_name: 'caregiver_members',
     record_id: staffMemberId,
     action: 'UPDATE',
-    performed_by_user_id: user.id,
+    performed_by_user_id: session.user.id,
     details: { field: 'documents', operation: 'delete', deleted_path: docPath, remaining: updatedDocs.length },
   })
   if (auditErr) console.error('[caregiver-documents/delete] Audit log failed. staffMemberId=%s err=%s', staffMemberId, auditErr.message)

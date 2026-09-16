@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 import ClientsContent from '@/components/ClientsContent'
 import FeatureGate from '@/components/FeatureGate'
@@ -15,8 +15,6 @@ export default async function ClientsPage({
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
 
-  const supabase = await createClient()
-
   const params = await searchParams
 
   const page         = Math.max(0, parseInt(params.page ?? '0') || 0)
@@ -25,12 +23,15 @@ export default async function ClientsPage({
   const leadId       = params.lead ?? null
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
+  const role = session!.profile?.role ?? ''
 
   const [clientsResult, counts] = agencyId
-    ? await Promise.all([
-        q.getPatientsByAgencyId(supabase, agencyId, { page, pageSize: PAGE_SIZE, search, status: statusFilter }),
-        q.getPatientCountsByAgencyId(supabase, agencyId),
-      ])
+    ? await withUserContext(session!.user.id, role, agencyId, () =>
+        Promise.all([
+          q.getPatientsByAgencyId(agencyId, { page, pageSize: PAGE_SIZE, search, status: statusFilter }),
+          q.getPatientCountsByAgencyId(agencyId),
+        ])
+      )
     : [{ data: [], count: 0, error: null }, { total: 0, active: 0 }]
 
   const clients = clientsResult.data ?? []

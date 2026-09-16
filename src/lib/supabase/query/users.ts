@@ -1,34 +1,37 @@
-import type { PostgrestError } from '@supabase/supabase-js'
-import type { Supabase } from '../types'
+import sql from '@/db'
 import type { PatientDocument } from './patients'
 
 const USER_PROFILE_COLS = 'id, email, full_name, role, created_at, updated_at, phone, job_title, department, work_location, start_date, agency_id, is_active, last_login_at'
 
-function caregiverMemberUpdateBlockedError(): PostgrestError {
-  return {
-    name: 'PostgrestError',
-    message:
-      'No rows were updated. If you are saving your own skills, apply the database migration that allows caregivers to update their own caregiver_members row, or ask an agency admin to update your profile.',
-    code: 'PGRST116',
-    details: '',
-    hint: '',
+export async function updateUserProfileUpdatedAt(userId: string) {
+  try {
+    await sql`UPDATE user_profiles SET updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
 }
 
-export async function updateUserProfileUpdatedAt(supabase: Supabase, userId: string) {
-  return supabase.from('user_profiles').update({ updated_at: new Date().toISOString() }).eq('id', userId)
+export async function getUserProfileEmail(userId: string) {
+  try {
+    const rows = await sql`SELECT email FROM user_profiles WHERE id = ${userId} LIMIT 1`
+    if (!rows[0]) throw new Error('Not found')
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getUserProfileEmail(supabase: Supabase, userId: string) {
-  return supabase.from('user_profiles').select('email').eq('id', userId).single()
-}
-
-export async function rpcUpdateUserPassword(supabase: Supabase, userId: string, newPassword: string) {
-  return supabase.rpc('update_user_password', { p_user_id: userId, p_new_password: newPassword })
+export async function rpcUpdateUserPassword(userId: string, newPassword: string) {
+  try {
+    await sql`SELECT update_user_password(${userId}, ${newPassword})`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function insertClient(
-  supabase: Supabase,
   data: {
     user_id: string
     contact_name: string
@@ -37,22 +40,32 @@ export async function insertClient(
     agency_id?: string | null
   }
 ) {
-  return supabase.from('agency_admins').insert({
-    user_id: data.user_id,
-    company_owner_id: data.user_id,
-    contact_name: data.contact_name,
-    contact_email: data.contact_email,
-    status: data.status,
-    agency_id: data.agency_id ?? null,
-  })
+  try {
+    const payload = {
+      user_id: data.user_id,
+      company_owner_id: data.user_id,
+      contact_name: data.contact_name,
+      contact_email: data.contact_email,
+      status: data.status,
+      agency_id: data.agency_id ?? null,
+    }
+    await sql`INSERT INTO agency_admins ${sql(payload)}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getStaffMemberByUserId(supabase: Supabase, userId: string) {
-  return supabase.from('caregiver_members').select('id, agency_id, user_id').eq('user_id', userId).maybeSingle()
+export async function getStaffMemberByUserId(userId: string) {
+  try {
+    const rows = await sql`SELECT id, agency_id, user_id FROM caregiver_members WHERE user_id = ${userId} LIMIT 1`
+    return { data: (rows[0] ?? null) as { id: string; agency_id: string; user_id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function insertStaffMember(
-  supabase: Supabase,
   data: {
     user_id: string
     company_owner_id: string | null
@@ -64,67 +77,81 @@ export async function insertStaffMember(
     status: string
   }
 ) {
-  return supabase.from('caregiver_members').insert(data)
+  try {
+    await sql`INSERT INTO caregiver_members ${sql(data)}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Insert staff member and return the created row. */
-export async function insertStaffMemberReturning(
-  supabase: Supabase,
-  data: Record<string, unknown>
-) {
-  return supabase.from('caregiver_members').insert(data).select().single()
+export async function insertStaffMemberReturning(data: Record<string, unknown>) {
+  try {
+    const keys = Object.keys(data) as unknown as any[]
+    const rows = await sql`INSERT INTO caregiver_members ${sql(data, ...keys)} RETURNING *`
+    if (!rows[0]) throw new Error('Insert returned no rows')
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /**
  * Update staff member by id.
- * Uses `.select('id')` without `.single()` so PostgREST does not return **406** when RLS allows the
- * statement but updates 0 rows (`.single()` on 0 rows → 406 Not Acceptable). We treat an empty result
- * as an error so callers still know the update did not apply.
+ * Treats an empty result as unknown as an error so callers still know the update did not apply.
  */
-export async function updateStaffMember(
-  supabase: Supabase,
-  staffId: string,
-  data: Record<string, unknown>
-) {
-  const { data: rows, error } = await supabase
-    .from('caregiver_members')
-    .update(data)
-    .eq('id', staffId)
-    .select('id')
-
-  if (error) return { data: null, error }
-  const first = rows?.[0]
-  if (!first) {
-    return { data: null, error: caregiverMemberUpdateBlockedError() }
+export async function updateStaffMember(staffId: string, data: Record<string, unknown>) {
+  try {
+    const keys = Object.keys(data) as unknown as any[]
+    const rows = await sql`UPDATE caregiver_members SET ${sql(data, ...keys)} WHERE id = ${staffId} RETURNING id`
+    if (!rows[0]) {
+      throw new Error(
+        'No rows were updated. If you are saving your own skills, apply the database migration that allows caregivers to update their own caregiver_members row, or ask an agency admin to update your profile.'
+      )
+    }
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
-  return { data: first, error: null }
 }
 
 /** Update user profile (full_name, role, updated_at). */
 export async function updateUserProfile(
-  supabase: Supabase,
   userId: string,
   data: { full_name?: string; role?: string; updated_at?: string }
 ) {
-  return supabase.from('user_profiles').update(data).eq('id', userId)
+  try {
+    const keys = Object.keys(data) as unknown as any[]
+    await sql`UPDATE user_profiles SET ${sql(data, ...keys)} WHERE id = ${userId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Update user profile by id with arbitrary fields. */
-export async function updateUserProfileById(
-  supabase: Supabase,
-  userId: string,
-  data: Record<string, unknown>
-) {
-  return supabase.from('user_profiles').update(data).eq('id', userId)
+export async function updateUserProfileById(userId: string, data: Record<string, unknown>) {
+  try {
+    const keys = Object.keys(data) as unknown as any[]
+    await sql`UPDATE user_profiles SET ${sql(data, ...keys)} WHERE id = ${userId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get licensing_expert id by user_id (for existence check). */
-export async function getLicensingExpertIdByUserId(supabase: Supabase, userId: string) {
-  return supabase.from('licensing_experts').select('id').eq('user_id', userId).maybeSingle()
+export async function getLicensingExpertIdByUserId(userId: string) {
+  try {
+    const rows = await sql`SELECT id FROM licensing_experts WHERE user_id = ${userId} LIMIT 1`
+    return { data: (rows[0] ?? null) as { id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function insertLicensingExpert(
-  supabase: Supabase,
   data: {
     user_id: string
     first_name: string
@@ -134,105 +161,150 @@ export async function insertLicensingExpert(
     status: string
   }
 ) {
-  return supabase.from('licensing_experts').insert(data)
+  try {
+    await sql`INSERT INTO licensing_experts ${sql(data)}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getUserProfileByEmail(supabase: Supabase, email: string) {
-  return supabase.from('user_profiles').select('id, role').eq('email', email).single()
+export async function getUserProfileByEmail(email: string) {
+  try {
+    const rows = await sql`SELECT id, role FROM user_profiles WHERE email = ${email} LIMIT 1`
+    if (!rows[0]) throw new Error('Not found')
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getCareCoordinatorByUserId(supabase: Supabase, userId: string) {
-  return supabase
-    .from('care_coordinators')
-    .select('id, user_id, agency_id')
-    .eq('user_id', userId)
-    .maybeSingle()
+export async function getCareCoordinatorByUserId(userId: string) {
+  try {
+    const rows = await sql`SELECT id, user_id, agency_id FROM care_coordinators WHERE user_id = ${userId} LIMIT 1`
+    return { data: (rows[0] ?? null) as { id: string; user_id: string; agency_id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function insertCareCoordinator(
-  supabase: Supabase,
   data: { user_id: string; agency_id: string; first_name: string; last_name: string; email: string; status: string }
 ) {
-  return supabase.from('care_coordinators').insert(data)
+  try {
+    await sql`INSERT INTO care_coordinators ${sql(data)}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get user profile by id (id, full_name, email). */
-export async function getUserProfileById(supabase: Supabase, userId: string) {
-  return supabase.from('user_profiles').select('id, full_name, email').eq('id', userId).single()
+export async function getUserProfileById(userId: string) {
+  try {
+    const rows = await sql`SELECT id, full_name, email FROM user_profiles WHERE id = ${userId} LIMIT 1`
+    if (!rows[0]) throw new Error('Not found')
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get full user profile by id (all columns). */
-export async function getUserProfileFull(supabase: Supabase, userId: string) {
-  return supabase.from('user_profiles').select('*').eq('id', userId).single()
+export async function getUserProfileFull(userId: string) {
+  try {
+    const rows = await sql`SELECT * FROM user_profiles WHERE id = ${userId} LIMIT 1`
+    if (!rows[0]) throw new Error('Not found')
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get agency_id directly from user_profiles — works for all agency-scoped roles. */
-export async function getAgencyIdFromProfile(supabase: Supabase, userId: string) {
-  return supabase
-    .from('user_profiles')
-    .select('agency_id')
-    .eq('id', userId)
-    .maybeSingle()
+export async function getAgencyIdFromProfile(userId: string) {
+  try {
+    const rows = await sql`SELECT agency_id FROM user_profiles WHERE id = ${userId} LIMIT 1`
+    return { data: (rows[0] ?? null) as { agency_id: string | null } | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
-
 
 /** Get staff members visible to an agency client (agency-wide with owner fallback). */
 export async function getStaffMembersByAgencyOrCompanyOwner(
-  supabase: Supabase,
   clientId: string,
   agencyId: string | null,
   options?: { status?: string }
 ) {
-  let query = supabase
-    .from('caregiver_members')
-    .select('*')
-    .order('created_at', { ascending: false })
-
-  if (agencyId) {
-    query = query.or(`company_owner_id.eq.${clientId},agency_id.eq.${agencyId}`)
-  } else {
-    query = query.eq('company_owner_id', clientId)
+  try {
+    const statusFrag = options?.status ? sql`AND status = ${options.status}` : sql``
+    let rows: any[]
+    if (agencyId) {
+      rows = await sql`
+        SELECT * FROM caregiver_members
+        WHERE (company_owner_id = ${clientId} OR agency_id = ${agencyId})
+        ${statusFrag}
+        ORDER BY created_at DESC
+      `
+    } else {
+      rows = await sql`
+        SELECT * FROM caregiver_members
+        WHERE company_owner_id = ${clientId}
+        ${statusFrag}
+        ORDER BY created_at DESC
+      `
+    }
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
-
-  if (options?.status) query = query.eq('status', options.status)
-  return query
 }
 
 /** Get one staff member visible to an agency client (agency-wide with owner fallback). */
 export async function getStaffMemberByIdWithAgencyOrCompanyOwner(
-  supabase: Supabase,
   staffId: string,
   clientId: string,
   agencyId: string | null
 ) {
-  let query = supabase
-    .from('caregiver_members')
-    .select('*')
-    .eq('id', staffId)
-
-  if (agencyId) {
-    query = query.or(`company_owner_id.eq.${clientId},agency_id.eq.${agencyId}`)
-  } else {
-    query = query.eq('company_owner_id', clientId)
+  try {
+    let rows: any[]
+    if (agencyId) {
+      rows = await sql`
+        SELECT * FROM caregiver_members
+        WHERE id = ${staffId}
+          AND (company_owner_id = ${clientId} OR agency_id = ${agencyId})
+        LIMIT 1
+      `
+    } else {
+      rows = await sql`
+        SELECT * FROM caregiver_members
+        WHERE id = ${staffId}
+          AND company_owner_id = ${clientId}
+        LIMIT 1
+      `
+    }
+    return { data: (rows[0] ?? null), error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
-
-  return query.maybeSingle()
 }
 
 /** Get staff members by agency_id (optional status filter), ordered by created_at desc. */
-export async function getStaffMembersByAgencyId(
-  supabase: Supabase,
-  agencyId: string,
-  options?: { status?: string }
-) {
-  let query = supabase
-    .from('caregiver_members')
-    .select('*')
-    .eq('agency_id', agencyId)
-    .order('created_at', { ascending: false })
-    .limit(500)
-  if (options?.status) query = query.eq('status', options.status)
-  return query
+export async function getStaffMembersByAgencyId(agencyId: string, options?: { status?: string }) {
+  try {
+    const statusFrag = options?.status ? sql`AND status = ${options.status}` : sql``
+    const rows = await sql`
+      SELECT * FROM caregiver_members
+      WHERE agency_id = ${agencyId}
+      ${statusFrag}
+      ORDER BY created_at DESC
+      LIMIT 500
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export interface GetStaffMembersPaginatedOpts {
@@ -244,144 +316,166 @@ export interface GetStaffMembersPaginatedOpts {
 }
 
 /** Paginated, filtered staff members for an agency. */
-export async function getStaffMembersByAgencyIdPaginated(
-  supabase: Supabase,
-  agencyId: string,
-  opts?: GetStaffMembersPaginatedOpts
-) {
-  const page     = opts?.page     ?? 0
-  const pageSize = opts?.pageSize ?? 50
-  const from     = page * pageSize
-  const to       = from + pageSize - 1
+export async function getStaffMembersByAgencyIdPaginated(agencyId: string, opts?: GetStaffMembersPaginatedOpts) {
+  try {
+    const page     = opts?.page     ?? 0
+    const pageSize = opts?.pageSize ?? 50
+    const offset   = page * pageSize
 
-  let dataQuery  = supabase.from('caregiver_members').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }).range(from, to)
-  let countQuery = supabase.from('caregiver_members').select('id', { count: 'exact', head: true }).eq('agency_id', agencyId)
+    const searchFrag = opts?.search?.trim()
+      ? sql`AND (first_name ILIKE ${'%' + opts.search.trim() + '%'} OR last_name ILIKE ${'%' + opts.search.trim() + '%'} OR email ILIKE ${'%' + opts.search.trim() + '%'} OR employee_id ILIKE ${'%' + opts.search.trim() + '%'})`
+      : sql``
+    const statusFrag = opts?.status && opts.status !== 'all' ? sql`AND status = ${opts.status}` : sql``
+    const roleFrag   = opts?.role   && opts.role   !== 'all' ? sql`AND role = ${opts.role}`     : sql``
 
-  if (opts?.search?.trim()) {
-    const term = `%${opts.search.trim()}%`
-    dataQuery  = dataQuery.or(`first_name.ilike.${term},last_name.ilike.${term},email.ilike.${term},employee_id.ilike.${term}`)
-    countQuery = countQuery.or(`first_name.ilike.${term},last_name.ilike.${term},email.ilike.${term},employee_id.ilike.${term}`)
-  }
+    const [dataRows, countRows] = await Promise.all([
+      sql`
+        SELECT * FROM caregiver_members
+        WHERE agency_id = ${agencyId}
+        ${searchFrag} ${statusFrag} ${roleFrag}
+        ORDER BY created_at DESC
+        LIMIT ${pageSize} OFFSET ${offset}
+      `,
+      sql`
+        SELECT COUNT(*)::int AS count FROM caregiver_members
+        WHERE agency_id = ${agencyId}
+        ${searchFrag} ${statusFrag} ${roleFrag}
+      `,
+    ])
 
-  if (opts?.status && opts.status !== 'all') {
-    dataQuery  = dataQuery.eq('status', opts.status)
-    countQuery = countQuery.eq('status', opts.status)
-  }
-
-  if (opts?.role && opts.role !== 'all') {
-    dataQuery  = dataQuery.eq('role', opts.role)
-    countQuery = countQuery.eq('role', opts.role)
-  }
-
-  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
-  return {
-    data:  dataResult.data  ?? [],
-    count: countResult.count ?? 0,
-    error: dataResult.error ?? countResult.error,
+    return {
+      data:  dataRows as unknown as any[],
+      count: countRows[0]?.count ?? 0,
+      error: null,
+    }
+  } catch (err) {
+    return { data: [], count: 0, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
 }
 
 /** Get one staff member by id scoped to agency_id. */
-export async function getStaffMemberByIdAndAgencyId(
-  supabase: Supabase,
-  staffId: string,
-  agencyId: string
-) {
-  return supabase
-    .from('caregiver_members')
-    .select('*')
-    .eq('id', staffId)
-    .eq('agency_id', agencyId)
-    .maybeSingle()
+export async function getStaffMemberByIdAndAgencyId(staffId: string, agencyId: string) {
+  try {
+    const rows = await sql`SELECT * FROM caregiver_members WHERE id = ${staffId} AND agency_id = ${agencyId} LIMIT 1`
+    return { data: (rows[0] ?? null), error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get user profile role by id. */
-export async function getUserProfileRoleById(supabase: Supabase, userId: string) {
-  return supabase.from('user_profiles').select('role').eq('id', userId).single()
+export async function getUserProfileRoleById(userId: string) {
+  try {
+    const rows = await sql`SELECT role FROM user_profiles WHERE id = ${userId} LIMIT 1`
+    if (!rows[0]) throw new Error('Not found')
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-/** Get user profiles by ids (optional select, default id, full_name, role). */
-export async function getUserProfilesByIds(
-  supabase: Supabase,
-  userIds: string[],
-  select = 'id, full_name, role'
-) {
+/** Get user profiles by ids (optional select columns, default id, full_name, role). */
+export async function getUserProfilesByIds(userIds: string[], select = 'id, full_name, role') {
   if (userIds.length === 0) return { data: [], error: null }
-  return supabase.from('user_profiles').select(select).in('id', userIds)
+  try {
+    // select param is a trusted internal constant — not user input
+    const rows = await sql`SELECT ${sql.unsafe(select)} FROM user_profiles WHERE id IN ${sql(userIds)}`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get all user profiles ordered by full_name. */
-export async function getUserProfilesOrdered(supabase: Supabase) {
-  return supabase.from('user_profiles').select(USER_PROFILE_COLS).order('full_name', { ascending: true })
+export async function getUserProfilesOrdered() {
+  try {
+    const rows = await sql`SELECT ${sql.unsafe(USER_PROFILE_COLS)} FROM user_profiles ORDER BY full_name ASC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get all user profiles ordered by created_at desc. */
-export async function getUserProfilesOrderedByCreatedAt(supabase: Supabase) {
-  return supabase.from('user_profiles').select(USER_PROFILE_COLS).order('created_at', { ascending: false })
+export async function getUserProfilesOrderedByCreatedAt() {
+  try {
+    const rows = await sql`SELECT ${sql.unsafe(USER_PROFILE_COLS)} FROM user_profiles ORDER BY created_at DESC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get user profiles by role, ordered by created_at desc. */
-export async function getUserProfilesByRole(supabase: Supabase, role: string, select = '*') {
-  return supabase
-    .from('user_profiles')
-    .select(select)
-    .eq('role', role)
-    .order('created_at', { ascending: false })
+export async function getUserProfilesByRole(role: string, select = '*') {
+  try {
+    const rows = await sql`SELECT ${sql.unsafe(select)} FROM user_profiles WHERE role = ${role} ORDER BY created_at DESC`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get staff members by user_ids (e.g. user_id, agency_id, company_owner_id). */
-export async function getStaffMembersByUserIds(
-  supabase: Supabase,
-  userIds: string[],
-  select = 'user_id, agency_id, company_owner_id'
-) {
+export async function getStaffMembersByUserIds(userIds: string[], select = 'user_id, agency_id, company_owner_id') {
   if (userIds.length === 0) return { data: [], error: null }
-  return supabase.from('caregiver_members').select(select).in('user_id', userIds)
+  try {
+    const rows = await sql`SELECT ${sql.unsafe(select)} FROM caregiver_members WHERE user_id IN ${sql(userIds)}`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getCareCoordinatorsByUserIds(
-  supabase: Supabase,
-  userIds: string[],
-  select = 'user_id, agency_id'
-) {
+export async function getCareCoordinatorsByUserIds(userIds: string[], select = 'user_id, agency_id') {
   if (userIds.length === 0) return { data: [], error: null }
-  return supabase.from('care_coordinators').select(select).in('user_id', userIds)
+  try {
+    const rows = await sql`SELECT ${sql.unsafe(select)} FROM care_coordinators WHERE user_id IN ${sql(userIds)}`
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get staff members with agency_id not null and status active. */
-export async function getStaffMembersWithAgencyActive(supabase: Supabase) {
-  return supabase
-    .from('caregiver_members')
-    .select('*')
-    .not('agency_id', 'is', null)
-    .eq('status', 'active')
-    .limit(2000)
+export async function getStaffMembersWithAgencyActive() {
+  try {
+    const rows = await sql`
+      SELECT * FROM caregiver_members
+      WHERE agency_id IS NOT NULL
+        AND status = 'active'
+      LIMIT 2000
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get first admin user id (for client messages adminUserId). */
-export async function getFirstAdminUserId(supabase: Supabase) {
-  return supabase
-    .from('user_profiles')
-    .select('id')
-    .eq('role', 'admin')
-    .limit(1)
-    .maybeSingle()
+export async function getFirstAdminUserId() {
+  try {
+    const rows = await sql`SELECT id FROM user_profiles WHERE role = 'admin' LIMIT 1`
+    return { data: (rows[0] ?? null) as { id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /**
  * Update caregiver_members.documents JSONB.
- * Must use .select().single() so PostgREST returns an error when RLS blocks the update (0 rows);
- * without SELECT, update() returns { error: null } even when nothing was saved.
  */
-export async function updateStaffMemberDocuments(
-  supabase: Supabase,
-  staffMemberId: string,
-  documents: PatientDocument[]
-) {
-  return supabase
-    .from('caregiver_members')
-    .update({ documents })
-    .eq('id', staffMemberId)
-    .select('id, documents')
-    .single()
+export async function updateStaffMemberDocuments(staffMemberId: string, documents: PatientDocument[]) {
+  try {
+    const rows = await sql`
+      UPDATE caregiver_members
+      SET documents = ${JSON.stringify(documents)}::jsonb
+      WHERE id = ${staffMemberId}
+      RETURNING id, documents
+    `
+    if (!rows[0]) throw new Error('Not found')
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }

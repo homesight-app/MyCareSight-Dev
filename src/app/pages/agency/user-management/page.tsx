@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -28,7 +28,7 @@ export default async function UserManagementPage({
   if (tab === 'caregivers') {
     const supabase = await createClient()
 
-    const { data: staffRolesData } = await q.getConfigurationValuesWithSubcategories(supabase, 'STAFF_ROLE')
+    const { data: staffRolesData } = await q.getConfigurationValuesWithSubcategories('STAFF_ROLE')
     const role = session.profile?.role ?? ''
     const canManageNotes = role === 'company_owner' || role === 'care_coordinator'
     const staffRoleNames = (staffRolesData ?? []).map((r: { name?: string }) => r.name).filter(Boolean) as string[]
@@ -39,7 +39,7 @@ export default async function UserManagementPage({
     const statusFilter = params.status ?? 'all'
 
     const [staffResult, { count: totalStaff }, { count: activeStaff }] = await Promise.all([
-      q.getStaffMembersByAgencyIdPaginated(supabase, agencyId, { page, pageSize: PAGE_SIZE, search, status: statusFilter, role: roleFilter }),
+      q.getStaffMembersByAgencyIdPaginated(agencyId, { page, pageSize: PAGE_SIZE, search, status: statusFilter, role: roleFilter }),
       supabase.from('caregiver_members').select('id', { count: 'exact', head: true }).eq('agency_id', agencyId),
       supabase.from('caregiver_members').select('id', { count: 'exact', head: true }).eq('agency_id', agencyId).eq('status', 'active'),
     ])
@@ -58,7 +58,7 @@ export default async function UserManagementPage({
             .or(`effective_end.is.null,effective_end.gt.${todayYmd}`)
         : Promise.resolve({ data: [] as { caregiver_member_id: string; pay_rate: number; service_type: string | null; effective_start: string }[], error: null }),
       staffMemberIds.length > 0
-        ? q.getStaffLicensesByStaffMemberIds(supabase, staffMemberIds)
+        ? q.getStaffLicensesByStaffMemberIds(staffMemberIds)
         : Promise.resolve({ data: [], error: null }),
       supabase.from('caregiver_members').select('id').eq('agency_id', agencyId),
     ])

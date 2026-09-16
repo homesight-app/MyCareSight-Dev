@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { X, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { createAgencyAdminAccount } from '@/app/actions/users'
@@ -154,14 +154,14 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
       }
       const supabase = createClient()
 
-      const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
+      const { data: up } = await q.getAgencyIdFromProfile(user.id)
       if (!up?.agency_id) {
         showValidationToast({ error: 'Your account is not linked to an agency. Please contact the administrator.' })
         setIsLoading(false)
         return
       }
 
-      const { data: insertedPatient, error: insertError } = await q.insertPatient(supabase, {
+      const { data: insertedPatient, error: insertError } = await q.insertPatient({
         agency_id: up.agency_id,
         first_name: formData.first_name,
         last_name: formData.last_name,
@@ -190,7 +190,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
 
       // Seed the initial primary address into patient_addresses
       if (formData.street_address.trim()) {
-        await q.insertPatientAddress(supabase, {
+        await q.insertPatientAddress({
           patient_id: (insertedPatient as any).id,
           agency_id: up.agency_id,
           label: 'Home',

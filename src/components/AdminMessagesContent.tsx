@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { MessageSquare, Paperclip, Send, Check } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import SearchInput from '@/components/ui/SearchInput'
@@ -66,12 +66,12 @@ export default function AdminMessagesContent({
   const loadMessages = async (conversationId: string) => {
     try {
       setLoading(true)
-      const { data: messagesData, error } = await q.getMessagesByConversationId(supabase, conversationId)
+      const { data: messagesData, error } = await q.getMessagesByConversationId(conversationId)
 
       if (error) throw error
 
       const senderIds = Array.from(new Set(messagesData?.map(m => m.sender_id) || []))
-      const { data: userProfiles } = senderIds.length > 0 ? await q.getUserProfilesByIds(supabase, senderIds) : { data: [] }
+      const { data: userProfiles } = senderIds.length > 0 ? await q.getUserProfilesByIds(senderIds) : { data: [] }
 
       type ProfileRow = { id: string; full_name?: string | null; role?: string | null }
       const profilesList = (userProfiles ?? []) as unknown as ProfileRow[]
@@ -90,12 +90,12 @@ export default function AdminMessagesContent({
         }
       }))
 
-      await q.markConversationMessagesAsReadExceptSender(supabase, conversationId, userId)
+      await q.markConversationMessagesAsReadExceptSender(conversationId, userId)
 
       setMessages(messagesWithSenders)
     } catch (error) {
       console.error('Error loading messages:', error)
-      const { data: messagesData } = await q.getMessagesByConversationId(supabase, conversationId)
+      const { data: messagesData } = await q.getMessagesByConversationId(conversationId)
       setMessages(messagesData || [])
     } finally {
       setLoading(false)
@@ -115,7 +115,7 @@ export default function AdminMessagesContent({
     try {
       setSending(true)
       
-      const { error: messageError } = await q.insertMessage(supabase, {
+      const { error: messageError } = await q.insertMessage({
         conversation_id: selectedConversationId,
         sender_id: userId,
         content: messageContent.trim()
@@ -123,7 +123,7 @@ export default function AdminMessagesContent({
 
       if (messageError) throw messageError
 
-      await q.updateConversationLastMessageAt(supabase, selectedConversationId)
+      await q.updateConversationLastMessageAt(selectedConversationId)
 
       // Clear message - real-time subscription will add the new message
       setMessageContent('')
@@ -204,7 +204,7 @@ export default function AdminMessagesContent({
           // Get the new message
           const newMessage = payload.new as Message
           
-          const { data: profiles } = await q.getUserProfilesByIds(supabase, [newMessage.sender_id])
+          const { data: profiles } = await q.getUserProfilesByIds([newMessage.sender_id])
           type ProfileRow = { id: string; full_name?: string | null; role?: string | null }
           const userProfile = ((profiles ?? []) as unknown as ProfileRow[])[0]
 
@@ -233,7 +233,7 @@ export default function AdminMessagesContent({
           })
 
           if (newMessage.sender_id !== userId && !newMessage.is_read) {
-            await q.rpcMarkMessageAsReadByUser(supabase, newMessage.id, userId)
+            await q.rpcMarkMessageAsReadByUser(newMessage.id, userId)
           }
 
           // Scroll to bottom

@@ -9,7 +9,7 @@ import EmailInput from '@/components/ui/EmailInput'
 import { patientLeadDetailsSchema, type PatientLeadDetailsFormData } from '@/lib/schemas/patient-lead'
 import { updatePatientLeadDetailsAction } from '@/app/actions/leads'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
-import type { PatientLeadDetails } from '@/lib/supabase/query'
+import type { PatientLeadDetails } from '@/app/actions/query-bridge'
 import Button from '@/components/ui/PrimaryButton'
 
 interface Props {

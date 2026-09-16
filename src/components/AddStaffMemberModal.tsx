@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { staffMemberSchema, type StaffMemberFormData } from '@/lib/schemas/staff-member'
 import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { createStaffUserAccount } from '@/app/actions/users'
 import { useSession } from 'next-auth/react'
 import Modal from './Modal'
@@ -54,7 +54,7 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
       }
       const supabase = createClient()
 
-      const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
+      const { data: up } = await q.getAgencyIdFromProfile(user.id)
       const agencyId = up?.agency_id ?? null
       if (!agencyId) {
         showValidationToast({ error: 'Your account is not linked to an agency. Please contact the administrator.' })
@@ -63,7 +63,7 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
       }
 
       let agencyName = ''
-      const { data: agency } = await q.getAgencyNameById(supabase, agencyId)
+      const { data: agency } = await q.getAgencyNameById(agencyId)
       agencyName = agency?.name ?? ''
 
       const result = await createStaffUserAccount(
@@ -96,7 +96,7 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
         return
       }
 
-      const { data: staffMember, error: insertError } = await q.insertStaffMemberReturning(supabase, {
+      const { data: staffMember, error: insertError } = await q.insertStaffMemberReturning({
         agency_id: agencyId,
         user_id: userIdToUse,
         first_name: data.first_name,

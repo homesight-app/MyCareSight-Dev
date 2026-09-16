@@ -1,5 +1,5 @@
 import zipcodes from 'zipcodes'
-import type { Supabase } from '@/lib/supabase/types'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { patientFullName } from '@/lib/patient-name'
@@ -164,38 +164,54 @@ function typeLabel(s: ScheduleRow): string {
   return t || 'Routine'
 }
 
-export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<AllVisitsDashboardDTO> {
-  const [visitsRes, patientsMinRes, staffMinRes] = await Promise.all([
-    q.getAllScheduledVisitsAsScheduleRows(supabase),
-    supabase.from('patients').select('id, first_name, last_name').order('last_name', { ascending: true }),
-    supabase.from('caregiver_members').select('id, first_name, last_name').order('first_name', { ascending: true }),
+export async function fetchAllVisitsDashboardData(agencyId: string | null): Promise<AllVisitsDashboardDTO> {
+  type MinRow = { id: string; first_name: string | null; last_name: string | null }
+  if (!agencyId) return { allVisits: [], allClients: [], allCaregivers: [] }
+
+  const { startDate, endDate } = q.getDefaultScheduledVisitBulkDateRange()
+
+  const [visitsRes, allPatientsData, allStaffDataAll] = await Promise.all([
+    q.getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(agencyId, startDate, endDate),
+    sql<MinRow[]>`
+      SELECT id, first_name, last_name
+      FROM patients
+      WHERE agency_id = ${agencyId}
+      ORDER BY last_name ASC
+    `,
+    sql<MinRow[]>`
+      SELECT id, first_name, last_name
+      FROM caregiver_members
+      WHERE agency_id = ${agencyId}
+      ORDER BY first_name ASC
+    `,
   ])
 
   const schedules = (visitsRes.error ? [] : (visitsRes.data ?? [])) as ScheduleRow[]
-  const allPatientsData = patientsMinRes.data
-  const allStaffDataAll = staffMinRes.data
-  const allClients = ((allPatientsData ?? []) as Array<{ id: string; first_name?: string | null; last_name?: string | null }>).map((p) => ({
+  const allClients = allPatientsData.map((p) => ({
     id: p.id,
     name: patientFullName({ first_name: p.first_name ?? '', last_name: p.last_name ?? '' }),
   }))
-  const allCaregivers = ((allStaffDataAll ?? []) as Array<{ id: string; first_name?: string | null; last_name?: string | null }>).map((s) => ({
+  const allCaregivers = allStaffDataAll.map((s) => ({
     id: s.id,
     name: [s.first_name, s.last_name].filter(Boolean).join(' ') || 'Caregiver',
   }))
   if (schedules.length === 0) return { allVisits: [], allClients, allCaregivers }
 
   const patientIds = Array.from(new Set(schedules.map((s) => s.patient_id)))
-  const [{ data: patientsData }, { data: reqRows }] = await Promise.all([
-    supabase.from('patients').select('id, first_name, last_name, zip_code, state, city, street_address').in('id', patientIds),
-    q.getCaregiverRequirementsByPatientIds(supabase, patientIds),
+  const [patientsData, reqResult] = await Promise.all([
+    sql<PatientRow[]>`
+      SELECT id, first_name, last_name, zip_code, state, city, street_address
+      FROM patients WHERE id = ANY(${patientIds}::uuid[])
+    `,
+    q.getCaregiverRequirementsByPatientIds(patientIds),
   ])
 
-  const patientById = new Map(((patientsData ?? []) as PatientRow[]).map((p) => [p.id, p]))
+  const patientById = new Map(patientsData.map((p) => [p.id, p]))
   type MinStaffRow = { id: string; first_name?: string | null; last_name?: string | null }
-  const staffById = new Map<string, MinStaffRow>((allStaffDataAll ?? []).map((s) => [s.id, s]))
+  const staffById = new Map<string, MinStaffRow>(allStaffDataAll.map((s) => [s.id, s]))
 
   const requirementsByPatient = new Map<string, string[]>()
-  for (const row of reqRows ?? []) {
+  for (const row of reqResult.data ?? []) {
     const pr = row as { patient_id?: string; skill_codes?: string[] }
     if (pr.patient_id && Array.isArray(pr.skill_codes)) requirementsByPatient.set(pr.patient_id, pr.skill_codes)
   }
@@ -210,16 +226,18 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
   )
   const taskNameById = new Map<string, string>()
   if (taskIdTokens.length > 0) {
-    const { data: taskRows } = await supabase
-      .from('task_catalog')
-      .select('id, name, code')
-      .in('id', taskIdTokens)
-    for (const row of taskRows ?? []) {
-      const r = row as { id?: string | null; name?: string | null; code?: string | null }
-      const id = (r.id ?? '').trim()
-      if (!id) continue
-      const label = (r.name ?? '').trim() || (r.code ?? '').trim()
-      if (label) taskNameById.set(id, label)
+    try {
+      const taskRows = await sql<{ id: string; name: string | null; code: string | null }[]>`
+        SELECT id, name, code FROM task_catalog WHERE id = ANY(${taskIdTokens}::uuid[])
+      `
+      for (const row of taskRows) {
+        const id = (row.id ?? '').trim()
+        if (!id) continue
+        const label = (row.name ?? '').trim() || (row.code ?? '').trim()
+        if (label) taskNameById.set(id, label)
+      }
+    } catch {
+      // Non-fatal: task names fall back to raw tokens
     }
   }
 
@@ -227,10 +245,6 @@ export async function fetchAllVisitsDashboardData(supabase: Supabase): Promise<A
     const patient = patientById.get(s.patient_id)
     const currentCaregiver = s.caregiver_id ? staffById.get(s.caregiver_id) : undefined
     const requiredSkills = requirementsByPatient.get(s.patient_id) ?? []
-    // Use visit's specific address ZIP if set; fall back to patient's default ZIP
-    const visitAddrZip = s.patient_address?.zip_code ?? null
-    const clientZip = normalizeUsZipForLookup(visitAddrZip ?? patient?.zip_code)
-
     const status = deriveVisitStatus(s)
     return {
       id: s.id,

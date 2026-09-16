@@ -1,5 +1,6 @@
-import type { Supabase } from '@/lib/supabase/types'
+import sql from '@/db'
 import { patientFullName } from '@/lib/patient-name'
+import { hoursFromScheduleWithDates } from '@/lib/payroll-calculations'
 
 export type TimeBillingStatus = 'pending' | 'approved' | 'voided'
 
@@ -28,31 +29,44 @@ function toHHMM(t: string | null): string {
   return String(t).slice(0, 5)
 }
 
-import { hoursFromScheduleWithDates } from '@/lib/payroll-calculations'
-
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
 export async function fetchTimeBillingRows(
-  supabase: Supabase,
-  opts?: { startDate?: string; endDate?: string }
+  opts?: { startDate?: string; endDate?: string; agencyId?: string | null }
 ): Promise<{ rows: TimeBillingRow[]; error?: string }> {
-  let visitsQuery = supabase
-    .from('scheduled_visits')
-    .select(
-      'id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, scheduled_end_date, service_type, mileage_miles'
-    )
-    .eq('status', 'completed')
-    .order('visit_date', { ascending: false })
+  type VisitRow = {
+    id: string
+    patient_id: string
+    caregiver_member_id: string | null
+    visit_date: string
+    scheduled_start_time: string | null
+    scheduled_end_time: string | null
+    scheduled_end_date: string | null
+    service_type: string | null
+    mileage_miles: number | null
+  }
 
-  if (opts?.startDate) visitsQuery = visitsQuery.gte('visit_date', opts.startDate)
-  if (opts?.endDate)   visitsQuery = visitsQuery.lte('visit_date', opts.endDate)
+  let visitList: VisitRow[]
+  try {
+    const startFilter = opts?.startDate ? sql`AND visit_date >= ${opts.startDate}` : sql``
+    const endFilter = opts?.endDate ? sql`AND visit_date <= ${opts.endDate}` : sql``
+    const agencyFilter = opts?.agencyId ? sql`AND agency_id = ${opts.agencyId}` : sql``
+    visitList = await sql<VisitRow[]>`
+      SELECT id, patient_id, caregiver_member_id, visit_date, scheduled_start_time,
+             scheduled_end_time, scheduled_end_date, service_type, mileage_miles
+      FROM scheduled_visits
+      WHERE status = 'completed'
+      ${agencyFilter}
+      ${startFilter}
+      ${endFilter}
+      ORDER BY visit_date DESC
+    `
+  } catch (err) {
+    return { rows: [], error: err instanceof Error ? err.message : 'Failed to load visits' }
+  }
 
-  const { data: visits, error: visitsErr } = await visitsQuery
-  if (visitsErr) return { rows: [], error: visitsErr.message }
-
-  const visitList = visits ?? []
   if (visitList.length === 0) return { rows: [] }
 
   const patientIds = Array.from(new Set(visitList.map((v) => v.patient_id)))
@@ -61,48 +75,8 @@ export async function fetchTimeBillingRows(
   )
   const visitIds = visitList.map((v) => v.id)
 
-  const [patRes, cgRes, financialsRes, approvalsRes, entriesRes] = await Promise.all([
-    supabase.from('patients').select('id, first_name, last_name').in('id', patientIds),
-    caregiverIds.length
-      ? supabase.from('caregiver_members').select('id, first_name, last_name').in('id', caregiverIds)
-      : Promise.resolve({ data: [], error: null } as const),
-    visitIds.length
-      ? supabase
-          .from('visit_financials')
-          .select(
-            'scheduled_visit_id, service_type, status, approved_billable_hours, approved_actual_hours, coordinator_note'
-          )
-          .in('scheduled_visit_id', visitIds)
-      : Promise.resolve({ data: [], error: null } as const),
-    visitIds.length
-      ? supabase
-          .from('visit_approvals')
-          .select(
-            'scheduled_visit_id, approval_status, approved_billable_hours, approved_actual_hours, approval_comment'
-          )
-          .in('scheduled_visit_id', visitIds)
-      : Promise.resolve({ data: [], error: null } as const),
-    visitIds.length
-      ? supabase
-          .from('visit_time_entries')
-          .select('scheduled_visit_id, actual_hours, billable_hours')
-          .in('scheduled_visit_id', visitIds)
-      : Promise.resolve({ data: [], error: null } as const),
-  ])
-
-  if (patRes.error) return { rows: [], error: patRes.error.message }
-  if (cgRes.error) return { rows: [], error: cgRes.error.message }
-  if (financialsRes.error) return { rows: [], error: financialsRes.error.message }
-  if (approvalsRes.error) return { rows: [], error: approvalsRes.error.message }
-  if (entriesRes.error) return { rows: [], error: entriesRes.error.message }
-
-  const patientNameById = new Map(
-    (patRes.data ?? []).map((r) => [r.id, patientFullName(r as { first_name: string; last_name: string })])
-  )
-  const caregiverNameById = new Map(
-    (cgRes.data ?? []).map((r) => [r.id, [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Caregiver'])
-  )
-
+  type PatRow = { id: string; first_name: string | null; last_name: string | null }
+  type CgRow = { id: string; first_name: string | null; last_name: string | null }
   type FinancialRow = {
     scheduled_visit_id: string
     service_type?: string | null
@@ -111,10 +85,6 @@ export async function fetchTimeBillingRows(
     approved_actual_hours?: number | null
     coordinator_note?: string | null
   }
-  const financialByVisitId = new Map(
-    ((financialsRes.data ?? []) as FinancialRow[]).map((r) => [r.scheduled_visit_id, r])
-  )
-
   type ApprovalRow = {
     scheduled_visit_id: string
     approval_status: string | null
@@ -122,18 +92,62 @@ export async function fetchTimeBillingRows(
     approved_actual_hours?: number | null
     approval_comment?: string | null
   }
-  const approvalByVisitId = new Map(
-    ((approvalsRes.data ?? []) as ApprovalRow[]).map((r) => [r.scheduled_visit_id, r])
-  )
-
   type EntryRow = {
     scheduled_visit_id: string
     actual_hours?: number | null
     billable_hours?: number | null
   }
-  const entryByVisitId = new Map(
-    ((entriesRes.data ?? []) as EntryRow[]).map((r) => [r.scheduled_visit_id, r])
+
+  let patRows: PatRow[]
+  let cgRows: CgRow[]
+  let financialRows: FinancialRow[]
+  let approvalRows: ApprovalRow[]
+  let entryRows: EntryRow[]
+
+  try {
+    ;[patRows, cgRows, financialRows, approvalRows, entryRows] = await Promise.all([
+      sql<PatRow[]>`
+        SELECT id, first_name, last_name FROM patients
+        WHERE id = ANY(${patientIds}::uuid[])
+      `,
+      caregiverIds.length > 0
+        ? sql<CgRow[]>`
+            SELECT id, first_name, last_name FROM caregiver_members
+            WHERE id = ANY(${caregiverIds}::uuid[])
+          `
+        : Promise.resolve([] as CgRow[]),
+      sql<FinancialRow[]>`
+        SELECT scheduled_visit_id, service_type, status, approved_billable_hours,
+               approved_actual_hours, coordinator_note
+        FROM visit_financials
+        WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+      `,
+      sql<ApprovalRow[]>`
+        SELECT scheduled_visit_id, approval_status, approved_billable_hours,
+               approved_actual_hours, approval_comment
+        FROM visit_approvals
+        WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+      `,
+      sql<EntryRow[]>`
+        SELECT scheduled_visit_id, actual_hours, billable_hours
+        FROM visit_time_entries
+        WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+      `,
+    ])
+  } catch (err) {
+    return { rows: [], error: err instanceof Error ? err.message : 'Failed to load visit details' }
+  }
+
+  const patientNameById = new Map(
+    patRows.map((r) => [r.id, patientFullName(r as { first_name: string; last_name: string })])
   )
+  const caregiverNameById = new Map(
+    cgRows.map((r) => [r.id, [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Caregiver'])
+  )
+
+  const financialByVisitId = new Map(financialRows.map((r) => [r.scheduled_visit_id, r]))
+  const approvalByVisitId = new Map(approvalRows.map((r) => [r.scheduled_visit_id, r]))
+  const entryByVisitId = new Map(entryRows.map((r) => [r.scheduled_visit_id, r]))
 
   const rows: TimeBillingRow[] = visitList
     .filter((sv) => financialByVisitId.has(String(sv.id)) || approvalByVisitId.has(String(sv.id)))
@@ -154,7 +168,11 @@ export async function fetchTimeBillingRows(
         sv.scheduled_end_time
       )
 
-      const resolve = (fin: number | null | undefined, appr: number | null | undefined, ent: number | null | undefined) => {
+      const resolve = (
+        fin: number | null | undefined,
+        appr: number | null | undefined,
+        ent: number | null | undefined
+      ) => {
         const f = fin != null ? Number(fin) : NaN
         const a = appr != null ? Number(appr) : NaN
         const e = ent != null ? Number(ent) : NaN

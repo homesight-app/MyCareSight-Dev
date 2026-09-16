@@ -34,7 +34,7 @@ export default function ConvertToAgencyPromptModal({ open, lead, onClose }: Prop
     startTransition(async () => {
       const result = await convertLeadToAgency(lead.id, agencyName.trim() || undefined)
       if (result.error) { setError(result.error); return }
-      setConvertedAgencyId(result.agencyId)
+      setConvertedAgencyId(result.agencyId ?? null)
     })
   }
 

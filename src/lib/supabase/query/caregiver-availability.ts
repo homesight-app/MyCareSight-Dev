@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 export type CaregiverAvailabilitySlotRow = {
   id: string
@@ -18,14 +18,19 @@ export type CaregiverAvailabilitySlotRow = {
 }
 
 export async function getCaregiverAvailabilitySlots(
-  supabase: Supabase,
   caregiverMemberId: string
-) {
-  return supabase
-    .from('caregiver_availability_slots')
-    .select('*')
-    .eq('caregiver_member_id', caregiverMemberId)
-    .order('created_at', { ascending: true })
+): Promise<{ data: CaregiverAvailabilitySlotRow[] | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      SELECT *
+      FROM caregiver_availability_slots
+      WHERE caregiver_member_id = ${caregiverMemberId}
+      ORDER BY created_at ASC
+    `
+    return { data: rows as unknown as CaregiverAvailabilitySlotRow[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export type CaregiverAvailabilitySlotInput = {
@@ -43,49 +48,66 @@ export type CaregiverAvailabilitySlotInput = {
 }
 
 export async function insertCaregiverAvailabilitySlot(
-  supabase: Supabase,
   payload: CaregiverAvailabilitySlotInput
-) {
-  return supabase
-    .from('caregiver_availability_slots')
-    .insert(payload)
-    .select('id')
-    .single()
+): Promise<{ data: { id: string } | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      INSERT INTO caregiver_availability_slots ${sql(payload as Record<string, unknown>, ...Object.keys(payload) as [string, ...string[]])}
+      RETURNING id
+    `
+    return { data: (rows[0] ?? null) as { id: string } | null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export async function updateCaregiverAvailabilitySlot(
-  supabase: Supabase,
   slotId: string,
   caregiverMemberId: string,
   payload: Omit<CaregiverAvailabilitySlotInput, 'caregiver_member_id' | 'agency_id'>
-) {
-  return supabase
-    .from('caregiver_availability_slots')
-    .update(payload)
-    .eq('id', slotId)
-    .eq('caregiver_member_id', caregiverMemberId)
+): Promise<{ data: null; error: Error | null }> {
+  try {
+    await sql`
+      UPDATE caregiver_availability_slots
+      SET ${sql(payload as Record<string, unknown>, ...Object.keys(payload) as [string, ...string[]])}
+      WHERE id = ${slotId}
+        AND caregiver_member_id = ${caregiverMemberId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export async function deleteCaregiverAvailabilitySlot(
-  supabase: Supabase,
   slotId: string,
   caregiverMemberId: string
-) {
-  return supabase
-    .from('caregiver_availability_slots')
-    .delete()
-    .eq('id', slotId)
-    .eq('caregiver_member_id', caregiverMemberId)
+): Promise<{ data: null; error: Error | null }> {
+  try {
+    await sql`
+      DELETE FROM caregiver_availability_slots
+      WHERE id = ${slotId}
+        AND caregiver_member_id = ${caregiverMemberId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export async function getCaregiverAvailabilitySlotsByCaregiverIds(
-  supabase: Supabase,
   caregiverMemberIds: string[]
-) {
-  if (caregiverMemberIds.length === 0) return { data: [] as CaregiverAvailabilitySlotRow[], error: null }
-  return supabase
-    .from('caregiver_availability_slots')
-    .select('*')
-    .in('caregiver_member_id', caregiverMemberIds)
-    .order('created_at', { ascending: true })
+): Promise<{ data: CaregiverAvailabilitySlotRow[] | null; error: Error | null }> {
+  if (caregiverMemberIds.length === 0) return { data: [] as unknown as CaregiverAvailabilitySlotRow[], error: null }
+  try {
+    const rows = await sql`
+      SELECT *
+      FROM caregiver_availability_slots
+      WHERE caregiver_member_id = ANY(${caregiverMemberIds})
+      ORDER BY created_at ASC
+    `
+    return { data: rows as unknown as CaregiverAvailabilitySlotRow[], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }

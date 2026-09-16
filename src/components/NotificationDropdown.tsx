@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Bell, MessageSquare, Clock, FileText, Trash2 } from 'lucide-react'
 import { flushSync } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import LoadingSpinner from './LoadingSpinner'
 
@@ -151,7 +151,7 @@ export default function NotificationDropdown({
 
   const getUserRole = async () => {
     try {
-      const { data: profile } = await q.getUserProfileRoleById(supabase, userId)
+      const { data: profile } = await q.getUserProfileRoleById(userId)
       if (profile) {
         setUserRole(profile.role)
         return profile.role
@@ -166,7 +166,7 @@ export default function NotificationDropdown({
   // Helper: fetch unread notification items for admin/expert/owner (used in all paths so dropdown is never empty)
   const fetchUnreadNotificationItems = async (): Promise<AdminNotificationItem[]> => {
     if (!userId || !roleSeesInAppNotificationList(userRole)) return []
-    const { data: notificationRows } = await q.getUnreadNotificationItems(supabase, userId)
+    const { data: notificationRows } = await q.getUnreadNotificationItems(userId)
     const allItems = (notificationRows || []).map((n: { id: string; title: string; message?: string | null; type: string; created_at: string; action_url?: string | null }) => ({
       id: n.id,
       title: n.title,
@@ -188,18 +188,18 @@ export default function NotificationDropdown({
       let applicationIds: string[] = []
       
       if (userRole === 'admin') {
-        const { data: conversations } = await q.getConversationApplicationIds(supabase, 100)
+        const { data: conversations } = await q.getConversationApplicationIds(100)
         const uniqueAppIds = new Set(conversations?.map((c: { application_id: string }) => c.application_id).filter(Boolean) || [])
         applicationIds = Array.from(uniqueAppIds) as string[]
       } else if (userRole === 'company_owner' || userRole === 'care_coordinator') {
-        const { data: up } = await q.getAgencyIdFromProfile(supabase, userId)
+        const { data: up } = await q.getAgencyIdFromProfile(userId)
         const agencyId = up?.agency_id ?? null
         if (agencyId) {
-          const { data: apps } = await q.getApplicationIdsByAgencyId(supabase, agencyId)
+          const { data: apps } = await q.getApplicationIdsByAgencyId(agencyId)
           applicationIds = apps?.map((a: { id: string }) => a.id) || []
         }
       } else if (userRole === 'expert') {
-        const { data: apps } = await q.getApplicationIdsByAssignedExpertId(supabase, userId)
+        const { data: apps } = await q.getApplicationIdsByAssignedExpertId(userId)
         applicationIds = apps?.map((a: { id: string }) => a.id) || []
       } else if (userRole === 'care_coordinator' || userRole === 'staff_member') {
         applicationIds = []
@@ -220,7 +220,7 @@ export default function NotificationDropdown({
         return
       }
 
-      const { data: conversations, error: convError } = await q.getConversationsWithApplications(supabase, applicationIds)
+      const { data: conversations, error: convError } = await q.getConversationsWithApplications(applicationIds)
       if (convError) {
         console.error('Error fetching conversations:', convError)
         setApplications([])
@@ -251,15 +251,15 @@ export default function NotificationDropdown({
         return
       }
 
-      const { data: unreadCounts, error: countError } = await q.rpcCountUnreadMessagesForUser(supabase, conversationIds, userId)
+      const { data: unreadCounts, error: countError } = await q.rpcCountUnreadMessagesForUser(conversationIds, userId)
 
       if (countError) {
         console.error('Error counting unread messages in fetchApplicationsWithUnread:', {
           error: countError,
           message: countError.message,
-          details: countError.details,
-          hint: countError.hint,
-          code: countError.code,
+          details: (countError as any).details,
+          hint: (countError as any).hint,
+          code: (countError as any).code,
           conversationIds: conversationIds.length,
           userId
         })
@@ -329,35 +329,35 @@ export default function NotificationDropdown({
       let conversationIds: string[] = []
       
       if (userRole === 'admin') {
-        const { data: conversations } = await q.getConversationIds(supabase, 500)
+        const { data: conversations } = await q.getConversationIds(500)
         conversationIds = conversations?.map((c: { id: string }) => c.id) || []
       } else if (userRole === 'company_owner' || userRole === 'care_coordinator') {
-        const { data: up } = await q.getAgencyIdFromProfile(supabase, userId)
+        const { data: up } = await q.getAgencyIdFromProfile(userId)
         const agencyId = up?.agency_id ?? null
         const applicationIds: string[] = []
         if (agencyId) {
-          const { data } = await q.getApplicationIdsByAgencyId(supabase, agencyId)
+          const { data } = await q.getApplicationIdsByAgencyId(agencyId)
           applicationIds.push(...(data?.map((a: { id: string }) => a.id) || []))
         }
         if (applicationIds.length === 0) {
-          const { count: notificationsCount } = await q.getUnreadNotificationsCount(supabase, userId)
-          setUnreadCount(notificationsCount ?? 0)
+          const { data: countData } = await q.getUnreadNotificationsCount(userId)
+          setUnreadCount(parseInt(countData?.count ?? '0', 10))
           return
         }
-        const { data: convData } = await q.getConversationsWithApplications(supabase, applicationIds)
+        const { data: convData } = await q.getConversationsWithApplications(applicationIds)
         conversationIds = convData?.map((c: { id: string }) => c.id) || []
       } else if (userRole === 'expert') {
-        const { data } = await q.getApplicationIdsByAssignedExpertId(supabase, userId)
+        const { data } = await q.getApplicationIdsByAssignedExpertId(userId)
         const applicationIds = data?.map((a: { id: string }) => a.id) || []
         if (applicationIds.length === 0) {
           setUnreadCount(0)
           return
         }
-        const { data: convData } = await q.getConversationsWithApplications(supabase, applicationIds)
+        const { data: convData } = await q.getConversationsWithApplications(applicationIds)
         conversationIds = convData?.map((c: { id: string }) => c.id) || []
       } else if (userRole === 'care_coordinator' || userRole === 'staff_member') {
-        const { count: notificationsCount } = await q.getUnreadNotificationsCount(supabase, userId)
-        setUnreadCount(notificationsCount ?? 0)
+        const { data: countData } = await q.getUnreadNotificationsCount(userId)
+        setUnreadCount(parseInt(countData?.count ?? '0', 10))
         return
       } else {
         setUnreadCount(0)
@@ -368,7 +368,7 @@ export default function NotificationDropdown({
       let countError: { message?: string; details?: unknown; hint?: string; code?: string } | null = null
 
       if (conversationIds.length > 0 && userId && Array.isArray(conversationIds)) {
-        const result = await q.rpcGetTotalUnreadCountForUser(supabase, conversationIds, userId)
+        const result = await q.rpcGetTotalUnreadCountForUser(conversationIds, userId)
         count = result.data ?? 0
         countError = result.error
       }
@@ -376,7 +376,7 @@ export default function NotificationDropdown({
       let totalCount = countError ? 0 : (count || 0)
 
       if (roleSeesInAppNotificationList(userRole) && userId) {
-        const { data: notificationRows } = await q.getUnreadNotificationsByUserId(supabase, userId)
+        const { data: notificationRows } = await q.getUnreadNotificationsByUserId(userId)
         const nonMessageCount = (notificationRows || []).filter(n => !(n.type === 'general' && n.title === 'New Message')).length
         totalCount += nonMessageCount
       }
@@ -549,7 +549,7 @@ export default function NotificationDropdown({
 
   const handleAdminNotificationClick = async (notif: AdminNotificationItem) => {
     try {
-      await q.markNotificationAsRead(supabase, notif.id)
+      await q.markNotificationAsRead(notif.id)
       setAdminNotifications(prev => prev.filter(n => n.id !== notif.id))
       setUnreadCount(prev => Math.max(0, prev - 1))
     } catch (err) {
@@ -587,7 +587,7 @@ export default function NotificationDropdown({
   const handleDeleteNotification = async (e: React.MouseEvent, notificationId: string) => {
     e.stopPropagation()
     try {
-      const { error } = await q.deleteNotificationByIdAndUser(supabase, notificationId, userId)
+      const { error } = await q.deleteNotificationByIdAndUser(notificationId, userId)
       if (error) throw error
       setAdminNotifications(prev => prev.filter(n => n.id !== notificationId))
       setUnreadCount(prev => Math.max(0, prev - 1))

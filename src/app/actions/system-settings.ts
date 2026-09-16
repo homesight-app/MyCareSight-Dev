@@ -1,7 +1,6 @@
-'use server'
+﻿'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import { getSystemSettingsByCategory, upsertSystemSetting } from '@/lib/supabase/query/system-settings'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
@@ -22,8 +21,7 @@ function buildPublicUrl(path: string | null | undefined): string | null {
 }
 
 export async function getSystemBranding(): Promise<SystemBranding> {
-  const supabase = createAdminClient()
-  const settings = await getSystemSettingsByCategory(supabase, 'branding')
+  const settings = await getSystemSettingsByCategory('branding')
   return {
     logoUrl: buildPublicUrl(settings.platform_logo_path),
     logoIconUrl: buildPublicUrl(settings.platform_logo_icon_path),
@@ -36,14 +34,12 @@ export async function updateSystemBranding(payload: {
   primaryColor: string
   sidebarColor: string
 }): Promise<{ success: boolean; error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return { success: false, error: 'Unauthorized' }
 
-  const adminSupabase = createAdminClient()
-  await upsertSystemSetting(adminSupabase, 'branding', 'platform_primary_color', payload.primaryColor, user.id)
-  await upsertSystemSetting(adminSupabase, 'branding', 'platform_sidebar_color', payload.sidebarColor, user.id)
+  await upsertSystemSetting('branding', 'platform_primary_color', payload.primaryColor, user.id)
+  await upsertSystemSetting('branding', 'platform_sidebar_color', payload.sidebarColor, user.id)
   revalidatePath('/', 'layout')
   return { success: true, error: null }
 }
@@ -64,8 +60,7 @@ export async function uploadPlatformLogo(
   const settingKey = variant === 'full' ? 'platform_logo_path' : 'platform_logo_icon_path'
   const pathPrefix = variant === 'full' ? 'platform/logo' : 'platform/logo-icon'
 
-  const adminSupabase = createAdminClient()
-  const settings = await getSystemSettingsByCategory(adminSupabase, 'branding')
+  const settings = await getSystemSettingsByCategory('branding')
   if (settings[settingKey]) {
     await removeFiles(STORAGE_BUCKET.AGENCY_PUBLIC, [settings[settingKey]!])
   }
@@ -76,7 +71,7 @@ export async function uploadPlatformLogo(
   const { error: uploadError } = await uploadFile(STORAGE_BUCKET.AGENCY_PUBLIC, path, file, { upsert: true, contentType: file.type })
   if (uploadError) return { url: null, error: uploadError.message }
 
-  await upsertSystemSetting(adminSupabase, 'branding', settingKey, path, user.id)
+  await upsertSystemSetting('branding', settingKey, path, user.id)
   revalidatePath('/', 'layout')
 
   const url = buildPublicUrl(path)
@@ -84,23 +79,21 @@ export async function uploadPlatformLogo(
 }
 
 export async function resetSystemBranding(): Promise<{ success: boolean; error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return { success: false, error: 'Unauthorized' }
 
-  const adminSupabase = createAdminClient()
-  const settings = await getSystemSettingsByCategory(adminSupabase, 'branding')
+  const settings = await getSystemSettingsByCategory('branding')
 
   const pathsToRemove = [settings.platform_logo_path, settings.platform_logo_icon_path].filter(Boolean) as string[]
   if (pathsToRemove.length > 0) {
     await removeFiles(STORAGE_BUCKET.AGENCY_PUBLIC, pathsToRemove)
   }
 
-  await upsertSystemSetting(adminSupabase, 'branding', 'platform_logo_path', null, user.id)
-  await upsertSystemSetting(adminSupabase, 'branding', 'platform_logo_icon_path', null, user.id)
-  await upsertSystemSetting(adminSupabase, 'branding', 'platform_primary_color', '#4F66E8', user.id)
-  await upsertSystemSetting(adminSupabase, 'branding', 'platform_sidebar_color', '#0F172A', user.id)
+  await upsertSystemSetting('branding', 'platform_logo_path', null, user.id)
+  await upsertSystemSetting('branding', 'platform_logo_icon_path', null, user.id)
+  await upsertSystemSetting('branding', 'platform_primary_color', '#4F66E8', user.id)
+  await upsertSystemSetting('branding', 'platform_sidebar_color', '#0F172A', user.id)
 
   revalidatePath('/', 'layout')
   return { success: true, error: null }

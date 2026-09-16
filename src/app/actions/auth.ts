@@ -1,8 +1,8 @@
 'use server'
 
 import { signOut, resetPassword, updatePassword } from '@/lib/auth'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { auth } from '@/auth'
+import sql from '@/db'
 import bcrypt from 'bcryptjs'
 
 export { signOut }
@@ -13,16 +13,10 @@ export { signOut }
  */
 export async function checkEmailExistsForReset(email: string): Promise<{ exists: boolean; error?: string }> {
   try {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from('user_profiles')
-      .select('id')
-      .eq('email', email.trim().toLowerCase())
-      .maybeSingle()
-    if (error) {
-      return { exists: false, error: 'Unable to verify email. Please try again.' }
-    }
-    return { exists: !!data }
+    const rows = await sql<{ id: string }[]>`
+      SELECT id FROM user_profiles WHERE email = ${email.trim().toLowerCase()} LIMIT 1
+    `
+    return { exists: rows.length > 0 }
   } catch {
     return { exists: false, error: 'Unable to verify email. Please try again.' }
   }
@@ -52,12 +46,9 @@ export async function changePasswordAction(
   const session = await auth()
   if (!session?.user?.id) return { error: 'Not authenticated.' }
 
-  const supabase = createAdminClient()
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('password_hash')
-    .eq('id', session.user.id)
-    .single()
+  const [profile] = await sql<{ password_hash: string | null }[]>`
+    SELECT password_hash FROM user_profiles WHERE id = ${session.user.id} LIMIT 1
+  `
 
   if (!profile?.password_hash) {
     return { error: 'No password set. Please use "Forgot password?" to set your password.' }
@@ -81,12 +72,10 @@ export async function updateUserEmailAction(email: string): Promise<{ error: str
   const session = await auth()
   if (!session?.user?.id) return { error: 'Not authenticated.' }
 
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('user_profiles')
-    .update({ email: email.toLowerCase().trim() })
-    .eq('id', session.user.id)
-
-  if (error) return { error: 'Failed to update email. Please try again.' }
+  try {
+    await sql`UPDATE user_profiles SET email = ${email.toLowerCase().trim()} WHERE id = ${session.user.id}`
+  } catch {
+    return { error: 'Failed to update email. Please try again.' }
+  }
   return { error: null }
 }

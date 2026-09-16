@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 import { withImpliedParents } from '@/lib/constants/feature-keys'
 
 export interface FeaturePlanRow {
@@ -13,97 +13,142 @@ export interface FeaturePlanRow {
 }
 
 /** Get all plans with their feature lists and how many agencies are on each plan. */
-export async function getFeaturePlans(supabase: Supabase) {
-  const [plansResult, agencyCountsResult] = await Promise.all([
-    supabase
-      .from('feature_plans')
-      .select('id, name, description, sort_order, created_at, updated_at, plan_features(feature_key)')
-      .order('sort_order', { ascending: true })
-      .order('name', { ascending: true }),
-    supabase
-      .from('agencies')
-      .select('plan_id')
-      .not('plan_id', 'is', null),
-  ])
+export async function getFeaturePlans() {
+  try {
+    const [planRows, agencyRows] = await Promise.all([
+      sql`
+        SELECT
+          fp.id, fp.name, fp.description, fp.sort_order, fp.created_at, fp.updated_at,
+          COALESCE(
+            json_agg(json_build_object('feature_key', pf.feature_key)) FILTER (WHERE pf.feature_key IS NOT NULL),
+            '[]'
+          ) AS plan_features
+        FROM feature_plans fp
+        LEFT JOIN plan_features pf ON pf.plan_id = fp.id
+        GROUP BY fp.id, fp.name, fp.description, fp.sort_order, fp.created_at, fp.updated_at
+        ORDER BY fp.sort_order ASC, fp.name ASC
+      `,
+      sql`SELECT plan_id FROM agencies WHERE plan_id IS NOT NULL`,
+    ])
 
-  const plans = (plansResult.data ?? []) as FeaturePlanRow[]
-  const agencyCounts: Record<string, number> = {}
-  for (const row of agencyCountsResult.data ?? []) {
-    const pid = (row as { plan_id: string }).plan_id
-    agencyCounts[pid] = (agencyCounts[pid] ?? 0) + 1
+    const agencyCounts: Record<string, number> = {}
+    for (const row of agencyRows) {
+      const pid = (row as { plan_id: string }).plan_id
+      agencyCounts[pid] = (agencyCounts[pid] ?? 0) + 1
+    }
+
+    const withCounts = (planRows as unknown as FeaturePlanRow[]).map(p => ({
+      ...p,
+      agency_count: agencyCounts[p.id] ?? 0,
+    }))
+
+    return { data: withCounts, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
-  const withCounts = plans.map(p => ({ ...p, agency_count: agencyCounts[p.id] ?? 0 }))
-
-  return { data: withCounts, error: plansResult.error ?? agencyCountsResult.error }
 }
 
 /** Get a single plan with its features. */
-export async function getFeaturePlanById(supabase: Supabase, planId: string) {
-  return supabase
-    .from('feature_plans')
-    .select('id, name, description, sort_order, created_at, updated_at, plan_features(feature_key)')
-    .eq('id', planId)
-    .single()
+export async function getFeaturePlanById(planId: string) {
+  try {
+    const rows = await sql`
+      SELECT
+        fp.id, fp.name, fp.description, fp.sort_order, fp.created_at, fp.updated_at,
+        COALESCE(
+          json_agg(json_build_object('feature_key', pf.feature_key)) FILTER (WHERE pf.feature_key IS NOT NULL),
+          '[]'
+        ) AS plan_features
+      FROM feature_plans fp
+      LEFT JOIN plan_features pf ON pf.plan_id = fp.id
+      WHERE fp.id = ${planId}
+      GROUP BY fp.id, fp.name, fp.description, fp.sort_order, fp.created_at, fp.updated_at
+    `
+    if (!rows[0]) throw new Error('Row not found')
+    return { data: rows[0] as FeaturePlanRow, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Insert a new plan. Returns the created row. */
 export async function insertFeaturePlan(
-  supabase: Supabase,
   data: { name: string; description?: string | null; sort_order?: number }
 ) {
-  return supabase.from('feature_plans').insert(data).select().single()
+  try {
+    const keys = Object.keys(data) as (keyof typeof data)[]
+    const rows = await sql`INSERT INTO feature_plans ${sql(data, ...keys)} RETURNING *`
+    return { data: (rows as unknown as any[])[0] ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Update plan metadata (name, description, sort_order). */
 export async function updateFeaturePlanById(
-  supabase: Supabase,
   planId: string,
   data: { name?: string; description?: string | null; sort_order?: number; updated_at?: string }
 ) {
-  return supabase.from('feature_plans').update(data).eq('id', planId)
+  try {
+    const keys = Object.keys(data) as (keyof typeof data)[]
+    await sql`UPDATE feature_plans SET ${sql(data, ...keys)} WHERE id = ${planId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /**
  * Replace all feature keys for a plan (delete + re-insert).
  * Auto-adds implied parent keys for any sub-features in the list.
  */
-export async function setPlanFeatures(supabase: Supabase, planId: string, featureKeys: string[]) {
+export async function setPlanFeatures(planId: string, featureKeys: string[]) {
   const resolvedKeys = withImpliedParents(featureKeys)
 
-  const { error: deleteError } = await supabase
-    .from('plan_features')
-    .delete()
-    .eq('plan_id', planId)
-  if (deleteError) return { error: deleteError }
+  try {
+    await sql`DELETE FROM plan_features WHERE plan_id = ${planId}`
+  } catch (err) {
+    return { error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 
   if (resolvedKeys.length === 0) return { error: null }
 
-  const rows = resolvedKeys.map(key => ({ plan_id: planId, feature_key: key }))
-  const { error: insertError } = await supabase.from('plan_features').insert(rows)
-  return { error: insertError }
+  try {
+    const rows = resolvedKeys.map(key => ({ plan_id: planId, feature_key: key }))
+    for (const row of rows) {
+      await sql`INSERT INTO plan_features ${sql(row, 'plan_id', 'feature_key')}`
+    }
+    return { error: null }
+  } catch (err) {
+    return { error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Delete a plan (cascades plan_features). Guards: check agency count before deleting. */
-export async function deleteFeaturePlanById(supabase: Supabase, planId: string) {
-  return supabase.from('feature_plans').delete().eq('id', planId)
+export async function deleteFeaturePlanById(planId: string) {
+  try {
+    await sql`DELETE FROM feature_plans WHERE id = ${planId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Get the count of agencies currently on a plan. */
-export async function getAgencyCountForPlan(supabase: Supabase, planId: string) {
-  return supabase
-    .from('agencies')
-    .select('id', { count: 'exact', head: true })
-    .eq('plan_id', planId)
+export async function getAgencyCountForPlan(planId: string) {
+  try {
+    const rows = await sql`SELECT COUNT(*)::int AS count FROM agencies WHERE plan_id = ${planId}`
+    return { count: (rows[0] as any | undefined)?.count ?? 0, error: null }
+  } catch (err) {
+    return { count: 0, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 /** Assign (or remove) a plan from an agency. Pass null to remove the plan. */
-export async function updateAgencyPlanId(
-  supabase: Supabase,
-  agencyId: string,
-  planId: string | null
-) {
-  return supabase
-    .from('agencies')
-    .update({ plan_id: planId })
-    .eq('id', agencyId)
+export async function updateAgencyPlanId(agencyId: string, planId: string | null) {
+  try {
+    await sql`UPDATE agencies SET plan_id = ${planId} WHERE id = ${agencyId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }

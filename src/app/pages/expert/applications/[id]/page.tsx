@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -25,15 +25,15 @@ export default async function ExpertApplicationDetailPage({
   const backLabel = back ? 'Back to Agency' : 'Back to Licenses'
 
   const supabase = await createClient()
-  const { data: application } = await q.getApplicationById(supabase, id)
+  const { data: application } = await q.getApplicationById(id)
   if (!application) redirect('/pages/expert/clients')
   const [
     { data: documents },
     { data: agencyData },
   ] = await Promise.all([
-    q.getApplicationDocumentsByApplicationId(supabase, id),
+    q.getApplicationDocumentsByApplicationId(id),
     (application as any).agency_id
-      ? q.getAgencyNameById(supabase, (application as any).agency_id)
+      ? q.getAgencyNameById((application as any).agency_id)
       : Promise.resolve({ data: null }),
   ])
 

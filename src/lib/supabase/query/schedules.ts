@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 /** Status transitions from wall-clock: DB trigger on write + pg_cron `sync_scheduled_visit_statuses` (migration 076), not each read. */
 
@@ -52,36 +52,6 @@ export interface ScheduleRow {
   patient_address?: PatientAddressNested | null
   end_date?: string | null
 }
-
-const visitSelect = `
-  id,
-  agency_id,
-  patient_id,
-  caregiver_member_id,
-  contract_id,
-  service_type,
-  visit_date,
-  scheduled_start_time,
-  scheduled_end_time,
-  description,
-  notes,
-  status_reason,
-  visit_type,
-  status,
-  is_recurring,
-  created_at,
-  updated_at,
-  patient_address_id,
-  mileage_miles,
-  scheduled_end_date,
-  patient_address:patient_addresses(id, zip_code, street_address, city, state, label)
-`
-
-/** Same columns as {@link visitSelect} plus nested ADL/task rows (one round-trip). */
-const visitSelectWithTasks = `${visitSelect.trimEnd()},
-  scheduled_visit_tasks(legacy_task_code, sort_order),
-  visit_series(repeat_frequency, days_of_week, repeat_start, repeat_end, repeat_monthly_rules)
-`
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -260,110 +230,77 @@ function mapVisitsToScheduleRows(visits: ScheduledVisitDbRowWithTasks[]): Schedu
   return visits.map((v) => toScheduleRow(v, adlCodesFromNestedTasks(v.scheduled_visit_tasks)))
 }
 
-/** Get all visits for a patient as ScheduleRow[]. */
-export async function getSchedulesByPatientId(supabase: Supabase, patientId: string) {
-  const { data, error } = await supabase
-    .from('scheduled_visits')
-    .select(visitSelectWithTasks)
-    .eq('patient_id', patientId)
-    .order('visit_date', { ascending: true })
-    .order('scheduled_start_time', { ascending: true })
-
-  if (error) return { data: null, error }
-  const rows = (data ?? []) as unknown as ScheduledVisitDbRowWithTasks[]
-  const mapped = mapVisitsToScheduleRows(rows)
-  return { data: mapped, error: null }
-}
-
-/** Visits for a patient in an inclusive date range. */
-export async function getSchedulesByPatientIdAndDateRange(
-  supabase: Supabase,
-  patientId: string,
-  startDate: string,
-  endDate: string
-) {
-  const { data, error } = await supabase
-    .from('scheduled_visits')
-    .select(visitSelectWithTasks)
-    .eq('patient_id', patientId)
-    .gte('visit_date', startDate)
-    .lte('visit_date', endDate)
-    .order('visit_date', { ascending: true })
-    .order('scheduled_start_time', { ascending: true })
-
-  if (error) return { data: null, error }
-  const rows = (data ?? []) as unknown as ScheduledVisitDbRowWithTasks[]
-  const mapped = mapVisitsToScheduleRows(rows)
-  return { data: mapped, error: null }
-}
+// ---------------------------------------------------------------------------
+// SQL helpers
+// ---------------------------------------------------------------------------
 
 /**
- * Cross-tenant scheduled visits (e.g. admin all-visits dashboard), newest `visit_date` first.
- * When `startDate`/`endDate` are omitted, uses {@link getDefaultScheduledVisitBulkDateRange} so the query stays bounded as data grows.
+ * Inline visit SELECT fragment expressed as a SQL template that postgres.js can
+ * embed via `${visitCols}`.  We keep a single definition so every query selects
+ * exactly the same columns.
  */
-export async function getAllScheduledVisitsAsScheduleRows(
-  supabase: Supabase,
-  options?: { startDate?: string; endDate?: string }
-) {
-  const { startDate, endDate } =
-    options?.startDate != null && options?.endDate != null
-      ? { startDate: options.startDate, endDate: options.endDate }
-      : getDefaultScheduledVisitBulkDateRange()
+const visitCols = sql`
+  sv.id,
+  sv.agency_id,
+  sv.patient_id,
+  sv.caregiver_member_id,
+  sv.contract_id,
+  sv.service_type,
+  sv.visit_date,
+  sv.scheduled_start_time,
+  sv.scheduled_end_time,
+  sv.description,
+  sv.notes,
+  sv.status_reason,
+  sv.visit_type,
+  sv.status,
+  sv.is_recurring,
+  sv.created_at,
+  sv.updated_at,
+  sv.patient_address_id,
+  sv.mileage_miles,
+  sv.scheduled_end_date,
+  CASE WHEN pa.id IS NOT NULL
+    THEN json_build_object(
+      'id', pa.id,
+      'zip_code', pa.zip_code,
+      'street_address', pa.street_address,
+      'city', pa.city,
+      'state', pa.state,
+      'label', pa.label
+    )
+    ELSE NULL
+  END AS patient_address
+`
 
-  const { data, error } = await supabase
-    .from('scheduled_visits')
-    .select(visitSelectWithTasks)
-    .gte('visit_date', startDate)
-    .lte('visit_date', endDate)
-    .order('visit_date', { ascending: false })
-    .order('scheduled_start_time', { ascending: true })
-
-  if (error) return { data: null, error }
-  const rows = (data ?? []) as unknown as ScheduledVisitDbRowWithTasks[]
-  const mapped = mapVisitsToScheduleRows(rows)
-  return { data: mapped, error: null }
-}
-
-/** Visits for one agency in an inclusive date range (for overlap checks in scheduling UI). */
-export async function getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(
-  supabase: Supabase,
-  agencyId: string,
-  startDate: string,
-  endDate: string
-) {
-  const { data, error } = await supabase
-    .from('scheduled_visits')
-    .select(visitSelectWithTasks)
-    .eq('agency_id', agencyId)
-    .gte('visit_date', startDate)
-    .lte('visit_date', endDate)
-    .order('visit_date', { ascending: true })
-    .order('scheduled_start_time', { ascending: true })
-
-  if (error) return { data: null, error }
-  const rows = (data ?? []) as unknown as ScheduledVisitDbRowWithTasks[]
-  const mapped = mapVisitsToScheduleRows(rows)
-  return { data: mapped, error: null }
-}
-
-/** Visits by primary key (e.g. assignment requests referencing schedule_id = visit id). */
-export async function getScheduledVisitsByIdsAsScheduleRows(supabase: Supabase, ids: string[]) {
-  const clean = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.length > 0 && id !== 'null')))
-  if (clean.length === 0) return { data: [], error: null }
-  const { data, error } = await supabase.from('scheduled_visits').select(visitSelectWithTasks).in('id', clean)
-  if (error) return { data: null, error }
-  const rows = (data ?? []) as unknown as ScheduledVisitDbRowWithTasks[]
-  const mapped = mapVisitsToScheduleRows(rows)
-  return { data: mapped, error: null }
-}
+/** Columns + tasks + series (used by read queries). */
+const visitColsWithTasks = sql`
+  ${visitCols},
+  COALESCE(
+    json_agg(
+      json_build_object('legacy_task_code', svt.legacy_task_code, 'sort_order', svt.sort_order)
+    ) FILTER (WHERE svt.id IS NOT NULL),
+    '[]'
+  ) AS scheduled_visit_tasks,
+  (
+    SELECT json_build_object(
+      'repeat_frequency', vs.repeat_frequency,
+      'days_of_week', vs.days_of_week,
+      'repeat_start', vs.repeat_start,
+      'repeat_end', vs.repeat_end,
+      'repeat_monthly_rules', vs.repeat_monthly_rules
+    )
+    FROM visit_series vs
+    WHERE vs.id = sv.visit_series_id
+    LIMIT 1
+  ) AS visit_series
+`
 
 async function requirePatientAgencyId(
-  supabase: Supabase,
   patientId: string
 ): Promise<{ agency_id: string } | { error: { message: string } }> {
-  const { data, error } = await supabase.from('patients').select('agency_id').eq('id', patientId).single()
-  if (error) return { error: { message: error.message } }
-  const agencyId = (data as { agency_id: string | null })?.agency_id
+  const rows = await sql`SELECT agency_id FROM patients WHERE id = ${patientId} LIMIT 1`
+  const agencyId = (rows[0]?.agency_id as string | null | undefined) ?? null
   if (!agencyId) {
     return { error: { message: 'Patient must belong to an agency before scheduling visits.' } }
   }
@@ -371,12 +308,11 @@ async function requirePatientAgencyId(
 }
 
 async function replaceVisitTasks(
-  supabase: Supabase,
   agencyId: string,
   visitId: string,
   adlCodes: string[] | undefined
-) {
-  await supabase.from('scheduled_visit_tasks').delete().eq('scheduled_visit_id', visitId)
+): Promise<void> {
+  await sql`DELETE FROM scheduled_visit_tasks WHERE scheduled_visit_id = ${visitId}`
   const codes = adlCodes ?? []
   if (codes.length === 0) return
   const rows = codes.map((code, i) => ({
@@ -386,17 +322,16 @@ async function replaceVisitTasks(
     legacy_task_code: code,
     sort_order: i,
   }))
-  await supabase.from('scheduled_visit_tasks').insert(rows)
+  await sql`INSERT INTO scheduled_visit_tasks ${sql(rows)}`
 }
 
 async function replaceVisitTasksForMany(
-  supabase: Supabase,
   agencyId: string,
   visitIds: string[],
   adlCodes: string[] | undefined
-) {
+): Promise<void> {
   if (visitIds.length === 0) return
-  await supabase.from('scheduled_visit_tasks').delete().in('scheduled_visit_id', visitIds)
+  await sql`DELETE FROM scheduled_visit_tasks WHERE scheduled_visit_id = ANY(${visitIds})`
   const codes = adlCodes ?? []
   if (codes.length === 0) return
   const rows = visitIds.flatMap((visitId) =>
@@ -408,12 +343,136 @@ async function replaceVisitTasksForMany(
       sort_order: i,
     }))
   )
-  await supabase.from('scheduled_visit_tasks').insert(rows)
+  await sql`INSERT INTO scheduled_visit_tasks ${sql(rows)}`
 }
+
+// ---------------------------------------------------------------------------
+// Public read queries
+// ---------------------------------------------------------------------------
+
+/** Get all visits for a patient as unknown as ScheduleRow[]. */
+export async function getSchedulesByPatientId(
+  patientId: string
+): Promise<{ data: ScheduleRow[] | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      SELECT ${visitColsWithTasks}
+      FROM scheduled_visits sv
+      LEFT JOIN patient_addresses pa ON pa.id = sv.patient_address_id
+      LEFT JOIN scheduled_visit_tasks svt ON svt.scheduled_visit_id = sv.id
+      WHERE sv.patient_id = ${patientId}
+      GROUP BY sv.id, pa.id
+      ORDER BY sv.visit_date ASC, sv.scheduled_start_time ASC
+    `
+    return { data: mapVisitsToScheduleRows(rows as unknown as ScheduledVisitDbRowWithTasks[]), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
+/** Visits for a patient in an inclusive date range. */
+export async function getSchedulesByPatientIdAndDateRange(
+  patientId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ data: ScheduleRow[] | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      SELECT ${visitColsWithTasks}
+      FROM scheduled_visits sv
+      LEFT JOIN patient_addresses pa ON pa.id = sv.patient_address_id
+      LEFT JOIN scheduled_visit_tasks svt ON svt.scheduled_visit_id = sv.id
+      WHERE sv.patient_id = ${patientId}
+        AND sv.visit_date >= ${startDate}
+        AND sv.visit_date <= ${endDate}
+      GROUP BY sv.id, pa.id
+      ORDER BY sv.visit_date ASC, sv.scheduled_start_time ASC
+    `
+    return { data: mapVisitsToScheduleRows(rows as unknown as ScheduledVisitDbRowWithTasks[]), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
+/**
+ * Cross-tenant scheduled visits (e.g. admin all-visits dashboard), newest `visit_date` first.
+ * When `startDate`/`endDate` are omitted, uses {@link getDefaultScheduledVisitBulkDateRange} so the query stays bounded as data grows.
+ */
+export async function getAllScheduledVisitsAsScheduleRows(
+  options?: { startDate?: string; endDate?: string }
+): Promise<{ data: ScheduleRow[] | null; error: Error | null }> {
+  const { startDate, endDate } =
+    options?.startDate != null && options?.endDate != null
+      ? { startDate: options.startDate, endDate: options.endDate }
+      : getDefaultScheduledVisitBulkDateRange()
+  try {
+    const rows = await sql`
+      SELECT ${visitColsWithTasks}
+      FROM scheduled_visits sv
+      LEFT JOIN patient_addresses pa ON pa.id = sv.patient_address_id
+      LEFT JOIN scheduled_visit_tasks svt ON svt.scheduled_visit_id = sv.id
+      WHERE sv.visit_date >= ${startDate}
+        AND sv.visit_date <= ${endDate}
+      GROUP BY sv.id, pa.id
+      ORDER BY sv.visit_date DESC, sv.scheduled_start_time ASC
+    `
+    return { data: mapVisitsToScheduleRows(rows as unknown as ScheduledVisitDbRowWithTasks[]), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
+/** Visits for one agency in an inclusive date range (for overlap checks in scheduling UI). */
+export async function getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(
+  agencyId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ data: ScheduleRow[] | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      SELECT ${visitColsWithTasks}
+      FROM scheduled_visits sv
+      LEFT JOIN patient_addresses pa ON pa.id = sv.patient_address_id
+      LEFT JOIN scheduled_visit_tasks svt ON svt.scheduled_visit_id = sv.id
+      WHERE sv.agency_id = ${agencyId}
+        AND sv.visit_date >= ${startDate}
+        AND sv.visit_date <= ${endDate}
+      GROUP BY sv.id, pa.id
+      ORDER BY sv.visit_date ASC, sv.scheduled_start_time ASC
+    `
+    return { data: mapVisitsToScheduleRows(rows as unknown as ScheduledVisitDbRowWithTasks[]), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
+/** Visits by primary key (e.g. assignment requests referencing schedule_id = visit id). */
+export async function getScheduledVisitsByIdsAsScheduleRows(
+  ids: string[]
+): Promise<{ data: ScheduleRow[] | null; error: Error | null }> {
+  const clean = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.length > 0 && id !== 'null')))
+  if (clean.length === 0) return { data: [], error: null }
+  try {
+    const rows = await sql`
+      SELECT ${visitColsWithTasks}
+      FROM scheduled_visits sv
+      LEFT JOIN patient_addresses pa ON pa.id = sv.patient_address_id
+      LEFT JOIN scheduled_visit_tasks svt ON svt.scheduled_visit_id = sv.id
+      WHERE sv.id = ANY(${clean})
+      GROUP BY sv.id, pa.id
+    `
+    return { data: mapVisitsToScheduleRows(rows as unknown as ScheduledVisitDbRowWithTasks[]), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public write queries
+// ---------------------------------------------------------------------------
 
 /** Insert a visit and return the row as ScheduleRow. */
 export async function insertSchedule(
-  supabase: Supabase,
   data: {
     patient_id: string
     caregiver_id?: string | null
@@ -436,44 +495,48 @@ export async function insertSchedule(
     mileage_miles?: number | null
     end_date?: string | null
   }
-) {
-  const agency = await requirePatientAgencyId(supabase, data.patient_id)
-  if ('error' in agency) return { data: null, error: agency.error }
+): Promise<{ data: ScheduleRow | null; error: { message: string } | Error | null }> {
+  try {
+    const agency = await requirePatientAgencyId(data.patient_id)
+    if ('error' in agency) return { data: null, error: agency.error }
 
-  const utcParts = toUtcVisitParts(data.date, data.start_time ?? null, data.end_time ?? null)
-  const { data: visit, error } = await supabase
-    .from('scheduled_visits')
-    .insert({
-      agency_id: agency.agency_id,
-      patient_id: data.patient_id,
-      caregiver_member_id: data.caregiver_id ?? null,
-      contract_id: data.contract_id ?? null,
-      service_type: data.service_type ?? 'non_skilled',
-      visit_date: utcParts.visitDateUtc,
-      scheduled_start_time: utcParts.startTimeUtc,
-      scheduled_end_time: utcParts.endTimeUtc,
-      description: data.description ?? null,
-      notes: data.notes ?? null,
-      visit_type: data.type ?? null,
-      status: 'scheduled',
-      is_recurring: data.is_recurring ?? false,
-      patient_address_id: data.patient_address_id ?? null,
-      mileage_miles: data.mileage_miles ?? null,
-      ...(data.end_date && data.end_date > data.date ? { scheduled_end_date: data.end_date } : {}),
-    })
-    .select(visitSelect)
-    .single()
+    const utcParts = toUtcVisitParts(data.date, data.start_time ?? null, data.end_time ?? null)
+    const scheduledEndDate =
+      data.end_date && data.end_date > data.date ? data.end_date : null
 
-  if (error || !visit) return { data: null, error }
-  const v = visit as ScheduledVisitDbRowWithTasks
-  await replaceVisitTasks(supabase, agency.agency_id, v.id, data.adl_codes)
-  const adlCodes = (data.adl_codes ?? []).filter(Boolean)
-  return { data: toScheduleRow(v, adlCodes), error: null }
+    const inserted = await sql`
+      INSERT INTO scheduled_visits (
+        agency_id, patient_id, caregiver_member_id, contract_id, service_type,
+        visit_date, scheduled_start_time, scheduled_end_time,
+        description, notes, visit_type, status, is_recurring,
+        patient_address_id, mileage_miles, scheduled_end_date
+      ) VALUES (
+        ${agency.agency_id}, ${data.patient_id}, ${data.caregiver_id ?? null},
+        ${data.contract_id ?? null}, ${data.service_type ?? 'non_skilled'},
+        ${utcParts.visitDateUtc}, ${utcParts.startTimeUtc}, ${utcParts.endTimeUtc},
+        ${data.description ?? null}, ${data.notes ?? null}, ${data.type ?? null},
+        'scheduled', ${data.is_recurring ?? false},
+        ${data.patient_address_id ?? null}, ${data.mileage_miles ?? null},
+        ${scheduledEndDate}
+      )
+      RETURNING
+        id, agency_id, patient_id, caregiver_member_id, contract_id, service_type,
+        visit_date, scheduled_start_time, scheduled_end_time, description, notes,
+        status_reason, visit_type, status, is_recurring, created_at, updated_at,
+        patient_address_id, mileage_miles, scheduled_end_date
+    `
+    if (!inserted.length) return { data: null, error: new Error('Insert returned no rows') }
+    const v = inserted[0] as ScheduledVisitDbRowWithTasks
+    await replaceVisitTasks(agency.agency_id, v.id, data.adl_codes)
+    const adlCodes = (data.adl_codes ?? []).filter(Boolean)
+    return { data: toScheduleRow(v, adlCodes), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Create one visit_series template and many dated scheduled_visits linked to it. */
 export async function insertRecurringSchedulesFromSeries(
-  supabase: Supabase,
   data: {
     patient_id: string
     caregiver_id?: string | null
@@ -495,91 +558,91 @@ export async function insertRecurringSchedulesFromSeries(
     mileage_miles?: number | null
     end_day_offset?: number
   }
-) {
+): Promise<{ data: ScheduleRow[] | null; error: { message: string } | Error | null }> {
   if (data.dates.length === 0) return { data: [], error: { message: 'No dates to insert.' } }
-  const agency = await requirePatientAgencyId(supabase, data.patient_id)
-  if ('error' in agency) return { data: null, error: agency.error }
+  try {
+    const agency = await requirePatientAgencyId(data.patient_id)
+    if ('error' in agency) return { data: null, error: agency.error }
 
-  const monthly =
-    data.repeat_monthly_rules && data.repeat_monthly_rules.length > 0
-      ? data.repeat_monthly_rules
-      : null
+    const monthly =
+      data.repeat_monthly_rules && data.repeat_monthly_rules.length > 0
+        ? data.repeat_monthly_rules
+        : null
 
-  const endDayOffset = data.end_day_offset ?? 0
+    const endDayOffset = data.end_day_offset ?? 0
 
-  const { data: series, error: seriesError } = await supabase
-    .from('visit_series')
-    .insert({
-      agency_id: agency.agency_id,
-      patient_id: data.patient_id,
-      primary_caregiver_member_id: data.caregiver_id ?? null,
-      contract_id: data.contract_id ?? null,
-      service_type: data.service_type ?? 'non_skilled',
-      series_name: data.type ?? null,
-      repeat_frequency: data.repeat_frequency ?? null,
-      days_of_week: data.days_of_week?.length ? data.days_of_week.map((n) => Number(n)) : null,
-      repeat_start: data.repeat_start,
-      repeat_end: data.repeat_end ?? null,
-      repeat_monthly_rules: monthly,
-      notes: data.notes ?? null,
-      status: 'active',
-      end_day_offset: endDayOffset,
-    })
-    .select('id')
-    .single()
+    const seriesInserted = await sql`
+      INSERT INTO visit_series (
+        agency_id, patient_id, primary_caregiver_member_id, contract_id, service_type,
+        series_name, repeat_frequency, days_of_week, repeat_start, repeat_end,
+        repeat_monthly_rules, notes, status, end_day_offset
+      ) VALUES (
+        ${agency.agency_id}, ${data.patient_id}, ${data.caregiver_id ?? null},
+        ${data.contract_id ?? null}, ${data.service_type ?? 'non_skilled'},
+        ${data.type ?? null}, ${data.repeat_frequency ?? null},
+        ${data.days_of_week?.length ? data.days_of_week.map(Number) : null},
+        ${data.repeat_start}, ${data.repeat_end ?? null},
+        ${monthly as unknown as string}, ${data.notes ?? null},
+        'active', ${endDayOffset}
+      )
+      RETURNING id
+    `
+    if (!seriesInserted.length) return { data: null, error: new Error('Failed to create visit series.') }
+    const seriesId = seriesInserted[0].id as string
 
-  if (seriesError || !series?.id) return { data: null, error: seriesError ?? { message: 'Failed to create visit series.' } }
-
-  const addDays = (dateStr: string, days: number): string => {
-    const d = new Date(dateStr + 'T12:00:00')
-    d.setDate(d.getDate() + days)
-    return d.toISOString().slice(0, 10)
-  }
-
-  const rows = data.dates.map((dateStr) => {
-    const utcParts = toUtcVisitParts(dateStr, data.start_time ?? null, data.end_time ?? null)
-    const instanceEndDate = endDayOffset > 0 ? addDays(dateStr, endDayOffset) : null
-    return {
-      agency_id: agency.agency_id,
-      visit_series_id: series.id,
-      patient_id: data.patient_id,
-      caregiver_member_id: data.caregiver_id ?? null,
-      contract_id: data.contract_id ?? null,
-      service_type: data.service_type ?? 'non_skilled',
-      visit_date: utcParts.visitDateUtc,
-      scheduled_start_time: utcParts.startTimeUtc,
-      scheduled_end_time: utcParts.endTimeUtc,
-      description: data.description ?? null,
-      notes: data.notes ?? null,
-      visit_type: data.type ?? null,
-      status: 'scheduled',
-      is_recurring: true,
-      patient_address_id: data.patient_address_id ?? null,
-      mileage_miles: data.mileage_miles ?? null,
-      ...(instanceEndDate ? { scheduled_end_date: instanceEndDate } : {}),
+    const addDays = (dateStr: string, days: number): string => {
+      const d = new Date(dateStr + 'T12:00:00')
+      d.setDate(d.getDate() + days)
+      return d.toISOString().slice(0, 10)
     }
-  })
 
-  const { data: visits, error: visitsError } = await supabase
-    .from('scheduled_visits')
-    .insert(rows)
-    .select(visitSelect)
+    const visitRows = data.dates.map((dateStr) => {
+      const utcParts = toUtcVisitParts(dateStr, data.start_time ?? null, data.end_time ?? null)
+      const instanceEndDate = endDayOffset > 0 ? addDays(dateStr, endDayOffset) : null
+      return {
+        agency_id: agency.agency_id,
+        visit_series_id: seriesId,
+        patient_id: data.patient_id,
+        caregiver_member_id: data.caregiver_id ?? null,
+        contract_id: data.contract_id ?? null,
+        service_type: data.service_type ?? 'non_skilled',
+        visit_date: utcParts.visitDateUtc,
+        scheduled_start_time: utcParts.startTimeUtc,
+        scheduled_end_time: utcParts.endTimeUtc,
+        description: data.description ?? null,
+        notes: data.notes ?? null,
+        visit_type: data.type ?? null,
+        status: 'scheduled',
+        is_recurring: true,
+        patient_address_id: data.patient_address_id ?? null,
+        mileage_miles: data.mileage_miles ?? null,
+        scheduled_end_date: instanceEndDate,
+      }
+    })
 
-  if (visitsError) return { data: null, error: visitsError }
-  const inserted = (visits ?? []) as ScheduledVisitDbRowWithTasks[]
-  await replaceVisitTasksForMany(
-    supabase,
-    agency.agency_id,
-    inserted.map((v) => v.id),
-    data.adl_codes
-  )
-  const codes = (data.adl_codes ?? []).filter(Boolean)
-  return { data: inserted.map((v) => toScheduleRow(v, codes)), error: null }
+    const inserted = await sql`
+      INSERT INTO scheduled_visits ${sql(visitRows)}
+      RETURNING
+        id, agency_id, patient_id, caregiver_member_id, contract_id, service_type,
+        visit_date, scheduled_start_time, scheduled_end_time, description, notes,
+        status_reason, visit_type, status, is_recurring, created_at, updated_at,
+        patient_address_id, mileage_miles, scheduled_end_date
+    `
+    const visits = inserted as unknown as ScheduledVisitDbRowWithTasks[]
+    await replaceVisitTasksForMany(
+      agency.agency_id,
+      visits.map((v) => v.id),
+      data.adl_codes
+    )
+    const codes = (data.adl_codes ?? []).filter(Boolean)
+    return { data: visits.map((v) => toScheduleRow(v, codes)), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Update a visit by id. */
 export async function updateSchedule(
-  supabase: Supabase,
   id: string,
   data: {
     date?: string
@@ -602,78 +665,83 @@ export async function updateSchedule(
     status?: string | null
     end_date?: string | null
   }
-) {
-  const { data: existing, error: fetchErr } = await supabase
-    .from('scheduled_visits')
-    .select('id, agency_id, patient_id')
-    .eq('id', id)
-    .maybeSingle()
+): Promise<{ data: ScheduleRow | null; error: { message: string } | Error | null }> {
+  try {
+    const existingRows = await sql`
+      SELECT id, agency_id, patient_id FROM scheduled_visits WHERE id = ${id} LIMIT 1
+    `
+    if (!existingRows.length) return { data: null, error: { message: 'Visit not found or not accessible.' } }
+    const ex = existingRows[0] as any
 
-  if (fetchErr) return { data: null, error: fetchErr }
-  if (!existing) return { data: null, error: { message: 'Visit not found or not accessible.' } }
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (data.date !== undefined || data.start_time !== undefined || data.end_time !== undefined) {
+      const currentRows = await sql`
+        SELECT visit_date, scheduled_start_time, scheduled_end_time
+        FROM scheduled_visits WHERE id = ${id} LIMIT 1
+      `
+      if (!currentRows.length) return { data: null, error: { message: 'Visit not found or not accessible.' } }
+      const currentRow = currentRows[0] as any
 
-  const ex = existing as { id: string; agency_id: string; patient_id: string }
-
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (data.date !== undefined || data.start_time !== undefined || data.end_time !== undefined) {
-    const { data: currentRow, error: currentErr } = await supabase
-      .from('scheduled_visits')
-      .select('visit_date, scheduled_start_time, scheduled_end_time')
-      .eq('id', id)
-      .maybeSingle()
-    if (currentErr) return { data: null, error: currentErr }
-    if (!currentRow) return { data: null, error: { message: 'Visit not found or not accessible.' } }
-
-    const localCurrent = toLocalVisitParts(
-      String((currentRow as { visit_date: string }).visit_date),
-      ((currentRow as { scheduled_start_time?: string | null }).scheduled_start_time ?? null),
-      ((currentRow as { scheduled_end_time?: string | null }).scheduled_end_time ?? null)
-    )
-    const localDate = data.date ?? localCurrent.visitDateLocal
-    const localStart = data.start_time !== undefined ? data.start_time : localCurrent.startTimeLocal
-    const localEnd = data.end_time !== undefined ? data.end_time : localCurrent.endTimeLocal
-    const utcParts = toUtcVisitParts(localDate, localStart ?? null, localEnd ?? null)
-    patch.visit_date = utcParts.visitDateUtc
-    patch.scheduled_start_time = utcParts.startTimeUtc
-    patch.scheduled_end_time = utcParts.endTimeUtc
-  }
-  if (data.description !== undefined) patch.description = data.description
-  if (data.type !== undefined) patch.visit_type = data.type
-  if (data.caregiver_id !== undefined) patch.caregiver_member_id = data.caregiver_id
-  if (data.contract_id !== undefined) patch.contract_id = data.contract_id
-  if (data.service_type !== undefined) patch.service_type = data.service_type
-  if (data.notes !== undefined) patch.notes = data.notes
-  if (data.status_reason !== undefined) patch.status_reason = data.status_reason
-  if (data.is_recurring !== undefined) patch.is_recurring = data.is_recurring
-  if (data.status !== undefined) {
-    patch.status = data.status === null || data.status === '' ? 'scheduled' : data.status
-  }
-  if (data.end_date !== undefined) {
-    patch.scheduled_end_date = (data.end_date && data.date && data.end_date > data.date) ? data.end_date : null
-  }
-
-  const { data: visit, error } = await supabase
-    .from('scheduled_visits')
-    .update(patch)
-    .eq('id', id)
-    .select(visitSelectWithTasks)
-    .maybeSingle()
-
-  if (error) return { data: null, error }
-  if (!visit) {
-    return {
-      data: null,
-      error: { message: 'Visit could not be updated. It may not exist or you may not have permission.' },
+      const localCurrent = toLocalVisitParts(
+        String(currentRow.visit_date),
+        currentRow.scheduled_start_time ?? null,
+        currentRow.scheduled_end_time ?? null
+      )
+      const localDate = data.date ?? localCurrent.visitDateLocal
+      const localStart = data.start_time !== undefined ? data.start_time : localCurrent.startTimeLocal
+      const localEnd = data.end_time !== undefined ? data.end_time : localCurrent.endTimeLocal
+      const utcParts = toUtcVisitParts(localDate, localStart ?? null, localEnd ?? null)
+      patch.visit_date = utcParts.visitDateUtc
+      patch.scheduled_start_time = utcParts.startTimeUtc
+      patch.scheduled_end_time = utcParts.endTimeUtc
     }
-  }
-  const v = visit as unknown as ScheduledVisitDbRowWithTasks
+    if (data.description !== undefined) patch.description = data.description
+    if (data.type !== undefined) patch.visit_type = data.type
+    if (data.caregiver_id !== undefined) patch.caregiver_member_id = data.caregiver_id
+    if (data.contract_id !== undefined) patch.contract_id = data.contract_id
+    if (data.service_type !== undefined) patch.service_type = data.service_type
+    if (data.notes !== undefined) patch.notes = data.notes
+    if (data.status_reason !== undefined) patch.status_reason = data.status_reason
+    if (data.is_recurring !== undefined) patch.is_recurring = data.is_recurring
+    if (data.status !== undefined) {
+      patch.status = data.status === null || data.status === '' ? 'scheduled' : data.status
+    }
+    if (data.end_date !== undefined) {
+      patch.scheduled_end_date = (data.end_date && data.date && data.end_date > data.date) ? data.end_date : null
+    }
 
-  if (data.adl_codes !== undefined) {
-    await replaceVisitTasks(supabase, ex.agency_id, id, data.adl_codes)
-    return { data: toScheduleRow(v as ScheduledVisitDbRow, data.adl_codes.filter(Boolean)), error: null }
-  }
+    const updatedRows = await sql`
+      UPDATE scheduled_visits
+      SET ${sql(patch, ...Object.keys(patch) as [string, ...string[]])}
+      WHERE id = ${id}
+      RETURNING
+        id, agency_id, patient_id, caregiver_member_id, contract_id, service_type,
+        visit_date, scheduled_start_time, scheduled_end_time, description, notes,
+        status_reason, visit_type, status, is_recurring, created_at, updated_at,
+        patient_address_id, mileage_miles, scheduled_end_date
+    `
+    if (!updatedRows.length) {
+      return {
+        data: null,
+        error: { message: 'Visit could not be updated. It may not exist or you may not have permission.' },
+      }
+    }
+    const v = updatedRows[0] as ScheduledVisitDbRowWithTasks
 
-  return { data: mapVisitsToScheduleRows([v])[0] ?? null, error: null }
+    if (data.adl_codes !== undefined) {
+      await replaceVisitTasks(ex.agency_id, id, data.adl_codes)
+      return { data: toScheduleRow(v as ScheduledVisitDbRow, data.adl_codes.filter(Boolean)), error: null }
+    }
+
+    // Fetch tasks for mapping
+    const taskRows = await sql`
+      SELECT legacy_task_code, sort_order FROM scheduled_visit_tasks WHERE scheduled_visit_id = ${id}
+    `
+    v.scheduled_visit_tasks = taskRows as unknown as ScheduledVisitTaskNested[]
+    return { data: mapVisitsToScheduleRows([v])[0] ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 export type RecurringUpdateScope =
@@ -687,78 +755,100 @@ export type RecurringUpdateScope =
  * Uses local-date semantics for scope filters to match UI date pickers.
  */
 export async function updateRecurringSchedulesByScope(
-  supabase: Supabase,
   data: {
     seed_schedule_id: string
     scope: RecurringUpdateScope
     apply_from_date?: string | null
-    patch: Parameters<typeof updateSchedule>[2]
+    patch: Parameters<typeof updateSchedule>[1]
   }
 ): Promise<{ updated_ids: string[]; error: { message: string } | null }> {
-  const { data: seed, error: seedErr } = await supabase
-    .from('scheduled_visits')
-    .select('id, visit_series_id, visit_date, scheduled_start_time, scheduled_end_time')
-    .eq('id', data.seed_schedule_id)
-    .single()
-  if (seedErr || !seed) return { updated_ids: [], error: { message: seedErr?.message || 'Seed visit not found.' } }
-
-  const seedSeriesId = (seed as { visit_series_id?: string | null }).visit_series_id ?? null
-  if (!seedSeriesId || data.scope === 'this_visit') {
-    const one = await updateSchedule(supabase, data.seed_schedule_id, data.patch)
-    if (one.error) return { updated_ids: [], error: { message: one.error.message || 'Failed to update visit.' } }
-    return { updated_ids: [data.seed_schedule_id], error: null }
-  }
-
-  const seedLocal = toLocalVisitParts(
-    String((seed as { visit_date: string }).visit_date),
-    (seed as { scheduled_start_time?: string | null }).scheduled_start_time ?? null,
-    (seed as { scheduled_end_time?: string | null }).scheduled_end_time ?? null
-  )
-  const fromDate = data.apply_from_date?.trim() || seedLocal.visitDateLocal
-  const seedWeekday = new Date(`${seedLocal.visitDateLocal}T12:00:00`).getDay()
-
-  let seriesQuery = supabase
-    .from('scheduled_visits')
-    .select('id, visit_date, scheduled_start_time, scheduled_end_time')
-    .eq('visit_series_id', seedSeriesId)
-  // Push date / id predicates to DB where possible; weekday must still be filtered in JS
-  if (data.scope === 'this_and_future') seriesQuery = seriesQuery.gte('visit_date', fromDate)
-
-  const { data: rows, error: rowsErr } = await seriesQuery
-  if (rowsErr) return { updated_ids: [], error: { message: rowsErr.message || 'Failed to load recurring visits.' } }
-
-  const ids = (rows ?? [])
-    .filter((r) => {
-      if (data.scope === 'all_in_series' || data.scope === 'this_and_future') return true
-      if (data.scope === 'weekday_in_series') {
-        const local = toLocalVisitParts(
-          String((r as { visit_date: string }).visit_date),
-          (r as { scheduled_start_time?: string | null }).scheduled_start_time ?? null,
-          (r as { scheduled_end_time?: string | null }).scheduled_end_time ?? null
-        )
-        return new Date(`${local.visitDateLocal}T12:00:00`).getDay() === seedWeekday
-      }
-      return String((r as { id: string }).id) === data.seed_schedule_id
-    })
-    .map((r) => String((r as { id: string }).id))
-
-  if (ids.length === 0) return { updated_ids: [], error: null }
-
-  const updated: string[] = []
-  for (const id of ids) {
-    const res = await updateSchedule(supabase, id, data.patch)
-    if (res.error) {
-      return {
-        updated_ids: updated,
-        error: { message: res.error.message || `Failed while updating recurring visits (id=${id}).` },
-      }
+  try {
+    const seedRows = await sql`
+      SELECT id, visit_series_id, visit_date, scheduled_start_time, scheduled_end_time
+      FROM scheduled_visits WHERE id = ${data.seed_schedule_id} LIMIT 1
+    `
+    if (!seedRows.length) return { updated_ids: [], error: { message: 'Seed visit not found.' } }
+    const seed = seedRows[0] as {
+      id: string
+      visit_series_id?: string | null
+      visit_date: string
+      scheduled_start_time?: string | null
+      scheduled_end_time?: string | null
     }
-    updated.push(id)
+
+    const seedSeriesId = seed.visit_series_id ?? null
+    if (!seedSeriesId || data.scope === 'this_visit') {
+      const one = await updateSchedule(data.seed_schedule_id, data.patch)
+      if (one.error) return { updated_ids: [], error: { message: (one.error as { message?: string }).message || 'Failed to update visit.' } }
+      return { updated_ids: [data.seed_schedule_id], error: null }
+    }
+
+    const seedLocal = toLocalVisitParts(
+      String(seed.visit_date),
+      seed.scheduled_start_time ?? null,
+      seed.scheduled_end_time ?? null
+    )
+    const fromDate = data.apply_from_date?.trim() || seedLocal.visitDateLocal
+    const seedWeekday = new Date(`${seedLocal.visitDateLocal}T12:00:00`).getDay()
+
+    let seriesRows: Array<{ id: string; visit_date: string; scheduled_start_time?: string | null; scheduled_end_time?: string | null }>
+    if (data.scope === 'this_and_future') {
+      seriesRows = (await sql`
+        SELECT id, visit_date, scheduled_start_time, scheduled_end_time
+        FROM scheduled_visits
+        WHERE visit_series_id = ${seedSeriesId}
+          AND visit_date >= ${fromDate}
+      `) as typeof seriesRows
+    } else {
+      seriesRows = (await sql`
+        SELECT id, visit_date, scheduled_start_time, scheduled_end_time
+        FROM scheduled_visits
+        WHERE visit_series_id = ${seedSeriesId}
+      `) as typeof seriesRows
+    }
+
+    const ids = seriesRows
+      .filter((r) => {
+        if (data.scope === 'all_in_series' || data.scope === 'this_and_future') return true
+        if (data.scope === 'weekday_in_series') {
+          const local = toLocalVisitParts(
+            String(r.visit_date),
+            r.scheduled_start_time ?? null,
+            r.scheduled_end_time ?? null
+          )
+          return new Date(`${local.visitDateLocal}T12:00:00`).getDay() === seedWeekday
+        }
+        return String(r.id) === data.seed_schedule_id
+      })
+      .map((r) => String(r.id))
+
+    if (ids.length === 0) return { updated_ids: [], error: null }
+
+    const updated: string[] = []
+    for (const visitId of ids) {
+      const res = await updateSchedule(visitId, data.patch)
+      if (res.error) {
+        return {
+          updated_ids: updated,
+          error: { message: (res.error as { message?: string }).message || `Failed while updating recurring visits (id=${visitId}).` },
+        }
+      }
+      updated.push(visitId)
+    }
+    return { updated_ids: updated, error: null }
+  } catch (err) {
+    return { updated_ids: [], error: { message: (err as Error).message || 'Unexpected error.' } }
   }
-  return { updated_ids: updated, error: null }
 }
 
 /** Delete a visit by id (cascade removes scheduled_visit_tasks). */
-export async function deleteSchedule(supabase: Supabase, id: string) {
-  return supabase.from('scheduled_visits').delete().eq('id', id)
+export async function deleteSchedule(
+  id: string
+): Promise<{ data: null; error: Error | null }> {
+  try {
+    await sql`DELETE FROM scheduled_visits WHERE id = ${id}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }

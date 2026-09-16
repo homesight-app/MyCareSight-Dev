@@ -7,7 +7,7 @@ import { formatDateShort } from '@/lib/format-date'
 import { Upload, X, FileText, Calendar } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { useSession } from 'next-auth/react'
 
 interface UploadLicenseDocumentModalProps {
@@ -113,7 +113,7 @@ export default function UploadLicenseDocumentModal({
         documentData.expiry_date = expiryDate
       }
 
-      const { error: insertError } = await q.insertLicenseDocument(supabase, documentData)
+      const { error: insertError } = await q.insertLicenseDocument(documentData)
       if (insertError) {
         // If insert fails, try to delete the uploaded file
         await fetch('/api/storage/upload', {
@@ -126,7 +126,7 @@ export default function UploadLicenseDocumentModal({
 
       // Update license expiry date if document has expiry date
       if (expiryDate) {
-        const { error: updateLicenseError } = await q.updateLicenseById(supabase, licenseId, { expiry_date: expiryDate })
+        const { error: updateLicenseError } = await q.updateLicenseById(licenseId, { expiry_date: expiryDate })
 
         if (updateLicenseError) {
           console.error('Error updating license expiry date:', updateLicenseError)

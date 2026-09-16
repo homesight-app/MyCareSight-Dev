@@ -26,8 +26,8 @@ export default async function BillingPage({
     pricingResult,
   ] = await Promise.all([
     getCachedAgenciesForBilling(),
-    q.getStaffMembersWithAgencyActive(supabase),
-    q.getCasesOrderedByStartedDate(supabase),
+    q.getStaffMembersWithAgencyActive(),
+    q.getCasesOrderedByStartedDate(),
     getCachedLicenseTypesForBilling(),
     getPricingForMonth(selectedYear, selectedMonth),
   ])

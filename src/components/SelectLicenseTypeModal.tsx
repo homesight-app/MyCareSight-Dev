@@ -8,7 +8,7 @@ import SearchInput from '@/components/ui/SearchInput'
 import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 
 interface SelectLicenseTypeModalProps {
   isOpen: boolean
@@ -148,9 +148,9 @@ export default function SelectLicenseTypeModal({
       const supabase = createClient()
 
       const [licenseResult, playbookResult, categoryResult] = await Promise.all([
-        q.getLicenseTypes(supabase, { state, isActive: true }),
-        q.getStandalonePlaybooksByState(supabase, state),
-        q.getConfigurationValuesWithSubcategories(supabase, 'PLAYBOOK_CATEGORY'),
+        q.getLicenseTypes({ state, isActive: true }),
+        q.getStandalonePlaybooksByState(state),
+        q.getConfigurationValuesWithSubcategories('PLAYBOOK_CATEGORY'),
       ])
 
       if (licenseResult.error) throw licenseResult.error

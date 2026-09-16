@@ -6,7 +6,7 @@ import Modal from './Modal'
 import { Heart, Users, MapPin, DollarSign, Clock, RefreshCw, CheckCircle2, ArrowRight } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { LicenseType } from '@/types/license'
 import { createApplicationForAgency } from '@/app/actions/applications'
 import { useSession } from 'next-auth/react'
@@ -72,7 +72,7 @@ export default function ReviewLicenseRequestModal({
 
       const todayStr = new Date().toISOString().split('T')[0]
 
-      const { data: application, error: insertError } = await q.insertApplication(supabase, {
+      const { data: application, error: insertError } = await q.insertApplication({
         company_owner_id: user.id,
         application_name: licenseType.name,
         state: state,
@@ -89,9 +89,7 @@ export default function ReviewLicenseRequestModal({
         return
       }
 
-      const { error: rpcError } = await q.rpcCopyExpertStepsToApplication(
-        supabase,
-        application!.id,
+      const { error: rpcError } = await q.rpcCopyExpertStepsToApplication(application!.id,
         state,
         licenseType.name
       )

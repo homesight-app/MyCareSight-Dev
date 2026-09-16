@@ -5,7 +5,7 @@ import { CheckCircle2, Clock, DollarSign, Calendar, Loader2, Plus, Save, X, File
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { 
   createStep, 
@@ -349,9 +349,9 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
       // const [stepsResult, docsResult, templatesResult] = await Promise.all([
       // Load steps, documents, and expert steps (expert steps live in application_steps)
       const [stepsResult, docsResult, templatesResult, expertResult] = await Promise.all([
-        q.getRegularStepsFromRequirement(supabase, reqId),
-        q.getDocumentsFromRequirement(supabase, reqId),
-        q.getTemplatesFromRequirement(supabase, reqId),
+        q.getRegularStepsFromRequirement(reqId),
+        q.getDocumentsFromRequirement(reqId),
+        q.getTemplatesFromRequirement(reqId),
         getExpertStepsFromRequirement(reqId),
       ])
 

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { MapPin, Save } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { useRouter } from 'next/navigation'
 import ModalWrapper from './Modal'
 
@@ -74,7 +74,7 @@ export default function EditCaregiverHomeAddressModal({
       const newAddress = [streetAddress.trim(), city.trim()].filter(Boolean).join(', ')
 
       const supabase = createClient()
-      const { error: updateError } = await q.updateStaffMember(supabase, caregiver.id, {
+      const { error: updateError } = await q.updateStaffMember(caregiver.id, {
         address: newAddress,
         state: state || null,
         zip_code: zipCode || null,

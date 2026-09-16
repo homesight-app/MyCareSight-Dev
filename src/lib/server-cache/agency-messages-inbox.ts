@@ -1,5 +1,4 @@
-import { unstable_cache } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
+﻿import { unstable_cache } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import { CACHE_TAG_AGENCY_MESSAGES_INBOX } from '@/lib/cache-tags'
 
@@ -18,23 +17,21 @@ export type AgencyMessagesInboxPayload =
   | { ok: false; reason: 'no_client' }
 
 async function loadAgencyMessagesInboxUncached(viewerUserId: string): Promise<AgencyMessagesInboxPayload> {
-  const supabase = createAdminClient()
-
-  const { data: client, error: clientError } = await q.getClientByCompanyOwnerId(supabase, viewerUserId)
+  const { data: client, error: clientError } = await q.getClientByCompanyOwnerId(viewerUserId)
   if (clientError || !client) {
     return { ok: false, reason: 'no_client' }
   }
 
-  const { data: conversationsData } = await q.getConversationsByClientId(supabase, client.id)
+  const { data: conversationsData } = await q.getConversationsByClientId(client.id)
   const conversations = conversationsData ?? []
 
-  const { data: adminProfile } = await q.getFirstAdminUserId(supabase)
+  const { data: adminProfile } = await q.getFirstAdminUserId()
   const adminUserId = adminProfile?.id ?? null
 
   const conversationIds = conversations.map((c) => c.id)
   const { data: unreadRpcRows } =
     conversationIds.length > 0
-      ? await q.rpcCountUnreadMessagesForUser(supabase, conversationIds, viewerUserId)
+      ? await q.rpcCountUnreadMessagesForUser(conversationIds, viewerUserId)
       : { data: [] }
 
   const unreadCountsByConv: Record<string, number> = {}
@@ -46,7 +43,7 @@ async function loadAgencyMessagesInboxUncached(viewerUserId: string): Promise<Ag
 
   const expertRecordIds = conversations.map((c) => c.expert_id).filter(Boolean) as string[]
   const { data: expertRecordsData } =
-    expertRecordIds.length > 0 ? await q.getLicensingExpertsByIds(supabase, expertRecordIds) : { data: [] }
+    expertRecordIds.length > 0 ? await q.getLicensingExpertsByIds(expertRecordIds) : { data: [] }
   type ExpertRow = { id: string; user_id?: string; first_name?: string; last_name?: string }
   const expertRecords = (expertRecordsData ?? []) as unknown as ExpertRow[]
 

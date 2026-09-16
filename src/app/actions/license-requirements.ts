@@ -1,6 +1,5 @@
-'use server'
+﻿'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 
@@ -28,12 +27,11 @@ export interface CreateExpertStepData {
 }
 
 export async function createStep(data: CreateStepData) {
-  const supabase = createAdminClient()
 
-  const { data: existingSteps } = await q.getMaxStepOrderRegular(supabase, data.licenseRequirementId)
+  const { data: existingSteps } = await q.getMaxStepOrderRegular(data.licenseRequirementId)
   const nextOrder = existingSteps && existingSteps.length > 0 ? existingSteps[0].step_order + 1 : 1
 
-  const { data: step, error } = await q.insertStep(supabase, {
+  const { data: step, error } = await q.insertStep({
     license_requirement_id: data.licenseRequirementId,
     step_name: data.stepName,
     step_order: nextOrder,
@@ -53,9 +51,8 @@ export async function createStep(data: CreateStepData) {
 }
 
 export async function createDocument(data: CreateDocumentData) {
-  const supabase = createAdminClient()
 
-  const { data: document, error } = await q.insertDocument(supabase, {
+  const { data: document, error } = await q.insertDocument({
     license_requirement_id: data.licenseRequirementId,
     document_name: data.documentName,
     description: data.description || null,
@@ -73,12 +70,11 @@ export async function createDocument(data: CreateDocumentData) {
 // Expert steps in License Requirements are a template only. They are copied to application_steps
 // when an application is created; changes here do not affect existing applications.
 export async function createExpertStep(data: CreateExpertStepData) {
-  const supabase = createAdminClient()
 
-  const { data: existingSteps } = await q.getMaxStepOrderExpert(supabase, data.licenseRequirementId)
+  const { data: existingSteps } = await q.getMaxStepOrderExpert(data.licenseRequirementId)
   const nextOrder = existingSteps?.length ? existingSteps[0].step_order + 1 : 1
 
-  const { data: step, error } = await q.insertStep(supabase, {
+  const { data: step, error } = await q.insertStep({
     license_requirement_id: data.licenseRequirementId,
     step_name: data.stepTitle,
     step_order: nextOrder,
@@ -100,9 +96,8 @@ export async function createExpertStep(data: CreateExpertStepData) {
 
 // Update functions
 export async function updateStep(id: string, data: { stepName: string; description: string; estimatedDays?: number; isRequired: boolean }) {
-  const supabase = createAdminClient()
 
-  const { data: step, error } = await q.updateStep(supabase, id, {
+  const { data: step, error } = await q.updateStep(id, {
     step_name: data.stepName,
     description: data.description || null,
     estimated_days: data.estimatedDays ?? null,
@@ -119,9 +114,8 @@ export async function updateStep(id: string, data: { stepName: string; descripti
 
 /** Reorder steps for a requirement. orderedStepIds = step ids in desired order (1-based step_order). Only non-expert steps. */
 export async function reorderSteps(licenseRequirementId: string, orderedStepIds: string[]) {
-  const supabase = createAdminClient()
   for (let i = 0; i < orderedStepIds.length; i++) {
-    const { error } = await q.updateStepOrder(supabase, orderedStepIds[i], licenseRequirementId, i + 1)
+    const { error } = await q.updateStepOrder(orderedStepIds[i], licenseRequirementId, i + 1)
     if (error) {
       return { error: error.message }
     }
@@ -131,9 +125,8 @@ export async function reorderSteps(licenseRequirementId: string, orderedStepIds:
 }
 
 export async function updateDocument(id: string, data: { documentName: string; description: string; isRequired: boolean }) {
-  const supabase = createAdminClient()
 
-  const { data: document, error } = await q.updateDocument(supabase, id, {
+  const { data: document, error } = await q.updateDocument(id, {
     document_name: data.documentName,
     description: data.description || null,
     is_required: data.isRequired,
@@ -148,9 +141,8 @@ export async function updateDocument(id: string, data: { documentName: string; d
 }
 
 export async function updateExpertStep(id: string, data: { phase: string; stepTitle: string; description: string }) {
-  const supabase = createAdminClient()
 
-  const { data: step, error } = await q.updateExpertStepInApplication(supabase, id, {
+  const { data: step, error } = await q.updateExpertStepInApplication(id, {
     step_name: data.stepTitle,
     description: data.description ?? null,
     phase: data.phase || null,
@@ -169,9 +161,8 @@ export async function updateExpertStepTemplate(
   stepId: string,
   data: { phase: string; stepTitle: string; description: string }
 ) {
-  const supabase = createAdminClient()
 
-  const { data: step, error } = await q.updateExpertStepTemplate(supabase, stepId, {
+  const { data: step, error } = await q.updateExpertStepTemplate(stepId, {
     step_name: data.stepTitle,
     description: data.description ?? null,
     phase: data.phase || null,
@@ -184,9 +175,8 @@ export async function updateExpertStepTemplate(
 
 // Delete functions
 export async function deleteStep(id: string) {
-  const supabase = createAdminClient()
 
-  const { error } = await q.deleteStepById(supabase, id)
+  const { error } = await q.deleteStepById(id)
 
   if (error) {
     return { error: error.message }
@@ -197,9 +187,8 @@ export async function deleteStep(id: string) {
 }
 
 export async function deleteDocument(id: string) {
-  const supabase = createAdminClient()
 
-  const { error } = await q.deleteDocumentById(supabase, id)
+  const { error } = await q.deleteDocumentById(id)
 
   if (error) {
     return { error: error.message }
@@ -210,9 +199,8 @@ export async function deleteDocument(id: string) {
 }
 
 export async function deleteExpertStep(id: string) {
-  const supabase = createAdminClient()
 
-  const { error } = await q.deleteExpertStepInApplication(supabase, id)
+  const { error } = await q.deleteExpertStepInApplication(id)
 
   if (error) {
     return { error: error.message }
@@ -224,9 +212,8 @@ export async function deleteExpertStep(id: string) {
 
 // Delete expert step template (license_requirement_steps). Does not touch application_steps.
 export async function deleteExpertStepTemplate(stepId: string) {
-  const supabase = createAdminClient()
 
-  const { error } = await q.deleteExpertStepTemplateById(supabase, stepId)
+  const { error } = await q.deleteExpertStepTemplateById(stepId)
 
   if (error) return { error: error.message }
   revalidatePath('/pages/admin/license-requirements')
@@ -234,8 +221,7 @@ export async function deleteExpertStepTemplate(stepId: string) {
 }
 
 export async function getLicenseRequirementId(state: string, licenseTypeName: string) {
-  const supabase = createAdminClient()
-  const result = await q.getOrCreateLicenseRequirement(supabase, state, licenseTypeName)
+  const result = await q.getOrCreateLicenseRequirement(state, licenseTypeName)
   if ('error' in result) return { error: result.error, data: null }
   return { error: null, data: result.id }
 }
@@ -254,14 +240,13 @@ export async function getExpertStepTemplates(
   licenseTypeName: string
 ): Promise<{ steps: ExpertStepTemplate[] | null; error: string | null }> {
   try {
-    const supabase = createAdminClient()
-    const reqResult = await q.getOrCreateLicenseRequirement(supabase, state, licenseTypeName)
+    const reqResult = await q.getOrCreateLicenseRequirement(state, licenseTypeName)
     if ('error' in reqResult) {
       return { steps: null, error: String(reqResult.error) }
     }
     const requirementId = reqResult.id
 
-    const { data: templateSteps, error: fetchError } = await q.getExpertStepTemplatesByRequirementId(supabase, requirementId)
+    const { data: templateSteps, error: fetchError } = await q.getExpertStepTemplatesByRequirementId(requirementId)
 
     if (fetchError) {
       return { steps: null, error: String(fetchError.message) }
@@ -292,16 +277,15 @@ export async function copyExpertStepsFromRequirementToApplication(
   licenseTypeName: string
 ): Promise<{ error: string | null }> {
   try {
-    const supabase = createAdminClient()
 
-    const { data: existing } = await q.getExistingExpertStepsForApplication(supabase, applicationId)
+    const { data: existing } = await q.getExistingExpertStepsForApplication(applicationId)
     if (existing?.length) return { error: null }
 
-    const reqResult = await q.getOrCreateLicenseRequirement(supabase, state, licenseTypeName)
+    const reqResult = await q.getOrCreateLicenseRequirement(state, licenseTypeName)
     if ('error' in reqResult) return { error: String(reqResult.error) }
     const requirementId = reqResult.id
 
-    const { data: templateSteps, error: fetchError } = await q.getExpertStepTemplatesByRequirementId(supabase, requirementId)
+    const { data: templateSteps, error: fetchError } = await q.getExpertStepTemplatesByRequirementId(requirementId)
 
     if (fetchError) return { error: String(fetchError.message) }
     if (!templateSteps?.length) return { error: null }
@@ -317,7 +301,7 @@ export async function copyExpertStepsFromRequirementToApplication(
       is_completed: false,
     }))
 
-    const { error: insertError } = await q.insertApplicationExpertSteps(supabase, rows)
+    const { error: insertError } = await q.insertApplicationExpertSteps(rows)
     if (insertError) return { error: String(insertError.message) }
     return { error: null }
   } catch (e) {
@@ -328,9 +312,8 @@ export async function copyExpertStepsFromRequirementToApplication(
 
 // Get all license requirements for copying
 export async function getAllLicenseRequirements() {
-  const supabase = createAdminClient()
 
-  const { data: requirements, error } = await q.getAllLicenseRequirements(supabase)
+  const { data: requirements, error } = await q.getAllLicenseRequirements()
 
   if (error) {
     return { error: error.message, data: null }
@@ -341,9 +324,8 @@ export async function getAllLicenseRequirements() {
 
 // Get steps from a license requirement
 export async function getStepsFromRequirement(requirementId: string) {
-  const supabase = createAdminClient()
 
-  const { data: steps, error } = await q.getStepsFromRequirement(supabase, requirementId)
+  const { data: steps, error } = await q.getStepsFromRequirement(requirementId)
 
   if (error) {
     return { error: error.message, data: null }
@@ -368,9 +350,8 @@ export type StepWithRequirementInfo = {
 // Get all steps across all license requirements with state and license_type (for Browse All Steps modal).
 // Optionally exclude steps belonging to currentRequirementId so the current license's steps are not listed.
 export async function getAllStepsWithRequirementInfo(currentRequirementId?: string | null): Promise<{ error: string | null; data: StepWithRequirementInfo[] | null }> {
-  const supabase = createAdminClient()
 
-  const { data: rows, error } = await q.getAllStepsWithRequirementInfo(supabase, currentRequirementId)
+  const { data: rows, error } = await q.getAllStepsWithRequirementInfo(currentRequirementId)
 
   if (error) {
     return { error: error.message, data: null }
@@ -407,9 +388,8 @@ export type DocumentWithRequirementInfo = {
 }
 
 export async function getAllDocumentsWithRequirementInfo(currentRequirementId?: string | null): Promise<{ error: string | null; data: DocumentWithRequirementInfo[] | null }> {
-  const supabase = createAdminClient()
 
-  const { data: rows, error } = await q.getAllDocumentsWithRequirementInfo(supabase, currentRequirementId)
+  const { data: rows, error } = await q.getAllDocumentsWithRequirementInfo(currentRequirementId)
 
   if (error) {
     return { error: error.message, data: null }
@@ -434,9 +414,8 @@ export async function getAllDocumentsWithRequirementInfo(currentRequirementId?: 
 
 // Get documents from a license requirement
 export async function getDocumentsFromRequirement(requirementId: string) {
-  const supabase = createAdminClient()
 
-  const { data: documents, error } = await q.getDocumentsFromRequirement(supabase, requirementId)
+  const { data: documents, error } = await q.getDocumentsFromRequirement(requirementId)
 
   if (error) {
     return { error: error.message, data: null }
@@ -447,9 +426,8 @@ export async function getDocumentsFromRequirement(requirementId: string) {
 
 // Get templates from a license requirement
 export async function getTemplatesFromRequirement(requirementId: string) {
-  const supabase = createAdminClient()
 
-  const { data: templates, error } = await q.getTemplatesFromRequirement(supabase, requirementId)
+  const { data: templates, error } = await q.getTemplatesFromRequirement(requirementId)
 
   if (error) {
     return { error: error.message, data: null }
@@ -459,9 +437,8 @@ export async function getTemplatesFromRequirement(requirementId: string) {
 }
 
 export async function createTemplate(data: { licenseRequirementId: string; templateName: string; description: string; fileUrl: string; fileName: string }) {
-  const supabase = createAdminClient()
 
-  const { data: template, error } = await q.insertTemplate(supabase, {
+  const { data: template, error } = await q.insertTemplate({
     license_requirement_id: data.licenseRequirementId,
     template_name: data.templateName,
     description: data.description || null,
@@ -478,9 +455,8 @@ export async function createTemplate(data: { licenseRequirementId: string; templ
 }
 
 export async function updateTemplate(id: string, data: { templateName: string; description: string }) {
-  const supabase = createAdminClient()
 
-  const { data: template, error } = await q.updateTemplate(supabase, id, {
+  const { data: template, error } = await q.updateTemplate(id, {
     template_name: data.templateName,
     description: data.description || null,
   })
@@ -494,9 +470,8 @@ export async function updateTemplate(id: string, data: { templateName: string; d
 }
 
 export async function deleteTemplate(id: string) {
-  const supabase = createAdminClient()
 
-  const { error } = await q.deleteTemplateById(supabase, id)
+  const { error } = await q.deleteTemplateById(id)
 
   if (error) {
     return { error: error.message }
@@ -508,19 +483,19 @@ export async function deleteTemplate(id: string) {
 
 // Copy steps from one requirement to another
 export async function copySteps(targetRequirementId: string, sourceStepIds: string[]) {
-  const supabase = createAdminClient()
 
   if (sourceStepIds.length === 0) {
     return { error: 'No steps selected', data: null }
   }
 
-  const { data: sourceSteps, error: fetchError } = await q.getLicenseRequirementStepsByIds(supabase, sourceStepIds)
+  const { data: sourceSteps, error: fetchError } = await q.getLicenseRequirementStepsByIds(sourceStepIds)
 
   if (fetchError || !sourceSteps || sourceSteps.length === 0) {
     return { error: fetchError?.message || 'Failed to fetch source steps', data: null }
   }
 
-  const stepsToInsert = sourceSteps.map((step: { step_name: string; description: string | null; step_order?: number; estimated_days?: number | null; is_required?: boolean; is_expert_step?: boolean; phase?: string | null }) => ({
+  type StepRow = { step_name: string; description: string | null; step_order?: number; estimated_days?: number | null; is_required?: boolean; is_expert_step?: boolean; phase?: string | null }
+  const stepsToInsert = (sourceSteps as StepRow[]).map((step) => ({
     license_requirement_id: targetRequirementId,
     step_name: step.step_name,
     step_order: 0,
@@ -531,15 +506,15 @@ export async function copySteps(targetRequirementId: string, sourceStepIds: stri
     phase: step.phase ?? null,
   }))
 
-  const { data: existingExpert } = await q.getMaxStepOrderExpertForRequirement(supabase, targetRequirementId)
-  const { data: existingRequired } = await q.getMaxStepOrderRegularForRequirement(supabase, targetRequirementId)
+  const { data: existingExpert } = await q.getMaxStepOrderExpertForRequirement(targetRequirementId)
+  const { data: existingRequired } = await q.getMaxStepOrderRegularForRequirement(targetRequirementId)
   let nextExpertOrder = existingExpert?.length ? existingExpert[0].step_order + 1 : 1
   let nextRequiredOrder = existingRequired?.length ? existingRequired[0].step_order + 1 : 1
   stepsToInsert.forEach((s: { is_expert_step?: boolean; step_order: number }) => {
     s.step_order = s.is_expert_step ? nextExpertOrder++ : nextRequiredOrder++
   })
 
-  const { data: copiedSteps, error: insertError } = await q.insertLicenseRequirementSteps(supabase, stepsToInsert)
+  const { data: copiedSteps, error: insertError } = await q.insertLicenseRequirementSteps(stepsToInsert)
 
   if (insertError) {
     return { error: insertError.message, data: null }
@@ -551,19 +526,19 @@ export async function copySteps(targetRequirementId: string, sourceStepIds: stri
 
 // Copy documents from one requirement to another
 export async function copyDocuments(targetRequirementId: string, sourceDocumentIds: string[]) {
-  const supabase = createAdminClient()
 
   if (sourceDocumentIds.length === 0) {
     return { error: 'No documents selected', data: null }
   }
 
-  const { data: sourceDocuments, error: fetchError } = await q.getLicenseRequirementDocumentsByIds(supabase, sourceDocumentIds)
+  const { data: sourceDocuments, error: fetchError } = await q.getLicenseRequirementDocumentsByIds(sourceDocumentIds)
 
   if (fetchError || !sourceDocuments || sourceDocuments.length === 0) {
     return { error: fetchError?.message || 'Failed to fetch source documents', data: null }
   }
 
-  const documentsToInsert = sourceDocuments.map((doc: { document_name: string; document_type: string | null; description: string | null; is_required: boolean }) => ({
+  type DocRow = { document_name: string; document_type: string | null; description: string | null; is_required: boolean }
+  const documentsToInsert = (sourceDocuments as DocRow[]).map((doc) => ({
     license_requirement_id: targetRequirementId,
     document_name: doc.document_name,
     document_type: doc.document_type,
@@ -571,7 +546,7 @@ export async function copyDocuments(targetRequirementId: string, sourceDocumentI
     is_required: doc.is_required,
   }))
 
-  const { data: copiedDocuments, error: insertError } = await q.insertLicenseRequirementDocuments(supabase, documentsToInsert)
+  const { data: copiedDocuments, error: insertError } = await q.insertLicenseRequirementDocuments(documentsToInsert)
 
   if (insertError) {
     return { error: insertError.message, data: null }
@@ -583,9 +558,8 @@ export async function copyDocuments(targetRequirementId: string, sourceDocumentI
 
 // Get expert step templates for a license requirement (from license_requirement_steps). These are the template only; they are copied to applications at creation and are not synced to existing applications.
 export async function getExpertStepsFromRequirement(requirementId: string) {
-  const supabase = createAdminClient()
 
-  const { data: rows, error } = await q.getExpertStepsFromRequirement(supabase, requirementId)
+  const { data: rows, error } = await q.getExpertStepsFromRequirement(requirementId)
 
   if (error) return { error: error.message, data: null }
   return { error: null, data: rows || [] }
@@ -604,9 +578,8 @@ export type ExpertStepWithRequirementInfo = {
 }
 
 export async function getAllExpertStepsWithRequirementInfo(currentRequirementId?: string | null): Promise<{ error: string | null; data: ExpertStepWithRequirementInfo[] | null }> {
-  const supabase = createAdminClient()
 
-  const { data: rows, error } = await q.getApplicationStepsExpertWithAppId(supabase)
+  const { data: rows, error } = await q.getApplicationStepsExpertWithAppId()
 
   if (error) {
     return { error: error.message, data: null }
@@ -614,8 +587,8 @@ export async function getAllExpertStepsWithRequirementInfo(currentRequirementId?
 
   if (!rows?.length) return { error: null, data: [] }
 
-  const appIds = Array.from(new Set((rows as { application_id: string }[]).map((r) => r.application_id)))
-  const { data: apps } = await q.getApplicationsByIds(supabase, appIds)
+  const appIds = Array.from(new Set((rows as unknown as { application_id: string }[]).map((r) => r.application_id)))
+  const { data: apps } = await q.getApplicationsByIds(appIds)
   const appMap = new Map<string, { state: string; license_type_id: string | null }>()
   for (const a of apps || []) {
     appMap.set((a as { id: string }).id, {
@@ -624,7 +597,7 @@ export async function getAllExpertStepsWithRequirementInfo(currentRequirementId?
     })
   }
   const ltIds = Array.from(new Set(Array.from(appMap.values()).map((a) => a.license_type_id).filter(Boolean) as string[]))
-  const { data: lts } = await q.getLicenseTypesByIds(supabase, ltIds)
+  const { data: lts } = await q.getLicenseTypesByIds(ltIds)
   const ltMap = new Map<string, string>()
   for (const lt of lts || []) {
     ltMap.set((lt as { id: string }).id, (lt as { name: string }).name)
@@ -633,7 +606,7 @@ export async function getAllExpertStepsWithRequirementInfo(currentRequirementId?
   const steps: ExpertStepWithRequirementInfo[] = []
   const seen = new Set<string>()
 
-  for (const row of rows as { id: string; step_name: string; step_order: number; description: string | null; phase: string | null; application_id: string }[]) {
+  for (const row of rows as unknown as { id: string; step_name: string; step_order: number; description: string | null; phase: string | null; application_id: string }[]) {
     const app = appMap.get(row.application_id)
     if (!app?.license_type_id) continue
     const state = app.state
@@ -644,7 +617,7 @@ export async function getAllExpertStepsWithRequirementInfo(currentRequirementId?
     seen.add(key)
     let licenseRequirementId = reqIdByStateType.get(`${state}\n${licenseTypeName}`)
     if (licenseRequirementId == null) {
-      const { data: lr } = await q.getLicenseRequirementByStateAndTypeSingle(supabase, state, licenseTypeName)
+      const { data: lr } = await q.getLicenseRequirementByStateAndTypeSingle(state, licenseTypeName)
       licenseRequirementId = (lr as { id: string } | null)?.id ?? ''
       if (licenseRequirementId) reqIdByStateType.set(`${state}\n${licenseTypeName}`, licenseRequirementId)
     }
@@ -666,14 +639,13 @@ export async function getAllExpertStepsWithRequirementInfo(currentRequirementId?
 
 // Copy expert steps into the target requirement's template (license_requirement_steps). Source IDs may be from license_requirement_steps (Copy from requirement) or application_steps (Browse). Does not touch existing applications.
 export async function copyExpertSteps(targetRequirementId: string, sourceExpertStepIds: string[]) {
-  const supabase = createAdminClient()
 
   if (sourceExpertStepIds.length === 0) {
     return { error: 'No expert steps selected', data: null }
   }
 
-  const { data: fromTemplate, error: tErr } = await q.getExpertStepTemplatesFromRequirementByIds(supabase, sourceExpertStepIds)
-  const { data: fromApps, error: aErr } = await q.getApplicationStepsExpertByIds(supabase, sourceExpertStepIds)
+  const { data: fromTemplate, error: tErr } = await q.getExpertStepTemplatesFromRequirementByIds(sourceExpertStepIds)
+  const { data: fromApps, error: aErr } = await q.getApplicationStepsExpertByIds(sourceExpertStepIds)
 
   const sourceSteps = (fromTemplate || []).length > 0 ? fromTemplate : fromApps
   const fetchError = (fromTemplate || []).length > 0 ? tErr : aErr
@@ -690,7 +662,7 @@ export async function copyExpertSteps(targetRequirementId: string, sourceExpertS
     return true
   })
 
-  const { data: existingSteps } = await q.getMaxStepOrderExpertForRequirement(supabase, targetRequirementId)
+  const { data: existingSteps } = await q.getMaxStepOrderExpertForRequirement(targetRequirementId)
 
   let nextOrder = existingSteps?.length ? existingSteps[0].step_order + 1 : 1
 
@@ -703,7 +675,7 @@ export async function copyExpertSteps(targetRequirementId: string, sourceExpertS
     is_expert_step: true,
   }))
 
-  const { data: inserted, error: insertError } = await q.insertLicenseRequirementSteps(supabase, rows)
+  const { data: inserted, error: insertError } = await q.insertLicenseRequirementSteps(rows)
 
   if (insertError) return { error: insertError.message, data: null }
   revalidatePath('/pages/admin/license-requirements')
@@ -717,11 +689,10 @@ export async function copySelectedExpertStepsFromRequirementToApplication(
   stepIds: string[]
 ): Promise<{ error: string | null }> {
   if (!stepIds.length) return { error: 'No steps selected' }
-  const supabase = createAdminClient()
-  const { data: steps, error: fetchErr } = await q.getExpertStepsFromRequirementForCopy(supabase, requirementId, stepIds)
+  const { data: steps, error: fetchErr } = await q.getExpertStepsFromRequirementForCopy(requirementId, stepIds)
   if (fetchErr) return { error: fetchErr.message }
   if (!steps?.length) return { error: 'No expert steps found' }
-  const { data: existing } = await q.getMaxApplicationExpertStepOrder(supabase, applicationId)
+  const { data: existing } = await q.getMaxApplicationExpertStepOrder(applicationId)
   let nextOrder = existing?.length ? existing[0].step_order + 1 : 1
   const rows = steps.map((s) => ({
     application_id: applicationId,
@@ -732,7 +703,7 @@ export async function copySelectedExpertStepsFromRequirementToApplication(
     is_expert_step: true,
     is_completed: false,
   }))
-  const { error: insertErr } = await q.insertApplicationSteps(supabase, rows)
+  const { error: insertErr } = await q.insertApplicationSteps(rows)
   if (insertErr) return { error: insertErr.message }
   return { error: null }
 }
@@ -743,11 +714,10 @@ export async function copyExpertStepsFromApplicationStepsToApplication(
   sourceApplicationStepIds: string[]
 ): Promise<{ error: string | null }> {
   if (!sourceApplicationStepIds.length) return { error: 'No steps selected' }
-  const supabase = createAdminClient()
-  const { data: steps, error: fetchErr } = await q.getExpertStepsFromApplicationSteps(supabase, sourceApplicationStepIds)
+  const { data: steps, error: fetchErr } = await q.getExpertStepsFromApplicationSteps(sourceApplicationStepIds)
   if (fetchErr) return { error: fetchErr.message }
   if (!steps?.length) return { error: 'No expert steps found' }
-  const { data: existing } = await q.getMaxApplicationExpertStepOrder(supabase, applicationId)
+  const { data: existing } = await q.getMaxApplicationExpertStepOrder(applicationId)
   let nextOrder = existing?.length ? existing[0].step_order + 1 : 1
   const rows = steps.map((s) => ({
     application_id: applicationId,
@@ -758,7 +728,7 @@ export async function copyExpertStepsFromApplicationStepsToApplication(
     is_expert_step: true,
     is_completed: false,
   }))
-  const { error: insertErr } = await q.insertApplicationSteps(supabase, rows)
+  const { error: insertErr } = await q.insertApplicationSteps(rows)
   if (insertErr) return { error: insertErr.message }
   return { error: null }
 }

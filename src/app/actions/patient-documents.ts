@@ -1,8 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
+import { withUserContext } from '@/db'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
@@ -11,6 +12,17 @@ import { uploadFile, removeFiles } from '@/lib/storage/client'
 function revalidatePatientPages(patientId: string) {
   revalidatePath('/pages/agency/clients')
   revalidatePath(`/pages/agency/clients/${patientId}`)
+}
+
+function normalizeDocuments(value: unknown): PatientDocument[] {
+  return Array.isArray(value)
+    ? value.filter((doc): doc is PatientDocument =>
+        !!doc &&
+        typeof doc === 'object' &&
+        typeof (doc as PatientDocument).id === 'string' &&
+        typeof (doc as PatientDocument).path === 'string'
+      )
+    : []
 }
 
 /**
@@ -22,13 +34,27 @@ export async function uploadPatientDocumentsAction(
   formData: FormData,
   existingDocs: PatientDocument[]
 ): Promise<{ error: string | null; data: PatientDocument[] | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated', data: null }
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role ?? ''
+  const agencyId = session.profile?.agency_id ?? null
+  void existingDocs
 
   const files = formData.getAll('file') as File[]
   if (files.length === 0) return { error: 'No files provided', data: null }
+
+  // Authorize: verify patient belongs to viewer's agency BEFORE touching storage.
+  // withUserContext + patients RLS enforces agency isolation here.
+  const authorized = await withUserContext(session.user.id, role, agencyId, async () => {
+    const [row] = await sql<{ agency_id: string }[]>`
+      SELECT agency_id
+      FROM patients
+      WHERE id = ${patientId}
+      LIMIT 1
+    `
+    return row ? { agencyId: row.agency_id } : null
+  })
+  if (!authorized) return { error: 'Patient not found or not authorized', data: null }
 
   const uploadedPaths: string[] = []
   const newDocs: PatientDocument[] = []
@@ -48,31 +74,39 @@ export async function uploadPatientDocumentsAction(
     newDocs.push({ id: docId, name: file.name, path, uploaded_at: new Date().toISOString(), size: file.size })
   }
 
-  const nextDocs = [...existingDocs, ...newDocs]
-  const { error: updateErr } = await q.updatePatientDocuments(supabase, patientId, nextDocs)
-  if (updateErr) {
+  const updateResult = await withUserContext(session.user.id, role, agencyId, async () => {
+    const [row] = await sql<{ documents: unknown }[]>`
+      SELECT documents
+      FROM patients
+      WHERE id = ${patientId}
+      LIMIT 1
+      FOR UPDATE
+    `
+    if (!row) return { error: 'Patient not found or not authorized', data: null as PatientDocument[] | null }
+
+    const nextDocs = [...normalizeDocuments(row.documents), ...newDocs]
+    const { error } = await q.updatePatientDocuments(patientId, nextDocs)
+    if (error) return { error: error.message, data: null as PatientDocument[] | null }
+    return { error: null, data: nextDocs }
+  })
+  if (updateResult.error || !updateResult.data) {
     await removeFiles(STORAGE_BUCKET.PATIENT, uploadedPaths)
-    return { error: updateErr.message, data: null }
+    return { error: updateResult.error ?? 'Update failed', data: null }
   }
 
-  const { data: patient } = await supabase
-    .from('patients')
-    .select('agency_id')
-    .eq('id', patientId)
-    .maybeSingle()
-
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: patient?.agency_id ?? null,
+  // Audit: log only metadata — never log filenames or paths (PHI)
+  const { error: auditErr } = await q.insertAuditLog({
+    agency_id: authorized.agencyId,
     table_name: 'patients',
     record_id: patientId,
     action: 'UPDATE',
-    performed_by_user_id: user.id,
-    details: { field: 'documents', added: newDocs.length, total: nextDocs.length },
+    performed_by_user_id: session.user.id,
+    details: { field: 'documents', added: newDocs.length, total: updateResult.data.length },
   })
   if (auditErr) console.error('[patient-documents/upload] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
 
   revalidatePatientPages(patientId)
-  return { error: null, data: nextDocs }
+  return { error: null, data: updateResult.data }
 }
 
 /** Remove a single patient document from storage and persist the updated document list. */
@@ -81,29 +115,48 @@ export async function deletePatientDocumentAction(
   docPath: string,
   updatedDocs: PatientDocument[]
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated' }
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role ?? ''
+  const agencyId = session.profile?.agency_id ?? null
+  void updatedDocs
+
+  // Validate path is scoped to this patient (prevents path traversal)
+  if (!docPath.startsWith(`${patientId}/`)) return { error: 'Document not found' }
+
+  const updateResult = await withUserContext(session.user.id, role, agencyId, async () => {
+    const [row] = await sql<{ agency_id: string; documents: unknown }[]>`
+      SELECT agency_id, documents
+      FROM patients
+      WHERE id = ${patientId}
+      LIMIT 1
+      FOR UPDATE
+    `
+    if (!row?.agency_id) return { error: 'Patient not found or not authorized' }
+
+    const currentDocs = normalizeDocuments(row.documents)
+    if (!currentDocs.some((doc) => doc.path === docPath)) {
+      return { error: 'Document not found' }
+    }
+
+    const nextDocs = currentDocs.filter((doc) => doc.path !== docPath)
+    const { error } = await q.updatePatientDocuments(patientId, nextDocs)
+    if (error) return { error: error.message }
+
+    return { error: null, agencyId: row.agency_id, remaining: nextDocs.length }
+  })
+  if (updateResult.error) return { error: updateResult.error }
 
   await removeFiles(STORAGE_BUCKET.PATIENT, [docPath])
 
-  const { error: updateErr } = await q.updatePatientDocuments(supabase, patientId, updatedDocs)
-  if (updateErr) return { error: updateErr.message }
-
-  const { data: patient } = await supabase
-    .from('patients')
-    .select('agency_id')
-    .eq('id', patientId)
-    .maybeSingle()
-
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: patient?.agency_id ?? null,
+  // Audit: log only metadata — never log paths or filenames (PHI)
+  const { error: auditErr } = await q.insertAuditLog({
+    agency_id: updateResult.agencyId,
     table_name: 'patients',
     record_id: patientId,
     action: 'UPDATE',
-    performed_by_user_id: user.id,
-    details: { field: 'documents', operation: 'delete', deleted_path: docPath, remaining: updatedDocs.length },
+    performed_by_user_id: session.user.id,
+    details: { field: 'documents', operation: 'delete', remaining: updateResult.remaining },
   })
   if (auditErr) console.error('[patient-documents/delete] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
 

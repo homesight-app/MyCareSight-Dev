@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
 import {
@@ -335,16 +335,16 @@ export default function ExpertProgramView({
     const setup = async () => {
       setIsLoadingConversation(true)
       try {
-        const { data: existing } = await q.getConversationByApplicationId(supabase, applicationId)
+        const { data: existing } = await q.getConversationByApplicationId(applicationId)
         let convId = existing?.id ?? null
 
         if (!convId) {
-          const { data: created, error: cErr } = await q.insertConversation(supabase, {
+          const { data: created, error: cErr } = await q.insertConversation({
             client_id: null,
             application_id: applicationId,
           })
-          if (cErr?.code === '23505') {
-            const { data: retried } = await q.getConversationByApplicationId(supabase, applicationId)
+          if ((cErr as any)?.code === '23505') {
+            const { data: retried } = await q.getConversationByApplicationId(applicationId)
             convId = retried?.id ?? null
           } else {
             convId = created?.id ?? null
@@ -354,12 +354,12 @@ export default function ExpertProgramView({
         setConversationId(convId)
         if (!convId) return
 
-        const { data: msgs } = await q.getMessagesByConversationId(supabase, convId)
+        const { data: msgs } = await q.getMessagesByConversationId(convId)
         if (!msgs?.length) return
 
         const senderIds = Array.from(new Set(msgs.map((m: any) => m.sender_id))) as string[]
         const { data: profiles } = senderIds.length > 0
-          ? await q.getUserProfilesByIds(supabase, senderIds)
+          ? await q.getUserProfilesByIds(senderIds)
           : { data: [] }
 
         const byId: Record<string, any> = {}
@@ -378,7 +378,7 @@ export default function ExpertProgramView({
         if (!isMessagesOpenRef.current) setUnreadCount(unread.length)
         if (unread.length > 0) {
           const ids = unread.map((m: any) => m.id).filter(Boolean) as string[]
-          if (ids.length) await q.rpcMarkMessagesAsReadByUser(supabase, ids, currentUserId!)
+          if (ids.length) await q.rpcMarkMessagesAsReadByUser(ids, currentUserId!)
         }
       } catch { /* silent */ } finally {
         setIsLoadingConversation(false)
@@ -398,7 +398,7 @@ export default function ExpertProgramView({
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
         async (payload) => {
           const msg = payload.new as any
-          const { data: profiles } = await q.getUserProfilesByIds(supabase, [msg.sender_id])
+          const { data: profiles } = await q.getUserProfilesByIds([msg.sender_id])
           const enriched = {
             ...msg,
             sender: { id: msg.sender_id, user_profiles: profiles?.[0] ?? null },
@@ -432,17 +432,17 @@ export default function ExpertProgramView({
     try {
       let convId = conversationId
       if (!convId) {
-        const { data: existing } = await q.getConversationByApplicationId(supabase, applicationId)
+        const { data: existing } = await q.getConversationByApplicationId(applicationId)
         convId = existing?.id ?? null
         if (!convId) {
-          const { data: created } = await q.insertConversation(supabase, { client_id: null, application_id: applicationId })
+          const { data: created } = await q.insertConversation({ client_id: null, application_id: applicationId })
           convId = created?.id ?? null
         }
         setConversationId(convId)
       }
       if (!convId) return
-      const { data: profiles } = await q.getUserProfilesByIds(supabase, [currentUserId])
-      const { data: newMsg } = await q.insertMessage(supabase, {
+      const { data: profiles } = await q.getUserProfilesByIds([currentUserId])
+      const { data: newMsg } = await q.insertMessage({
         conversation_id: convId,
         sender_id: currentUserId,
         content: messageContent.trim(),
@@ -455,7 +455,7 @@ export default function ExpertProgramView({
           is_own: true,
         }])
       }
-      await q.updateConversationLastMessageAt(supabase, convId)
+      await q.updateConversationLastMessageAt(convId)
       setMessageContent('')
     } catch { /* silent */ } finally {
       setIsSendingMessage(false)

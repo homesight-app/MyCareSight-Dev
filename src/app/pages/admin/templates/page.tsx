@@ -6,7 +6,7 @@ import TemplatesContent from '@/components/TemplatesContent'
 export default async function AdminTemplatesPage() {
   await requireAdmin()
 
-  const { data: templates } = await getTemplates(createAdminClient(), { includeInactive: true })
+  const { data: templates } = await getTemplates({ includeInactive: true })
 
   return (
       <div className="p-4 sm:p-6">

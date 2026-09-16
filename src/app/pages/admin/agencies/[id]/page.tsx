@@ -18,7 +18,7 @@ export default async function AdminAgencyDetailPage({
   const supabase = await createClient()
   const supabaseAdmin = createAdminClient()
 
-  const { data: agency } = await q.getAgencyById(supabaseAdmin, id)
+  const { data: agency } = await q.getAgencyById(id)
 
   if (!agency) redirect('/pages/admin/agencies')
 
@@ -35,15 +35,15 @@ export default async function AdminAgencyDetailPage({
     { data: rawFeaturePlans },
   ] = await Promise.all([
     adminIds.length > 0
-      ? q.getAgencyAdminsByIds(supabaseAdmin, adminIds)
+      ? q.getAgencyAdminsByIds(adminIds)
       : Promise.resolve({ data: [] }),
-    q.getAgencyCertificationsWithHistory(supabaseAdmin, id),
-    q.getUnassignedAgencyAdmins(supabaseAdmin),
-    q.getActiveOnboardingToken(supabaseAdmin, id),
-    q.getKeyStaffByAgencyId(supabaseAdmin, id),
-    q.getLeadsByAgency(supabase, id),
-    q.getApplicationsWithProgramsByAgencyId(supabaseAdmin, id),
-    q.getFeaturePlans(supabaseAdmin),
+    q.getAgencyCertificationsWithHistory(id),
+    q.getUnassignedAgencyAdmins(),
+    q.getActiveOnboardingToken(id),
+    q.getKeyStaffByAgencyId(id),
+    q.getLeadsByAgency(id),
+    q.getApplicationsWithProgramsByAgencyId(id),
+    q.getFeaturePlans(),
   ])
 
   const featurePlans: FeaturePlanSummary[] = (rawFeaturePlans ?? []).map(p => ({
@@ -54,7 +54,7 @@ export default async function AdminAgencyDetailPage({
 
   const leadIds = (agencyLeads ?? []).map((l: { id: string }) => l.id)
   const { data: agencyLeadDocuments } = leadIds.length > 0
-    ? await q.getLeadDocumentsByLeadIds(supabase, leadIds)
+    ? await q.getLeadDocumentsByLeadIds(leadIds)
     : { data: [] }
 
   return (

@@ -1,11 +1,20 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import { getPendingAssignmentRequestCountForBadge } from '@/lib/visit-assignment-dashboard'
+import { getSession } from '@/lib/auth'
+import * as q from '@/lib/supabase/query'
 
-/** Sidebar badge: same pending count as Visit Management → Assignment Requests. */
+/** Sidebar badge: count of pending caregiver assignment + unassignment requests. */
 export async function getCareVisitsPendingBadgeCountAction(): Promise<number> {
-  const supabase = createAdminClient()
-  const { count } = await getPendingAssignmentRequestCountForBadge(supabase)
-  return count
+  const session = await getSession()
+  if (!session) return 0
+  const agencyId = session.profile?.agency_id ?? null
+  if (!agencyId) return 0
+
+  const [assignmentResult, unassignmentResult] = await Promise.all([
+    q.getPendingScheduleAssignmentRequests(agencyId),
+    q.getPendingScheduleUnassignmentRequests(agencyId),
+  ])
+  const assignmentCount = assignmentResult.data?.length ?? 0
+  const unassignmentCount = unassignmentResult.data?.length ?? 0
+  return assignmentCount + unassignmentCount
 }

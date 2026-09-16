@@ -2,13 +2,13 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 import * as q from '@/lib/supabase/query'
 import { sendOnboardingLinkEmail } from '@/lib/email'
 import { formatDate } from '@/lib/format-date'
 import { encryptSSN, ssnToLast4 } from '@/lib/ssn-crypto'
+import sql from '@/db'
 
 const keyStaffEntrySchema = z.object({
   full_legal_name: z.string().optional(),
@@ -78,14 +78,13 @@ export async function generateOnboardingToken(
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
   const expiresInDays = options.expiresInDays ?? 7
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
 
   try {
-    await q.expireTokensForAgency(supabase, agencyId)
+    await q.expireTokensForAgency(agencyId)
 
-    const { data: token, error: tokenError } = await q.insertOnboardingToken(supabase, {
+    const { data: token, error: tokenError } = await q.insertOnboardingToken({
       agency_id: agencyId,
       created_by: session.user.id,
       expires_at: expiresAt,
@@ -93,10 +92,10 @@ export async function generateOnboardingToken(
     })
     if (tokenError || !token) return { error: tokenError?.message ?? 'Failed to create token', data: null }
 
-    await supabase.from('agencies').update({ onboarding_status: 'link_sent' }).eq('id', agencyId)
+    await sql`UPDATE agencies SET onboarding_status = 'link_sent' WHERE id = ${agencyId}`
 
     if (options.recipientEmail?.trim()) {
-      const { data: agencyData } = await supabase.from('agencies').select('name').eq('id', agencyId).single()
+      const [agencyData] = await sql<{ name: string }[]>`SELECT name FROM agencies WHERE id = ${agencyId} LIMIT 1`
       const link = `${process.env.NEXT_PUBLIC_APP_URL}/pages/onboarding/${token.token}`
       const expiresAtFormatted = formatDate(expiresAt, { month: 'long', day: 'numeric', year: 'numeric' })
       await sendOnboardingLinkEmail({
@@ -121,9 +120,8 @@ export async function revokeOnboardingToken(agencyId: string) {
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
   try {
-    await q.expireTokensForAgency(supabase, agencyId)
+    await q.expireTokensForAgency(agencyId)
     revalidateAgencyDetailPages(agencyId)
     return { error: null, data: { success: true } }
   } catch (err: unknown) {
@@ -136,9 +134,8 @@ export async function submitOnboardingForm(tokenValue: string, formData: Onboard
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid form data', data: null }
   const data = parsed.data
 
-  const supabase = createAdminClient()
   try {
-    const { data: token, error: tokenError } = await q.getOnboardingTokenByValue(supabase, tokenValue)
+    const { data: token, error: tokenError } = await q.getOnboardingTokenByValue(tokenValue)
     if (tokenError || !token) return { error: 'Invalid or expired link', data: null }
     if (new Date(token.expires_at) <= new Date()) return { error: 'This link has expired', data: null }
 
@@ -191,15 +188,14 @@ export async function submitOnboardingForm(tokenValue: string, formData: Onboard
       updated_at: new Date().toISOString(),
     }
 
-    const { error: agencyError } = await supabase.from('agencies').update(agencyPayload).eq('id', agencyId)
-    if (agencyError) return { error: agencyError.message, data: null }
+    await sql`UPDATE agencies SET ${sql(agencyPayload)} WHERE id = ${agencyId}`
 
     // Upsert officer key staff (single row per role)
     if (data.key_staff) {
       for (const [role, staffData] of Object.entries(data.key_staff)) {
         const hasAnyData = staffData.full_legal_name?.trim() || staffData.telephone?.trim() || staffData.email?.trim()
         if (!hasAnyData) continue
-        await q.upsertKeyStaffMember(supabase, agencyId, role, {
+        await q.upsertKeyStaffMember(agencyId, role, {
           full_legal_name: staffData.full_legal_name?.trim() || null,
           telephone: staffData.telephone?.trim() || null,
           email: staffData.email?.trim() || null,
@@ -209,17 +205,16 @@ export async function submitOnboardingForm(tokenValue: string, formData: Onboard
 
     // Insert member/owner rows (multiple allowed — deactivate old ones first, then insert fresh)
     if (data.member_owners && data.member_owners.length > 0) {
-      await supabase
-        .from('agency_key_staff')
-        .update({ status: 'inactive', updated_at: new Date().toISOString() })
-        .eq('agency_id', agencyId)
-        .eq('officer_role', 'member_owner')
-        .eq('status', 'active')
+      await sql`
+        UPDATE agency_key_staff
+        SET status = 'inactive', updated_at = ${new Date().toISOString()}
+        WHERE agency_id = ${agencyId} AND officer_role = 'member_owner' AND status = 'active'
+      `
 
       for (const owner of data.member_owners) {
         const hasAnyData = owner.full_legal_name?.trim() || owner.telephone?.trim() || owner.email?.trim()
         if (!hasAnyData) continue
-        await q.insertKeyStaffMember(supabase, agencyId, 'member_owner', {
+        await q.insertKeyStaffMember(agencyId, 'member_owner', {
           full_legal_name: owner.full_legal_name?.trim() || null,
           telephone: owner.telephone?.trim() || null,
           email: owner.email?.trim() || null,
@@ -227,7 +222,7 @@ export async function submitOnboardingForm(tokenValue: string, formData: Onboard
       }
     }
 
-    await q.incrementTokenUseCount(supabase, token.id, token.use_count)
+    await q.incrementTokenUseCount(token.id, token.use_count)
 
     return { error: null, data: { success: true, agencyId } }
   } catch (err: unknown) {
@@ -259,7 +254,6 @@ export async function saveKeyStaffAdmin(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
   try {
     const clean: Record<string, unknown> = {
       full_legal_name: payload.full_legal_name?.trim() || null,
@@ -284,10 +278,10 @@ export async function saveKeyStaffAdmin(
       clean.ssn_last4 = ssnToLast4(rawSsn)
     }
 
-    const { data, error } = await q.upsertKeyStaffMember(supabase, agencyId, officerRole, clean)
+    const { data, error } = await q.upsertKeyStaffMember(agencyId, officerRole, clean)
     if (error) return { error: error.message, data: null }
 
-    await supabase.from('audit_log').insert({
+    await q.insertAuditLog({
       agency_id: agencyId,
       table_name: 'agency_key_staff',
       record_id: data?.id ?? null,
@@ -307,12 +301,11 @@ export async function removeKeyStaff(agencyId: string, staffId: string) {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
   try {
-    const { error } = await q.deactivateKeyStaffById(supabase, staffId)
+    const { error } = await q.deactivateKeyStaffById(staffId)
     if (error) return { error: error.message, data: null }
 
-    await supabase.from('audit_log').insert({
+    await q.insertAuditLog({
       agency_id: agencyId,
       table_name: 'agency_key_staff',
       record_id: staffId,
@@ -347,7 +340,6 @@ export async function updateMemberOwner(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
   try {
     const clean: Record<string, unknown> = {
       full_legal_name: payload.full_legal_name?.trim() || null,
@@ -367,10 +359,10 @@ export async function updateMemberOwner(
       clean.ssn_last4 = ssnToLast4(rawSsn)
     }
 
-    const { data, error } = await q.updateKeyStaffById(supabase, staffId, clean)
+    const { data, error } = await q.updateKeyStaffById(staffId, clean)
     if (error) return { error: error.message, data: null }
 
-    await supabase.from('audit_log').insert({
+    await q.insertAuditLog({
       agency_id: agencyId,
       table_name: 'agency_key_staff',
       record_id: staffId,
@@ -404,7 +396,6 @@ export async function addMemberOwner(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
   try {
     const clean: Record<string, unknown> = {
       full_legal_name: payload.full_legal_name?.trim() || null,
@@ -424,10 +415,10 @@ export async function addMemberOwner(
       clean.ssn_last4 = ssnToLast4(rawSsn)
     }
 
-    const { data, error } = await q.insertKeyStaffMember(supabase, agencyId, 'member_owner', clean)
+    const { data, error } = await q.insertKeyStaffMember(agencyId, 'member_owner', clean)
     if (error) return { error: error.message, data: null }
 
-    await supabase.from('audit_log').insert({
+    await q.insertAuditLog({
       agency_id: agencyId,
       table_name: 'agency_key_staff',
       record_id: data?.id ?? null,
@@ -451,16 +442,18 @@ export async function updateKeyStaffById(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const supabase = createAdminClient()
-  const { error } = await supabase
-    .from('agency_key_staff')
-    .update({ ...data, updated_at: new Date().toISOString() })
-    .eq('id', staffId)
-    .eq('agency_id', agencyId)
-  if (error) return { error: error.message }
+  try {
+    await sql`
+      UPDATE agency_key_staff
+      SET ${sql({ ...data, updated_at: new Date().toISOString() })}
+      WHERE id = ${staffId} AND agency_id = ${agencyId}
+    `
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to update key staff' }
+  }
 
   const changedFields = Object.keys(data).filter(k => data[k as keyof typeof data] !== undefined)
-  await supabase.from('audit_log').insert({
+  await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'agency_key_staff',
     record_id: staffId,
@@ -489,37 +482,29 @@ export async function addKeyStaffWithRoles(
 
   if (!payload.officer_roles.length) return { error: 'At least one officer role is required', data: null }
 
-  const supabase = createAdminClient()
   try {
     const primaryRole = payload.officer_roles[0]
-    const { data, error } = await supabase
-      .from('agency_key_staff')
-      .insert({
-        agency_id: agencyId,
-        officer_role: primaryRole,
-        officer_roles: payload.officer_roles,
-        full_legal_name: payload.full_legal_name?.trim() || null,
-        telephone: payload.telephone?.trim() || null,
-        email: payload.email?.trim() || null,
-        ownership_percentage: payload.ownership_percentage?.trim() || null,
-        user_profile_id: payload.user_profile_id ?? null,
-      })
-      .select('id')
-      .single()
+    const [inserted] = await sql<{ id: string }[]>`
+      INSERT INTO agency_key_staff
+        (agency_id, officer_role, officer_roles, full_legal_name, telephone, email, ownership_percentage, user_profile_id)
+      VALUES
+        (${agencyId}, ${primaryRole}, ${payload.officer_roles}, ${payload.full_legal_name?.trim() ?? null},
+         ${payload.telephone?.trim() ?? null}, ${payload.email?.trim() ?? null},
+         ${payload.ownership_percentage?.trim() ?? null}, ${payload.user_profile_id ?? null})
+      RETURNING id
+    `
 
-    if (error) return { error: error.message, data: null }
-
-    await supabase.from('audit_log').insert({
+    await q.insertAuditLog({
       agency_id: agencyId,
       table_name: 'agency_key_staff',
-      record_id: data?.id ?? null,
+      record_id: inserted?.id ?? null,
       action: 'CREATE_KEY_STAFF',
       performed_by_user_id: session.user.id,
       details: { officer_roles: payload.officer_roles, full_legal_name: payload.full_legal_name?.trim() },
     })
 
     revalidateAgencyDetailPages(agencyId)
-    return { error: null, data }
+    return { error: null, data: inserted ? { id: inserted.id } : null }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : 'Failed to add key staff', data: null }
   }

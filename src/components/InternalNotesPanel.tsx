@@ -5,14 +5,15 @@ import Link from 'next/link'
 import { Plus, Pencil, Trash2, X, Check, Loader2, FileText, Tag, Link as LinkIcon } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import SearchInput from '@/components/ui/SearchInput'
-import { createClient } from '@/lib/supabase/client'
 import { patientFullName } from '@/lib/patient-name'
 import {
   addInternalNoteAction,
   editInternalNoteAction,
   deleteInternalNoteAction,
+  getInternalNotesPanelDataAction,
   logNoteSearchAction,
 } from '@/app/actions/internal-notes'
+import { getAgencyPatientNamesAction } from '@/app/actions/patients'
 import type { InternalNoteSubjectType } from '@/lib/supabase/query/internal-notes'
 
 interface NoteRow {
@@ -215,78 +216,28 @@ export default function InternalNotesPanel({
   const fetchAll = useCallback(async () => {
     setLoading(true)
     setFetchError(null)
-    const supabase = createClient()
-
-    const notesQuery = supabase
-      .from('internal_notes')
-      .select(`
-        id, content, created_at, updated_at, created_by, updated_by,
-        tagged_patient_id, tagged_caregiver_id,
-        author:user_profiles!internal_notes_created_by_fkey(full_name),
-        updater:user_profiles!internal_notes_updated_by_fkey(full_name),
-        tagged_patient:patients!internal_notes_tagged_patient_id_fkey(id, first_name, last_name),
-        tagged_caregiver:caregiver_members!internal_notes_tagged_caregiver_id_fkey(id, first_name, last_name)
-      `)
-      .eq('subject_type', subjectType)
-      .eq('subject_id', subjectId)
-      .order('created_at', { ascending: false })
-
-    const assocQuery =
-      subjectType === 'patient'
-        ? supabase
-            .from('internal_notes')
-            .select(`id, content, subject_type, subject_id, created_at, tagged_patient_id, tagged_caregiver_id, author:user_profiles!internal_notes_created_by_fkey(full_name)`)
-            .eq('tagged_patient_id', subjectId)
-            .order('created_at', { ascending: false })
-        : subjectType === 'caregiver'
-          ? supabase
-              .from('internal_notes')
-              .select(`id, content, subject_type, subject_id, created_at, tagged_patient_id, tagged_caregiver_id, author:user_profiles!internal_notes_created_by_fkey(full_name)`)
-              .eq('tagged_caregiver_id', subjectId)
-              .order('created_at', { ascending: false })
-          : null
 
     const patientsQuery = isAppNote
-      ? Promise.resolve({ data: [], error: null })
-      : supabase
-          .from('patients')
-          .select('id, first_name, last_name')
-          .eq('agency_id', agencyId)
-          .order('last_name')
+      ? Promise.resolve([] as PatientTagOption[])
+      : getAgencyPatientNamesAction()
 
-    const caregiversQuery = isAppNote
-      ? Promise.resolve({ data: [], error: null })
-      : supabase
-          .from('caregiver_members')
-          .select('id, first_name, last_name')
-          .eq('agency_id', agencyId)
-          .order('last_name')
-
-    const [notesRes, assocRes, patientsRes, caregiversRes] = await Promise.all([
-      notesQuery,
-      assocQuery ?? Promise.resolve({ data: [], error: null }),
+    const [panelData, patientsData] = await Promise.all([
+      getInternalNotesPanelDataAction({ subjectType, subjectId, agencyId }),
       patientsQuery,
-      caregiversQuery,
     ])
 
     setLoading(false)
 
-    setTagPatients((patientsRes.data as unknown as PatientTagOption[]) ?? [])
-    setTagCaregivers((caregiversRes.data as unknown as CaregiverTagOption[]) ?? [])
+    setTagPatients(patientsData ?? [])
+    setTagCaregivers(panelData.caregivers ?? [])
 
-    if (notesRes.error) {
+    if (panelData.error) {
       setFetchError('Failed to load notes.')
       return
     }
 
-    setNotes((notesRes.data as unknown as NoteRow[]) ?? [])
-
-    const rawAssoc = (assocRes.data as unknown as AssociatedNoteRow[]) ?? []
-    setAssociatedNotes(
-      rawAssoc.filter(
-        (n) => !(n.subject_type === subjectType && n.subject_id === subjectId)
-      )
-    )
+    setNotes(panelData.notes ?? [])
+    setAssociatedNotes(panelData.associatedNotes ?? [])
   }, [subjectType, subjectId, agencyId, isAppNote])
 
   useEffect(() => {

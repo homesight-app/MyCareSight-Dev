@@ -5,7 +5,7 @@ import { Plus, Trash2, Save, X, FileText } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { createLicenseType, deleteLicenseType, type CreateLicenseTypeData } from '@/app/actions/license-types'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { US_STATES } from '@/lib/constants'
 
 interface LicenseType {
@@ -54,7 +54,7 @@ export default function LicenseTypesManager({
   const loadLicenseTypes = useCallback(async () => {
     setIsLoading(true)
     try {
-      const { data, error } = await q.getLicenseTypes(supabase, { state: selectedState, isActive: true })
+      const { data, error } = await q.getLicenseTypes({ state: selectedState, isActive: true })
 
       if (error) throw error
       setLicenseTypes(data || [])
@@ -327,13 +327,13 @@ function LicenseTypeItem({ licenseType, selectedState, onDelete, isDeleting, isS
   const loadCounts = useCallback(async () => {
     setLoadingCounts(true)
     try {
-      const { data: requirement } = await q.getLicenseRequirementByStateAndType(supabase, selectedState, licenseType.name)
+      const { data: requirement } = await q.getLicenseRequirementByStateAndType(selectedState, licenseType.name)
       if (!requirement) {
         setCounts({ steps: 0, documents: 0 })
         setLoadingCounts(false)
         return
       }
-      const { steps, documents } = await q.getRequirementCounts(supabase, requirement.id)
+      const { steps, documents } = await q.getRequirementCounts(requirement.id)
       setCounts({ steps, documents })
     } catch (error) {
       setCounts({ steps: 0, documents: 0 })

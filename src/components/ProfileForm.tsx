@@ -8,7 +8,7 @@ import { profileSchema, type ProfileFormData } from '@/lib/schemas/profile'
 import { User, Mail, Save, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { UserRole } from '@/types/auth'
 import { updateUserEmailAction } from '@/app/actions/auth'
 
@@ -71,7 +71,7 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
     try {
       const supabase = createClient()
 
-      const { error: updateError } = await q.updateUserProfile(supabase, user.id, {
+      const { error: updateError } = await q.updateUserProfile(user.id, {
         full_name: data.fullName,
         role: data.role,
         updated_at: new Date().toISOString(),

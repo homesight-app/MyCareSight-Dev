@@ -1,7 +1,6 @@
-'use server'
+﻿'use server'
 
 import { z } from 'zod'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { revalidatePath } from 'next/cache'
@@ -43,13 +42,11 @@ export async function saveAgencyConfiguration(
     return { error: 'Forbidden' }
   }
 
-  const supabase = createAdminClient()
-
-  const { data: profile } = await q.getAgencyIdFromProfile(supabase, session.user.id)
+  const { data: profile } = await q.getAgencyIdFromProfile(session.user.id)
   const agencyId = profile?.agency_id ?? null
   if (!agencyId) return { error: 'No agency found for this user' }
 
-  const { error } = await q.upsertAgencyConfiguration(supabase, agencyId, {
+  const { error } = await q.upsertAgencyConfiguration(agencyId, {
     work_week_start: validData.workWeekStart,
     allow_weekends: validData.allowWeekends,
     weekend_rate_multiplier: validData.weekendRateMultiplier ?? null,

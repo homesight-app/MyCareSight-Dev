@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -22,8 +22,8 @@ export default async function AgencyProgramsPage({
 
   const supabase = await createClient()
   const [result, { data: pendingRequests }] = await Promise.all([
-    q.getApplicationsWithProgramsPaginated(supabase, { page, pageSize: PAGE_SIZE, search }),
-    q.getRequestedProgramsForAgency(supabase),
+    q.getApplicationsWithProgramsPaginated({ page, pageSize: PAGE_SIZE, search }),
+    q.getRequestedProgramsForAgency(),
   ])
 
   type RawRow = {

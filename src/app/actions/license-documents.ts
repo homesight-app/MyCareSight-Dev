@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
@@ -27,10 +26,8 @@ export async function uploadLicenseDocumentAction(
   agencyId: string | null,
   formData: FormData
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated' }
+  if (!session?.user) return { error: 'Not authenticated' }
 
   const file = formData.get('file') as File | null
   const documentName = formData.get('document_name') as string | null
@@ -47,7 +44,7 @@ export async function uploadLicenseDocumentAction(
   })
   if (uploadErr) return { error: uploadErr.message }
 
-  const { error: docErr } = await q.insertLicenseDocument(supabase, {
+  const { error: docErr } = await q.insertLicenseDocument({
     license_id: licenseId,
     document_name: (documentName?.trim() || file.name),
     document_url: filePath,
@@ -58,12 +55,12 @@ export async function uploadLicenseDocumentAction(
     return { error: docErr.message }
   }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: agencyId,
     table_name: 'license_documents',
     record_id: licenseId,
     action: 'CREATE',
-    performed_by_user_id: user.id,
+    performed_by_user_id: session.user.id,
     details: { license_id: licenseId, document_name: documentName?.trim() || file.name, document_url: filePath },
   })
   if (auditErr) console.error('[license-documents/upload] Audit log failed. licenseId=%s err=%s', licenseId, auditErr.message)
@@ -83,10 +80,8 @@ export async function uploadLicenseDocumentsForCreationAction(
   agencyId: string,
   formData: FormData
 ): Promise<{ error: string | null; data: { url: string; name: string; type: string | null }[] | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated', data: null }
+  if (!session?.user) return { error: 'Not authenticated', data: null }
 
   const files = formData.getAll('file') as File[]
   const names = formData.getAll('name') as string[]

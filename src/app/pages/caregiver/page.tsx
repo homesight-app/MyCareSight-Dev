@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -21,12 +21,12 @@ export default async function StaffDashboardPage() {
 
   const supabase = await createClient()
 
-  const { data: staffMember, error: staffMemberError } = await q.getStaffMemberByUserId(supabase, session!.user.id)
+  const { data: staffMember, error: staffMemberError } = await q.getStaffMemberByUserId(session!.user.id)
   if (staffMemberError || !staffMember) {
     redirect('/pages/auth/login?error=Staff member record not found. Please contact your administrator.')
   }
 
-  const { data: applicationsData } = await q.getApplicationsByStaffMemberIdsAll(supabase, [staffMember.id])
+  const { data: applicationsData } = await q.getApplicationsByStaffMemberIdsAll([staffMember.id])
   const applicationsOrdered = (applicationsData ?? []).slice().sort((a, b) => {
     const aDate = a.expiry_date ? new Date(a.expiry_date).getTime() : 0
     const bDate = b.expiry_date ? new Date(b.expiry_date).getTime() : 0
@@ -37,7 +37,7 @@ export default async function StaffDashboardPage() {
 
   const applicationIds = (applicationsOrdered ?? []).map((app: { id: string }) => app.id)
   const { data: applicationDocuments } =
-    applicationIds.length > 0 ? await q.getApplicationDocumentsApplicationIds(supabase, applicationIds) : { data: [] }
+    applicationIds.length > 0 ? await q.getApplicationDocumentsApplicationIds(applicationIds) : { data: [] }
 
   const documentCounts = (applicationDocuments ?? []).reduce((acc: Record<string, number>, doc: { application_id: string }) => {
     acc[doc.application_id] = (acc[doc.application_id] || 0) + 1

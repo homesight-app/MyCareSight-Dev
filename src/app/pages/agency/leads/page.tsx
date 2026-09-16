@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -36,13 +36,13 @@ export default async function AgencyLeadsPage({
   const sortDir     = (params.sortDir === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc'
 
   const [leadsResult, stageCounts, allSources, agencyStagesResult] = await Promise.all([
-    q.getLeadsPaginated(supabase, {
+    q.getLeadsPaginated({
       leadType: 'patient', agencyId, page, pageSize: PAGE_SIZE,
       search, stageFilter, serviceType, source, sortKey, sortDir,
     }),
-    q.getLeadStageCounts(supabase, { leadType: 'patient', agencyId, search, serviceType, source }),
-    q.getLeadDistinctSources(supabase, { leadType: 'patient', agencyId }),
-    q.getAgencyLeadStages(supabase, agencyId),
+    q.getLeadStageCounts({ leadType: 'patient', agencyId, search, serviceType, source }),
+    q.getLeadDistinctSources({ leadType: 'patient', agencyId }),
+    q.getAgencyLeadStages(agencyId),
   ])
 
   const leads = (leadsResult.data ?? []) as Parameters<typeof LeadsContent>[0]['leads']

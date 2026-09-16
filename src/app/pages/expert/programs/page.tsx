@@ -1,4 +1,4 @@
-import Link from 'next/link'
+﻿import Link from 'next/link'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -22,7 +22,7 @@ export default async function ExpertProgramsPage() {
   const session = await getSession()
 
   const supabase = await createClient()
-  const { data: appsData } = await q.getApplicationsWithPrograms(supabase, session!.user.id)
+  const { data: appsData } = await q.getApplicationsWithPrograms(session!.user.id)
 
   type RawRow = {
     id: string

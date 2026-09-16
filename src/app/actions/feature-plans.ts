@@ -1,8 +1,7 @@
-'use server'
+﻿'use server'
 
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
-import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 
 function assertAdmin(role: string | null | undefined): string | null {
@@ -26,15 +25,14 @@ export async function createPlan(
   const roleErr = assertAdmin(session.profile?.role)
   if (roleErr) return { error: roleErr, data: null }
 
-  const supabase = createAdminClient()
-  const { data: plan, error } = await q.insertFeaturePlan(supabase, {
+  const { data: plan, error } = await q.insertFeaturePlan({
     name: name.trim(),
     description: description?.trim() || null,
     sort_order: sortOrder,
   })
   if (error || !plan) return { error: error?.message ?? 'Failed to create plan', data: null }
 
-  const { error: featErr } = await q.setPlanFeatures(supabase, plan.id, featureKeys)
+  const { error: featErr } = await q.setPlanFeatures(plan.id, featureKeys)
   if (featErr) return { error: featErr.message, data: null }
 
   revalidatePlanPages()
@@ -53,8 +51,7 @@ export async function updatePlan(
   const roleErr = assertAdmin(session.profile?.role)
   if (roleErr) return { error: roleErr }
 
-  const supabase = createAdminClient()
-  const { error } = await q.updateFeaturePlanById(supabase, planId, {
+  const { error } = await q.updateFeaturePlanById(planId, {
     name: name.trim(),
     description: description?.trim() || null,
     sort_order: sortOrder,
@@ -62,7 +59,7 @@ export async function updatePlan(
   })
   if (error) return { error: error.message }
 
-  const { error: featErr } = await q.setPlanFeatures(supabase, planId, featureKeys)
+  const { error: featErr } = await q.setPlanFeatures(planId, featureKeys)
   if (featErr) return { error: featErr.message }
 
   revalidatePlanPages()
@@ -75,13 +72,12 @@ export async function deletePlan(planId: string): Promise<{ error: string | null
   const roleErr = assertAdmin(session.profile?.role)
   if (roleErr) return { error: roleErr }
 
-  const supabase = createAdminClient()
-  const { count } = await q.getAgencyCountForPlan(supabase, planId)
+  const { count } = await q.getAgencyCountForPlan(planId)
   if ((count ?? 0) > 0) {
     return { error: `Cannot delete — ${count} ${count === 1 ? 'agency is' : 'agencies are'} on this plan.` }
   }
 
-  const { error } = await q.deleteFeaturePlanById(supabase, planId)
+  const { error } = await q.deleteFeaturePlanById(planId)
   if (error) return { error: error.message }
 
   revalidatePlanPages()
@@ -97,8 +93,7 @@ export async function assignPlanToAgency(
   const roleErr = assertAdmin(session.profile?.role)
   if (roleErr) return { error: roleErr }
 
-  const supabase = createAdminClient()
-  const { error } = await q.updateAgencyPlanId(supabase, agencyId, planId)
+  const { error } = await q.updateAgencyPlanId(agencyId, planId)
   if (error) return { error: error.message }
 
   revalidatePlanPages()

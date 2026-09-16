@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 export type SkilledCarePlanTask = {
   id: string
@@ -108,52 +108,78 @@ function mapSkilledDayRow(row: {
   }
 }
 
-async function requireAgencyIdForPatient(supabase: Supabase, patientId: string): Promise<string> {
-  const { data } = await supabase.from('patients').select('agency_id').eq('id', patientId).maybeSingle()
-  if (!data?.agency_id) throw new Error('Patient has no agency_id')
-  return data.agency_id
+async function requireAgencyIdForPatient(patientId: string): Promise<string> {
+  const rows = await sql`SELECT agency_id FROM patients WHERE id = ${patientId} LIMIT 1`
+  const agencyId = rows[0]?.agency_id as string | null | undefined
+  if (!agencyId) throw new Error('Patient has no agency_id')
+  return agencyId
 }
 
 /** Skilled tasks on the plan (canonical row per task: day_of_week = 1). */
-export async function getPatientSkilledCarePlanTasks(supabase: Supabase, patientId: string) {
-  const { data, error } = await supabase
-    .from('patient_care_plan_tasks')
-    .select('id, patient_id, task_id, display_order, task_catalog(name, description, task_categories(name))')
-    .eq('patient_id', patientId)
-    .eq('service_type', 'skilled')
-    .eq('day_of_week', 1)
-    .order('display_order', { ascending: true })
-    .order('created_at', { ascending: true })
-  if (error) return { data: null, error }
-  const mapped = ((data ?? []) as SkilledTaskRow[])
-    .map((r) => ({ r, c: firstCatalog(r.task_catalog) as CatalogRow | null }))
-    .filter(({ r, c }) => !!r.task_id && !!c?.name)
-    .map(({ r, c }) => ({
-      id: r.id,
-      patient_id: r.patient_id,
-      task_id: r.task_id as string,
-      category: (c?.category ?? 'General').trim() || 'General',
-      name: (c?.name ?? '').trim(),
-      description: c?.description ?? null,
-      display_order: r.display_order ?? 0,
-    }))
-  return { data: mapped, error: null }
+export async function getPatientSkilledCarePlanTasks(
+  patientId: string
+): Promise<{ data: SkilledCarePlanTask[] | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      SELECT
+        pcpt.id,
+        pcpt.patient_id,
+        pcpt.task_id,
+        pcpt.display_order,
+        json_build_object(
+          'name', tc.name,
+          'description', tc.description,
+          'task_categories', (
+            SELECT json_build_object('name', tcat.name)
+            FROM task_categories tcat
+            WHERE tcat.id = tc.category_id
+            LIMIT 1
+          )
+        ) AS task_catalog
+      FROM patient_care_plan_tasks pcpt
+      LEFT JOIN task_catalog tc ON tc.id = pcpt.task_id
+      WHERE pcpt.patient_id = ${patientId}
+        AND pcpt.service_type = 'skilled'
+        AND pcpt.day_of_week = 1
+      ORDER BY pcpt.display_order ASC, pcpt.created_at ASC
+    `
+    const mapped = (rows as unknown as SkilledTaskRow[])
+      .map((r) => ({ r, c: firstCatalog(r.task_catalog) as CatalogRow | null }))
+      .filter(({ r, c }) => !!r.task_id && !!c?.name)
+      .map(({ r, c }) => ({
+        id: r.id,
+        patient_id: r.patient_id,
+        task_id: r.task_id as string,
+        category: (c?.category ?? 'General').trim() || 'General',
+        name: (c?.name ?? '').trim(),
+        description: c?.description ?? null,
+        display_order: r.display_order ?? 0,
+      }))
+    return { data: mapped, error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** All per-day skilled schedule rows (7 rows per task when fully configured). */
-export async function getPatientSkilledDaySchedulesByPatientId(supabase: Supabase, patientId: string) {
-  const { data, error } = await supabase
-    .from('patient_care_plan_tasks')
-    .select('*')
-    .eq('patient_id', patientId)
-    .eq('service_type', 'skilled')
-    .not('task_id', 'is', null)
-    .order('display_order', { ascending: true })
-    .order('day_of_week', { ascending: true })
-  if (error) return { data: null, error }
-  return {
-    data: (data ?? []).map((r) => mapSkilledDayRow(r as Parameters<typeof mapSkilledDayRow>[0])),
-    error: null,
+export async function getPatientSkilledDaySchedulesByPatientId(
+  patientId: string
+): Promise<{ data: PatientSkilledTaskDaySchedule[] | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      SELECT *
+      FROM patient_care_plan_tasks
+      WHERE patient_id = ${patientId}
+        AND service_type = 'skilled'
+        AND task_id IS NOT NULL
+      ORDER BY display_order ASC, day_of_week ASC
+    `
+    return {
+      data: (rows as unknown as Parameters<typeof mapSkilledDayRow>[0][]).map(mapSkilledDayRow),
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: err as Error }
   }
 }
 
@@ -198,106 +224,128 @@ type SkilledCarePlanTaskDbRow = {
  * without an `id` field (DB default), **upsert** only rows that already have an `id`.
  */
 export async function upsertPatientSkilledTaskDaySchedulesBatch(
-  supabase: Supabase,
   patientId: string,
   rows: PatientSkilledTaskDayScheduleUpsert[]
 ): Promise<{ error: Error | null }> {
   if (rows.length === 0) return { error: null }
-  const agencyId = await requireAgencyIdForPatient(supabase, patientId)
-  const { data: existingRows, error: existingErr } = await supabase
-    .from('patient_care_plan_tasks')
-    .select('id, task_id, day_of_week')
-    .eq('patient_id', patientId)
-    .eq('service_type', 'skilled')
-    .not('task_id', 'is', null)
-  if (existingErr) return { error: new Error(existingErr.message) }
+  try {
+    const agencyId = await requireAgencyIdForPatient(patientId)
 
-  const idByTaskAndDay = new Map<string, string>()
-  for (const r of existingRows ?? []) {
-    const tid = r.task_id as string | null | undefined
-    if (!tid) continue
-    idByTaskAndDay.set(`${tid}|${r.day_of_week}`, r.id as string)
-  }
+    const existingRows = await sql`
+      SELECT id, task_id, day_of_week
+      FROM patient_care_plan_tasks
+      WHERE patient_id = ${patientId}
+        AND service_type = 'skilled'
+        AND task_id IS NOT NULL
+    `
 
-  const toInsert: SkilledCarePlanTaskDbRow[] = []
-  const toUpdate: Array<SkilledCarePlanTaskDbRow & { id: string }> = []
-
-  for (const data of rows) {
-    const key = `${data.task_id}|${data.day_of_week}`
-    const existingId = idByTaskAndDay.get(key)
-    const base: SkilledCarePlanTaskDbRow = {
-      agency_id: agencyId,
-      patient_id: data.patient_id,
-      task_id: data.task_id,
-      legacy_task_code: null,
-      day_of_week: data.day_of_week,
-      display_order: data.display_order ?? 0,
-      service_type: 'skilled',
-      task_note: data.task_note ?? null,
-      schedule_type: data.schedule_type,
-      times_per_day: data.times_per_day ?? null,
-      slot_morning: data.slot_morning ?? null,
-      slot_afternoon: data.slot_afternoon ?? null,
-      slot_evening: data.slot_evening ?? null,
-      slot_night: data.slot_night ?? null,
+    const idByTaskAndDay = new Map<string, string>()
+    for (const r of existingRows) {
+      const tid = r.task_id as string | null | undefined
+      if (!tid) continue
+      idByTaskAndDay.set(`${tid}|${r.day_of_week}`, r.id as string)
     }
-    if (existingId) {
-      toUpdate.push({ id: existingId, ...base })
-    } else {
-      toInsert.push(base)
-    }
-  }
 
-  const chunkSize = 250
-  for (let i = 0; i < toInsert.length; i += chunkSize) {
-    const chunk = toInsert.slice(i, i + chunkSize)
-    const { error } = await supabase.from('patient_care_plan_tasks').insert(chunk)
-    if (error) return { error: new Error(error.message) }
+    const toInsert: SkilledCarePlanTaskDbRow[] = []
+    const toUpdate: Array<SkilledCarePlanTaskDbRow & { id: string }> = []
+
+    for (const data of rows) {
+      const key = `${data.task_id}|${data.day_of_week}`
+      const existingId = idByTaskAndDay.get(key)
+      const base: SkilledCarePlanTaskDbRow = {
+        agency_id: agencyId,
+        patient_id: data.patient_id,
+        task_id: data.task_id,
+        legacy_task_code: null,
+        day_of_week: data.day_of_week,
+        display_order: data.display_order ?? 0,
+        service_type: 'skilled',
+        task_note: data.task_note ?? null,
+        schedule_type: data.schedule_type,
+        times_per_day: data.times_per_day ?? null,
+        slot_morning: data.slot_morning ?? null,
+        slot_afternoon: data.slot_afternoon ?? null,
+        slot_evening: data.slot_evening ?? null,
+        slot_night: data.slot_night ?? null,
+      }
+      if (existingId) {
+        toUpdate.push({ id: existingId, ...base })
+      } else {
+        toInsert.push(base)
+      }
+    }
+
+    const chunkSize = 250
+
+    for (let i = 0; i < toInsert.length; i += chunkSize) {
+      const chunk = toInsert.slice(i, i + chunkSize)
+      await sql`INSERT INTO patient_care_plan_tasks ${sql(chunk)}`
+    }
+
+    for (let i = 0; i < toUpdate.length; i += chunkSize) {
+      const chunk = toUpdate.slice(i, i + chunkSize)
+      for (const row of chunk) {
+        const { id, ...patch } = row
+        await sql`
+          UPDATE patient_care_plan_tasks
+          SET ${sql(patch as Record<string, unknown>, ...Object.keys(patch) as [string, ...string[]])}
+          WHERE id = ${id}
+        `
+      }
+    }
+
+    return { error: null }
+  } catch (err) {
+    return { error: err as Error }
   }
-  for (let i = 0; i < toUpdate.length; i += chunkSize) {
-    const chunk = toUpdate.slice(i, i + chunkSize)
-    const { error } = await supabase.from('patient_care_plan_tasks').upsert(chunk, { onConflict: 'id' })
-    if (error) return { error: new Error(error.message) }
-  }
-  return { error: null }
 }
 
 export async function upsertPatientSkilledTaskDaySchedule(
-  supabase: Supabase,
   data: PatientSkilledTaskDayScheduleUpsert
-) {
-  return upsertPatientSkilledTaskDaySchedulesBatch(supabase, data.patient_id, [data])
+): Promise<{ error: Error | null }> {
+  return upsertPatientSkilledTaskDaySchedulesBatch(data.patient_id, [data])
 }
 
 export async function updatePatientSkilledTaskDayScheduleNote(
-  supabase: Supabase,
   data: { id: string; task_note?: string | null }
-) {
-  return supabase
-    .from('patient_care_plan_tasks')
-    .update({ task_note: data.task_note })
-    .eq('id', data.id)
-    .select()
-    .single()
+): Promise<{ data: PatientSkilledTaskDaySchedule | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      UPDATE patient_care_plan_tasks
+      SET task_note = ${data.task_note ?? null}
+      WHERE id = ${data.id}
+      RETURNING *
+    `
+    if (!rows.length) return { data: null, error: new Error('Row not found') }
+    return { data: mapSkilledDayRow(rows[0] as Parameters<typeof mapSkilledDayRow>[0]), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
 }
 
 /** Remove all skilled plan rows for the given tasks (all days) in one request. */
 export async function deleteSkilledTaskPlanRowsBatch(
-  supabase: Supabase,
   patientId: string,
   taskIds: string[]
 ): Promise<{ error: Error | null }> {
   if (taskIds.length === 0) return { error: null }
-  const { error } = await supabase
-    .from('patient_care_plan_tasks')
-    .delete()
-    .eq('patient_id', patientId)
-    .eq('service_type', 'skilled')
-    .in('task_id', taskIds)
-  return { error: error ? new Error(error.message) : null }
+  try {
+    await sql`
+      DELETE FROM patient_care_plan_tasks
+      WHERE patient_id = ${patientId}
+        AND service_type = 'skilled'
+        AND task_id = ANY(${taskIds})
+    `
+    return { error: null }
+  } catch (err) {
+    return { error: err as Error }
+  }
 }
 
 /** Remove all skilled plan rows for one task (all days). */
-export async function deleteSkilledTaskPlanRows(supabase: Supabase, patientId: string, taskId: string) {
-  return deleteSkilledTaskPlanRowsBatch(supabase, patientId, [taskId])
+export async function deleteSkilledTaskPlanRows(
+  patientId: string,
+  taskId: string
+): Promise<{ error: Error | null }> {
+  return deleteSkilledTaskPlanRowsBatch(patientId, [taskId])
 }

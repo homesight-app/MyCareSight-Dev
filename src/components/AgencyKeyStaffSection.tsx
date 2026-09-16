@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Users, Pencil, Loader2, X, Plus, ChevronDown, Trash2 } from 'lucide-react'
 import { saveKeyStaffAdmin, removeKeyStaff, addMemberOwner, updateMemberOwner } from '@/app/actions/agency-onboarding'
-import type { AgencyKeyStaff } from '@/lib/supabase/query'
+import type { AgencyKeyStaff } from '@/app/actions/query-bridge'
 import Button from '@/components/ui/PrimaryButton'
 
 const OFFICER_ROLES = [

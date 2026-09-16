@@ -14,7 +14,7 @@ export default async function AgencyEditTemplatePage({ params }: { params: Promi
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency')
 
-  const { data: template } = await getTemplateById(supabase, id)
+  const { data: template } = await getTemplateById(id)
 
   if (!template) notFound()
 

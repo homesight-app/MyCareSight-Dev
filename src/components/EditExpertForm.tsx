@@ -8,7 +8,7 @@ import * as z from 'zod'
 import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import Button from '@/components/ui/PrimaryButton'
 
 const expertSchema = z.object({
@@ -78,7 +78,7 @@ export default function EditExpertForm({ expert }: EditExpertFormProps) {
     try {
       const supabase = createClient()
 
-      const { error: updateError } = await q.updateLicensingExpertById(supabase, expert.id, {
+      const { error: updateError } = await q.updateLicensingExpertById(expert.id, {
         first_name: data.firstName,
         last_name: data.lastName,
         phone: data.phone || null,

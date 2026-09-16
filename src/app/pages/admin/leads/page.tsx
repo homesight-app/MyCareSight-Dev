@@ -27,12 +27,12 @@ export default async function AdminLeadsPage({
   const sortDir     = (params.sortDir === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc'
 
   const [leadsResult, stageCounts, allSources] = await Promise.all([
-    q.getLeadsPaginated(supabase, {
+    q.getLeadsPaginated({
       leadType: 'agency', page, pageSize: PAGE_SIZE,
       search, stageFilter, serviceType, source, sortKey, sortDir,
     }),
-    q.getLeadStageCounts(supabase, { leadType: 'agency', search, serviceType, source }),
-    q.getLeadDistinctSources(supabase, { leadType: 'agency' }),
+    q.getLeadStageCounts({ leadType: 'agency', search, serviceType, source }),
+    q.getLeadDistinctSources({ leadType: 'agency' }),
   ])
 
   const leads = (leadsResult.data ?? []) as Parameters<typeof LeadsContent>[0]['leads']
@@ -40,7 +40,7 @@ export default async function AdminLeadsPage({
   const activeLeadIds = leads
     .filter(l => l.status !== 'archived' && !['on_hold', 'lost', 'signed'].includes(l.stage))
     .map(l => l.id)
-  const { data: taskRows } = await q.getLeadTaskStatusByLeadIds(supabase, activeLeadIds, today)
+  const { data: taskRows } = await q.getLeadTaskStatusByLeadIds(activeLeadIds, today)
 
   const taskStatus: Record<string, 'overdue' | 'today'> = {}
   for (const row of taskRows ?? []) {

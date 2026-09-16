@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
@@ -19,8 +19,8 @@ export default async function AgencyProgramDetailPage({
   const supabase = await createClient()
 
   const [{ data: application }, { items }] = await Promise.all([
-    q.getApplicationById(supabase, applicationId),
-    q.getApplicationPlaybookItems(supabase, applicationId).then(r => ({ items: r.data ?? [] })),
+    q.getApplicationById(applicationId),
+    q.getApplicationPlaybookItems(applicationId).then(r => ({ items: r.data ?? [] })),
   ])
 
   if (!application) redirect('/pages/agency/programs')

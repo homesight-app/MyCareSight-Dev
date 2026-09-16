@@ -1,4 +1,4 @@
-import { requireAdmin } from '@/lib/auth-helpers'
+﻿import { requireAdmin } from '@/lib/auth-helpers'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import AdminMessagesContent from '@/components/AdminMessagesContent'
@@ -7,7 +7,7 @@ export default async function MessagesPage() {
   const { user } = await requireAdmin()
   const supabase = await createClient()
 
-  const { data: conversations } = await q.getConversationsByAdminId(supabase, user.id)
+  const { data: conversations } = await q.getConversationsByAdminId(user.id)
 
   type ConvRow = { id: string; client_id: string; expert_id: string | null; admin_id?: string; last_message_at?: string }
   const convList = (conversations ?? []) as unknown as ConvRow[]
@@ -15,9 +15,9 @@ export default async function MessagesPage() {
   const expertIds = convList.map(c => c.expert_id).filter(Boolean) as string[]
 
   const { data: clientsData } =
-    clientIds.length > 0 ? await q.getClientsByIds(supabase, clientIds, 'id, company_name') : { data: [] }
+    clientIds.length > 0 ? await q.getClientsByIds(clientIds, 'id, company_name') : { data: [] }
   const { data: expertsData } =
-    expertIds.length > 0 ? await q.getLicensingExpertsByIds(supabase, expertIds) : { data: [] }
+    expertIds.length > 0 ? await q.getLicensingExpertsByIds(expertIds) : { data: [] }
   type ClientRow = { id: string; company_name?: string }
   type ExpertRow = { id: string; user_id?: string; first_name?: string; last_name?: string }
   const clients = (clientsData ?? []) as unknown as ClientRow[]
@@ -36,7 +36,7 @@ export default async function MessagesPage() {
   const conversationIds = convList.map(c => c.id)
   const { data: unreadRpcRows } =
     conversationIds.length > 0
-      ? await q.rpcCountUnreadMessagesForUser(supabase, conversationIds, user.id)
+      ? await q.rpcCountUnreadMessagesForUser(conversationIds, user.id)
       : { data: [] }
 
   const unreadCountsByConv: Record<string, number> = {}

@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { getSession } from '@/lib/auth'
@@ -18,8 +18,8 @@ export default async function ExpertProgramDetailPage({
   const supabase = await createClient()
 
   const [{ data: application }, { data: items }] = await Promise.all([
-    q.getApplicationById(supabase, applicationId),
-    q.getApplicationPlaybookItems(supabase, applicationId),
+    q.getApplicationById(applicationId),
+    q.getApplicationPlaybookItems(applicationId),
   ])
 
   if (!application) redirect('/pages/expert/programs')
@@ -41,7 +41,7 @@ export default async function ExpertProgramDetailPage({
 
   // Resolve agency name
   const { data: agencyData } = app.agency_id
-    ? await q.getAgencyNameById(supabase, app.agency_id)
+    ? await q.getAgencyNameById(app.agency_id)
     : { data: null }
 
   // Derive playbookId from items (for templates tab)

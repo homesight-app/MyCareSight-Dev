@@ -1,7 +1,6 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import sql from '@/db'
 
 export async function getLeads(
-  supabase: SupabaseClient,
   opts: {
     leadType: 'agency' | 'patient'
     agencyId?: string
@@ -10,81 +9,44 @@ export async function getLeads(
     includeArchived?: boolean
   }
 ) {
-  let query = supabase
-    .from('leads')
-    .select(`
-      id,
-      lead_type,
-      agency_id,
-      contact_first_name,
-      contact_last_name,
-      contact_email,
-      contact_phone,
-      company_name,
-      service_type,
-      stage,
-      source,
-      price,
-      retainer_amount,
-      retainer_paid_date,
-      installments,
-      installment_amount,
-      signed_date,
-      notes,
-      converted_agency_id,
-      converted_client_id,
-      converted_at,
-      status,
-      created_at,
-      updated_at,
-      assigned_to,
-      created_by,
-      contact_address1,
-      contact_address2,
-      contact_city,
-      contact_state,
-      contact_zip,
-      lead_owner_id,
-      proposal_sent_date,
-      service_states,
-      lead_owner:user_profiles!leads_lead_owner_id_fkey(id, full_name)
-    `)
-    .eq('lead_type', opts.leadType)
-    .order('created_at', { ascending: false })
+  try {
+    const archivedFrag = !opts.includeArchived ? sql`AND l.status = 'active'` : sql``
+    const agencyFrag   = opts.agencyId ? sql`AND l.agency_id = ${opts.agencyId}` : sql``
+    const stageFrag    = opts.stage    ? sql`AND l.stage = ${opts.stage}`        : sql``
+    const searchFrag   = opts.search?.trim()
+      ? sql`AND (l.contact_first_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.contact_last_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.company_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.contact_email ILIKE ${'%' + opts.search.trim() + '%'})`
+      : sql``
 
-  if (!opts.includeArchived) {
-    query = query.eq('status', 'active')
+    const rows = await sql`
+      SELECT
+        l.id, l.lead_type, l.agency_id,
+        l.contact_first_name, l.contact_last_name, l.contact_email, l.contact_phone,
+        l.company_name, l.service_type, l.stage, l.source, l.price, l.retainer_amount,
+        l.retainer_paid_date, l.installments, l.installment_amount, l.signed_date, l.notes,
+        l.converted_agency_id, l.converted_client_id, l.converted_at,
+        l.status, l.created_at, l.updated_at, l.assigned_to, l.created_by,
+        l.contact_address1, l.contact_address2, l.contact_city, l.contact_state, l.contact_zip,
+        l.lead_owner_id, l.proposal_sent_date, l.service_states,
+        up.id   AS lead_owner_id_ref,
+        up.full_name AS lead_owner_full_name
+      FROM leads l
+      LEFT JOIN user_profiles up ON up.id = l.lead_owner_id
+      WHERE l.lead_type = ${opts.leadType}
+      ${archivedFrag} ${agencyFrag} ${stageFrag} ${searchFrag}
+      ORDER BY l.created_at DESC
+      LIMIT 1000
+    `
+
+    const data = rows.map(r => ({
+      ...r,
+      lead_owner: r.lead_owner_id_ref ? { id: r.lead_owner_id_ref, full_name: r.lead_owner_full_name } : null,
+    })) as unknown as any[]
+
+    return { data, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
-
-  if (opts.agencyId) {
-    query = query.eq('agency_id', opts.agencyId)
-  }
-
-  if (opts.stage) {
-    query = query.eq('stage', opts.stage)
-  }
-
-  if (opts.search) {
-    const term = opts.search.trim()
-    query = query.or(
-      `contact_first_name.ilike.%${term}%,contact_last_name.ilike.%${term}%,company_name.ilike.%${term}%,contact_email.ilike.%${term}%`
-    )
-  }
-
-  return query.limit(1000)
 }
-
-const LEADS_SELECT = `
-  id, lead_type, agency_id,
-  contact_first_name, contact_last_name, contact_email, contact_phone,
-  company_name, service_type, stage, source, price, retainer_amount,
-  retainer_paid_date, installments, installment_amount, signed_date, notes,
-  converted_agency_id, converted_client_id, converted_at,
-  status, created_at, updated_at, assigned_to, created_by,
-  contact_address1, contact_address2, contact_city, contact_state, contact_zip,
-  lead_owner_id, proposal_sent_date, service_states,
-  lead_owner:user_profiles!leads_lead_owner_id_fkey(id, full_name)
-`
 
 export interface GetLeadsPaginatedOpts {
   leadType: 'agency' | 'patient'
@@ -99,280 +61,369 @@ export interface GetLeadsPaginatedOpts {
   sortDir?: 'asc' | 'desc'
 }
 
-function applyLeadFilters(query: any, opts: GetLeadsPaginatedOpts): any {
-  let q = query.eq('lead_type', opts.leadType)
-  if (opts.agencyId) q = q.eq('agency_id', opts.agencyId)
+function buildLeadFilterFragments(opts: GetLeadsPaginatedOpts) {
+  const frags = [sql`l.lead_type = ${opts.leadType}`]
+
+  if (opts.agencyId) frags.push(sql`l.agency_id = ${opts.agencyId}`)
+
   if (opts.stageFilter === 'archived') {
-    q = q.eq('status', 'archived')
+    frags.push(sql`l.status = 'archived'`)
   } else if (opts.stageFilter === 'active') {
-    q = q.eq('status', 'active').not('stage', 'in', '("on_hold","unresponsive","lost","signed")')
+    frags.push(sql`l.status = 'active'`)
+    frags.push(sql`l.stage NOT IN ('on_hold', 'unresponsive', 'lost', 'signed')`)
   } else if (opts.stageFilter && opts.stageFilter !== 'all') {
-    q = q.eq('status', 'active').eq('stage', opts.stageFilter)
+    frags.push(sql`l.status = 'active'`)
+    frags.push(sql`l.stage = ${opts.stageFilter}`)
   }
   // 'all': include archived — no status filter
-  if (opts.serviceType && opts.serviceType !== 'all') q = q.eq('service_type', opts.serviceType)
-  if (opts.source && opts.source !== 'all') q = q.eq('source', opts.source)
+
+  if (opts.serviceType && opts.serviceType !== 'all') frags.push(sql`l.service_type = ${opts.serviceType}`)
+  if (opts.source      && opts.source      !== 'all') frags.push(sql`l.source = ${opts.source}`)
+
   if (opts.search?.trim()) {
     const term = opts.search.trim()
-    q = q.or(`contact_first_name.ilike.%${term}%,contact_last_name.ilike.%${term}%,company_name.ilike.%${term}%,contact_email.ilike.%${term}%`)
+    frags.push(sql`(l.contact_first_name ILIKE ${'%' + term + '%'} OR l.contact_last_name ILIKE ${'%' + term + '%'} OR l.company_name ILIKE ${'%' + term + '%'} OR l.contact_email ILIKE ${'%' + term + '%'})`)
   }
-  return q
+
+  // Combine with AND
+  return frags.reduce((acc, frag) => sql`${acc} AND ${frag}`)
 }
 
-export async function getLeadsPaginated(supabase: SupabaseClient, opts: GetLeadsPaginatedOpts) {
-  const page     = opts.page     ?? 0
-  const pageSize = opts.pageSize ?? 50
-  const from     = page * pageSize
-  const to       = from + pageSize - 1
+export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
+  try {
+    const page     = opts.page     ?? 0
+    const pageSize = opts.pageSize ?? 50
+    const offset   = page * pageSize
 
-  const sortCol  = opts.sortKey === 'price' ? 'price'
-                 : opts.sortKey === 'signed_date' ? 'signed_date'
-                 : opts.sortKey === 'name' ? 'contact_last_name'
-                 : opts.sortKey === 'company' ? 'company_name'
-                 : opts.sortKey === 'stage' ? 'stage'
-                 : opts.sortKey === 'source' ? 'source'
-                 : 'created_at'
-  const ascending = (opts.sortDir ?? 'desc') === 'asc'
+    const sortCol = opts.sortKey === 'price'       ? sql`l.price`
+                  : opts.sortKey === 'signed_date'  ? sql`l.signed_date`
+                  : opts.sortKey === 'name'          ? sql`l.contact_last_name`
+                  : opts.sortKey === 'company'       ? sql`l.company_name`
+                  : opts.sortKey === 'stage'         ? sql`l.stage`
+                  : opts.sortKey === 'source'        ? sql`l.source`
+                  : sql`l.created_at`
+    const sortDir  = (opts.sortDir ?? 'desc') === 'asc' ? sql`ASC` : sql`DESC`
 
-  const dataQuery  = applyLeadFilters(supabase.from('leads').select(LEADS_SELECT).order(sortCol, { ascending }).range(from, to), opts)
-  const countQuery = applyLeadFilters(supabase.from('leads').select('id', { count: 'exact', head: true }), opts)
+    const where = buildLeadFilterFragments(opts)
 
-  const [dataResult, countResult] = await Promise.all([dataQuery, countQuery])
-  return {
-    data:  (dataResult as { data: unknown[] | null }).data  ?? [],
-    count: (countResult as { count: number | null }).count ?? 0,
-    error: (dataResult as { error: unknown }).error ?? (countResult as { error: unknown }).error,
+    const [dataRows, countRows] = await Promise.all([
+      sql`
+        SELECT
+          l.id, l.lead_type, l.agency_id,
+          l.contact_first_name, l.contact_last_name, l.contact_email, l.contact_phone,
+          l.company_name, l.service_type, l.stage, l.source, l.price, l.retainer_amount,
+          l.retainer_paid_date, l.installments, l.installment_amount, l.signed_date, l.notes,
+          l.converted_agency_id, l.converted_client_id, l.converted_at,
+          l.status, l.created_at, l.updated_at, l.assigned_to, l.created_by,
+          l.contact_address1, l.contact_address2, l.contact_city, l.contact_state, l.contact_zip,
+          l.lead_owner_id, l.proposal_sent_date, l.service_states,
+          up.id        AS lead_owner_id_ref,
+          up.full_name AS lead_owner_full_name
+        FROM leads l
+        LEFT JOIN user_profiles up ON up.id = l.lead_owner_id
+        WHERE ${where}
+        ORDER BY ${sortCol} ${sortDir}
+        LIMIT ${pageSize} OFFSET ${offset}
+      `,
+      sql`
+        SELECT COUNT(*)::int AS count
+        FROM leads l
+        WHERE ${where}
+      `,
+    ])
+
+    const data = dataRows.map(r => ({
+      ...r,
+      lead_owner: r.lead_owner_id_ref ? { id: r.lead_owner_id_ref, full_name: r.lead_owner_full_name } : null,
+    }))
+
+    return {
+      data,
+      count: countRows[0]?.count ?? 0,
+      error: null,
+    }
+  } catch (err) {
+    return { data: [], count: 0, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
 }
 
 /** Lightweight — returns only stage + status, used to compute tab counts. */
 export async function getLeadStageCounts(
-  supabase: SupabaseClient,
   opts: Pick<GetLeadsPaginatedOpts, 'leadType' | 'agencyId' | 'search' | 'serviceType' | 'source'>
 ) {
-  let q: any = supabase.from('leads').select('stage, status').eq('lead_type', opts.leadType)
-  if (opts.agencyId) q = q.eq('agency_id', opts.agencyId)
-  if (opts.serviceType && opts.serviceType !== 'all') q = q.eq('service_type', opts.serviceType)
-  if (opts.source && opts.source !== 'all') q = q.eq('source', opts.source)
-  if (opts.search?.trim()) {
-    const term = opts.search.trim()
-    q = q.or(`contact_first_name.ilike.%${term}%,contact_last_name.ilike.%${term}%,company_name.ilike.%${term}%,contact_email.ilike.%${term}%`)
+  try {
+    const agencyFrag      = opts.agencyId ? sql`AND l.agency_id = ${opts.agencyId}` : sql``
+    const serviceTypeFrag = opts.serviceType && opts.serviceType !== 'all' ? sql`AND l.service_type = ${opts.serviceType}` : sql``
+    const sourceFrag      = opts.source    && opts.source      !== 'all' ? sql`AND l.source = ${opts.source}`             : sql``
+    const searchFrag      = opts.search?.trim()
+      ? sql`AND (l.contact_first_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.contact_last_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.company_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.contact_email ILIKE ${'%' + opts.search.trim() + '%'})`
+      : sql``
+
+    const rows = await sql`
+      SELECT l.stage, l.status
+      FROM leads l
+      WHERE l.lead_type = ${opts.leadType}
+      ${agencyFrag} ${serviceTypeFrag} ${sourceFrag} ${searchFrag}
+    `
+
+    const allRows = rows as unknown as { stage: string; status: string }[]
+    const nonArchived = allRows.filter(r => r.status !== 'archived')
+    const TERMINAL = ['on_hold', 'unresponsive', 'lost', 'signed']
+    const counts: Record<string, number> = {
+      all:      nonArchived.length,
+      active:   nonArchived.filter(r => !TERMINAL.includes(r.stage)).length,
+      archived: allRows.filter(r => r.status === 'archived').length,
+    }
+    for (const r of nonArchived) {
+      counts[r.stage] = (counts[r.stage] ?? 0) + 1
+    }
+    return counts
+  } catch {
+    return {}
   }
-  const { data } = await q
-  const rows = (data ?? []) as { stage: string; status: string }[]
-  const nonArchived = rows.filter(r => r.status !== 'archived')
-  const TERMINAL = ['on_hold', 'unresponsive', 'lost', 'signed']
-  const counts: Record<string, number> = {
-    all:      nonArchived.length,
-    active:   nonArchived.filter(r => !TERMINAL.includes(r.stage)).length,
-    archived: rows.filter(r => r.status === 'archived').length,
-  }
-  for (const r of nonArchived) {
-    counts[r.stage] = (counts[r.stage] ?? 0) + 1
-  }
-  return counts
 }
 
 /** Lightweight — returns distinct non-null sources, used to populate the source dropdown. */
 export async function getLeadDistinctSources(
-  supabase: SupabaseClient,
   opts: Pick<GetLeadsPaginatedOpts, 'leadType' | 'agencyId'>
 ) {
-  let q: any = supabase.from('leads').select('source').eq('lead_type', opts.leadType).not('source', 'is', null)
-  if (opts.agencyId) q = q.eq('agency_id', opts.agencyId)
-  const { data } = await q
-  const sources = Array.from(new Set((data ?? []).map((r: { source: string }) => r.source).filter(Boolean))) as string[]
-  return sources.sort()
+  try {
+    const agencyFrag = opts.agencyId ? sql`AND agency_id = ${opts.agencyId}` : sql``
+    const rows = await sql`
+      SELECT DISTINCT source FROM leads
+      WHERE lead_type = ${opts.leadType}
+        AND source IS NOT NULL
+      ${agencyFrag}
+    `
+    const sources = (rows as unknown as { source: string }[]).map(r => r.source).filter(Boolean)
+    return sources.sort()
+  } catch {
+    return []
+  }
 }
 
-export async function getLeadById(supabase: SupabaseClient, leadId: string) {
-  return supabase
-    .from('leads')
-    .select(`
-      id,
-      lead_type,
-      agency_id,
-      contact_first_name,
-      contact_last_name,
-      contact_email,
-      contact_phone,
-      company_name,
-      service_type,
-      stage,
-      source,
-      price,
-      retainer_amount,
-      retainer_paid_date,
-      installments,
-      installment_amount,
-      signed_date,
-      notes,
-      converted_agency_id,
-      converted_client_id,
-      converted_at,
-      status,
-      created_at,
-      updated_at,
-      assigned_to,
-      created_by,
-      contact_address1,
-      contact_address2,
-      contact_city,
-      contact_state,
-      contact_zip,
-      lead_owner_id,
-      proposal_sent_date,
-      service_states,
-      lead_owner:user_profiles!leads_lead_owner_id_fkey(id, full_name),
-      converted_agency:agencies!leads_converted_agency_id_fkey(id, name)
-    `)
-    .eq('id', leadId)
-    .single()
+export async function getLeadById(leadId: string) {
+  try {
+    const rows = await sql`
+      SELECT
+        l.id, l.lead_type, l.agency_id,
+        l.contact_first_name, l.contact_last_name, l.contact_email, l.contact_phone,
+        l.company_name, l.service_type, l.stage, l.source, l.price, l.retainer_amount,
+        l.retainer_paid_date, l.installments, l.installment_amount, l.signed_date, l.notes,
+        l.converted_agency_id, l.converted_client_id, l.converted_at,
+        l.status, l.created_at, l.updated_at, l.assigned_to, l.created_by,
+        l.contact_address1, l.contact_address2, l.contact_city, l.contact_state, l.contact_zip,
+        l.lead_owner_id, l.proposal_sent_date, l.service_states,
+        up.id        AS lead_owner_id_ref,
+        up.full_name AS lead_owner_full_name,
+        ag.id        AS converted_agency_ref_id,
+        ag.name      AS converted_agency_name
+      FROM leads l
+      LEFT JOIN user_profiles up ON up.id = l.lead_owner_id
+      LEFT JOIN agencies ag ON ag.id = l.converted_agency_id
+      WHERE l.id = ${leadId}
+      LIMIT 1
+    `
+    if (!rows[0]) throw new Error('Not found')
+    const r = rows[0] as any
+    return {
+      data: {
+        ...r,
+        lead_owner:        r.lead_owner_id_ref     ? { id: r.lead_owner_id_ref,     full_name: r.lead_owner_full_name } : null,
+        converted_agency:  r.converted_agency_ref_id ? { id: r.converted_agency_ref_id, name: r.converted_agency_name } : null,
+      },
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getLeadNotes(supabase: SupabaseClient, leadId: string) {
-  return supabase
-    .from('lead_notes')
-    .select(`
-      id,
-      lead_id,
-      author_id,
-      content,
-      note_type,
-      created_at,
-      author:user_profiles!lead_notes_author_id_fkey(full_name)
-    `)
-    .eq('lead_id', leadId)
-    .order('created_at', { ascending: false })
-    .limit(200)
+export async function getLeadNotes(leadId: string) {
+  try {
+    const rows = await sql`
+      SELECT
+        ln.id, ln.lead_id, ln.author_id, ln.content, ln.note_type, ln.created_at,
+        up.full_name AS author_full_name
+      FROM lead_notes ln
+      LEFT JOIN user_profiles up ON up.id = ln.author_id
+      WHERE ln.lead_id = ${leadId}
+      ORDER BY ln.created_at DESC
+      LIMIT 200
+    `
+    const data = rows.map(r => ({
+      ...r,
+      author: r.author_full_name ? { full_name: r.author_full_name } : null,
+    }))
+    return { data, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getLeadTasks(supabase: SupabaseClient, leadId: string) {
-  return supabase
-    .from('lead_tasks')
-    .select(`
-      id,
-      lead_id,
-      created_by,
-      assigned_to,
-      title,
-      due_date,
-      completed_at,
-      created_at,
-      updated_at
-    `)
-    .eq('lead_id', leadId)
-    .order('completed_at', { ascending: true, nullsFirst: true })
-    .order('due_date', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: true })
-    .limit(200)
+export async function getLeadTasks(leadId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, lead_id, created_by, assigned_to, title, due_date, completed_at, created_at, updated_at
+      FROM lead_tasks
+      WHERE lead_id = ${leadId}
+      ORDER BY completed_at ASC NULLS FIRST, due_date ASC NULLS LAST, created_at ASC
+      LIMIT 200
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getLeadDocuments(supabase: SupabaseClient, leadId: string) {
-  return supabase
-    .from('lead_documents')
-    .select('id, lead_id, document_name, file_url, file_name, document_type, description, uploaded_by, created_at')
-    .eq('lead_id', leadId)
-    .order('created_at', { ascending: false })
-    .limit(200)
+export async function getLeadDocuments(leadId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, lead_id, document_name, file_url, file_name, document_type, description, uploaded_by, created_at
+      FROM lead_documents
+      WHERE lead_id = ${leadId}
+      ORDER BY created_at DESC
+      LIMIT 200
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function insertLeadDocument(
-  supabase: SupabaseClient,
   data: { lead_id: string; document_name: string; file_url: string; file_name?: string | null; document_type?: string | null; description?: string | null; uploaded_by: string }
 ) {
-  return supabase.from('lead_documents').insert(data).select('id').single()
+  try {
+    const keys = Object.keys(data) as unknown as any[]
+    const rows = await sql`INSERT INTO lead_documents ${sql(data, ...keys)} RETURNING id`
+    if (!rows[0]) throw new Error('Insert returned no rows')
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function deleteLeadDocument(supabase: SupabaseClient, docId: string) {
-  return supabase.from('lead_documents').delete().eq('id', docId)
+export async function deleteLeadDocument(docId: string) {
+  try {
+    await sql`DELETE FROM lead_documents WHERE id = ${docId}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getLeadsByAgency(supabase: SupabaseClient, agencyId: string) {
-  return supabase
-    .from('leads')
-    .select(`
-      id,
-      contact_first_name,
-      contact_last_name,
-      company_name,
-      service_type,
-      stage,
-      source,
-      price,
-      retainer_amount,
-      installment_amount,
-      signed_date,
-      converted_at,
-      created_at
-    `)
-    .eq('lead_type', 'agency')
-    .eq('converted_agency_id', agencyId)
-    .order('created_at', { ascending: false })
+export async function getLeadsByAgency(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT
+        id, contact_first_name, contact_last_name, company_name,
+        service_type, stage, source, price, retainer_amount,
+        installment_amount, signed_date, converted_at, created_at
+      FROM leads
+      WHERE lead_type = 'agency'
+        AND converted_agency_id = ${agencyId}
+      ORDER BY created_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getLeadDocumentsByLeadIds(supabase: SupabaseClient, leadIds: string[]) {
+export async function getLeadDocumentsByLeadIds(leadIds: string[]) {
   if (leadIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('lead_documents')
-    .select('id, lead_id, document_name, file_url, file_name, document_type, created_at')
-    .in('lead_id', leadIds)
-    .order('created_at', { ascending: false })
+  try {
+    const rows = await sql`
+      SELECT id, lead_id, document_name, file_url, file_name, document_type, created_at
+      FROM lead_documents
+      WHERE lead_id IN ${sql(leadIds)}
+      ORDER BY created_at DESC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getLeadTaskStatusByLeadIds(
-  supabase: SupabaseClient,
-  leadIds: string[],
-  today: string
-) {
+export async function getLeadTaskStatusByLeadIds(leadIds: string[], today: string) {
   if (leadIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('lead_tasks')
-    .select('lead_id, due_date')
-    .in('lead_id', leadIds)
-    .is('completed_at', null)
-    .lte('due_date', today)
+  try {
+    const rows = await sql`
+      SELECT lead_id, due_date
+      FROM lead_tasks
+      WHERE lead_id IN ${sql(leadIds)}
+        AND completed_at IS NULL
+        AND due_date <= ${today}
+    `
+    return { data: rows as unknown as { lead_id: string; due_date: string }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function linkLeadToExistingAgency(supabase: SupabaseClient, leadId: string, agencyId: string) {
-  return supabase
-    .from('leads')
-    .update({ converted_agency_id: agencyId, updated_at: new Date().toISOString() })
-    .eq('id', leadId)
+export async function linkLeadToExistingAgency(leadId: string, agencyId: string) {
+  try {
+    await sql`
+      UPDATE leads
+      SET converted_agency_id = ${agencyId}, updated_at = ${new Date().toISOString()}
+      WHERE id = ${leadId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function unlinkLeadFromAgency(supabase: SupabaseClient, leadId: string) {
-  return supabase
-    .from('leads')
-    .update({ converted_agency_id: null, updated_at: new Date().toISOString() })
-    .eq('id', leadId)
+export async function unlinkLeadFromAgency(leadId: string) {
+  try {
+    await sql`
+      UPDATE leads
+      SET converted_agency_id = NULL, updated_at = ${new Date().toISOString()}
+      WHERE id = ${leadId}
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function getLeadNotesByLeadIds(supabase: SupabaseClient, leadIds: string[]) {
+export async function getLeadNotesByLeadIds(leadIds: string[]) {
   if (leadIds.length === 0) return { data: [], error: null }
-  return supabase
-    .from('lead_notes')
-    .select(`
-      id,
-      lead_id,
-      author_id,
-      content,
-      note_type,
-      created_at,
-      author:user_profiles!lead_notes_author_id_fkey(full_name)
-    `)
-    .in('lead_id', leadIds)
-    .order('created_at', { ascending: false })
+  try {
+    const rows = await sql`
+      SELECT
+        ln.id, ln.lead_id, ln.author_id, ln.content, ln.note_type, ln.created_at,
+        up.full_name AS author_full_name
+      FROM lead_notes ln
+      LEFT JOIN user_profiles up ON up.id = ln.author_id
+      WHERE ln.lead_id IN ${sql(leadIds)}
+      ORDER BY ln.created_at DESC
+    `
+    const data = rows.map(r => ({
+      ...r,
+      author: r.author_full_name ? { full_name: r.author_full_name } : null,
+    }))
+    return { data, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 // ─── Agency lead stages ────────────────────────────────────────────────────
 
-export async function getAgencyLeadStages(supabase: SupabaseClient, agencyId: string) {
-  return supabase
-    .from('agency_lead_stages')
-    .select('id, agency_id, key, label, color, sort_order, is_entry, is_won, is_lost, created_at')
-    .eq('agency_id', agencyId)
-    .order('sort_order', { ascending: true })
+export async function getAgencyLeadStages(agencyId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, agency_id, key, label, color, sort_order, is_entry, is_won, is_lost, created_at
+      FROM agency_lead_stages
+      WHERE agency_id = ${agencyId}
+      ORDER BY sort_order ASC
+    `
+    return { data: rows as unknown as any[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 const DEFAULT_AGENCY_STAGES = [
@@ -383,12 +434,20 @@ const DEFAULT_AGENCY_STAGES = [
   { key: 'closed_lost', label: 'Closed - Lost', color: 'bg-red-100 text-red-600',       sort_order: 91, is_entry: false, is_won: false, is_lost: true  },
 ]
 
-export async function seedDefaultAgencyLeadStages(supabase: SupabaseClient, agencyId: string) {
-  const rows = DEFAULT_AGENCY_STAGES.map(s => ({ ...s, agency_id: agencyId }))
-  await supabase
-    .from('agency_lead_stages')
-    .upsert(rows, { onConflict: 'agency_id,key', ignoreDuplicates: true })
-  return getAgencyLeadStages(supabase, agencyId)
+export async function seedDefaultAgencyLeadStages(agencyId: string) {
+  try {
+    const rows = DEFAULT_AGENCY_STAGES.map(s => ({ ...s, agency_id: agencyId }))
+    for (const row of rows) {
+      const keys = Object.keys(row) as unknown as any[]
+      await sql`
+        INSERT INTO agency_lead_stages ${sql(row, ...keys)}
+        ON CONFLICT (agency_id, key) DO NOTHING
+      `
+    }
+    return getAgencyLeadStages(agencyId)
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 function slugify(label: string): string {
@@ -396,67 +455,82 @@ function slugify(label: string): string {
 }
 
 export async function createAgencyLeadStage(
-  supabase: SupabaseClient,
   agencyId: string,
   data: { label: string; color: string }
 ) {
-  // Place new custom stage before the won/lost stages (sort_order 89)
-  const { data: existing } = await supabase
-    .from('agency_lead_stages')
-    .select('sort_order')
-    .eq('agency_id', agencyId)
-    .eq('is_won', false)
-    .eq('is_lost', false)
-    .eq('is_entry', false)
-    .order('sort_order', { ascending: false })
-    .limit(1)
-    .single()
+  try {
+    const existingRows = await sql`
+      SELECT sort_order FROM agency_lead_stages
+      WHERE agency_id = ${agencyId}
+        AND is_won = false
+        AND is_lost = false
+        AND is_entry = false
+      ORDER BY sort_order DESC
+      LIMIT 1
+    `
 
-  const maxCustomOrder = existing?.sort_order ?? 20
-  const sortOrder = Math.min(maxCustomOrder + 10, 88)
-  const key = slugify(data.label) + '_' + Date.now().toString(36)
+    const maxCustomOrder = existingRows[0]?.sort_order ?? 20
+    const sortOrder = Math.min(maxCustomOrder + 10, 88)
+    const key = slugify(data.label) + '_' + Date.now().toString(36)
 
-  return supabase
-    .from('agency_lead_stages')
-    .insert({ agency_id: agencyId, key, label: data.label, color: data.color, sort_order: sortOrder })
-    .select('id, key, label, color, sort_order, is_entry, is_won, is_lost')
-    .single()
+    const payload = { agency_id: agencyId, key, label: data.label, color: data.color, sort_order: sortOrder }
+    const keys = Object.keys(payload) as unknown as any[]
+    const rows = await sql`
+      INSERT INTO agency_lead_stages ${sql(payload, ...keys)}
+      RETURNING id, key, label, color, sort_order, is_entry, is_won, is_lost
+    `
+    if (!rows[0]) throw new Error('Insert returned no rows')
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function updateAgencyLeadStage(
-  supabase: SupabaseClient,
   stageId: string,
   data: { label?: string; color?: string; sort_order?: number }
 ) {
-  return supabase
-    .from('agency_lead_stages')
-    .update(data)
-    .eq('id', stageId)
-    .select('id, key, label, color, sort_order, is_entry, is_won, is_lost')
-    .single()
+  try {
+    const keys = Object.keys(data) as unknown as any[]
+    const rows = await sql`
+      UPDATE agency_lead_stages
+      SET ${sql(data, ...keys)}
+      WHERE id = ${stageId}
+      RETURNING id, key, label, color, sort_order, is_entry, is_won, is_lost
+    `
+    if (!rows[0]) throw new Error('Not found')
+    return { data: (rows as unknown as any[])[0], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function deleteAgencyLeadStage(supabase: SupabaseClient, stageId: string) {
-  return supabase
-    .from('agency_lead_stages')
-    .delete()
-    .eq('id', stageId)
-    .eq('is_entry', false)
-    .eq('is_won', false)
-    .eq('is_lost', false)
+export async function deleteAgencyLeadStage(stageId: string) {
+  try {
+    await sql`
+      DELETE FROM agency_lead_stages
+      WHERE id = ${stageId}
+        AND is_entry = false
+        AND is_won = false
+        AND is_lost = false
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function reorderAgencyLeadStages(
-  supabase: SupabaseClient,
-  agencyId: string,
-  orderedIds: string[]
-) {
-  const updates = orderedIds.map((id, idx) =>
-    supabase.from('agency_lead_stages').update({ sort_order: idx * 10 }).eq('id', id).eq('agency_id', agencyId)
-  )
-  const results = await Promise.all(updates)
-  const err = results.find(r => (r as { error: unknown }).error)
-  return err ?? { error: null }
+export async function reorderAgencyLeadStages(agencyId: string, orderedIds: string[]) {
+  try {
+    await Promise.all(
+      orderedIds.map((id, idx) =>
+        sql`UPDATE agency_lead_stages SET sort_order = ${idx * 10} WHERE id = ${id} AND agency_id = ${agencyId}`
+      )
+    )
+    return { error: null }
+  } catch (err) {
+    return { error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 // ─── Patient lead details ──────────────────────────────────────────────────
@@ -484,26 +558,38 @@ export interface PatientLeadDetails {
   updated_at?: string
 }
 
-export async function getPatientLeadDetails(supabase: SupabaseClient, leadId: string) {
-  return supabase
-    .from('patient_lead_details')
-    .select('id, lead_id, poc_name, poc_phone, poc_relationship, poc_email, reason_for_care, mobility_status, cognitive_status, medical_conditions, gender, date_of_birth, start_date, schedule_type, living_situation, payment_method, insurance_carrier, insurance_policy_number, created_at, updated_at')
-    .eq('lead_id', leadId)
-    .maybeSingle()
+export async function getPatientLeadDetails(leadId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, lead_id, poc_name, poc_phone, poc_relationship, poc_email,
+             reason_for_care, mobility_status, cognitive_status, medical_conditions,
+             gender, date_of_birth, start_date, schedule_type, living_situation,
+             payment_method, insurance_carrier, insurance_policy_number, created_at, updated_at
+      FROM patient_lead_details
+      WHERE lead_id = ${leadId}
+      LIMIT 1
+    `
+    return { data: (rows[0] ?? null) as PatientLeadDetails | null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function upsertPatientLeadDetails(
-  supabase: SupabaseClient,
   leadId: string,
   data: Partial<Omit<PatientLeadDetails, 'id' | 'lead_id' | 'created_at' | 'updated_at'>>
 ) {
-  return supabase
-    .from('patient_lead_details')
-    .upsert(
-      { ...data, lead_id: leadId, updated_at: new Date().toISOString() },
-      { onConflict: 'lead_id' }
-    )
-    .select('id')
-    .single()
+  try {
+    const payload = { ...data, lead_id: leadId, updated_at: new Date().toISOString() }
+    const keys = Object.keys(payload) as unknown as any[]
+    const rows = await sql`
+      INSERT INTO patient_lead_details ${sql(payload, ...keys)}
+      ON CONFLICT (lead_id) DO UPDATE SET ${sql(payload, ...keys)}
+      RETURNING id
+    `
+    if (!rows[0]) throw new Error('Upsert returned no rows')
+    return { data: rows[0] as any, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
-

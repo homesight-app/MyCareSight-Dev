@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -24,12 +24,12 @@ export default async function DashboardPage() {
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 
   const staffResult = agencyId
-    ? await q.getStaffMembersByAgencyId(supabase, agencyId, { status: 'active' })
+    ? await q.getStaffMembersByAgencyId(agencyId, { status: 'active' })
     : { data: [] }
   const staff = staffResult.data ?? []
   const staffIds = (staff || []).map((s: { id: string }) => s.id)
   const { data: staffLicensesData } = staffIds.length > 0
-    ? await q.getApplicationsByStaffMemberIds(supabase, staffIds)
+    ? await q.getApplicationsByStaffMemberIds(staffIds)
     : { data: [] }
 
   type StaffLicenseRow = { id: string; caregiver_member_id: string; license_type: string; license_number: string; state: string; status: string; expiry_date: string | null; days_until_expiry: number | null }

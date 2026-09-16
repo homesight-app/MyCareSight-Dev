@@ -32,7 +32,7 @@ import SearchInput from '@/components/ui/SearchInput'
 import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { useRouter } from 'next/navigation'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 
@@ -166,7 +166,7 @@ export default function LicensesContent({
       const supabase = createClient()
       
       // Change status from 'needs_revision' to 'in_progress' to allow resubmission
-      const { error } = await q.updateApplicationById(supabase, applicationId, {
+      const { error } = await q.updateApplicationById(applicationId, {
         status: 'in_progress',
         revision_reason: null
       })
@@ -192,7 +192,7 @@ export default function LicensesContent({
     try {
       const supabase = createClient()
       
-      const { error } = await q.updateApplicationById(supabase, applicationId, { status: 'cancelled' })
+      const { error } = await q.updateApplicationById(applicationId, { status: 'cancelled' })
 
       if (error) throw error
 
@@ -225,10 +225,10 @@ export default function LicensesContent({
       const supabase = createClient()
       
       // Fetch the latest document for this application
-      const { data: documents, error } = await q.getLatestApplicationDocumentByApplicationId(supabase, applicationId)
+      const { data: documents, error } = await q.getLatestApplicationDocumentByApplicationId(applicationId)
 
       if (error || !documents) {
-        if (error?.code === 'PGRST116') {
+        if ((error as any)?.code === 'PGRST116') {
           // No documents found
           alert('No documents available for this application')
           return
@@ -269,10 +269,10 @@ export default function LicensesContent({
       const supabase = createClient()
 
       // Fetch the latest document for this license
-      const { data: documents, error } = await q.getLatestLicenseDocumentByLicenseId(supabase, licenseId)
+      const { data: documents, error } = await q.getLatestLicenseDocumentByLicenseId(licenseId)
 
       if (error || !documents) {
-        if (error?.code === 'PGRST116') {
+        if ((error as any)?.code === 'PGRST116') {
           // No documents found
           alert('No documents available for this license')
           return

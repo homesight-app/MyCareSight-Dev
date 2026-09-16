@@ -1,5 +1,5 @@
 import { unstable_cache } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
@@ -19,8 +19,7 @@ type TaskCatalogItem = { id: string; name: string; categoryId: string; categoryN
 
 const getAgenciesIdNameCached = unstable_cache(
   async () => {
-    const supabase = createAdminClient()
-    return q.getAgenciesIdName(supabase)
+    return q.getAgenciesIdName()
   },
   ['ref-agencies-id-name'],
   { revalidate: 120, tags: [CACHE_TAG_AGENCIES_ID_NAME] }
@@ -28,8 +27,7 @@ const getAgenciesIdNameCached = unstable_cache(
 
 const getAgenciesOrderedCached = unstable_cache(
   async () => {
-    const supabase = createAdminClient()
-    return q.getAgenciesOrdered(supabase)
+    return q.getAgenciesOrdered()
   },
   ['ref-agencies-ordered'],
   { revalidate: 120, tags: [CACHE_TAG_AGENCIES_ORDERED] }
@@ -37,64 +35,68 @@ const getAgenciesOrderedCached = unstable_cache(
 
 const getAgenciesForBillingCached = unstable_cache(
   async () => {
-    const supabase = createAdminClient()
-    return q.getAgenciesForBilling(supabase)
+    return q.getAgenciesForBilling()
   },
   ['ref-agencies-billing'],
   { revalidate: 120, tags: [CACHE_TAG_AGENCIES_FOR_BILLING] }
 )
 
+type TaskWithCategoryRow = {
+  id: string
+  name: string
+  category_id: string
+  tcat_id: string
+  tcat_name: string
+}
+
 async function fetchTasksByServiceType(serviceType: ServiceType): Promise<{
   error: string | null
   data: TaskCatalogItem[] | null
 }> {
-  const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('task_catalog')
-    .select('id, name, category_id, task_categories!inner(id, name, service_type)')
-    .eq('task_categories.service_type', serviceType)
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
-    .order('name', { ascending: true })
-
-  if (error) return { error: error.message, data: null }
-  const normalized = (data ?? [])
-    .map((row: Record<string, unknown>) => {
-      const category = Array.isArray(row.task_categories) ? row.task_categories[0] : row.task_categories
-      const cat = category as { id?: string; name?: string } | null
-      return {
+  try {
+    const rows = await sql<TaskWithCategoryRow[]>`
+      SELECT tc.id, tc.name, tc.category_id, tcat.id AS tcat_id, tcat.name AS tcat_name
+      FROM task_catalog tc
+      INNER JOIN task_categories tcat ON tcat.id = tc.category_id
+      WHERE tcat.service_type = ${serviceType}
+        AND tc.is_active = true
+      ORDER BY tc.display_order ASC, tc.name ASC
+    `
+    const normalized = rows
+      .map((row) => ({
         id: String(row.id),
         name: String(row.name ?? '').trim(),
-        categoryId: String(row.category_id ?? cat?.id ?? ''),
-        categoryName: String(cat?.name ?? '').trim() || 'General',
-      } satisfies TaskCatalogItem
-    })
-    .filter((row) => row.id && row.name)
-
-  return { error: null, data: normalized }
+        categoryId: String(row.category_id ?? row.tcat_id ?? ''),
+        categoryName: String(row.tcat_name ?? '').trim() || 'General',
+      } satisfies TaskCatalogItem))
+      .filter((row) => row.id && row.name)
+    return { error: null, data: normalized }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to fetch tasks', data: null }
+  }
 }
 
 async function fetchTaskCategoriesByServiceType(serviceType: ServiceType): Promise<{
   error: string | null
   data: TaskCategoryItem[] | null
 }> {
-  const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('task_categories')
-    .select('id, name')
-    .eq('service_type', serviceType)
-    .order('display_order', { ascending: true })
-    .order('name', { ascending: true })
-
-  if (error) return { error: error.message, data: null }
-  const normalized = (data ?? [])
-    .map((row: Record<string, unknown>) => ({
-      id: String(row.id),
-      name: String(row.name ?? '').trim(),
-    }))
-    .filter((row) => row.id && row.name)
-
-  return { error: null, data: normalized }
+  try {
+    const rows = await sql<{ id: string; name: string }[]>`
+      SELECT id, name
+      FROM task_categories
+      WHERE service_type = ${serviceType}
+      ORDER BY display_order ASC, name ASC
+    `
+    const normalized = rows
+      .map((row) => ({
+        id: String(row.id),
+        name: String(row.name ?? '').trim(),
+      }))
+      .filter((row) => row.id && row.name)
+    return { error: null, data: normalized }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to fetch task categories', data: null }
+  }
 }
 
 const getSkilledTasksCached = unstable_cache(
@@ -134,8 +136,7 @@ const CONFIG_LICENSE_TYPES_SELECT =
 
 const getLicenseTypesActiveConfigCached = unstable_cache(
   async () => {
-    const supabase = createAdminClient()
-    return q.getLicenseTypesActive(supabase, CONFIG_LICENSE_TYPES_SELECT)
+    return q.getLicenseTypesActive(CONFIG_LICENSE_TYPES_SELECT)
   },
   ['ref-license-types-active', CONFIG_LICENSE_TYPES_SELECT],
   { revalidate: 300, tags: [CACHE_TAG_LICENSE_TYPES_ACTIVE] }
@@ -143,8 +144,7 @@ const getLicenseTypesActiveConfigCached = unstable_cache(
 
 const getLicenseTypesActiveBillingCached = unstable_cache(
   async () => {
-    const supabase = createAdminClient()
-    return q.getLicenseTypesActive(supabase)
+    return q.getLicenseTypesActive()
   },
   ['ref-license-types-active-billing'],
   { revalidate: 300, tags: [CACHE_TAG_LICENSE_TYPES_ACTIVE] }
@@ -152,8 +152,7 @@ const getLicenseTypesActiveBillingCached = unstable_cache(
 
 const getCaregiverSkillCatalogCached = unstable_cache(
   async () => {
-    const supabase = createAdminClient()
-    return q.getCaregiverSkillCatalogFromTaskRequirements(supabase)
+    return q.getCaregiverSkillCatalogFromTaskRequirements()
   },
   ['ref-caregiver-skill-catalog'],
   { revalidate: 180, tags: [CACHE_TAG_CAREGIVER_SKILL_CATALOG] }

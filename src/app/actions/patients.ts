@@ -1,8 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
+import { withUserContext } from '@/db'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 
@@ -11,68 +12,76 @@ function revalidateAgencyPatientDetailPath(patientId: string) {
   revalidatePath(`/pages/agency/clients/${patientId}`)
 }
 
-/**
- * Update patient documents (JSONB) from the server. Use after uploading files to storage from the client.
- * Ensures the update runs with the same session that loaded the page.
- */
 export async function updatePatientDocumentsAction(
   patientId: string,
   documents: PatientDocument[]
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
-
-  const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) {
-    return { error: 'You must be logged in to update documents' }
-  }
-
-  const { data, error } = await q.updatePatientDocuments(supabase, patientId, documents)
-  if (error || !data) {
-    return { error: error?.message ?? 'Update failed' }
-  }
-
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    table_name: 'patients',
-    record_id: patientId,
-    action: 'UPDATE',
-    performed_by_user_id: user.id,
-    details: { field: 'documents', patient_id: patientId, document_count: documents.length },
-  })
-  if (auditErr) console.error('[patients/updateDocuments] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
-
-  revalidateAgencyPatientDetailPath(patientId)
-  return { error: null }
+  void patientId
+  void documents
+  return { error: 'Use the document upload or delete action.' }
 }
 
-/** Save required caregiver skills for a patient and invalidate client detail caches. */
+/** Fetch names for a set of patient IDs — used by client components that display visit schedules. */
+export async function getPatientNamesByIdsAction(
+  ids: string[]
+): Promise<{ id: string; first_name: string | null; last_name: string | null }[]> {
+  if (!ids.length) return []
+  const session = await getSession()
+  if (!session) return []
+  return withUserContext(session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null, () =>
+    sql<{ id: string; first_name: string | null; last_name: string | null }[]>`
+      SELECT id, first_name, last_name FROM patients WHERE id = ANY(${ids}::uuid[])
+    `
+  )
+}
+
+/** Fetch all patients for the viewer's agency — used by client components for tag autocomplete. */
+export async function getAgencyPatientNamesAction(): Promise<
+  { id: string; first_name: string; last_name: string }[]
+> {
+  const session = await getSession()
+  if (!session) return []
+  const agencyId = session.profile?.agency_id ?? null
+  if (!agencyId) return []
+  return withUserContext(session.user.id, session.profile?.role ?? '', agencyId, () =>
+    sql<{ id: string; first_name: string; last_name: string }[]>`
+      SELECT id, first_name, last_name FROM patients
+      WHERE agency_id = ${agencyId}
+      ORDER BY last_name ASC
+    `
+  )
+}
+
 export async function upsertPatientCaregiverRequirementsAction(
   patientId: string,
   skillCodes: string[]
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) {
-    return { error: 'You must be logged in to update caregiver requirements' }
+  if (!session) return { error: 'You must be logged in to update caregiver requirements' }
+
+  try {
+    return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
+      const normalized = Array.from(new Set((skillCodes ?? []).filter((s): s is string => typeof s === 'string' && s.length > 0))).sort(
+        (a, b) => a.localeCompare(b)
+      )
+
+      const { error } = await q.upsertCaregiverRequirements(patientId, normalized)
+      if (error) return { error: error.message ?? 'Failed to save caregiver requirements' }
+
+      const { error: auditErr } = await q.insertAuditLog({
+        table_name: 'patient_skill_requirements',
+        record_id: patientId,
+        action: 'UPDATE',
+        performed_by_user_id: session.user.id,
+        details: { field: 'skill_codes', skill_count: normalized.length },
+      })
+      if (auditErr) console.error('[patients/upsertCaregiverRequirements] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
+
+      revalidateAgencyPatientDetailPath(patientId)
+      return { error: null }
+    })
+  } catch (err) {
+    console.error('[patients/upsertCaregiverRequirements]', err)
+    return { error: 'Internal error' }
   }
-
-  const normalized = Array.from(new Set((skillCodes ?? []).filter((s): s is string => typeof s === 'string' && s.length > 0))).sort(
-    (a, b) => a.localeCompare(b)
-  )
-
-  const { error } = await q.upsertCaregiverRequirements(supabase, patientId, normalized)
-  if (error) return { error: error.message ?? 'Failed to save caregiver requirements' }
-
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    table_name: 'patient_skill_requirements',
-    record_id: patientId,
-    action: 'UPDATE',
-    performed_by_user_id: user.id,
-    details: { field: 'skill_codes', patient_id: patientId, skill_codes: normalized },
-  })
-  if (auditErr) console.error('[patients/upsertCaregiverRequirements] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
-
-  revalidateAgencyPatientDetailPath(patientId)
-  return { error: null }
 }

@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
@@ -16,13 +16,13 @@ export default async function ApplicationsPage() {
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 
   const { data: applicationsData } = agencyId
-    ? await q.getApplicationsByAgencyId(supabase, agencyId)
+    ? await q.getApplicationsByAgencyId(agencyId)
     : { data: [] }
   const applications = applicationsData ?? []
 
   const appIds = applications.map((a: { id: string }) => a.id)
   const { data: docRows } = appIds.length > 0
-    ? await q.getApplicationDocumentsApplicationIds(supabase, appIds)
+    ? await q.getApplicationDocumentsApplicationIds(appIds)
     : { data: [] }
   const documentCounts = (docRows || []).reduce((acc: Record<string, number>, doc: { application_id: string }) => {
     acc[doc.application_id] = (acc[doc.application_id] || 0) + 1

@@ -1,16 +1,15 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { BillingCode } from '@/lib/supabase/query/billing'
 
 export type { BillingCode }
 
 export async function getActiveBillingCodesAction(): Promise<{ data: BillingCode[] | null; error: string | null }> {
-  const supabase = createAdminClient()
-  const { data, error } = await q.getActiveBillingCodes(supabase)
+  const { data, error } = await q.getActiveBillingCodes()
   return { data, error: error?.message ?? null }
 }
 
@@ -28,8 +27,6 @@ export async function createBilling(data: CreateBillingData) {
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', data: null }
 
-  const supabase = createAdminClient()
-
   try {
     // Calculate total amount
     const userLicenseTotal = (data.userLicensesCount || 0) * (data.userLicenseRate || 50.00)
@@ -37,32 +34,23 @@ export async function createBilling(data: CreateBillingData) {
     const totalAmount = userLicenseTotal + applicationTotal
 
     // Insert billing record
-    const { data: billing, error } = await supabase
-      .from('billing')
-      .insert({
-        client_id: data.clientId,
-        billing_month: data.billingMonth,
-        user_licenses_count: data.userLicensesCount || 0,
-        user_license_rate: data.userLicenseRate || 50.00,
-        applications_count: data.applicationsCount || 0,
-        application_rate: data.applicationRate || 500.00,
-        total_amount: totalAmount,
-        status: data.status || 'pending',
-      })
-      .select()
-      .single()
+    const [billing] = await sql<{ id: string }[]>`
+      INSERT INTO billing (
+        client_id, billing_month, user_licenses_count, user_license_rate,
+        applications_count, application_rate, total_amount, status
+      ) VALUES (
+        ${data.clientId}, ${data.billingMonth}, ${data.userLicensesCount || 0},
+        ${data.userLicenseRate || 50.00}, ${data.applicationsCount || 0},
+        ${data.applicationRate || 500.00}, ${totalAmount}, ${data.status || 'pending'}
+      ) RETURNING *
+    `
+    if (!billing) return { error: 'Insert failed', data: null }
 
-    if (error) {
-      return { error: error.message, data: null }
-    }
+    const [adminRow] = await sql<{ agency_id: string | null }[]>`
+      SELECT agency_id FROM agency_admins WHERE id = ${data.clientId} LIMIT 1
+    `
 
-    const { data: adminRow } = await supabase
-      .from('agency_admins')
-      .select('agency_id')
-      .eq('id', data.clientId)
-      .maybeSingle()
-
-    const { error: auditErr } = await supabase.from('audit_log').insert({
+    const { error: auditErr } = await q.insertAuditLog({
       agency_id: adminRow?.agency_id ?? null,
       table_name: 'billing',
       record_id: billing.id,

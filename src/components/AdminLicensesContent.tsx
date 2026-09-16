@@ -13,7 +13,7 @@ import {
   Users
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
 import { acceptApplicationRequest } from '@/app/actions/applications'
 import Button from '@/components/ui/PrimaryButton'
@@ -105,7 +105,7 @@ export default function AdminLicensesContent({
         throw new Error('Expert not found')
       }
 
-      const { error } = await q.updateApplicationById(supabase, selectedApplication.id, {
+      const { error } = await q.updateApplicationById(selectedApplication.id, {
         assigned_expert_id: expert.id,
         last_updated_date: new Date().toISOString().split('T')[0]
       })
@@ -169,7 +169,7 @@ export default function AdminLicensesContent({
       const supabase = createClient()
       
       // Update application status to 'rejected'
-      const { error } = await q.updateApplicationById(supabase, applicationId, {
+      const { error } = await q.updateApplicationById(applicationId, {
         status: 'rejected',
         last_updated_date: new Date().toISOString().split('T')[0]
       })

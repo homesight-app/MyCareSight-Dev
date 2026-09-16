@@ -1,8 +1,8 @@
-'use server'
+﻿'use server'
 
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
-import { createAdminClient } from '@/lib/supabase/admin'
+import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import { removeFiles } from '@/lib/storage/client'
 
@@ -47,9 +47,7 @@ export async function createLicenseForAgency(input: CreateLicenseForAgencyInput)
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
-  const supabaseAdmin = createAdminClient()
-
-  const { data: newLicense, error } = await q.insertLicenseReturning(supabaseAdmin, {
+  const { data: newLicense, error } = await q.insertLicenseReturning({
     agency_id: input.agencyId,
     company_owner_id: null,
     license_name: input.license_name,
@@ -68,7 +66,7 @@ export async function createLicenseForAgency(input: CreateLicenseForAgencyInput)
 
   if (newLicense?.id && input.documents?.length) {
     for (const doc of input.documents) {
-      const { error: docError } = await q.insertLicenseDocument(supabaseAdmin, {
+      const { error: docError } = await q.insertLicenseDocument({
         license_id: newLicense.id,
         document_name: doc.name,
         document_url: doc.url,
@@ -78,7 +76,7 @@ export async function createLicenseForAgency(input: CreateLicenseForAgencyInput)
     }
   }
 
-  const { error: auditErr } = await supabaseAdmin.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     agency_id: input.agencyId,
     table_name: 'licenses',
     record_id: newLicense?.id ?? null,
@@ -122,12 +120,9 @@ export async function createCertificationAndLink(
   // Auto-copy category from the source application if not explicitly provided
   let enrichedCertData = { ...certData }
   if (!enrichedCertData.category_id) {
-    const supabaseAdmin = createAdminClient()
-    const { data: app } = await supabaseAdmin
-      .from('applications')
-      .select('category_id, subcategory_id')
-      .eq('id', applicationId)
-      .single()
+    const [app] = await sql<{ category_id: string; subcategory_id: string | null }[]>`
+      SELECT category_id, subcategory_id FROM applications WHERE id = ${applicationId} LIMIT 1
+    `
     if (app?.category_id) {
       enrichedCertData = {
         ...enrichedCertData,
@@ -140,8 +135,7 @@ export async function createCertificationAndLink(
   const { error: createErr, data: newCert } = await createLicenseForAgency({ ...enrichedCertData, agencyId })
   if (createErr || !newCert?.id) return { error: createErr ?? 'Failed to create certification' }
 
-  const supabaseAdmin = createAdminClient()
-  const { error: linkErr } = await q.insertCertificationApplication(supabaseAdmin, {
+  const { error: linkErr } = await q.insertCertificationApplication({
     certification_id: newCert.id,
     application_id: applicationId,
     link_type: 'created_from',
@@ -165,8 +159,7 @@ export async function linkProgramToCertification(
   const roleErr = assertCanManageCert(session.profile?.role)
   if (roleErr) return { error: roleErr }
 
-  const supabaseAdmin = createAdminClient()
-  const { error } = await q.insertCertificationApplication(supabaseAdmin, {
+  const { error } = await q.insertCertificationApplication({
     certification_id: certificationId,
     application_id: applicationId,
     link_type: linkType,
@@ -189,8 +182,7 @@ export async function unlinkProgramFromCertification(
   const roleErr = assertCanManageCert(session.profile?.role)
   if (roleErr) return { error: roleErr }
 
-  const supabaseAdmin = createAdminClient()
-  const { error } = await q.deleteCertificationApplication(supabaseAdmin, certificationId, applicationId)
+  const { error } = await q.deleteCertificationApplication(certificationId, applicationId)
   if (error) return { error: error.message }
 
   revalidateCertificationPages(agencyId)
@@ -218,8 +210,7 @@ export async function updateCertificationDetails(
   const roleErr = assertCanManageCert(session.profile?.role)
   if (roleErr) return { error: roleErr }
 
-  const supabaseAdmin = createAdminClient()
-  const { error } = await q.updateLicenseById(supabaseAdmin, certificationId, {
+  const { error } = await q.updateLicenseById(certificationId, {
     ...data,
     updated_at: new Date().toISOString(),
   })
@@ -240,13 +231,12 @@ export async function deleteLicenseDocument(
   const roleErr = assertCanManageCert(session.profile?.role)
   if (roleErr) return { error: roleErr }
 
-  const supabaseAdmin = createAdminClient()
-  const { data: doc, error: fetchErr } = await q.getLicenseDocumentUrlById(supabaseAdmin, documentId)
+  const { data: doc, error: fetchErr } = await q.getLicenseDocumentUrlById(documentId)
   if (fetchErr || !doc) return { error: fetchErr?.message ?? 'Document not found' }
 
   const { error: storageErr } = await removeFiles('application-documents', [doc.document_url])
   if (storageErr) console.error('[licenses/deleteLicenseDocument] Storage delete failed. docId=%s err=%s', documentId, storageErr.message)
-  const { error } = await q.deleteLicenseDocumentById(supabaseAdmin, documentId)
+  const { error } = await q.deleteLicenseDocumentById(documentId)
   if (error) return { error: error.message }
 
   revalidateCertificationPages(agencyId)
@@ -264,14 +254,11 @@ export async function getAvailableProgramsForCert(
   const roleErr = assertCanManageCert(session.profile?.role)
   if (roleErr) return { error: roleErr, data: [] }
 
-  const supabaseAdmin = createAdminClient()
-  const { data: linked } = await supabaseAdmin
-    .from('certification_applications')
-    .select('application_id')
-    .eq('certification_id', certificationId)
-
-  const excludeIds = (linked ?? []).map((r: { application_id: string }) => r.application_id)
-  const { data, error } = await q.getAgencyApplicationsForLinking(supabaseAdmin, agencyId, excludeIds)
+  const linked = await sql<{ application_id: string }[]>`
+    SELECT application_id FROM certification_applications WHERE certification_id = ${certificationId}
+  `
+  const excludeIds = linked.map(r => r.application_id)
+  const { data, error } = await q.getAgencyApplicationsForLinking(agencyId, excludeIds)
   if (error) return { error: error.message, data: [] }
   return { error: null, data: (data ?? []) as { id: string; application_name: string; status: string; started_date: string | null }[] }
 }
@@ -296,13 +283,9 @@ export async function getCertificationVersionHistory(
   const roleErr = assertCanManageCert(session.profile?.role)
   if (roleErr) return { error: roleErr, data: [] }
 
-  const supabaseAdmin = createAdminClient()
-
-  const { data: current } = await supabaseAdmin
-    .from('licenses')
-    .select('previous_version_id')
-    .eq('id', certificationId)
-    .single()
+  const [current] = await sql<{ previous_version_id: string | null }[]>`
+    SELECT previous_version_id FROM licenses WHERE id = ${certificationId} LIMIT 1
+  `
 
   if (!current?.previous_version_id) return { error: null, data: [] }
 
@@ -311,16 +294,16 @@ export async function getCertificationVersionHistory(
   let iterations = 0
 
   while (nextId && iterations < 20) {
-    const { data: version, error } = await supabaseAdmin
-      .from('licenses')
-      .select('id, license_name, license_number, status, activated_date, expiry_date, previous_version_id')
-      .eq('id', nextId)
-      .eq('agency_id', agencyId)
-      .single()
-
-    if (error || !version) break
-    history.push(version as PriorVersion)
-    nextId = version.previous_version_id as string | null
+    const versionRows: PriorVersion[] = await sql<PriorVersion[]>`
+      SELECT id, license_name, license_number, status, activated_date, expiry_date, previous_version_id
+      FROM licenses
+      WHERE id = ${nextId} AND agency_id = ${agencyId}
+      LIMIT 1
+    `
+    const version: PriorVersion | undefined = versionRows[0]
+    if (!version) break
+    history.push(version)
+    nextId = version.previous_version_id
     iterations++
   }
 
@@ -338,8 +321,7 @@ export async function updateCertificationAfterRenewal(
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
 
-  const supabaseAdmin = createAdminClient()
-  const { error } = await q.updateLicenseById(supabaseAdmin, certificationId, {
+  const { error } = await q.updateLicenseById(certificationId, {
     ...data,
     updated_at: new Date().toISOString(),
   })

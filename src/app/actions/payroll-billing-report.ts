@@ -1,9 +1,10 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
+import { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
+import sql from '@/db'
 import { appendCaregiverPayRateAction } from '@/app/actions/caregiver-pay-rates'
 import { fetchPayrollBillingReportRows, type PayrollBillingDetailRow } from '@/lib/payroll-billing-report'
 import type { PatientServiceContractRow } from '@/lib/supabase/query/patient-service-contracts'
@@ -15,26 +16,18 @@ import { patientFullName } from '@/lib/patient-name'
 
 const REPORT_PATH = '/pages/agency/reports/payroll-billing'
 
-async function getViewerAgencyId(): Promise<string | null> {
-  const supabase = createAdminClient()
-  const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return null
-  const { data: up } = await q.getAgencyIdFromProfile(supabase, user.id)
-  return up?.agency_id ?? null
-}
-
 export async function getPayrollBillingReportRowsAction(
   dateFrom: string,
   dateTo: string
 ): Promise<{ rows: PayrollBillingDetailRow[]; error?: string }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { rows: [], error: 'Not signed in.' }
+  if (!session) return { rows: [], error: 'Not signed in.' }
 
-  const agencyId = await getViewerAgencyId()
-  return fetchPayrollBillingReportRows(supabase, { agencyId, dateFrom, dateTo })
+  const role = session.profile?.role ?? ''
+  const agencyId = session.profile?.agency_id ?? null
+  return withUserContext(session.user.id, role, agencyId, () =>
+    fetchPayrollBillingReportRows({ agencyId, dateFrom, dateTo })
+  )
 }
 
 export type RateManagerPayRow = {
@@ -60,90 +53,130 @@ export type RateManagerBillRow = {
   effective_date: string
 }
 
+type PayRateRow = {
+  id: string
+  caregiver_member_id: string | null
+  service_type: string | null
+  pay_rate: number | null
+  unit_type: string | null
+  effective_start: string | null
+  effective_end: string | null
+}
+
+type CaregiverNameRow = {
+  id: string
+  first_name: string | null
+  last_name: string | null
+}
+
+type BillContractRow = {
+  id: string
+  patient_id: string | null
+  contract_name: string | null
+  contract_type: string | null
+  service_type: string | null
+  bill_rate: number | null
+  bill_unit_type: string | null
+  effective_date: string | null
+  end_date: string | null
+  status: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+type PatientNameRow = {
+  id: string
+  first_name: string | null
+  last_name: string | null
+}
+
 export async function getRateManagerDataAction(): Promise<{
   payRows: RateManagerPayRow[]
   billRows: RateManagerBillRow[]
   error?: string
 }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { payRows: [], billRows: [], error: 'Not signed in.' }
+  if (!session) return { payRows: [], billRows: [], error: 'Not signed in.' }
 
-  const agencyId = await getViewerAgencyId()
+  const role = session.profile?.role ?? ''
+  const agencyId = session.profile?.agency_id ?? null
   if (!agencyId) return { payRows: [], billRows: [], error: 'No agency context.' }
 
-  const { data: payData, error: payErr } = await supabase
-    .from('caregiver_pay_rates')
-    .select('id, caregiver_member_id, service_type, pay_rate, unit_type, effective_start, effective_end')
-    .eq('agency_id', agencyId)
-    .is('effective_end', null)
-    .order('effective_start', { ascending: false })
+  return withUserContext(session.user.id, role, agencyId, () => _getRateManagerData(session.user.id, agencyId))
+}
 
-  if (payErr) return { payRows: [], billRows: [], error: payErr.message }
+async function _getRateManagerData(
+  _userId: string,
+  agencyId: string
+): Promise<{ payRows: RateManagerPayRow[]; billRows: RateManagerBillRow[]; error?: string }> {
 
-  const cgIds = Array.from(new Set((payData ?? []).map((r) => r.caregiver_member_id).filter(Boolean))) as string[]
-  let nameByCg = new Map<string, string>()
-  if (cgIds.length) {
-    const { data: cgs } = await supabase
-      .from('caregiver_members')
-      .select('id, first_name, last_name')
-      .in('id', cgIds)
-    nameByCg = new Map(
-      (cgs ?? []).map((c) => [c.id as string, [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Caregiver'])
-    )
+  let payData: PayRateRow[]
+  try {
+    payData = await sql<PayRateRow[]>`
+      SELECT id, caregiver_member_id, service_type, pay_rate, unit_type, effective_start, effective_end
+      FROM caregiver_pay_rates
+      WHERE agency_id = ${agencyId} AND effective_end IS NULL
+      ORDER BY effective_start DESC
+    `
+  } catch (err) {
+    return { payRows: [], billRows: [], error: err instanceof Error ? err.message : 'Failed to load pay rates' }
   }
 
-  const payRows: RateManagerPayRow[] = (payData ?? [])
-    .filter((r) => r.caregiver_member_id)
-    .map((r) => ({
-      id: r.id as string,
-      caregiver_member_id: r.caregiver_member_id as string,
-      caregiverName: nameByCg.get(r.caregiver_member_id as string) ?? 'Caregiver',
-      service_type: (r.service_type as string | null) ?? null,
+  const cgIds = Array.from(new Set(payData.map(r => r.caregiver_member_id).filter(Boolean))) as string[]
+  let nameByCg = new Map<string, string>()
+  if (cgIds.length) {
+    const cgs = await sql<CaregiverNameRow[]>`SELECT id, first_name, last_name FROM caregiver_members WHERE id = ANY(${cgIds}::uuid[])`
+    nameByCg = new Map(cgs.map(c => [c.id, [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Caregiver']))
+  }
+
+  const payRows: RateManagerPayRow[] = payData
+    .filter(r => r.caregiver_member_id)
+    .map(r => ({
+      id: r.id,
+      caregiver_member_id: r.caregiver_member_id!,
+      caregiverName: nameByCg.get(r.caregiver_member_id!) ?? 'Caregiver',
+      service_type: r.service_type ?? null,
       rate: Number(r.pay_rate ?? 0),
       unit_type: String(r.unit_type ?? 'hour'),
       effective_start: String(r.effective_start ?? ''),
-      effective_end: (r.effective_end as string | null) ?? null,
+      effective_end: r.effective_end ?? null,
     }))
 
-  const { data: billData, error: billErr } = await supabase
-    .from('patient_service_contracts')
-    .select(
-      'id, patient_id, contract_name, contract_type, service_type, bill_rate, bill_unit_type, effective_date, end_date, status, created_at, updated_at'
-    )
-    .eq('agency_id', agencyId)
-    .neq('contract_type', 'weekly_hours')
-    .order('effective_date', { ascending: false })
-
-  if (billErr) return { payRows, billRows: [], error: billErr.message }
+  let billData: BillContractRow[]
+  try {
+    billData = await sql<BillContractRow[]>`
+      SELECT id, patient_id, contract_name, contract_type, service_type, bill_rate, bill_unit_type,
+             effective_date, end_date, status, created_at, updated_at
+      FROM patient_service_contracts
+      WHERE agency_id = ${agencyId} AND contract_type != 'weekly_hours'
+      ORDER BY effective_date DESC
+    `
+  } catch (err) {
+    return { payRows, billRows: [], error: err instanceof Error ? err.message : 'Failed to load bill rates' }
+  }
 
   const todayYmd = () => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }
   const asOf = todayYmd()
-  const billDataFiltered = (billData ?? []).filter((r) => {
-    const ct = String((r as { contract_type?: string | null }).contract_type ?? '')
-    if (ct === WEEKLY_HOURS_CONTRACT_TYPE) return false
+  const billDataFiltered = billData.filter(r => {
+    if (r.contract_type === WEEKLY_HOURS_CONTRACT_TYPE) return false
     return patientServiceContractOverlapsDate(r as PatientServiceContractRow, asOf)
   })
 
-  const patientIds = Array.from(new Set(billDataFiltered.map((r) => r.patient_id)))
-  const { data: pats } =
-    patientIds.length > 0
-      ? await supabase.from('patients').select('id, first_name, last_name').in('id', patientIds)
-      : { data: [] as { id: string; first_name: string | null; last_name: string | null }[] }
+  const patientIds = Array.from(new Set(billDataFiltered.map(r => r.patient_id).filter(Boolean))) as string[]
+  let pats: PatientNameRow[] = []
+  if (patientIds.length > 0) {
+    pats = await sql<PatientNameRow[]>`SELECT id, first_name, last_name FROM patients WHERE id = ANY(${patientIds}::uuid[])`
+  }
+  const patientName = new Map(pats.map(p => [p.id, patientFullName(p as { first_name: string; last_name: string })]))
 
-  const patientName = new Map(
-    (pats ?? []).map((p) => [p.id, patientFullName(p as { first_name: string; last_name: string })])
-  )
-
-  const billRows: RateManagerBillRow[] = billDataFiltered.map((r) => ({
-    id: r.id as string,
-    patient_id: r.patient_id as string,
-    clientName: patientName.get(r.patient_id as string) ?? 'Client',
-    contract_name: (r.contract_name as string | null) ?? null,
+  const billRows: RateManagerBillRow[] = billDataFiltered.map(r => ({
+    id: r.id,
+    patient_id: r.patient_id!,
+    clientName: patientName.get(r.patient_id!) ?? 'Client',
+    contract_name: r.contract_name ?? null,
     contract_type: String(r.contract_type ?? ''),
     service_type: String(r.service_type ?? ''),
     bill_rate: r.bill_rate != null ? Number(r.bill_rate) : null,
@@ -154,7 +187,6 @@ export async function getRateManagerDataAction(): Promise<{
   return { payRows, billRows }
 }
 
-/** Append a new caregiver pay rate row (closes the previous open row on the effective date). */
 export async function updateCaregiverPayRateFromManagerAction(
   caregiverMemberId: string,
   serviceType: string | null,
@@ -172,6 +204,40 @@ export async function updateCaregiverPayRateFromManagerAction(
   return { ok: true }
 }
 
+type ContractRow = {
+  id: string
+  agency_id: string | null
+  patient_id: string | null
+  service_type: string | null
+  bill_rate: number | null
+  bill_unit_type: string | null
+  effective_date: string | null
+  end_date: string | null
+}
+
+type VisitRow = {
+  id: string
+  agency_id: string | null
+  patient_id: string | null
+  caregiver_member_id: string | null
+  visit_date: string | null
+  scheduled_start_time: string | null
+  scheduled_end_time: string | null
+  scheduled_end_date: string | null
+}
+
+type FinanceRow = {
+  scheduled_visit_id: string
+  status: string | null
+  approved_billable_hours: number | null
+  bill_rate: number | null
+}
+
+type TimeEntryRow = {
+  id: string
+  scheduled_visit_id: string
+}
+
 export async function updatePatientServiceContractBillRateAction(
   id: string,
   bill_rate: number
@@ -179,145 +245,151 @@ export async function updatePatientServiceContractBillRateAction(
   if (!Number.isFinite(bill_rate) || bill_rate < 0) return { error: 'Invalid bill rate.' }
   const session = await getSession()
   if (!session) return { error: 'Not authenticated.' }
-  const supabase = createAdminClient()
-  const {
-    data: contract,
-    error: contractErr,
-  } = await supabase
-    .from('patient_service_contracts')
-    .select('id, agency_id, patient_id, service_type, bill_rate, bill_unit_type, effective_date, end_date')
-    .eq('id', id)
-    .single()
-  if (contractErr || !contract) return { error: contractErr?.message || 'Contract not found.' }
 
-  const visitQuery = supabase
-    .from('scheduled_visits')
-    .select('id, agency_id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, scheduled_end_date')
-    .eq('status', 'completed')
-    .eq('patient_id', contract.patient_id)
-    .eq('service_type', contract.service_type)
-    .gte('visit_date', contract.effective_date)
-  const { data: scopedVisits, error: visitsErr } = contract.end_date
-    ? await visitQuery.lte('visit_date', contract.end_date)
-    : await visitQuery
-  if (visitsErr) return { error: visitsErr.message }
+  const [contract] = await sql<ContractRow[]>`
+    SELECT id, agency_id, patient_id, service_type, bill_rate, bill_unit_type, effective_date, end_date
+    FROM patient_service_contracts WHERE id = ${id} LIMIT 1
+  `
+  if (!contract) return { error: 'Contract not found.' }
 
-  const visitIds = (scopedVisits ?? []).map((v) => v.id as string)
-  const { data: financeRows, error: financeErr } = visitIds.length
-    ? await supabase
-        .from('visit_financials')
-        .select('scheduled_visit_id, status, approved_billable_hours, bill_rate')
-        .in('scheduled_visit_id', visitIds)
-    : { data: [], error: null as { message?: string } | null }
-  if (financeErr) return { error: financeErr.message }
-  const finByVisitId = new Map(
-    (financeRows ?? []).map((r) => [String((r as { scheduled_visit_id: string }).scheduled_visit_id), r as Record<string, unknown>])
-  )
-  const nonPendingVisits = (scopedVisits ?? []).filter((v) => {
-    const fin = finByVisitId.get(String(v.id))
-    const st = String((fin as { status?: string | null } | undefined)?.status ?? 'pending').toLowerCase()
+  let scopedVisits: VisitRow[]
+  try {
+    if (contract.end_date) {
+      scopedVisits = await sql<VisitRow[]>`
+        SELECT id, agency_id, patient_id, caregiver_member_id, visit_date,
+               scheduled_start_time, scheduled_end_time, scheduled_end_date
+        FROM scheduled_visits
+        WHERE status = 'completed' AND patient_id = ${contract.patient_id}
+          AND service_type = ${contract.service_type}
+          AND visit_date >= ${contract.effective_date}
+          AND visit_date <= ${contract.end_date}
+      `
+    } else {
+      scopedVisits = await sql<VisitRow[]>`
+        SELECT id, agency_id, patient_id, caregiver_member_id, visit_date,
+               scheduled_start_time, scheduled_end_time, scheduled_end_date
+        FROM scheduled_visits
+        WHERE status = 'completed' AND patient_id = ${contract.patient_id}
+          AND service_type = ${contract.service_type}
+          AND visit_date >= ${contract.effective_date}
+      `
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to load visits' }
+  }
+
+  const visitIds = scopedVisits.map(v => v.id)
+
+  let financeRows: FinanceRow[] = []
+  if (visitIds.length) {
+    financeRows = await sql<FinanceRow[]>`
+      SELECT scheduled_visit_id, status, approved_billable_hours, bill_rate
+      FROM visit_financials WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+    `
+  }
+  const finByVisitId = new Map(financeRows.map(r => [r.scheduled_visit_id, r]))
+
+  const nonPendingVisits = scopedVisits.filter(v => {
+    const fin = finByVisitId.get(v.id)
+    const st = (fin?.status ?? 'pending').toLowerCase()
     return st === 'approved' || st === 'voided'
   })
-  const withNoFrozen = nonPendingVisits.filter((v) => {
-    const fin = finByVisitId.get(String(v.id))
-    return (fin as { bill_rate?: number | null } | undefined)?.bill_rate == null
+  const withNoFrozen = nonPendingVisits.filter(v => {
+    const fin = finByVisitId.get(v.id)
+    return fin?.bill_rate == null
   })
+
   if (withNoFrozen.length > 0) {
     const toMinutes = (t: string | null | undefined) => {
       if (!t) return NaN
-      const [h, m] = String(t).slice(0, 5).split(':').map((x) => parseInt(x, 10))
+      const [h, m] = String(t).slice(0, 5).split(':').map(x => parseInt(x, 10))
       if (!Number.isFinite(h)) return NaN
       return h * 60 + (Number.isFinite(m) ? m : 0)
     }
     const now = new Date().toISOString()
-    // Build all update payloads then fire a single batch upsert (single DB round-trip).
-    const updatePayloads = withNoFrozen.map((v) => {
-      const a = toMinutes(v.scheduled_start_time as string | null)
-      const b = toMinutes(v.scheduled_end_time as string | null)
+    const updatePayloads = withNoFrozen.map(v => {
+      const a = toMinutes(v.scheduled_start_time)
+      const b = toMinutes(v.scheduled_end_time)
       const scheduleHours = !Number.isFinite(a) || !Number.isFinite(b) || b <= a ? 0 : Math.round((((b - a) / 60) + Number.EPSILON) * 100) / 100
-      const fin = finByVisitId.get(String(v.id))
-      const bh = (fin as { approved_billable_hours?: number | null } | undefined)?.approved_billable_hours != null
-        ? Number((fin as { approved_billable_hours?: number | null }).approved_billable_hours)
-        : NaN
+      const fin = finByVisitId.get(v.id)
+      const bh = fin?.approved_billable_hours != null ? Number(fin.approved_billable_hours) : NaN
       const hours = Number.isFinite(bh) ? bh : scheduleHours
       const unit = String(contract.bill_unit_type ?? 'hour')
       const rate = Number(contract.bill_rate ?? 0)
       const amount =
-        unit === 'visit'
-          ? rate
-          : unit === '15_min_unit'
-            ? rate * Math.round(hours * 4)
-            : rate * hours
+        unit === 'visit' ? rate
+        : unit === '15_min_unit' ? rate * Math.round(hours * 4)
+        : rate * hours
       return {
-        scheduled_visit_id: v.id as string,
-        status:
-          String((fin as { status?: string | null } | undefined)?.status ?? '').toLowerCase() === 'voided'
-            ? 'voided'
-            : 'approved',
+        scheduled_visit_id: v.id,
+        status: (fin?.status ?? '').toLowerCase() === 'voided' ? 'voided' : 'approved',
         bill_rate: rate,
         bill_amount: Math.round((amount + Number.EPSILON) * 100) / 100,
         updated_at: now,
       }
     })
-    const { error: snapErr } = await supabase
-      .from('visit_financials')
-      .upsert(updatePayloads, { onConflict: 'scheduled_visit_id' })
-    if (snapErr) return { error: snapErr.message }
+    try {
+      for (const payload of updatePayloads) {
+        await sql`
+          INSERT INTO visit_financials ${sql(payload)}
+          ON CONFLICT (scheduled_visit_id) DO UPDATE SET
+            status = EXCLUDED.status,
+            bill_rate = EXCLUDED.bill_rate,
+            bill_amount = EXCLUDED.bill_amount,
+            updated_at = EXCLUDED.updated_at
+        `
+      }
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Failed to update financials' }
+    }
   }
 
   if (visitIds.length > 0) {
-    const { data: timeEntries, error: timeEntryErr } = await supabase
-      .from('visit_time_entries')
-      .select('id, scheduled_visit_id')
-      .in('scheduled_visit_id', visitIds)
-    if (timeEntryErr) return { error: timeEntryErr.message }
-
+    const timeEntries = await sql<TimeEntryRow[]>`
+      SELECT id, scheduled_visit_id FROM visit_time_entries WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+    `
     const existing = new Set(finByVisitId.keys())
-    const timeEntryByVisitId = new Map((timeEntries ?? []).map((r) => [r.scheduled_visit_id as string, r.id as string]))
+    const timeEntryByVisitId = new Map(timeEntries.map(r => [r.scheduled_visit_id, r.id]))
     const toInsert = nonPendingVisits
-      .filter((v) => !existing.has(v.id as string))
-      .map((v) => {
-        const teId = timeEntryByVisitId.get(v.id as string)
+      .filter(v => !existing.has(v.id))
+      .map(v => {
+        const teId = timeEntryByVisitId.get(v.id)
         if (!teId) return null
         const toMinutes = (t: string | null | undefined) => {
           if (!t) return NaN
-          const [h, m] = String(t).slice(0, 5).split(':').map((x) => parseInt(x, 10))
+          const [h, m] = String(t).slice(0, 5).split(':').map(x => parseInt(x, 10))
           if (!Number.isFinite(h)) return NaN
           return h * 60 + (Number.isFinite(m) ? m : 0)
         }
         const hoursFromSchedule = (() => {
-          const startDate = v.visit_date as string | null
-          const endDate = v.scheduled_end_date as string | null
+          const startDate = v.visit_date
+          const endDate = v.scheduled_end_date
           const effectiveEnd = endDate || startDate
           const dayDiff = (startDate && effectiveEnd)
             ? Math.max(0, Math.round((new Date(effectiveEnd + 'T12:00:00').getTime() - new Date(startDate + 'T12:00:00').getTime()) / 86_400_000))
             : 0
-          const a = toMinutes(v.scheduled_start_time as string | null)
-          const b = toMinutes(v.scheduled_end_time as string | null)
+          const a = toMinutes(v.scheduled_start_time)
+          const b = toMinutes(v.scheduled_end_time)
           if (!Number.isFinite(a) || !Number.isFinite(b)) return 0
           return Math.round((Math.max(0, dayDiff * 24 * 60 + (b - a)) / 60 + Number.EPSILON) * 100) / 100
         })()
-        const fin = finByVisitId.get(String(v.id))
-        const hoursRaw = (fin as { approved_billable_hours?: number | null } | undefined)?.approved_billable_hours != null
-          ? Number((fin as { approved_billable_hours?: number | null }).approved_billable_hours)
-          : NaN
+        const fin = finByVisitId.get(v.id)
+        const hoursRaw = fin?.approved_billable_hours != null ? Number(fin.approved_billable_hours) : NaN
         const hours = Number.isFinite(hoursRaw) ? hoursRaw : hoursFromSchedule
         const unit = String(contract.bill_unit_type ?? 'hour')
         const rate = Number(contract.bill_rate ?? 0)
         const billAmount =
-          unit === 'visit'
-            ? rate
-            : unit === '15_min_unit'
-              ? rate * Math.round(hours * 4)
-              : rate * hours
+          unit === 'visit' ? rate
+          : unit === '15_min_unit' ? rate * Math.round(hours * 4)
+          : rate * hours
         return {
-          agency_id: (v.agency_id as string) ?? (contract.agency_id as string),
-          scheduled_visit_id: v.id as string,
+          agency_id: v.agency_id ?? contract.agency_id,
+          scheduled_visit_id: v.id,
           visit_time_entry_id: teId,
-          patient_id: v.patient_id as string,
-          caregiver_member_id: (v.caregiver_member_id as string) ?? '',
-          contract_id: contract.id as string,
-          service_type: contract.service_type as string,
+          patient_id: v.patient_id,
+          caregiver_member_id: v.caregiver_member_id ?? '',
+          contract_id: contract.id,
+          service_type: contract.service_type,
           status: 'approved',
           coordinator_note: null,
           pay_rate: 0,
@@ -331,31 +403,37 @@ export async function updatePatientServiceContractBillRateAction(
       .filter((x): x is NonNullable<typeof x> => x !== null && !!x.caregiver_member_id)
 
     if (toInsert.length > 0) {
-      const { error: insErr } = await supabase
-        .from('visit_financials')
-        .upsert(toInsert, { onConflict: 'scheduled_visit_id' })
-      if (insErr) return { error: insErr.message }
+      try {
+        for (const row of toInsert) {
+          await sql`
+            INSERT INTO visit_financials ${sql(row)}
+            ON CONFLICT (scheduled_visit_id) DO NOTHING
+          `
+        }
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : 'Failed to insert financials' }
+      }
     }
   }
 
-  const { error } = await supabase
-    .from('patient_service_contracts')
-    .update({ bill_rate, updated_at: new Date().toISOString() })
-    .eq('id', id)
-  if (error) return { error: error.message }
+  try {
+    await sql`UPDATE patient_service_contracts SET bill_rate = ${bill_rate}, updated_at = ${new Date().toISOString()} WHERE id = ${id}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update contract' }
+  }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: contract.agency_id as string,
+  const { error: auditErr } = await q.insertAuditLog({
+    agency_id: contract.agency_id ?? undefined,
     table_name: 'patient_service_contracts',
     record_id: id,
     action: 'UPDATE',
     performed_by_user_id: session.user.id,
     details: {
-      field:          'bill_rate',
-      old_bill_rate:  contract.bill_rate,
-      new_bill_rate:  bill_rate,
-      patient_id:     contract.patient_id,
-      service_type:   contract.service_type,
+      field: 'bill_rate',
+      old_bill_rate: contract.bill_rate,
+      new_bill_rate: bill_rate,
+      patient_id: contract.patient_id,
+      service_type: contract.service_type,
     },
   })
   if (auditErr) console.error('[payroll/updateBillRate] Audit log failed. contractId=%s err=%s', id, auditErr.message)

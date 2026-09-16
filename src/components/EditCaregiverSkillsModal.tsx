@@ -5,7 +5,7 @@ import { Save, Search, Sparkles, X } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { createClient } from '@/lib/supabase/client'
 import { normalizeCaregiverSkillsList } from '@/lib/caregiver-skills'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import ModalWrapper from './Modal'
 import { useRouter } from 'next/navigation'
 
@@ -110,7 +110,7 @@ export default function EditCaregiverSkillsModal({
     setError(null)
     try {
       const supabase = createClient()
-      const { error: updateError } = await q.updateStaffMember(supabase, caregiver.id, {
+      const { error: updateError } = await q.updateStaffMember(caregiver.id, {
         skills: normalizeCaregiverSkillsList(selectedSkills),
       })
 
@@ -138,7 +138,7 @@ export default function EditCaregiverSkillsModal({
     let cancelled = false
     const run = async () => {
       const supabase = createClient()
-      const { data } = await q.getCaregiverSkillCatalogFromTaskRequirements(supabase)
+      const { data } = await q.getCaregiverSkillCatalogFromTaskRequirements()
       if (!cancelled) setSkillCatalog(data ?? [])
     }
     run()

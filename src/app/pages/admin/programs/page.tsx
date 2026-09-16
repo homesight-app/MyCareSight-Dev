@@ -11,8 +11,8 @@ export default async function AdminProgramsPage() {
     { data: requestedData },
     { data: allProgramsData },
   ] = await Promise.all([
-    q.getRequestedProgramApplications(supabase),
-    q.getApplicationsWithPrograms(supabase),
+    q.getRequestedProgramApplications(),
+    q.getApplicationsWithPrograms(),
   ])
 
   type RequestedRow = {

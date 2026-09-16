@@ -1,9 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
-import type { Supabase } from '@/lib/supabase/types'
+import sql from '@/db'
+import * as q from '@/lib/supabase/query'
 import {
   clearVisitApprovalAndFinancialsOnVoid,
   syncVisitApprovalAndFinancialsOnApprove,
@@ -27,7 +27,6 @@ type PendingPayload = {
 }
 
 async function applyTimeBillingVisitUpdate(
-  supabase: Supabase,
   userId: string | null,
   input: PendingPayload,
   billingState: 'approved' | 'voided'
@@ -38,26 +37,27 @@ async function applyTimeBillingVisitUpdate(
     return { ok: false, error: 'Actual/Billable hours must be valid numbers.' }
   }
 
-  const { data: sv, error: svErr } = await supabase
-    .from('scheduled_visits')
-    .select(
-      'id, agency_id, caregiver_member_id, patient_id, visit_date, scheduled_start_time, scheduled_end_time'
-    )
-    .eq('id', input.scheduledVisitId)
-    .single()
-
-  if (svErr || !sv) {
-    return { ok: false, error: svErr?.message || 'Visit not found.' }
-  }
-
-  const visit = sv as {
+  type VisitData = {
     id: string
     agency_id: string
     caregiver_member_id: string | null
     patient_id: string
     visit_date: string
-    scheduled_start_time?: string | null
-    scheduled_end_time?: string | null
+    scheduled_start_time: string | null
+    scheduled_end_time: string | null
+  }
+  let visit: VisitData
+  try {
+    const [sv] = await sql<VisitData[]>`
+      SELECT id, agency_id, caregiver_member_id, patient_id, visit_date, scheduled_start_time, scheduled_end_time
+      FROM scheduled_visits
+      WHERE id = ${input.scheduledVisitId}
+      LIMIT 1
+    `
+    if (!sv) return { ok: false, error: 'Visit not found.' }
+    visit = sv
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Visit not found.' }
   }
 
   if (!visit.caregiver_member_id) {
@@ -70,18 +70,19 @@ async function applyTimeBillingVisitUpdate(
   const note = input.note?.trim() ? input.note.trim() : null
   const visitDate = String(visit.visit_date ?? '')
 
-  const { data: contractRows } = await supabase
-    .from('patient_service_contracts')
-    .select(
-      'id, bill_rate, bill_unit_type, billing_code_id, effective_date, end_date, status, contract_type, created_at, updated_at'
-    )
-    .eq('patient_id', visit.patient_id)
-    .eq('service_type', input.serviceType)
-    .neq('contract_type', WEEKLY_HOURS_CONTRACT_TYPE)
-
-  const contractCandidates = ((contractRows ?? []) as PatientServiceContractRow[]).filter((c) =>
-    patientServiceContractOverlapsDate(c, visitDate)
-  )
+  let contractCandidates: PatientServiceContractRow[]
+  try {
+    const contractRows = await sql<PatientServiceContractRow[]>`
+      SELECT id, bill_rate, bill_unit_type, billing_code_id, effective_date, end_date, status, contract_type, created_at, updated_at
+      FROM patient_service_contracts
+      WHERE patient_id = ${visit.patient_id}
+        AND service_type = ${input.serviceType}
+        AND contract_type != ${WEEKLY_HOURS_CONTRACT_TYPE}
+    `
+    contractCandidates = contractRows.filter((c) => patientServiceContractOverlapsDate(c, visitDate))
+  } catch {
+    contractCandidates = []
+  }
   const contract =
     contractCandidates.length === 0
       ? null
@@ -92,7 +93,6 @@ async function applyTimeBillingVisitUpdate(
       return { ok: false, error: 'You must be signed in to approve hours.' }
     }
     const sync = await syncVisitApprovalAndFinancialsOnApprove({
-      supabase,
       approvedByUserId: userId,
       visit: {
         id: visit.id,
@@ -121,7 +121,6 @@ async function applyTimeBillingVisitUpdate(
 
   if (billingState === 'voided' && userId) {
     const cleared = await clearVisitApprovalAndFinancialsOnVoid({
-      supabase,
       voidedByUserId: userId,
       visit: {
         id: visit.id,
@@ -143,10 +142,9 @@ async function applyTimeBillingVisitUpdate(
 }
 
 export async function approveTimeBillingRowAction(input: PendingPayload) {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
-  const result = await applyTimeBillingVisitUpdate(supabase, user?.id ?? null, input, 'approved')
+  const result = await applyTimeBillingVisitUpdate(user?.id ?? null, input, 'approved')
   if (!result.ok) return { error: result.error }
   revalidatePath(PATH)
   revalidatePath(REPORT_PAYROLL_PATH)
@@ -154,10 +152,9 @@ export async function approveTimeBillingRowAction(input: PendingPayload) {
 }
 
 export async function voidTimeBillingRowAction(input: PendingPayload) {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
-  const result = await applyTimeBillingVisitUpdate(supabase, user?.id ?? null, input, 'voided')
+  const result = await applyTimeBillingVisitUpdate(user?.id ?? null, input, 'voided')
   if (!result.ok) return { error: result.error }
   revalidatePath(PATH)
   revalidatePath(REPORT_PAYROLL_PATH)
@@ -168,26 +165,21 @@ export async function updateVisitMileageAction(
   scheduledVisitId: string,
   mileageMiles: number | null
 ): Promise<{ ok: boolean; error?: string }> {
-  const supabase = createAdminClient()
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return { ok: false, error: 'Not authenticated' }
 
-  // Read current value for audit log
-  const { data: current } = await supabase
-    .from('scheduled_visits')
-    .select('mileage_miles')
-    .eq('id', scheduledVisitId)
-    .single()
+  const [current] = await sql<{ mileage_miles: number | null }[]>`
+    SELECT mileage_miles FROM scheduled_visits WHERE id = ${scheduledVisitId} LIMIT 1
+  `
 
-  const { error } = await supabase
-    .from('scheduled_visits')
-    .update({ mileage_miles: mileageMiles })
-    .eq('id', scheduledVisitId)
+  try {
+    await sql`UPDATE scheduled_visits SET mileage_miles = ${mileageMiles} WHERE id = ${scheduledVisitId}`
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Failed to update mileage' }
+  }
 
-  if (error) return { ok: false, error: error.message }
-
-  const { error: auditMileageErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     table_name: 'scheduled_visits',
     record_id: scheduledVisitId,
     action: 'UPDATE',
@@ -197,7 +189,7 @@ export async function updateVisitMileageAction(
       new_values: { mileage_miles: mileageMiles },
     },
   })
-  if (auditMileageErr) console.error('[time-billing/mileage] Audit log UPDATE failed. visitId=%s err=%s', scheduledVisitId, auditMileageErr.message)
+  if (auditErr) console.error('[time-billing/mileage] Audit log UPDATE failed. visitId=%s err=%s', scheduledVisitId, auditErr.message)
 
   revalidatePath(PATH)
   revalidatePath(REPORT_PAYROLL_PATH)

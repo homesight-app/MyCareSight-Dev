@@ -21,6 +21,46 @@ and auditors.
 
 ---
 
+## § 164.312(a)(1) — Access Control
+
+### Neon RLS + Query Bridge — patients Table Agency Data Isolation (Phase 4.5, 2026-09-15)
+- **What:** Prepared and audited the application changes and checked-in Neon SQL needed to enable PostgreSQL Row Level Security on the `patients` table, the first table in the Phase 4.5 pilot. Once `scripts/rls-patients-enable.sql` is run and verified in Neon under a non-`BYPASSRLS` runtime role, policy `patients_agency_rls` will enforce that agency-scoped roles (`company_owner`, `care_coordinator`, `staff_member`) can only read and write patients belonging to their own agency. `admin` and `expert` roles retain full access. `FORCE ROW LEVEL SECURITY` protects against ordinary table-owner bypass, but not against roles granted `BYPASSRLS`.
+- **Session variable injection:** `withUserContext` (`src/db/index.ts`) opens a `postgres.js` transaction, sets `app.current_user_role` and `app.current_agency_id` via `SET LOCAL` (transaction-scoped — safe with connection pooling), and runs the query inside `AsyncLocalStorage`. All `sql\`...\`` calls inside propagate through the Proxy automatically.
+- **Policy SQL:** `NULLIF(current_setting('app.current_agency_id', true), '')::uuid` — single expression, safe when the variable is empty.
+- **Rollback:** `scripts/rls-patients-disable.sql` drops the policy and disables RLS in one transaction.
+- **Status:** The Neon database change is pending manual execution and verification. Append a separate evidence entry after the enable script and verification queries have been run.
+
+**Server actions updated to call `withUserContext`:**
+- `src/app/actions/visit-candidates.ts` — **critical gap fixed**: action had no session check at all; added auth, agency ownership verification for the visit, and agency-scoped `caregiver_members` filter
+- `src/app/actions/patient-documents.ts` — **auth-before-storage ordering fixed**: now authorizes patient ownership via `withUserContext` + RLS *before* touching Azure Blob Storage; path traversal guard added; `deleted_path` (PHI filename) removed from audit log
+- `src/app/actions/patient-addresses.ts` — cross-patient address edit prevented by verifying `address.patient_id` server-side before update; PHI payload spread (`...payload`) removed from update audit log; all 4 functions wrapped
+- `src/app/actions/payroll-billing-report.ts` — removed redundant `getViewerAgencyId()` helper (was calling `getSession()` twice + extra DB round-trip); wrapped patient-querying functions in `withUserContext`
+- `src/app/actions/caregiver-visit-execution.ts` — `getCaregiverPastVisitSummaryAction` wrapped
+
+**`unstable_cache` + AsyncLocalStorage fix:**
+- `src/lib/server-cache/caregiver-visit-execution-detail.ts` — `withUserContext` called *inside* the `unstable_cache` callback; `viewerRole` added as cache-key param so each user gets their own cached result and RLS context is set on every cache miss
+
+**Pages updated (add `withUserContext` wrapping, remove dead `createClient` imports):**
+- `src/app/pages/agency/clients/page.tsx`
+- `src/app/pages/agency/clients/[id]/page.tsx`
+- `src/app/pages/agency/time-billing/page.tsx`
+- `src/app/pages/agency/care-visits/page.tsx`
+- `src/app/pages/caregiver/my-care-visits/page.tsx`
+- `src/app/pages/caregiver/my-care-visits/[visitId]/page.tsx`
+
+**Dashboard agency scoping:**
+- `src/lib/visit-assignment-dashboard.ts`, `src/lib/visit-all-visits-dashboard.ts`, `src/lib/supabase/query/schedule-assignment-requests.ts`, and `src/app/actions/care-visits-badge.ts` now explicitly scope scheduled visits, caregiver lists, assignment/unassignment requests, aggregate counts, and the sidebar pending badge by agency.
+- `src/lib/time-billing-dashboard.ts` — added `agencyId` parameter to filter `scheduled_visits` by `agency_id`, preventing cross-agency visit data leakage in the time-billing report
+
+**Legacy browser Supabase client paths converted to server actions:**
+- `src/components/CaregiverProfileContent.tsx:208` — replaced `supabase.from('patients').select(...)` with `getPatientNamesByIdsAction` server action
+- `src/components/InternalNotesPanel.tsx:249` — replaced `supabase.from('patients').select(...)` with `getAgencyPatientNamesAction` server action
+- Both new actions are in `src/app/actions/patients.ts` and use `withUserContext` for RLS enforcement
+
+**Files changed:** `src/db/index.ts` (pre-existing), `src/app/actions/visit-candidates.ts`, `src/app/actions/patient-documents.ts`, `src/app/actions/patient-addresses.ts`, `src/app/actions/payroll-billing-report.ts`, `src/app/actions/caregiver-visit-execution.ts`, `src/app/actions/patients.ts`, `src/lib/server-cache/caregiver-visit-execution-detail.ts`, `src/lib/time-billing-dashboard.ts`, 6 page files, 2 component files, `scripts/neon-runtime-role-setup.sql`, `scripts/rls-patients-enable.sql`, `scripts/rls-patients-disable.sql`
+
+---
+
 ## § 164.312(b) — Audit Controls
 
 ### Azure Blob Storage Target Recorded (2026-09-03)
@@ -187,3 +227,30 @@ and auditors.
 - **Role change — row creation:** When role changes to `company_owner`, `staff_member`, or `expert`, `ensureRoleTableRow` is called to idempotently create the new role's table row. `care_coordinator` is excluded (requires `agency_id` not available in admin edit context); `admin` has no role-specific table.
 - **Relevant safeguards:** 45 CFR § 164.312(d) Person/Entity Authentication — email address is the password reset delivery address; an unaudited change could silently redirect account access to a different inbox. 45 CFR § 164.312(a)(1) Access Control — role changes directly determine what ePHI the user can reach.
 - **Files changed:** `src/app/actions/users.ts` (`updateUserProfileAction` replaces `changeUserRoleAction`), `src/components/UserManagementTabs.tsx` (`EditUserModal` replaces `ChangeRoleModal`)
+
+### Neon RLS + Query Bridge — Agency Data Isolation Infrastructure (Phase 4, 2026-09-12)
+- **What:** Replaced Supabase RLS (`auth.uid()`) infrastructure with standard PostgreSQL RLS using `current_setting('app.current_user_id')`, `current_setting('app.current_user_role')`, and `current_setting('app.current_agency_id')` session variables set via `SET LOCAL` inside transactions. All client component DB calls now route through `src/app/actions/query-bridge.ts`, which verifies the Auth.js session and calls `withUserContext` before any query executes. Unauthenticated calls return `{ error: 'Unauthorized', data: null }` without touching the DB.
+- **Query bridge architecture:** `src/app/actions/query-bridge.ts` exports ~122 explicit async wrappers (one per query function). Each wrapper calls a shared `ctx()` helper that: (1) verifies the Auth.js session via `getSession()`, (2) returns `{ data: null, error: 'Unauthorized' }` without touching the DB if no session, (3) opens a postgres.js transaction via `withUserContext`, (4) catches infrastructure failures that query functions' own try/catch cannot see. Client components import from the bridge; server-only `postgres.js` code never crosses the client/server boundary.
+- **`withUserContext` mechanism:** `src/db/index.ts` adds an `AsyncLocalStorage` store and an apply-only Proxy over the postgres.js `sql` client. The Proxy intercepts tagged-template calls (`sql\`...\``) and routes them through the active transaction `tx` when inside `withUserContext`. All ~122 query functions route through `tx` automatically — zero changes to the query functions themselves. The apply-only Proxy (no `get` trap) ensures `sql.begin`, `sql.unsafe`, and all other methods fall through to the real client, preventing accidental transaction nesting.
+- **Connection-pool safety:** `SET LOCAL` (not `SET`) scopes session variables to the current transaction. They are automatically cleared on commit, preventing context bleed across pooled connections. This is the HIPAA-correct choice; session-scoped `SET` would be a security bug in a pooled environment.
+- **`FORCE ROW LEVEL SECURITY` requirement (Phase 4.5):** When RLS policies are applied table by table, each table requires `ALTER TABLE <t> FORCE ROW LEVEL SECURITY` so ordinary table-owner bypass is subject to the policies. `FORCE` does not apply to roles granted `BYPASSRLS`; the application runtime connection must use a dedicated non-`BYPASSRLS` role.
+- **RLS application deferred (Phase 4.5):** Enabling RLS on any table requires that ALL server actions touching that table also call `withUserContext`. The bridge covers client-component paths; `src/app/actions/*.ts` server actions are audited table by table before RLS is enabled for each table. Applying RLS before this audit is complete would silently return 0 rows from server-rendered pages.
+- **Relevant safeguards:** 45 CFR § 164.312(a)(1) Access Control — DB-level enforcement of agency data isolation, independent of application-layer checks. An `agency_owner` cannot read another agency's ePHI even by constructing a direct query call. 45 CFR § 164.312(e)(1) Transmission Security — session variables are transaction-scoped and never leak to other pooled connections.
+- **Files changed:** `src/db/index.ts` (AsyncLocalStorage + apply-only Proxy + `withUserContext` export), `src/app/actions/query-bridge.ts` (~122 explicit async wrappers replace `export *` re-exports), `src/app/actions/messages.ts` (added `withUserContext` to all 23 wrappers via `ctx` helper)
+
+### Query Bridge Hardening + Browser Supabase Removal Follow-up (2026-09-16)
+- **What:** Hardened the Phase 4/4.5 query bridge follow-up before enabling `patients` RLS. `src/db/index.ts` now routes `sql.unsafe(...)` through the active `withUserContext` transaction when one exists, so direct unsafe query execution does not escape the `SET LOCAL` RLS context. `src/app/actions/query-bridge.ts` now role-gates patient, representative, schedule, ADL, incident, service-contract, and skilled-care mutation wrappers to agency-management/platform roles.
+- **Browser Supabase paths remediated:** `src/components/CaregiverProfileContent.tsx` no longer reads `caregiver_pay_rates` or `scheduled_visits` through the browser Supabase client. The reads now go through `src/app/actions/caregiver-profile.ts`, which authenticates the user, verifies caregiver/agency ownership, and runs the queries inside `withUserContext`.
+- **Internal notes remediation:** `src/components/InternalNotesPanel.tsx` no longer reads `internal_notes` or `caregiver_members` through the browser Supabase client. Reads now go through `getInternalNotesPanelDataAction`, which verifies role, agency, subject ownership, and tag ownership before returning notes and tag options. Add/edit/delete/search note actions now validate agency/subject access before mutation or audit insertion.
+- **Audit PHI minimization:** Internal note audit entries no longer persist note content or search terms. Audit details retain non-content trace metadata such as subject type/id, content length, tag-change booleans, and result counts. The legacy exported `updatePatientDocumentsAction` was disabled because document mutations must go through the upload/delete actions that authorize before storage access; patient skill-requirement audit details now log only the changed field and skill count, not the actual skill codes.
+- **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, and 164.312(c)(1) Integrity.
+- **Files changed:** `src/db/index.ts`, `src/app/actions/query-bridge.ts`, `src/app/actions/caregiver-profile.ts`, `src/components/CaregiverProfileContent.tsx`, `src/app/actions/internal-notes.ts`, `src/components/InternalNotesPanel.tsx`, `src/app/actions/patients.ts`, `docs/hipaa/compliance-log.md`.
+- **Remaining gap:** The production/runtime Neon connection must not use a role with `BYPASSRLS` before RLS is treated as an effective control. Full Supabase removal remains a larger migration phase; this entry covers the RLS-blocking PHI paths reviewed for the `patients` rollout.
+
+### Neon Runtime Role Gate for patients RLS (2026-09-16)
+- **What:** Added `scripts/neon-runtime-role-setup.sql` to create and grant the dedicated `mycaresight_app` Neon runtime role with `rolbypassrls=false`. Updated `scripts/rls-patients-enable.sql` to fail closed unless that runtime role exists, can log in, and cannot bypass RLS.
+- **Policy hardening:** `patients_agency_rls` is now scoped `TO mycaresight_app`; only `admin`/`expert` or the known agency-scoped roles (`company_owner`, `care_coordinator`, `staff_member`) can match the policy. The verification steps explicitly test no-context denial, unexpected-role denial, same-agency visibility, cross-agency denial, and platform-role visibility under `SET LOCAL ROLE mycaresight_app`.
+- **Correction:** The previous script comments over-relied on `FORCE ROW LEVEL SECURITY`; `FORCE` does not protect against a role that has `BYPASSRLS`. The app runtime connection string must use `mycaresight_app`, not `neondb_owner`.
+- **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control and 164.312(c)(1) Integrity.
+- **Files changed:** `scripts/neon-runtime-role-setup.sql`, `scripts/rls-patients-enable.sql`, `scripts/rls-patients-disable.sql`, `docs/hipaa/compliance-log.md`.
+- **Remaining gap:** The scripts are prepared but not applied to Neon in this repository change. After applying, update the deployed app `DATABASE_URL` to the `mycaresight_app` connection string and run the verification queries from the enable script.

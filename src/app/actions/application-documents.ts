@@ -1,8 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createAdminClient } from '@/lib/supabase/admin'
-import type { Supabase } from '@/lib/supabase/types'
+import { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { STORAGE_BUCKET } from '@/lib/supabase/storage'
@@ -12,18 +11,6 @@ function revalidateApplicationPages(applicationId: string) {
   revalidatePath(`/pages/admin/programs/${applicationId}`)
   revalidatePath(`/pages/expert/programs/${applicationId}`)
   revalidatePath(`/pages/agency/programs/${applicationId}`)
-}
-
-async function resolveApplicationAgencyId(
-  supabase: Supabase,
-  applicationId: string
-): Promise<string | null> {
-  const { data } = await supabase
-    .from('applications')
-    .select('agency_id')
-    .eq('id', applicationId)
-    .maybeSingle()
-  return data?.agency_id ?? null
 }
 
 /**
@@ -40,10 +27,8 @@ export async function uploadApplicationDocumentsAction(
     applicationPlaybookItemId?: string | null
   }
 ): Promise<{ error: string | null; data: { id: string; document_url: string; document_name: string }[] | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated', data: null }
+  if (!session?.user) return { error: 'Not authenticated', data: null }
 
   const files = formData.getAll('file') as File[]
   const documentType = formData.get('document_type') as string | null
@@ -51,7 +36,6 @@ export async function uploadApplicationDocumentsAction(
 
   if (files.length === 0) return { error: 'No files provided', data: null }
 
-  const agencyId = await resolveApplicationAgencyId(supabase, applicationId)
   const uploadedPaths: string[] = []
   const inserted: { id: string; document_url: string; document_name: string }[] = []
 
@@ -81,23 +65,31 @@ export async function uploadApplicationDocumentsAction(
       insertData.application_playbook_item_id = options.applicationPlaybookItemId
     }
 
-    const { data: doc, error: insertErr } = await q.insertApplicationDocument(supabase, insertData)
+    const { data: doc, error: insertErr } = await q.insertApplicationDocument(insertData)
     if (insertErr) {
       await removeFiles(STORAGE_BUCKET.APPLICATION, uploadedPaths)
       return { error: insertErr.message, data: null }
     }
 
-    const { error: auditErr } = await supabase.from('audit_log').insert({
-      agency_id: agencyId,
-      table_name: 'application_documents',
-      record_id: doc!.id,
-      action: 'CREATE',
-      performed_by_user_id: user.id,
-      details: { application_id: applicationId, document_name: doc!.document_name },
-    })
-    if (auditErr) console.error('[application-documents/upload] Audit log failed. docId=%s err=%s', doc!.id, auditErr.message)
-
     inserted.push({ id: doc!.id, document_url: filePath, document_name: doc!.document_name })
+
+    try {
+      await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
+        const { data: appRow } = await q.getApplicationById(applicationId)
+        const agencyId = (appRow as unknown as { agency_id?: string | null } | null)?.agency_id ?? null
+        const { error: auditErr } = await q.insertAuditLog({
+          agency_id: agencyId,
+          table_name: 'application_documents',
+          record_id: doc!.id,
+          action: 'CREATE',
+          performed_by_user_id: session.user.id,
+          details: { application_id: applicationId, document_name: doc!.document_name },
+        })
+        if (auditErr) console.error('[application-documents/upload] Audit log failed. docId=%s err=%s', doc!.id, auditErr.message)
+      })
+    } catch (err) {
+      console.error('[application-documents/uploadApplicationDocumentsAction] audit context failed', err)
+    }
   }
 
   revalidateApplicationPages(applicationId)
@@ -111,10 +103,8 @@ export async function replaceApplicationDocumentAction(
   formData: FormData,
   docMeta: { document_name: string; document_type: string | null; description: string | null }
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient()
   const session = await getSession()
-  const user = session ? { id: session.user.id } : null
-  if (!user) return { error: 'Not authenticated' }
+  if (!session?.user) return { error: 'Not authenticated' }
 
   const file = formData.get('file') as File | null
   if (!file) return { error: 'File is required' }
@@ -125,7 +115,7 @@ export async function replaceApplicationDocumentAction(
   const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.APPLICATION, filePath, file)
   if (uploadErr) return { error: uploadErr.message }
 
-  const { error: updateErr } = await q.updateApplicationDocumentFile(supabase, docId, applicationId, {
+  const { error: updateErr } = await q.updateApplicationDocumentFile(docId, applicationId, {
     document_url: filePath,
     document_name: docMeta.document_name,
     document_type: docMeta.document_type,
@@ -136,16 +126,23 @@ export async function replaceApplicationDocumentAction(
     return { error: updateErr.message }
   }
 
-  const agencyId = await resolveApplicationAgencyId(supabase, applicationId)
-  const { error: auditErr } = await supabase.from('audit_log').insert({
-    agency_id: agencyId,
-    table_name: 'application_documents',
-    record_id: docId,
-    action: 'UPDATE',
-    performed_by_user_id: user.id,
-    details: { application_id: applicationId, field: 'file', new_path: filePath },
-  })
-  if (auditErr) console.error('[application-documents/replace] Audit log failed. docId=%s err=%s', docId, auditErr.message)
+  try {
+    await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
+      const { data: appRow } = await q.getApplicationById(applicationId)
+      const agencyId = (appRow as unknown as { agency_id?: string | null } | null)?.agency_id ?? null
+      const { error: auditErr } = await q.insertAuditLog({
+        agency_id: agencyId,
+        table_name: 'application_documents',
+        record_id: docId,
+        action: 'UPDATE',
+        performed_by_user_id: session.user.id,
+        details: { application_id: applicationId, field: 'file', new_path: filePath },
+      })
+      if (auditErr) console.error('[application-documents/replace] Audit log failed. docId=%s err=%s', docId, auditErr.message)
+    })
+  } catch (err) {
+    console.error('[application-documents/replaceApplicationDocumentAction] audit context failed', err)
+  }
 
   revalidateApplicationPages(applicationId)
   return { error: null }

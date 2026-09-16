@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
 import { uploadAgencyDocument, deleteAgencyDocumentAction } from '@/app/actions/agencies'
 import { deleteLeadDocumentAction } from '@/app/actions/leads'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { formatDateShort } from '@/lib/format-date'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
@@ -64,7 +64,7 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
   })
 
   const fetchAgencyDocs = useCallback(async () => {
-    const { data } = await q.getAgencyDocuments(supabase, agencyId)
+    const { data } = await q.getAgencyDocuments(agencyId)
     setAgencyDocs(
       (data ?? []).map((d: any) => ({
         id: d.id,

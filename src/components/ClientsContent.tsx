@@ -8,7 +8,7 @@ import LoadingSpinner from '@/components/LoadingSpinner'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import AddNewClientModal from './AddNewClientModal'
 import { createClient } from '@/lib/supabase/client'
-import * as q from '@/lib/supabase/query'
+import * as q from '@/app/actions/query-bridge'
 import { mapInsertedPatientToListPatient, type ClientsListPatient } from '@/lib/map-inserted-patient-to-list-row'
 import { patientFullName } from '@/lib/patient-name'
 import { linkLeadToPatient, createRepresentativeFromLeadAction } from '@/app/actions/leads'
@@ -113,7 +113,7 @@ export default function ClientsContent({
     }
     try {
       const supabase = createClient()
-      const { error } = await q.updatePatientStatus(supabase, clientId, newStatus)
+      const { error } = await q.updatePatientStatus(clientId, newStatus)
       if (error) console.error('Error updating status:', error)
     } catch (error) {
       console.error('Error updating status:', error)

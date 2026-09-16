@@ -2,12 +2,12 @@
 
 import { z } from 'zod'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
 import { sendInvitationEmail } from '@/lib/email'
+import sql from '@/db'
 
 const createUserAccountSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -48,13 +48,11 @@ export async function updatePersonalProfile(payload: {
 
   const userId = session.user.id
   const role = session.profile?.role
-  const supabase = createAdminClient()
   const now = new Date().toISOString()
 
   try {
-    const { error: profileError } = await supabase
-      .from('user_profiles')
-      .update({
+    await sql`
+      UPDATE user_profiles SET ${sql({
         full_name: payload.fullName,
         phone: payload.phone,
         job_title: payload.jobTitle,
@@ -62,41 +60,26 @@ export async function updatePersonalProfile(payload: {
         work_location: payload.workLocation,
         start_date: payload.startDate,
         updated_at: now,
-      })
-      .eq('id', userId)
-    if (profileError) return { error: profileError.message, data: null }
+      })} WHERE id = ${userId}
+    `
 
-    // Sync name/phone to the role table so the People/Caregivers tabs
-    // never show a stale name after a user edits their own profile.
     const { first_name, last_name } = parseFullName(payload.fullName)
     if (role === 'company_owner') {
-      await supabase
-        .from('agency_admins')
-        .update({ contact_name: payload.fullName, contact_phone: payload.phone, updated_at: now })
-        .eq('user_id', userId)
+      await sql`UPDATE agency_admins SET ${sql({ contact_name: payload.fullName, contact_phone: payload.phone, updated_at: now })} WHERE user_id = ${userId}`
     } else if (role === 'care_coordinator') {
-      await supabase
-        .from('care_coordinators')
-        .update({ first_name, last_name, updated_at: now })
-        .eq('user_id', userId)
+      await sql`UPDATE care_coordinators SET ${sql({ first_name, last_name, updated_at: now })} WHERE user_id = ${userId}`
     } else if (role === 'staff_member') {
-      await supabase
-        .from('caregiver_members')
-        .update({ first_name, last_name, phone: payload.phone, updated_at: now })
-        .eq('user_id', userId)
+      await sql`UPDATE caregiver_members SET ${sql({ first_name, last_name, phone: payload.phone, updated_at: now })} WHERE user_id = ${userId}`
     } else if (role === 'expert') {
-      await supabase
-        .from('licensing_experts')
-        .update({ first_name, last_name, updated_at: now })
-        .eq('user_id', userId)
+      await sql`UPDATE licensing_experts SET ${sql({ first_name, last_name, updated_at: now })} WHERE user_id = ${userId}`
     }
 
     revalidatePath('/pages/agency/profile')
     revalidatePath('/pages/caregiver/profile')
     revalidatePath('/pages/expert/profile')
     return { error: null, data: { success: true } }
-  } catch (err: any) {
-    return { error: err?.message || 'Failed to update profile', data: null }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to update profile', data: null }
   }
 }
 
@@ -105,34 +88,22 @@ export async function toggleUserStatus(userId: string, isActive: boolean) {
   if (!session) return { error: 'Not authenticated', data: null }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
-
   try {
-    const { error } = await q.updateUserProfileById(supabase, userId, {
+    const { error } = await q.updateUserProfileById(userId, {
       is_active: isActive,
       updated_at: new Date().toISOString(),
     })
-
-    if (error) {
-      return { error: error.message, data: null }
-    }
+    if (error) return { error: error.message, data: null }
 
     revalidatePath('/pages/admin/users')
     return { error: null, data: { success: true } }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to update user status', data: null }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to update user status', data: null }
   }
 }
 
 const AGENCY_SCOPED_ROLES = new Set(['company_owner', 'staff_member', 'care_coordinator'])
 
-/** Edit any user's full name, email, role, and/or agency — admin only.
- *  Self-role-change is blocked server-side; self name/email edit is permitted.
- *  All changed fields are recorded in audit_log with before/after values.
- *  Email change clears any pending invite_token so old reset links cannot be reused.
- *  Name/email/agency changes are propagated to the role-specific table.
- *  Role changes trigger ensureRoleTableRow for company_owner, staff_member, expert.
- */
 export async function updateUserProfileAction(
   userId: string,
   payload: {
@@ -150,32 +121,26 @@ export async function updateUserProfileAction(
     return { error: 'You cannot change your own role.', data: null }
   }
 
-  const supabase = createAdminClient()
   const now = new Date().toISOString()
 
-  const { data: current } = await supabase
-    .from('user_profiles')
-    .select('id, full_name, email, role, agency_id')
-    .eq('id', userId)
-    .single()
+  const [current] = await sql<{ id: string; full_name: string | null; email: string; role: string; agency_id: string | null }[]>`
+    SELECT id, full_name, email, role, agency_id FROM user_profiles WHERE id = ${userId} LIMIT 1
+  `
   if (!current) return { error: 'User not found', data: null }
 
   const newEmail = payload.email ? payload.email.toLowerCase().trim() : current.email
   const newFullName = payload.fullName !== undefined ? payload.fullName : current.full_name
   const newRole = payload.role ?? current.role
 
-  // agencyId is only meaningful for agency-scoped roles; clear it for admin/expert
   const resolvedAgencyId = AGENCY_SCOPED_ROLES.has(newRole)
     ? (payload.agencyId !== undefined ? payload.agencyId : current.agency_id)
     : null
 
   if (newEmail !== current.email) {
-    const { data: existing } = await supabase
-      .from('user_profiles')
-      .select('id')
-      .eq('email', newEmail)
-      .maybeSingle()
-    if (existing) return { error: 'A user with this email already exists.', data: null }
+    const [emailExists] = await sql<{ id: string }[]>`
+      SELECT id FROM user_profiles WHERE email = ${newEmail} AND id != ${userId} LIMIT 1
+    `
+    if (emailExists) return { error: 'A user with this email already exists.', data: null }
   }
 
   const updates: Record<string, unknown> = { updated_at: now }
@@ -202,77 +167,51 @@ export async function updateUserProfileAction(
 
   if (changes.length === 0) return { error: null, data: { success: true } }
 
-  const { error } = await supabase.from('user_profiles').update(updates).eq('id', userId)
-  if (error) return { error: error.message, data: null }
+  try {
+    await sql`UPDATE user_profiles SET ${sql(updates)} WHERE id = ${userId}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update user', data: null }
+  }
 
-  // Sync name, email, and agency_id to the role-specific table.
   const { first_name, last_name } = parseFullName(newFullName ?? '')
   const needsRoleTableSync = changes.some(
     c => c.field === 'full_name' || c.field === 'email' || c.field === 'agency_id'
   )
-  // For company_owner, also sync the agency's display name into agency_admins.company_name
-  // so the admin User Management table shows the correct company in the Company column.
+
   let agencyDisplayName: string | null = null
   if (newRole === 'company_owner' && resolvedAgencyId) {
-    const { data: agencyRow } = await supabase
-      .from('agencies')
-      .select('name')
-      .eq('id', resolvedAgencyId)
-      .maybeSingle()
+    const [agencyRow] = await sql<{ name: string }[]>`SELECT name FROM agencies WHERE id = ${resolvedAgencyId} LIMIT 1`
     agencyDisplayName = agencyRow?.name ?? null
   }
 
   if (needsRoleTableSync) {
     if (newRole === 'company_owner') {
-      await supabase
-        .from('agency_admins')
-        .update({
-          contact_name: newFullName,
-          contact_email: newEmail,
-          agency_id: resolvedAgencyId,
-          ...(agencyDisplayName ? { company_name: agencyDisplayName } : {}),
-          updated_at: now,
-        })
-        .eq('user_id', userId)
+      await sql`UPDATE agency_admins SET ${sql({
+        contact_name: newFullName,
+        contact_email: newEmail,
+        agency_id: resolvedAgencyId,
+        ...(agencyDisplayName ? { company_name: agencyDisplayName } : {}),
+        updated_at: now,
+      })} WHERE user_id = ${userId}`
     } else if (newRole === 'care_coordinator') {
-      await supabase
-        .from('care_coordinators')
-        .update({ first_name, last_name, email: newEmail, agency_id: resolvedAgencyId, updated_at: now })
-        .eq('user_id', userId)
+      await sql`UPDATE care_coordinators SET ${sql({ first_name, last_name, email: newEmail, agency_id: resolvedAgencyId, updated_at: now })} WHERE user_id = ${userId}`
     } else if (newRole === 'staff_member') {
-      await supabase
-        .from('caregiver_members')
-        .update({ first_name, last_name, email: newEmail, agency_id: resolvedAgencyId, updated_at: now })
-        .eq('user_id', userId)
+      await sql`UPDATE caregiver_members SET ${sql({ first_name, last_name, email: newEmail, agency_id: resolvedAgencyId, updated_at: now })} WHERE user_id = ${userId}`
     } else if (newRole === 'expert') {
-      await supabase
-        .from('licensing_experts')
-        .update({ first_name, last_name, email: newEmail, updated_at: now })
-        .eq('user_id', userId)
+      await sql`UPDATE licensing_experts SET ${sql({ first_name, last_name, email: newEmail, updated_at: now })} WHERE user_id = ${userId}`
     }
   }
 
-  // Idempotently create the new role's table row when role changes.
-  // care_coordinator is handled inline below (needs agency_id).
-  // admin has no role table.
   if (changes.some(c => c.field === 'role')) {
     if (newRole === 'company_owner' || newRole === 'staff_member' || newRole === 'expert') {
-      await ensureRoleTableRow(supabase, userId, newFullName ?? '', newEmail, newRole)
-      // If a new agency_admins row was just created by ensureRoleTableRow, patch company_name onto it.
+      await ensureRoleTableRow(userId, newFullName ?? '', newEmail, newRole as CreateUserRole)
       if (newRole === 'company_owner' && agencyDisplayName) {
-        await supabase
-          .from('agency_admins')
-          .update({ company_name: agencyDisplayName, agency_id: resolvedAgencyId, updated_at: now })
-          .eq('user_id', userId)
+        await sql`UPDATE agency_admins SET company_name = ${agencyDisplayName}, agency_id = ${resolvedAgencyId}, updated_at = ${now} WHERE user_id = ${userId}`
       }
     } else if (newRole === 'care_coordinator' && resolvedAgencyId) {
-      const { data: existingCoord } = await supabase
-        .from('care_coordinators')
-        .select('id')
-        .eq('user_id', userId)
-        .maybeSingle()
+      const [existingCoord] = await sql<{ id: string }[]>`SELECT id FROM care_coordinators WHERE user_id = ${userId} LIMIT 1`
       if (!existingCoord) {
-        await q.insertCareCoordinator(supabase, {
+        await q.insertCareCoordinator({
           user_id: userId,
           agency_id: resolvedAgencyId,
           first_name,
@@ -284,7 +223,7 @@ export async function updateUserProfileAction(
     }
   }
 
-  const { error: auditErr } = await supabase.from('audit_log').insert({
+  const { error: auditErr } = await q.insertAuditLog({
     table_name: 'user_profiles',
     record_id: userId,
     action: 'UPDATE',
@@ -300,27 +239,19 @@ export async function updateUserProfileAction(
   return { error: null, data: { success: true } }
 }
 
-/** Set (or reset) a user's password directly — admin only. */
 export async function setUserPassword(userId: string, newPassword: string) {
   const session = await getSession()
   if (!session || session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
 
-  const supabase = createAdminClient()
-  const { data: userProfile } = await supabase
-    .from('user_profiles')
-    .select('email')
-    .eq('id', userId)
-    .single()
-
+  const [userProfile] = await sql<{ email: string }[]>`SELECT email FROM user_profiles WHERE id = ${userId} LIMIT 1`
   if (!userProfile) return { error: 'User not found', data: null }
 
   const passwordHash = await bcrypt.hash(newPassword, 12)
-  const { error } = await supabase
-    .from('user_profiles')
-    .update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
-    .eq('id', userId)
-
-  if (error) return { error: error.message, data: null }
+  try {
+    await sql`UPDATE user_profiles SET password_hash = ${passwordHash}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to set password', data: null }
+  }
 
   revalidatePath('/pages/admin/users')
   return {
@@ -329,37 +260,28 @@ export async function setUserPassword(userId: string, newPassword: string) {
   }
 }
 
-/** Role value for new users created from admin User Management */
 export type CreateUserRole = 'admin' | 'company_owner' | 'staff_member' | 'expert' | 'care_coordinator'
 
-type SupabaseAdminClient = ReturnType<typeof createAdminClient>
-
-/**
- * Best-effort undo after user_profiles was inserted but app-specific setup failed.
- * Order: unlink from agencies → role tables → user_profiles
- */
 async function rollbackProvisionalUserAccount(
-  admin: SupabaseAdminClient,
   userId: string,
   options?: { agencyId?: string; agencyAdminIdToUnlink?: string }
 ) {
   try {
     if (options?.agencyId && options?.agencyAdminIdToUnlink) {
-      const { data: agency } = await admin.from('agencies').select('agency_admin_ids').eq('id', options.agencyId).maybeSingle()
-      const raw = agency?.agency_admin_ids as string[] | null | undefined
+      const [agency] = await sql<{ agency_admin_ids: string[] | null }[]>`
+        SELECT agency_admin_ids FROM agencies WHERE id = ${options.agencyId} LIMIT 1
+      `
+      const raw = agency?.agency_admin_ids
       if (Array.isArray(raw) && raw.includes(options.agencyAdminIdToUnlink)) {
-        const filtered = raw.filter((id) => id !== options.agencyAdminIdToUnlink)
-        await admin
-          .from('agencies')
-          .update({ agency_admin_ids: filtered, updated_at: new Date().toISOString() })
-          .eq('id', options.agencyId)
+        const filtered = raw.filter(id => id !== options.agencyAdminIdToUnlink)
+        await sql`UPDATE agencies SET agency_admin_ids = ${filtered}, updated_at = ${new Date().toISOString()} WHERE id = ${options.agencyId}`
       }
     }
-    await admin.from('agency_admins').delete().eq('user_id', userId)
-    await admin.from('caregiver_members').delete().eq('user_id', userId)
-    await admin.from('licensing_experts').delete().eq('user_id', userId)
-    await admin.from('care_coordinators').delete().eq('user_id', userId)
-    await admin.from('user_profiles').delete().eq('id', userId)
+    await sql`DELETE FROM agency_admins WHERE user_id = ${userId}`
+    await sql`DELETE FROM caregiver_members WHERE user_id = ${userId}`
+    await sql`DELETE FROM licensing_experts WHERE user_id = ${userId}`
+    await sql`DELETE FROM care_coordinators WHERE user_id = ${userId}`
+    await sql`DELETE FROM user_profiles WHERE id = ${userId}`
   } catch (e: unknown) {
     console.error('rollbackProvisionalUserAccount: unexpected error', e)
   }
@@ -376,9 +298,7 @@ function parseFullName(fullName: string): { first_name: string; last_name: strin
   }
 }
 
-/** Ensure the role-specific table has a row for this user (idempotent). Used when user already exists. */
 async function ensureRoleTableRow(
-  supabaseAdmin: ReturnType<typeof createAdminClient>,
   userId: string,
   fullName: string,
   normalizedEmail: string,
@@ -386,9 +306,9 @@ async function ensureRoleTableRow(
 ) {
   const { first_name: firstName, last_name: lastName } = parseFullName(fullName)
   if (role === 'company_owner') {
-    const { data: existing } = await q.getClientByCompanyOwnerId(supabaseAdmin, userId)
+    const { data: existing } = await q.getClientByCompanyOwnerId(userId)
     if (!existing) {
-      await q.insertClient(supabaseAdmin, {
+      await q.insertClient({
         user_id: userId,
         contact_name: fullName || normalizedEmail,
         contact_email: normalizedEmail,
@@ -396,9 +316,9 @@ async function ensureRoleTableRow(
       })
     }
   } else if (role === 'staff_member') {
-    const { data: existing } = await q.getStaffMemberByUserId(supabaseAdmin, userId)
+    const { data: existing } = await q.getStaffMemberByUserId(userId)
     if (!existing) {
-      await q.insertStaffMember(supabaseAdmin, {
+      await q.insertStaffMember({
         user_id: userId,
         company_owner_id: null,
         first_name: firstName,
@@ -409,9 +329,9 @@ async function ensureRoleTableRow(
       })
     }
   } else if (role === 'expert') {
-    const { data: existing } = await q.getLicensingExpertIdByUserId(supabaseAdmin, userId)
+    const { data: existing } = await q.getLicensingExpertIdByUserId(userId)
     if (!existing) {
-      await q.insertLicensingExpert(supabaseAdmin, {
+      await q.insertLicensingExpert({
         user_id: userId,
         first_name: firstName,
         last_name: lastName,
@@ -423,11 +343,6 @@ async function ensureRoleTableRow(
   }
 }
 
-/**
- * Create a user account from admin User Management.
- * Inserts directly into user_profiles with a bcrypt password hash and sends an invitation email.
- * When role is company_owner, staff_member, or care_coordinator, agencyId is required.
- */
 export async function createUserAccount(
   email: string,
   password: string,
@@ -438,7 +353,6 @@ export async function createUserAccount(
   const inputParsed = createUserAccountSchema.safeParse({ email, password, fullName, role, agencyId })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
 
-  const supabaseAdmin = createAdminClient()
   const normalizedEmail = email.toLowerCase().trim()
   const fullNameTrimmed = fullName.trim()
 
@@ -450,16 +364,15 @@ export async function createUserAccount(
   let setupCompleted = false
 
   try {
-    // Check for existing user
-    const { data: existingProfile } = await q.getUserProfileByEmail(supabaseAdmin, normalizedEmail)
+    const { data: existingProfile } = await q.getUserProfileByEmail(normalizedEmail)
 
     if (existingProfile) {
       const passwordHash = await bcrypt.hash(password, 12)
-      await supabaseAdmin
-        .from('user_profiles')
-        .update({ password_hash: passwordHash, role, agency_id: agencyId ?? null, updated_at: new Date().toISOString() })
-        .eq('id', existingProfile.id)
-      await ensureRoleTableRow(supabaseAdmin, existingProfile.id, fullNameTrimmed, normalizedEmail, role)
+      await sql`
+        UPDATE user_profiles SET password_hash = ${passwordHash}, role = ${role}, agency_id = ${agencyId ?? null}, updated_at = ${new Date().toISOString()}
+        WHERE id = ${existingProfile.id}
+      `
+      await ensureRoleTableRow(existingProfile.id, fullNameTrimmed, normalizedEmail, role)
       await sendInvitationEmail(normalizedEmail, fullNameTrimmed, password)
       revalidatePath('/pages/admin/users')
       return {
@@ -468,12 +381,11 @@ export async function createUserAccount(
       }
     }
 
-    // New user — insert directly into user_profiles
     const userId = randomUUID()
     provisionalUserId = userId
     const passwordHash = await bcrypt.hash(password, 12)
 
-    const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
+    await sql`INSERT INTO user_profiles ${sql({
       id: userId,
       email: normalizedEmail,
       role,
@@ -483,102 +395,59 @@ export async function createUserAccount(
       agency_id: agencyId ?? null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    })
-    if (insertError) {
-      return { error: `Failed to create user: ${insertError.message}`, data: null }
-    }
+    })}`
 
-    // Insert into role-specific table
     const { first_name: firstName, last_name: lastName } = parseFullName(fullNameTrimmed)
 
     if (role === 'company_owner') {
-      const { data: newAdmin, error: adminError } = await supabaseAdmin
-        .from('agency_admins')
-        .insert({
+      const [newAdmin] = await sql<{ id: string }[]>`
+        INSERT INTO agency_admins ${sql({
           user_id: userId,
           company_owner_id: userId,
           contact_name: fullNameTrimmed || normalizedEmail,
           contact_email: normalizedEmail,
           status: 'pending',
           agency_id: agencyId ?? null,
-        })
-        .select('id')
-        .single()
-      if (adminError) {
-        await rollbackProvisionalUserAccount(supabaseAdmin, userId)
-        provisionalUserId = null
-        return { error: `Failed to create agency record: ${adminError.message}`, data: null }
-      }
+        })} RETURNING id
+      `
       if (agencyId && newAdmin?.id) {
-        const { data: agency, error: agencySelErr } = await supabaseAdmin
-          .from('agencies')
-          .select('agency_admin_ids')
-          .eq('id', agencyId)
-          .maybeSingle()
-        if (agencySelErr) {
-          await rollbackProvisionalUserAccount(supabaseAdmin, userId)
-          provisionalUserId = null
-          return { error: `Failed to load agency for linking: ${agencySelErr.message}`, data: null }
-        }
+        const [agency] = await sql<{ agency_admin_ids: string[] | null }[]>`
+          SELECT agency_admin_ids FROM agencies WHERE id = ${agencyId} LIMIT 1
+        `
         const currentIds = (agency?.agency_admin_ids as string[] | null) || []
         if (!currentIds.includes(newAdmin.id)) {
-          const { error: agencyUpdErr } = await supabaseAdmin
-            .from('agencies')
-            .update({ agency_admin_ids: [...currentIds, newAdmin.id], updated_at: new Date().toISOString() })
-            .eq('id', agencyId)
-          if (agencyUpdErr) {
-            await rollbackProvisionalUserAccount(supabaseAdmin, userId, {
-              agencyId,
-              agencyAdminIdToUnlink: newAdmin.id,
-            })
-            provisionalUserId = null
-            return { error: `Failed to link agency admin to agency: ${agencyUpdErr.message}`, data: null }
-          }
+          await sql`UPDATE agencies SET agency_admin_ids = ${[...currentIds, newAdmin.id]}, updated_at = ${new Date().toISOString()} WHERE id = ${agencyId}`
         }
       }
     } else if (role === 'staff_member') {
       let companyOwnerId: string | null = null
       if (agencyId) {
-        const { data: agency } = await supabaseAdmin.from('agencies').select('agency_admin_ids').eq('id', agencyId).single()
+        const [agency] = await sql<{ agency_admin_ids: string[] | null }[]>`SELECT agency_admin_ids FROM agencies WHERE id = ${agencyId} LIMIT 1`
         const adminIds = (agency?.agency_admin_ids as string[] | null) || []
         if (adminIds.length > 0) companyOwnerId = adminIds[0]
       }
-      const { error: staffError } = await supabaseAdmin
-        .from('caregiver_members')
-        .insert({
-          user_id: userId,
-          company_owner_id: companyOwnerId,
-          agency_id: agencyId || null,
-          first_name: firstName,
-          last_name: lastName,
-          email: normalizedEmail,
-          role: 'Caregiver',
-          status: 'active',
-        })
-      if (staffError) {
-        await rollbackProvisionalUserAccount(supabaseAdmin, userId)
-        provisionalUserId = null
-        return { error: `Failed to create staff record: ${staffError.message}`, data: null }
-      }
+      await sql`INSERT INTO caregiver_members ${sql({
+        user_id: userId,
+        company_owner_id: companyOwnerId,
+        agency_id: agencyId || null,
+        first_name: firstName,
+        last_name: lastName,
+        email: normalizedEmail,
+        role: 'Caregiver',
+        status: 'active',
+      })}`
     } else if (role === 'expert') {
-      const { error: expertError } = await supabaseAdmin
-        .from('licensing_experts')
-        .insert({
-          user_id: userId,
-          user_profile_id: userId,
-          first_name: firstName,
-          last_name: lastName,
-          email: normalizedEmail,
-          role: 'Licensing Specialist',
-          status: 'active',
-        })
-      if (expertError) {
-        await rollbackProvisionalUserAccount(supabaseAdmin, userId)
-        provisionalUserId = null
-        return { error: `Failed to create expert record: ${expertError.message}`, data: null }
-      }
+      await sql`INSERT INTO licensing_experts ${sql({
+        user_id: userId,
+        user_profile_id: userId,
+        first_name: firstName,
+        last_name: lastName,
+        email: normalizedEmail,
+        role: 'Licensing Specialist',
+        status: 'active',
+      })}`
     } else if (role === 'care_coordinator') {
-      const { error: coordinatorError } = await q.insertCareCoordinator(supabaseAdmin, {
+      const { error: coordinatorError } = await q.insertCareCoordinator({
         user_id: userId,
         agency_id: agencyId!,
         first_name: firstName,
@@ -586,13 +455,8 @@ export async function createUserAccount(
         email: normalizedEmail,
         status: 'active',
       })
-      if (coordinatorError) {
-        await rollbackProvisionalUserAccount(supabaseAdmin, userId)
-        provisionalUserId = null
-        return { error: `Failed to create care coordinator record: ${coordinatorError.message}`, data: null }
-      }
+      if (coordinatorError) throw new Error(`Failed to create care coordinator record: ${coordinatorError.message}`)
     }
-    // admin role: no extra table
 
     setupCompleted = true
     provisionalUserId = null
@@ -604,26 +468,14 @@ export async function createUserAccount(
       error: null,
       data: { success: true, userId, message: `User created. Invitation email sent to ${email}.` },
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!setupCompleted && provisionalUserId) {
-      await rollbackProvisionalUserAccount(supabaseAdmin, provisionalUserId)
+      await rollbackProvisionalUserAccount(provisionalUserId)
     }
-    return { error: err?.message || 'Failed to create user account', data: null }
+    return { error: err instanceof Error ? err.message : 'Failed to create user account', data: null }
   }
 }
 
-/** Build company_name for clients from work_location and optional job/department (no schema change). */
-function buildAgencyAdminCompanyName(workLocation: string, jobTitle?: string, department?: string): string {
-  const parts = [workLocation.trim()]
-  if (jobTitle?.trim()) parts.push(`Job: ${jobTitle.trim()}`)
-  if (department?.trim()) parts.push(`Dept: ${department.trim()}`)
-  return parts.join(' | ') || 'Agency Admin'
-}
-
-/**
- * Create an agency admin account. Inserts directly into user_profiles and sends an invitation email.
- * No table schema changes.
- */
 export async function createAgencyAdminAccount(
   firstName: string,
   lastName: string,
@@ -637,28 +489,17 @@ export async function createAgencyAdminAccount(
   const inputParsed = createAgencyAdminSchema.safeParse({ firstName, lastName, contactEmail, contactPhone, jobTitle, department, workLocation, status })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
 
-  const supabaseAdmin = createAdminClient()
   const normalizedEmail = contactEmail.toLowerCase().trim()
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim() || normalizedEmail
   const tempPassword = randomBytes(12).toString('base64')
 
   try {
-    // Check for existing user
-    const { data: existingProfile } = await supabaseAdmin
-      .from('user_profiles')
-      .select('id')
-      .eq('email', normalizedEmail)
-      .maybeSingle()
+    const [existingProfile] = await sql<{ id: string }[]>`SELECT id FROM user_profiles WHERE email = ${normalizedEmail} LIMIT 1`
 
     if (existingProfile) {
-      // Ensure agency_admins row exists
-      const { data: existingAdmin } = await supabaseAdmin
-        .from('agency_admins')
-        .select('id')
-        .eq('user_id', existingProfile.id)
-        .maybeSingle()
+      const [existingAdmin] = await sql<{ id: string }[]>`SELECT id FROM agency_admins WHERE user_id = ${existingProfile.id} LIMIT 1`
       if (!existingAdmin) {
-        await supabaseAdmin.from('agency_admins').insert({
+        await sql`INSERT INTO agency_admins ${sql({
           user_id: existingProfile.id,
           company_owner_id: existingProfile.id,
           contact_name: fullName,
@@ -666,14 +507,10 @@ export async function createAgencyAdminAccount(
           contact_phone: contactPhone.trim() || null,
           status,
           agency_id: null,
-        })
+        })}`
       }
-      // Re-send invitation with a fresh password
       const passwordHash = await bcrypt.hash(tempPassword, 12)
-      await supabaseAdmin
-        .from('user_profiles')
-        .update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
-        .eq('id', existingProfile.id)
+      await sql`UPDATE user_profiles SET password_hash = ${passwordHash}, updated_at = ${new Date().toISOString()} WHERE id = ${existingProfile.id}`
       await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
       revalidatePath('/pages/admin/users')
       return {
@@ -682,11 +519,10 @@ export async function createAgencyAdminAccount(
       }
     }
 
-    // New user
     const userId = randomUUID()
     const passwordHash = await bcrypt.hash(tempPassword, 12)
 
-    const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
+    await sql`INSERT INTO user_profiles ${sql({
       id: userId,
       email: normalizedEmail,
       role: 'company_owner',
@@ -695,24 +531,23 @@ export async function createAgencyAdminAccount(
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    })
-    if (insertError) {
-      return { error: `Failed to create agency admin: ${insertError.message}`, data: null }
-    }
+    })}`
 
-    const { error: adminError } = await supabaseAdmin.from('agency_admins').insert({
-      user_id: userId,
-      company_owner_id: userId,
-      contact_name: fullName,
-      contact_email: normalizedEmail,
-      contact_phone: contactPhone.trim() || null,
-      status,
-      agency_id: null,
-    })
-    if (adminError) {
-      console.error('Failed to create agency_admins row for agency admin:', adminError)
-      await supabaseAdmin.from('user_profiles').delete().eq('id', userId)
-      return { error: `User created but failed to create agency record: ${adminError.message}`, data: null }
+    try {
+      await sql`INSERT INTO agency_admins ${sql({
+        user_id: userId,
+        company_owner_id: userId,
+        contact_name: fullName,
+        contact_email: normalizedEmail,
+        contact_phone: contactPhone.trim() || null,
+        status,
+        agency_id: null,
+      })}`
+    } catch (adminErr) {
+      console.error('Failed to create agency_admins row for agency admin:', adminErr)
+      try { await sql`DELETE FROM user_profiles WHERE id = ${userId}` } catch {}
+      const msg = adminErr instanceof Error ? adminErr.message : 'Unknown error'
+      return { error: `User created but failed to create agency record: ${msg}`, data: null }
     }
 
     await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
@@ -722,8 +557,8 @@ export async function createAgencyAdminAccount(
       error: null,
       data: { success: true, userId, message: `Agency admin created. Invitation email sent to ${contactEmail}.` },
     }
-  } catch (err: any) {
-    return { error: err?.message || 'Failed to create agency admin account', data: null }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to create agency admin account', data: null }
   }
 }
 
@@ -736,26 +571,16 @@ export async function createStaffUserAccount(
   const inputParsed = createStaffSchema.safeParse({ email, firstName, lastName, agencyName })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
 
-  const supabaseAdmin = createAdminClient()
   const normalizedEmail = email.toLowerCase().trim()
   const fullName = `${firstName} ${lastName}`.trim()
   const tempPassword = randomBytes(12).toString('base64')
 
   try {
-    // Check for existing user
-    const { data: existingProfile } = await supabaseAdmin
-      .from('user_profiles')
-      .select('id')
-      .eq('email', normalizedEmail)
-      .maybeSingle()
+    const [existingProfile] = await sql<{ id: string }[]>`SELECT id FROM user_profiles WHERE email = ${normalizedEmail} LIMIT 1`
 
     if (existingProfile) {
-      // Re-send invitation with a fresh password
       const passwordHash = await bcrypt.hash(tempPassword, 12)
-      await supabaseAdmin
-        .from('user_profiles')
-        .update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
-        .eq('id', existingProfile.id)
+      await sql`UPDATE user_profiles SET password_hash = ${passwordHash}, updated_at = ${new Date().toISOString()} WHERE id = ${existingProfile.id}`
       await sendInvitationEmail(normalizedEmail, fullName, tempPassword, agencyName)
       return {
         error: null,
@@ -763,11 +588,10 @@ export async function createStaffUserAccount(
       }
     }
 
-    // New user
     const userId = randomUUID()
     const passwordHash = await bcrypt.hash(tempPassword, 12)
 
-    const { error: insertError } = await supabaseAdmin.from('user_profiles').insert({
+    await sql`INSERT INTO user_profiles ${sql({
       id: userId,
       email: normalizedEmail,
       role: 'staff_member',
@@ -776,10 +600,7 @@ export async function createStaffUserAccount(
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    })
-    if (insertError) {
-      return { error: `Failed to create user: ${insertError.message}`, data: null }
-    }
+    })}`
 
     await sendInvitationEmail(normalizedEmail, fullName, tempPassword, agencyName)
 
@@ -787,7 +608,7 @@ export async function createStaffUserAccount(
       error: null,
       data: { success: true, userId, message: `User account created. Invitation email sent to ${email}.` },
     }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to create user account', data: null }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Failed to create user account', data: null }
   }
 }

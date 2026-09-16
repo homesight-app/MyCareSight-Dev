@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 /** UI shape for weekly contracted hours (backed by patient_service_contracts.contract_type = weekly_hours). */
 export interface PatientContractedHoursRow {
@@ -34,29 +34,40 @@ function mapServiceContractToUi(row: {
   }
 }
 
-async function getPatientAgencyId(supabase: Supabase, patientId: string): Promise<string | null> {
-  const { data } = await supabase.from('patients').select('agency_id').eq('id', patientId).maybeSingle()
-  return data?.agency_id ?? null
+const pgError = (err: unknown) => ({
+  message: err instanceof Error ? err.message : String(err),
+  code: '',
+  details: '',
+  hint: '',
+  name: 'Error',
+})
+
+async function getPatientAgencyId(patientId: string): Promise<string | null> {
+  const rows = await sql`SELECT agency_id FROM patients WHERE id = ${patientId} LIMIT 1`
+  return (rows[0]?.agency_id as string) ?? null
 }
 
 /** Get all weekly-hours contract limits for a patient, ordered by effective_date desc. */
-export async function getPatientContractedHoursByPatientId(supabase: Supabase, patientId: string) {
-  const { data, error } = await supabase
-    .from('patient_service_contracts')
-    .select('*')
-    .eq('patient_id', patientId)
-    .eq('contract_type', 'weekly_hours')
-    .order('effective_date', { ascending: false })
-  if (error) return { data: null, error }
-  return {
-    data: (data ?? []).map((r) => mapServiceContractToUi(r as Parameters<typeof mapServiceContractToUi>[0])),
-    error: null,
+export async function getPatientContractedHoursByPatientId(patientId: string) {
+  try {
+    const rows = await sql`
+      SELECT *
+      FROM patient_service_contracts
+      WHERE patient_id = ${patientId}
+        AND contract_type = 'weekly_hours'
+      ORDER BY effective_date DESC
+    `
+    return {
+      data: rows.map((r) => mapServiceContractToUi(r as Parameters<typeof mapServiceContractToUi>[0])),
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: pgError(err) }
   }
 }
 
 /** Insert a weekly-hours limit (patient_service_contracts). Returns UI-shaped row. */
 export async function insertPatientContractedHours(
-  supabase: Supabase,
   data: {
     patient_id: string
     total_hours: number
@@ -65,65 +76,77 @@ export async function insertPatientContractedHours(
     note?: string | null
   }
 ) {
-  const agencyId = await getPatientAgencyId(supabase, data.patient_id)
-  if (!agencyId) {
-    return {
-      data: null,
-      error: { message: 'Patient has no agency_id; cannot create service contract.', details: '', hint: '', code: '' },
+  try {
+    const agencyId = await getPatientAgencyId(data.patient_id)
+    if (!agencyId) {
+      return {
+        data: null,
+        error: { message: 'Patient has no agency_id; cannot create service contract.', details: '', hint: '', code: '' },
+      }
     }
-  }
-  const { data: insertedId, error } = await supabase.rpc('append_patient_service_contract', {
-    p_agency_id: agencyId,
-    p_patient_id: data.patient_id,
-    p_contract_name: null,
-    p_contract_type: 'weekly_hours',
-    p_service_type: 'non_skilled',
-    p_billing_code_id: null,
-    p_bill_rate: null,
-    p_bill_unit_type: 'hour',
-    p_weekly_hours_limit: data.total_hours,
-    p_effective_date: data.effective_date,
-    p_end_date: data.end_date ?? null,
-    p_note: data.note ?? null,
-  })
-  if (error || !insertedId) return { data: null, error }
 
-  const { data: row, error: readErr } = await supabase
-    .from('patient_service_contracts')
-    .select('*')
-    .eq('id', insertedId)
-    .single()
-  if (readErr || !row) return { data: null, error: readErr }
-  return {
-    data: mapServiceContractToUi(row as Parameters<typeof mapServiceContractToUi>[0]),
-    error: null,
+    const rpcRows = await sql`
+      SELECT append_patient_service_contract(
+        ${agencyId},
+        ${data.patient_id},
+        ${null},
+        ${'weekly_hours'},
+        ${'non_skilled'},
+        ${null},
+        ${null},
+        ${'hour'},
+        ${data.total_hours},
+        ${data.effective_date},
+        ${data.end_date ?? null},
+        ${data.note ?? null}
+      ) AS inserted_id
+    `
+    const insertedId = rpcRows[0]?.inserted_id as string | null
+    if (!insertedId) return { data: null, error: { message: 'Insert did not return row id', details: '', hint: '', code: '' } }
+
+    const rowRes = await sql`SELECT * FROM patient_service_contracts WHERE id = ${insertedId} LIMIT 1`
+    if (!rowRes[0]) return { data: null, error: { message: 'Could not fetch inserted row', details: '', hint: '', code: '' } }
+    return {
+      data: mapServiceContractToUi(rowRes[0] as Parameters<typeof mapServiceContractToUi>[0]),
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: pgError(err) }
   }
 }
 
 /** Delete a weekly-hours contract row by id. */
-export async function deletePatientContractedHours(supabase: Supabase, id: string) {
-  return supabase
-    .from('patient_service_contracts')
-    .delete()
-    .eq('id', id)
-    .eq('contract_type', 'weekly_hours')
+export async function deletePatientContractedHours(id: string) {
+  try {
+    await sql`
+      DELETE FROM patient_service_contracts
+      WHERE id = ${id}
+        AND contract_type = 'weekly_hours'
+    `
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: pgError(err) }
+  }
 }
 
 /** Active weekly-hours row covering date (effective_date <= date and open-ended or end_date >= date). */
 export async function getActiveContractedHoursForDate(
-  supabase: Supabase,
   patientId: string,
   date: string
 ): Promise<PatientContractedHoursRow | null> {
-  const { data: rows } = await supabase
-    .from('patient_service_contracts')
-    .select('*')
-    .eq('patient_id', patientId)
-    .eq('contract_type', 'weekly_hours')
-    .lte('effective_date', date)
-    .or(`end_date.is.null,end_date.gte.${date}`)
-    .order('effective_date', { ascending: false })
-    .limit(1)
-  const row = rows?.[0]
-  return row ? mapServiceContractToUi(row as Parameters<typeof mapServiceContractToUi>[0]) : null
+  try {
+    const rows = await sql`
+      SELECT *
+      FROM patient_service_contracts
+      WHERE patient_id = ${patientId}
+        AND contract_type = 'weekly_hours'
+        AND effective_date <= ${date}
+        AND (end_date IS NULL OR end_date >= ${date})
+      ORDER BY effective_date DESC
+      LIMIT 1
+    `
+    return rows[0] ? mapServiceContractToUi(rows[0] as Parameters<typeof mapServiceContractToUi>[0]) : null
+  } catch {
+    return null
+  }
 }

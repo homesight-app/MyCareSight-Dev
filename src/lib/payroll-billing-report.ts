@@ -1,4 +1,6 @@
-import type { Supabase } from '@/lib/supabase/types'
+import 'server-only'
+
+import sql from '@/db'
 import { resolvePayRateForVisit, type CaregiverPayRateRow } from '@/lib/caregiver-pay-rates'
 import type { PatientServiceContractRow } from '@/lib/supabase/query/patient-service-contracts'
 import {
@@ -9,12 +11,10 @@ import {
 import {
   round2,
   toHHMM,
-  hoursFromSchedule,
   hoursFromScheduleWithDates,
   splitHoursByWeek,
   calcAmount,
   serviceTypeLabelFn,
-  getWeekKey,
 } from '@/lib/payroll-calculations'
 import { patientFullName } from '@/lib/patient-name'
 
@@ -69,131 +69,167 @@ type AgencyConfig = {
   mileage_rate_per_mile?: number | null
 }
 
+type VisitRow = {
+  id: string
+  agency_id: string | null
+  patient_id: string | null
+  caregiver_member_id: string | null
+  visit_date: string | null
+  scheduled_start_time: string | null
+  scheduled_end_time: string | null
+  scheduled_end_date: string | null
+  service_type: string | null
+  visit_type: string | null
+  mileage_miles: number | null
+}
+
+type FinancialRow = {
+  scheduled_visit_id: string
+  service_type: string | null
+  status: string | null
+  pay_rate: number | null
+  pay_amount: number | null
+  bill_rate: number | null
+  bill_amount: number | null
+  approved_billable_hours: number | null
+  approved_actual_hours: number | null
+  pay_unit_type: string | null
+  bill_unit_type: string | null
+}
+
+type ApprovalRow = {
+  scheduled_visit_id: string
+  approval_status: string | null
+  approved_billable_hours: number | null
+  approved_actual_hours: number | null
+  pay_rate: number | null
+  bill_rate: number | null
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function fetchPayrollBillingReportRows(
-  supabase: Supabase,
   params: { agencyId: string | null; dateFrom: string; dateTo: string }
 ): Promise<{ rows: PayrollBillingDetailRow[]; error?: string }> {
   const { agencyId, dateFrom, dateTo } = params
 
-  // Fetch agency config for payroll rules and mileage settings
-  const { data: agencyConfig } = agencyId
-    ? await supabase
-        .from('agency_configurations')
-        .select('*')
-        .eq('agency_id', agencyId)
-        .maybeSingle()
-    : { data: null }
-  const config = (agencyConfig ?? {}) as AgencyConfig
+  let config: AgencyConfig = {}
+  try {
+    if (agencyId) {
+      const [row] = await sql<AgencyConfig[]>`
+        SELECT * FROM agency_configurations WHERE agency_id = ${agencyId} LIMIT 1
+      `
+      config = row ?? {}
+    }
+  } catch {
+    // agency config is optional — proceed with defaults
+  }
 
-  let visitQuery = supabase
-    .from('scheduled_visits')
-    .select(
-      'id, agency_id, patient_id, caregiver_member_id, visit_date, scheduled_start_time, scheduled_end_time, scheduled_end_date, service_type, visit_type, mileage_miles'
-    )
-    .eq('status', 'completed')
-    .gte('visit_date', dateFrom)
-    .lte('visit_date', dateTo)
-    .order('visit_date', { ascending: true })
-    .order('scheduled_start_time', { ascending: true })
+  let visitList: VisitRow[]
+  try {
+    const agencyFilter = agencyId ? sql`AND agency_id = ${agencyId}` : sql``
+    visitList = await sql<VisitRow[]>`
+      SELECT id, agency_id, patient_id, caregiver_member_id, visit_date, scheduled_start_time,
+             scheduled_end_time, scheduled_end_date, service_type, visit_type, mileage_miles
+      FROM scheduled_visits
+      WHERE status = 'completed'
+        AND visit_date >= ${dateFrom}
+        AND visit_date <= ${dateTo}
+        ${agencyFilter}
+      ORDER BY visit_date ASC, scheduled_start_time ASC
+    `
+  } catch (err) {
+    return { rows: [], error: err instanceof Error ? err.message : 'Failed to load visits.' }
+  }
 
-  if (agencyId) visitQuery = visitQuery.eq('agency_id', agencyId)
-
-  const { data: visits, error: visitsErr } = await visitQuery
-  if (visitsErr) return { rows: [], error: visitsErr.message }
-
-  const visitList = visits ?? []
   if (visitList.length === 0) return { rows: [] }
 
-  const patientIds = Array.from(new Set(visitList.map((v) => v.patient_id)))
+  const patientIds = Array.from(new Set(visitList.map((v) => v.patient_id).filter(Boolean))) as string[]
   const caregiverIds = Array.from(
-    new Set(visitList.flatMap((v) => (v.caregiver_member_id ? [v.caregiver_member_id] : [])))
-  )
-  const visitIds = visitList.map((v) => v.id as string)
+    new Set(visitList.map((v) => v.caregiver_member_id).filter(Boolean))
+  ) as string[]
+  const visitIds = visitList.map((v) => v.id)
 
-  const [patRes, cgRes, contractsRes, caregiverPayRes, financialsRes, approvalsRes, tasksRes] = await Promise.all([
-    supabase.from('patients').select('id, first_name, last_name').in('id', patientIds),
-    caregiverIds.length
-      ? supabase.from('caregiver_members').select('id, first_name, last_name').in('id', caregiverIds)
-      : Promise.resolve({ data: [], error: null } as const),
-    supabase
-      .from('patient_service_contracts')
-      .select(
-        'id, patient_id, contract_type, service_type, bill_rate, bill_unit_type, effective_date, end_date, status, created_at, updated_at, bill_mileage, mileage_bill_rate_per_mile'
-      )
-      .in('patient_id', patientIds),
-    caregiverIds.length
-      ? supabase
-          .from('caregiver_pay_rates')
-          .select('caregiver_member_id, pay_rate, unit_type, service_type, effective_start, effective_end')
-          .in('caregiver_member_id', caregiverIds)
-      : Promise.resolve({ data: [], error: null } as const),
-    visitIds.length
-      ? supabase
-          .from('visit_financials')
-          .select(
-            'scheduled_visit_id, service_type, status, pay_rate, pay_amount, bill_rate, bill_amount, approved_billable_hours, approved_actual_hours, pay_unit_type, bill_unit_type'
-          )
-          .in('scheduled_visit_id', visitIds)
-      : Promise.resolve({ data: [], error: null } as const),
-    visitIds.length
-      ? supabase
-          .from('visit_approvals')
-          .select('scheduled_visit_id, approval_status, approved_billable_hours, approved_actual_hours, pay_rate, bill_rate')
-          .in('scheduled_visit_id', visitIds)
-      : Promise.resolve({ data: [], error: null } as const),
-    visitIds.length
-      ? supabase
-          .from('scheduled_visit_tasks')
-          .select('scheduled_visit_id, task_id, sort_order')
-          .in('scheduled_visit_id', visitIds)
-          .not('task_id', 'is', null)
-          .order('sort_order', { ascending: true })
-      : Promise.resolve({ data: [], error: null } as const),
-  ])
+  let patRows: { id: string; first_name: string; last_name: string }[] = []
+  let cgRows: { id: string; first_name: string; last_name: string }[] = []
+  let contractRows: PatientServiceContractRow[] = []
+  let caregiverPayRows: CaregiverPayRateRow[] = []
+  let financialRows: FinancialRow[] = []
+  let approvalRows: ApprovalRow[] = []
+  let taskRows: { scheduled_visit_id: string; task_id: string | null; sort_order: number }[] = []
 
-  if (patRes.error) return { rows: [], error: patRes.error.message }
-  if (cgRes.error) return { rows: [], error: cgRes.error.message }
-  if (contractsRes.error) return { rows: [], error: contractsRes.error.message }
-  if (caregiverPayRes.error) return { rows: [], error: caregiverPayRes.error.message }
-  if (financialsRes.error) return { rows: [], error: financialsRes.error.message }
-  if (approvalsRes.error) return { rows: [], error: approvalsRes.error.message }
-  if (tasksRes.error) return { rows: [], error: tasksRes.error.message }
+  try {
+    ;[patRows, cgRows, contractRows, caregiverPayRows, financialRows, approvalRows, taskRows] = await Promise.all([
+      sql<{ id: string; first_name: string; last_name: string }[]>`
+        SELECT id, first_name, last_name FROM patients WHERE id = ANY(${patientIds}::uuid[])
+      `,
+      caregiverIds.length > 0
+        ? sql<{ id: string; first_name: string; last_name: string }[]>`
+            SELECT id, first_name, last_name FROM caregiver_members WHERE id = ANY(${caregiverIds}::uuid[])
+          `
+        : Promise.resolve([]),
+      sql<PatientServiceContractRow[]>`
+        SELECT id, patient_id, contract_type, service_type, bill_rate, bill_unit_type, effective_date,
+               end_date, status, created_at, updated_at, bill_mileage, mileage_bill_rate_per_mile
+        FROM patient_service_contracts
+        WHERE patient_id = ANY(${patientIds}::uuid[])
+      `,
+      caregiverIds.length > 0
+        ? sql<CaregiverPayRateRow[]>`
+            SELECT caregiver_member_id, pay_rate, unit_type, service_type, effective_start, effective_end
+            FROM caregiver_pay_rates
+            WHERE caregiver_member_id = ANY(${caregiverIds}::uuid[])
+          `
+        : Promise.resolve([]),
+      visitIds.length > 0
+        ? sql<FinancialRow[]>`
+            SELECT scheduled_visit_id, service_type, status, pay_rate, pay_amount, bill_rate, bill_amount,
+                   approved_billable_hours, approved_actual_hours, pay_unit_type, bill_unit_type
+            FROM visit_financials
+            WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+          `
+        : Promise.resolve([]),
+      visitIds.length > 0
+        ? sql<ApprovalRow[]>`
+            SELECT scheduled_visit_id, approval_status, approved_billable_hours, approved_actual_hours, pay_rate, bill_rate
+            FROM visit_approvals
+            WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+          `
+        : Promise.resolve([]),
+      visitIds.length > 0
+        ? sql<{ scheduled_visit_id: string; task_id: string | null; sort_order: number }[]>`
+            SELECT scheduled_visit_id, task_id, sort_order
+            FROM scheduled_visit_tasks
+            WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+              AND task_id IS NOT NULL
+            ORDER BY sort_order ASC
+          `
+        : Promise.resolve([]),
+    ])
+  } catch (err) {
+    return { rows: [], error: err instanceof Error ? err.message : 'Failed to load report data.' }
+  }
 
   const patientNameById = new Map(
-    (patRes.data ?? []).map((r) => [r.id, patientFullName(r as { first_name: string; last_name: string })])
+    patRows.map((r) => [r.id, patientFullName(r as { first_name: string; last_name: string })])
   )
   const caregiverNameById = new Map(
-    (cgRes.data ?? []).map((r) => [r.id, [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Caregiver'])
+    cgRows.map((r) => [r.id, [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Caregiver'])
   )
-  const contracts = contractsRes.data ?? []
-  const caregiverPayRows = (caregiverPayRes.data ?? []) as CaregiverPayRateRow[]
+  const contracts = contractRows
 
-  type FinancialRow = {
-    scheduled_visit_id: string; service_type?: string | null; status?: string | null
-    pay_rate: number | null; pay_amount: number | null; bill_rate: number | null; bill_amount: number | null
-    approved_billable_hours?: number | null; approved_actual_hours?: number | null
-    pay_unit_type?: string | null; bill_unit_type?: string | null
-  }
-  const financialByVisitId = new Map(((financialsRes.data ?? []) as FinancialRow[]).map((r) => [r.scheduled_visit_id, r]))
+  const financialByVisitId = new Map(financialRows.map((r) => [r.scheduled_visit_id, r]))
 
-  type ApprovalRow = {
-    scheduled_visit_id: string; approval_status?: string | null
-    approved_billable_hours?: number | null; approved_actual_hours?: number | null
-    pay_rate?: number | null; bill_rate?: number | null
-  }
-  const approvalByVisitId = new Map(((approvalsRes.data ?? []) as ApprovalRow[]).map((r) => [r.scheduled_visit_id, r]))
+  const approvalByVisitId = new Map(approvalRows.map((r) => [r.scheduled_visit_id, r]))
 
   const firstTaskByVisitId = new Map<string, string>()
-  for (const tr of tasksRes.data ?? []) {
-    const vid = String((tr as { scheduled_visit_id: string }).scheduled_visit_id)
-    const tid = (tr as { task_id?: string | null }).task_id
-    if (tid && !firstTaskByVisitId.has(vid)) firstTaskByVisitId.set(vid, tid)
+  for (const tr of taskRows) {
+    const vid = String(tr.scheduled_visit_id)
+    if (tr.task_id && !firstTaskByVisitId.has(vid)) firstTaskByVisitId.set(vid, tr.task_id)
   }
 
   const pickContract = (patientId: string, serviceType: string, date: string) => {
-    const rows = (contracts as PatientServiceContractRow[]).filter(
+    const rows = contracts.filter(
       (c) =>
         c.patient_id === patientId &&
         c.service_type === serviceType &&
@@ -222,8 +258,8 @@ export async function fetchPayrollBillingReportRows(
     .filter((sv) => financialByVisitId.has(String(sv.id)) || approvalByVisitId.has(String(sv.id)))
     .map((sv) => {
       const visitDate = sv.visit_date ?? ''
-      const financial = financialByVisitId.get(sv.id as string)
-      const approval = approvalByVisitId.get(sv.id as string)
+      const financial = financialByVisitId.get(sv.id)
+      const approval = approvalByVisitId.get(sv.id)
       const serviceType = ((financial?.service_type ?? sv.service_type) === 'skilled' ? 'skilled' : 'non_skilled') as 'non_skilled' | 'skilled'
       const caregiverId = sv.caregiver_member_id ?? ''
       const scheduleHours = hoursFromScheduleWithDates(
@@ -311,7 +347,7 @@ export async function fetchPayrollBillingReportRows(
       }
 
       // ── Mileage ──────────────────────────────────────────────────────────
-      const miles = Number((sv as { mileage_miles?: number | null }).mileage_miles ?? 0)
+      const miles = Number(sv.mileage_miles ?? 0)
 
       const mileageEnabled =
         config.mileage_reimbursement_enabled === true &&
@@ -326,15 +362,13 @@ export async function fetchPayrollBillingReportRows(
       const payAmount = round2(regPay + otPay + holidayPay + weekendPay + mileagePayAmount)
       const billAmount = round2(hoursBillAmount + mileageBillAmount)
 
-      const vt = (sv as { visit_type?: string | null }).visit_type
-
       return {
-        id: sv.id as string,
-        clientId: sv.patient_id as string,
+        id: sv.id,
+        clientId: sv.patient_id ?? '',
         caregiverId,
-        clientName: patientNameById.get(sv.patient_id) ?? 'Client',
+        clientName: patientNameById.get(sv.patient_id ?? '') ?? 'Client',
         caregiverName: caregiverId ? (caregiverNameById.get(caregiverId) ?? 'Caregiver') : '—',
-        serviceTypeLabel: serviceTypeLabelFn(serviceType, vt ?? null),
+        serviceTypeLabel: serviceTypeLabelFn(serviceType, sv.visit_type ?? null),
         visitDate,
         startTime: toHHMM(sv.scheduled_start_time),
         endTime: toHHMM(sv.scheduled_end_time),

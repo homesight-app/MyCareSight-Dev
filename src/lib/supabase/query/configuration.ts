@@ -1,4 +1,4 @@
-import type { Supabase } from '../types'
+import sql from '@/db'
 
 export interface ConfigurationValue {
   id: string
@@ -29,70 +29,77 @@ export interface ConfigurationType {
 
 /** Fetch all configuration_values for a given type code, grouped into
  *  top-level values with their children nested under `subcategories`. */
-export async function getConfigurationValuesWithSubcategories(
-  supabase: Supabase,
-  typeCode: string
-) {
-  const typeResult = await supabase
-    .from('configuration_types')
-    .select('id')
-    .eq('code', typeCode)
-    .single()
-
-  if (typeResult.error || !typeResult.data) {
-    return { data: null, error: new Error(`Configuration type '${typeCode}' not found`) }
-  }
-
-  const typeId = typeResult.data.id
-
-  const { data: rows, error } = await supabase
-    .from('configuration_values')
-    .select('id, type_id, parent_id, code, name, description, is_active, sort_order, created_at, updated_at')
-    .eq('type_id', typeId)
-    .order('sort_order', { ascending: true })
-    .order('name', { ascending: true })
-
-  if (error) return { data: null, error: new Error(error.message) }
-
-  const all = (rows ?? []) as ConfigurationValue[]
-  const tops = all.filter(v => v.parent_id === null)
-  const childMap = new Map<string, ConfigurationValue[]>()
-  for (const v of all) {
-    if (v.parent_id) {
-      const list = childMap.get(v.parent_id) ?? []
-      list.push(v)
-      childMap.set(v.parent_id, list)
+export async function getConfigurationValuesWithSubcategories(typeCode: string) {
+  try {
+    const typeRows = await sql`SELECT id FROM configuration_types WHERE code = ${typeCode}`
+    if (!typeRows[0]) {
+      return { data: null, error: new Error(`Configuration type '${typeCode}' not found`) }
     }
-  }
+    const typeId = (typeRows[0] as any).id
 
-  return {
-    data: tops.map(t => ({ ...t, subcategories: childMap.get(t.id) ?? [] })) as ConfigurationValueWithSubcategories[],
-    error: null,
+    const rows = await sql`
+      SELECT id, type_id, parent_id, code, name, description, is_active, sort_order, created_at, updated_at
+      FROM configuration_values
+      WHERE type_id = ${typeId}
+      ORDER BY sort_order ASC, name ASC
+    `
+
+    const all = (rows ?? []) as unknown as ConfigurationValue[]
+    const tops = all.filter(v => v.parent_id === null)
+    const childMap = new Map<string, ConfigurationValue[]>()
+    for (const v of all) {
+      if (v.parent_id) {
+        const list = childMap.get(v.parent_id) ?? []
+        list.push(v)
+        childMap.set(v.parent_id, list)
+      }
+    }
+
+    return {
+      data: tops.map(t => ({ ...t, subcategories: childMap.get(t.id) ?? [] })) as unknown as ConfigurationValueWithSubcategories[],
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err : new Error(String(err)) }
   }
 }
 
 /** Count all references to a given configuration_value id:
  *  children (subcategories), playbooks, applications, and licenses. */
-export async function getConfigurationValueReferenceCount(supabase: Supabase, valueId: string) {
-  const [children, playbooksCat, playbooksSub, appsCat, appsSub, licCat, licSub] = await Promise.all([
-    supabase.from('configuration_values').select('id', { count: 'exact', head: true }).eq('parent_id', valueId),
-    supabase.from('playbooks').select('id', { count: 'exact', head: true }).eq('category_id', valueId),
-    supabase.from('playbooks').select('id', { count: 'exact', head: true }).eq('subcategory_id', valueId),
-    supabase.from('applications').select('id', { count: 'exact', head: true }).eq('category_id', valueId),
-    supabase.from('applications').select('id', { count: 'exact', head: true }).eq('subcategory_id', valueId),
-    supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('category_id', valueId),
-    supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('subcategory_id', valueId),
-  ])
-  return {
-    childCount:       children.count ?? 0,
-    playbookCount:    (playbooksCat.count ?? 0) + (playbooksSub.count ?? 0),
-    applicationCount: (appsCat.count ?? 0) + (appsSub.count ?? 0),
-    licenseCount:     (licCat.count ?? 0) + (licSub.count ?? 0),
+export async function getConfigurationValueReferenceCount(valueId: string) {
+  try {
+    const [
+      childrenRows,
+      playbooksCatRows,
+      playbooksSubRows,
+      appsCatRows,
+      appsSubRows,
+      licCatRows,
+      licSubRows,
+    ] = await Promise.all([
+      sql`SELECT COUNT(*)::int AS count FROM configuration_values WHERE parent_id = ${valueId}`,
+      sql`SELECT COUNT(*)::int AS count FROM playbooks WHERE category_id = ${valueId}`,
+      sql`SELECT COUNT(*)::int AS count FROM playbooks WHERE subcategory_id = ${valueId}`,
+      sql`SELECT COUNT(*)::int AS count FROM applications WHERE category_id = ${valueId}`,
+      sql`SELECT COUNT(*)::int AS count FROM applications WHERE subcategory_id = ${valueId}`,
+      sql`SELECT COUNT(*)::int AS count FROM licenses WHERE category_id = ${valueId}`,
+      sql`SELECT COUNT(*)::int AS count FROM licenses WHERE subcategory_id = ${valueId}`,
+    ])
+
+    const c = (r: typeof childrenRows) => (r[0] as { count: number } | undefined)?.count ?? 0
+
+    return {
+      childCount:       c(childrenRows),
+      playbookCount:    c(playbooksCatRows) + c(playbooksSubRows),
+      applicationCount: c(appsCatRows) + c(appsSubRows),
+      licenseCount:     c(licCatRows) + c(licSubRows),
+    }
+  } catch {
+    return { childCount: 0, playbookCount: 0, applicationCount: 0, licenseCount: 0 }
   }
 }
 
 export async function insertConfigurationValue(
-  supabase: Supabase,
   data: {
     type_id: string
     parent_id?: string | null
@@ -102,26 +109,43 @@ export async function insertConfigurationValue(
     created_by?: string | null
   }
 ) {
-  return supabase
-    .from('configuration_values')
-    .insert({ ...data, parent_id: data.parent_id ?? null, updated_at: new Date().toISOString() })
-    .select('id, type_id, parent_id, code, name, description, is_active, sort_order, created_at, updated_at')
-    .single()
+  try {
+    const payload = { ...data, parent_id: data.parent_id ?? null, updated_at: new Date().toISOString() }
+    const keys = Object.keys(payload) as (keyof typeof payload)[]
+    const rows = await sql`
+      INSERT INTO configuration_values ${sql(payload, ...keys)}
+      RETURNING id, type_id, parent_id, code, name, description, is_active, sort_order, created_at, updated_at
+    `
+    if (!rows[0]) throw new Error('Row not found')
+    return { data: rows[0] as ConfigurationValue, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
 export async function updateConfigurationValue(
-  supabase: Supabase,
   id: string,
   data: Partial<{ name: string; description: string | null; is_active: boolean; sort_order: number }>
 ) {
-  return supabase
-    .from('configuration_values')
-    .update({ ...data, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('id, type_id, parent_id, code, name, description, is_active, sort_order, created_at, updated_at')
-    .single()
+  try {
+    const payload = { ...data, updated_at: new Date().toISOString() }
+    const keys = Object.keys(payload) as (keyof typeof payload)[]
+    const rows = await sql`
+      UPDATE configuration_values SET ${sql(payload, ...keys)} WHERE id = ${id}
+      RETURNING id, type_id, parent_id, code, name, description, is_active, sort_order, created_at, updated_at
+    `
+    if (!rows[0]) throw new Error('Row not found')
+    return { data: rows[0] as ConfigurationValue, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }
 
-export async function deleteConfigurationValue(supabase: Supabase, id: string) {
-  return supabase.from('configuration_values').delete().eq('id', id)
+export async function deleteConfigurationValue(id: string) {
+  try {
+    await sql`DELETE FROM configuration_values WHERE id = ${id}`
+    return { data: null, error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
 }

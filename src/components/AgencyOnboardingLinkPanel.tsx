@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Link2, Copy, ExternalLink, Check, Loader2, ChevronDown, ChevronUp, AlertCircle, Clock, X } from 'lucide-react'
 import { generateOnboardingToken, revokeOnboardingToken } from '@/app/actions/agency-onboarding'
-import type { OnboardingToken } from '@/lib/supabase/query'
+import type { OnboardingToken } from '@/app/actions/query-bridge'
 import Button from '@/components/ui/PrimaryButton'
 
 interface AgencyOnboardingLinkPanelProps {

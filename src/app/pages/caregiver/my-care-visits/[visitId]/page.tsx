@@ -1,6 +1,5 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import CaregiverVisitExecutionContent from '@/components/CaregiverVisitExecutionContent'
 import { getCachedCaregiverVisitExecutionDetail } from '@/lib/server-cache/caregiver-visit-execution-detail'
@@ -15,8 +14,7 @@ export default async function CaregiverVisitExecutionPage({ params }: PageProps)
 
   const session = await getSession()
 
-  const supabase = await createClient()
-  const { data: staffMember, error: staffMemberError } = await q.getStaffMemberByUserId(supabase, session!.user.id)
+  const { data: staffMember, error: staffMemberError } = await q.getStaffMemberByUserId(session!.user.id)
   if (staffMemberError || !staffMember) {
     redirect('/pages/auth/login?error=Staff member record not found. Please contact your administrator.')
   }
@@ -25,7 +23,8 @@ export default async function CaregiverVisitExecutionPage({ params }: PageProps)
     visitId,
     staffMember.id,
     staffMember.agency_id ?? null,
-    session!.user.id
+    session!.user.id,
+    session!.profile?.role ?? ''
   )
 
   if (error || !data) notFound()

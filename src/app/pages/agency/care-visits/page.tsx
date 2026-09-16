@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { withUserContext } from '@/db'
 import VisitManagementContent from '@/components/VisitManagementContent'
 import FeatureGate from '@/components/FeatureGate'
 import { fetchVisitAssignmentDashboardData } from '@/lib/visit-assignment-dashboard'
@@ -14,14 +14,21 @@ export default async function CareVisitsPage() {
     redirect('/pages/auth/login')
   }
 
-  const supabase = await createClient()
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? ''
-  const role = session.profile?.role ?? ''
+  const role = session!.profile?.role ?? ''
   const canManageNotes =
     role === 'company_owner' || role === 'care_coordinator'
 
-  const dashboard = await fetchVisitAssignmentDashboardData(supabase)
-  const allVisits = await fetchAllVisitsDashboardData(supabase)
+  const [dashboard, allVisits] = await withUserContext(
+    session!.user.id,
+    role,
+    agencyId || null,
+    () => Promise.all([
+      fetchVisitAssignmentDashboardData(agencyId || null),
+      fetchAllVisitsDashboardData(agencyId || null),
+    ])
+  )
+
   const pendingRequestCount =
     dashboard.visits.reduce((sum, v) => sum + v.requests.length, 0) + dashboard.unassignmentItems.length
 

@@ -2,13 +2,30 @@ import Mailgun from 'mailgun.js'
 import FormData from 'form-data'
 
 const mailgun = new Mailgun(FormData)
-const mg = mailgun.client({
-  username: 'api',
-  key: process.env.MAILGUN_API_KEY ?? '',
-})
 
-const DOMAIN = process.env.MAILGUN_DOMAIN ?? ''
-const FROM = process.env.MAILGUN_FROM_EMAIL ?? `noreply@${DOMAIN}`
+function getMailgunConfig() {
+  const key = process.env.MAILGUN_API_KEY ?? ''
+  const domain = process.env.MAILGUN_DOMAIN ?? ''
+  const from = process.env.MAILGUN_FROM_EMAIL ?? (domain ? `noreply@${domain}` : '')
+  const missing = [
+    !key && 'MAILGUN_API_KEY',
+    !domain && 'MAILGUN_DOMAIN',
+    !from && 'MAILGUN_FROM_EMAIL',
+  ].filter(Boolean)
+
+  if (missing.length > 0) {
+    throw new Error(`Missing email environment variables: ${missing.join(', ')}`)
+  }
+
+  return {
+    client: mailgun.client({
+      username: 'api',
+      key,
+    }),
+    domain,
+    from,
+  }
+}
 
 async function send(params: {
   to: string
@@ -16,8 +33,10 @@ async function send(params: {
   html: string
   text: string
 }) {
-  return mg.messages.create(DOMAIN, {
-    from: `MyCareSight <${FROM}>`,
+  const { client, domain, from } = getMailgunConfig()
+
+  return client.messages.create(domain, {
+    from: `MyCareSight <${from}>`,
     to: [params.to.trim()],
     subject: params.subject,
     html: params.html,

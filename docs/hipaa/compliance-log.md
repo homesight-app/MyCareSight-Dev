@@ -254,3 +254,9 @@ and auditors.
 - **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control and 164.312(c)(1) Integrity.
 - **Files changed:** `scripts/neon-runtime-role-setup.sql`, `scripts/rls-patients-enable.sql`, `scripts/rls-patients-disable.sql`, `docs/hipaa/compliance-log.md`.
 - **Remaining gap:** The scripts are prepared but not applied to Neon in this repository change. After applying, update the deployed app `DATABASE_URL` to the `mycaresight_app` connection string and run the verification queries from the enable script.
+
+### Auth Email Provider Initialization Hardening (2026-09-16)
+- **What:** Moved Mailgun client creation from module import time to email send time. Missing Mailgun configuration now fails the specific send operation with a clear error instead of preventing the Next.js application from building or loading routes that import the email helper.
+- **Relevant safeguards:** 45 CFR 164.312(d) Person or Entity Authentication, because password reset and invitation email flows depend on the email helper.
+- **Files changed:** `src/lib/email.ts`, `docs/hipaa/compliance-log.md`.
+- **Remaining gap:** UAT and production still require valid Mailgun settings before password reset, invitation, notification, or contact-confirmation emails can be delivered.

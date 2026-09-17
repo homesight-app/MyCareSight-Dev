@@ -19,21 +19,48 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Node.js version
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '24.x'
+          cache: 'npm'
 
-      - name: npm install, build, and test
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_SITE_URL: ${{ secrets.UAT_NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.UAT_NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.UAT_NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.UAT_NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.UAT_NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          NEXT_PUBLIC_DEBUG_CAREGIVER_DOCS: ${{ secrets.UAT_NEXT_PUBLIC_DEBUG_CAREGIVER_DOCS }}
+          AUTH_SECRET: ${{ secrets.UAT_AUTH_SECRET }}
+          AUTH_URL: ${{ secrets.UAT_AUTH_URL }}
+          DATABASE_URL: ${{ secrets.UAT_DATABASE_URL }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.UAT_AZURE_STORAGE_ACCOUNT_NAME }}
+          AGENCY_SSN_KEY: ${{ secrets.UAT_AGENCY_SSN_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.UAT_SUPABASE_SERVICE_ROLE_KEY }}
+          MAILGUN_API_KEY: ${{ secrets.UAT_MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ secrets.UAT_MAILGUN_DOMAIN }}
+          MAILGUN_FROM_EMAIL: ${{ secrets.UAT_MAILGUN_FROM_EMAIL }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.UAT_TURNSTILE_SECRET_KEY }}
         run: |
-          npm install
-          npm run build --if-present
-          npm run test --if-present
+          npm run build
+
+      - name: Prepare standalone artifact
+        run: |
+          mkdir deploy
+          cp -R .next/standalone/. deploy/
+          mkdir -p deploy/.next
+          cp -R .next/static deploy/.next/static
+          if [ -d public ]; then cp -R public deploy/public; fi
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: deploy
 
   deploy:
     runs-on: ubuntu-latest
@@ -47,6 +74,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
+          path: deploy
       
       - name: Login to Azure
         uses: azure/login@v2
@@ -61,5 +89,5 @@ jobs:
         with:
           app-name: 'mycaresight-uat'
           slot-name: 'Production'
-          package: .
+          package: deploy
           

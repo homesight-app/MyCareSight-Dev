@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
 
+  output: 'standalone',
+
   serverExternalPackages: ['pdf-parse', 'mammoth'],
 
   // Disable client-side router cache so navigating to a page always fetches

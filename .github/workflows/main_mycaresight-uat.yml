@@ -90,4 +90,5 @@ jobs:
           app-name: 'mycaresight-uat'
           slot-name: 'Production'
           package: deploy
+          startup-command: 'node server.js'
           

@@ -50,6 +50,8 @@
 
     "@mui/x-date-pickers": "^8.27.2",
 
+    "@napi-rs/canvas": "^1.0.9",
+
     "@supabase/ssr": "^0.8.0",
 
     "@supabase/supabase-js": "^2.89.0",

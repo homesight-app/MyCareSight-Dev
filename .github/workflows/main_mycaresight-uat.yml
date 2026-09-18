@@ -56,6 +56,13 @@ jobs:
           cp -R .next/static deploy/.next/static
           if [ -d public ]; then cp -R public deploy/public; fi
 
+      - name: Verify standalone artifact
+        run: |
+          test -f deploy/server.js
+          test -d deploy/.next
+          test -f deploy/.next/BUILD_ID
+          echo "Standalone artifact verified"
+
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:

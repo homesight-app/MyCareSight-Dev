@@ -1,6 +1,6 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { readCaregiverPayRates } from '@/lib/repositories/caregiver-pay-rates'
 import * as q from '@/lib/supabase/query'
 import CaregiverProfileContent from '@/components/CaregiverProfileContent'
 
@@ -18,7 +18,6 @@ export default async function CaregiverProfilePage({
   const { clientId, embed } = await searchParams
   const isEmbed = embed === '1' || embed === 'true'
 
-  const supabase = await createClient()
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency/caregiver')
 
@@ -27,12 +26,7 @@ export default async function CaregiverProfilePage({
   if (staffError || !staff) redirect('/pages/agency/caregiver')
 
   const todayYmd = new Date().toISOString().slice(0, 10)
-  const { data: openPayRows } = await supabase
-    .from('caregiver_pay_rates')
-    .select('pay_rate, service_type, effective_start')
-    .eq('caregiver_member_id', staffId)
-    .lte('effective_start', todayYmd)
-    .or(`effective_end.is.null,effective_end.gt.${todayYmd}`)
+  const { data: openPayRows } = await readCaregiverPayRates({ caregiverIds: [staffId], agencyId, effectiveOn: todayYmd })
 
   let currentPayRate: number | null = null
   const rows = [...(openPayRows ?? [])].sort((a, b) => {

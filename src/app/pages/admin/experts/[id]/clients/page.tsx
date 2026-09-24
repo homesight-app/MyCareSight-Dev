@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import Link from 'next/link'
 import { 
@@ -21,7 +20,6 @@ export default async function ExpertClientsPage({
 }) {
   await requireAdmin()
   const { id } = await params
-  const supabase = await createClient()
 
   const { data: expert } = await q.getLicensingExpertById(id)
 

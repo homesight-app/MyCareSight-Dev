@@ -13,11 +13,10 @@ import {
   XCircle,
   Upload
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { useState } from 'react'
-import { useSession } from 'next-auth/react'
 import Button from '@/components/ui/PrimaryButton'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 
 interface License {
   id: string
@@ -54,7 +53,6 @@ export default function StaffLicenseDetailContent({
   documents
 }: StaffLicenseDetailContentProps) {
   const router = useRouter()
-  const { data: session } = useSession()
   const [isUploading, setIsUploading] = useState(false)
 
   const getStatusBadge = (status: string) => {
@@ -130,42 +128,19 @@ export default function StaffLicenseDetailContent({
 
       setIsUploading(true)
       try {
-        const user = session?.user
-        if (!user) {
-          throw new Error('You must be logged in to upload documents')
-        }
-        const supabase = createClient()
-
         const fileExt = file.name.split('.').pop()
-        const fileName = `${license.id}/${Date.now()}.${fileExt}`
-
-        // Upload file to storage
-        const uploadForm = new FormData()
-        uploadForm.append('file', file)
-        uploadForm.append('bucket', 'application-documents')
-        uploadForm.append('path', fileName)
-        const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
-        if (!uploadRes.ok) {
-          const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
-          const errorMsg = uploadError || 'Failed to upload file'
-          throw new Error(`Upload failed: ${errorMsg}. Please check storage bucket exists and policies are configured.`)
-        }
+        const uploaded = await uploadStoredFile(file, 'license-document', license.id)
 
         // Create document record
-        const { error: docError } = await q.insertApplicationDocument({
-          application_id: license.id,
+        const { error: docError } = await q.insertLicenseDocument({
+          license_id: license.id,
           document_name: file.name,
-          document_url: fileName,
+          document_url: uploaded.path,
           document_type: fileExt?.toLowerCase() || null
         })
 
         if (docError) {
-          // If insert fails, try to delete the uploaded file
-          await fetch('/api/storage/upload', {
-            method: 'DELETE',
-            body: JSON.stringify({ bucket: 'application-documents', paths: [fileName] }),
-            headers: { 'Content-Type': 'application/json' },
-          })
+          await cleanupStoredFile(uploaded)
           throw docError
         }
 

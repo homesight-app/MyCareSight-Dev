@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import UploadLicenseDocumentModal from './UploadLicenseDocumentModal'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 
 interface License {
   id: string

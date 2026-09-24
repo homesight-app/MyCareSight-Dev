@@ -6,9 +6,8 @@ import Modal from './Modal'
 import { formatDateShort } from '@/lib/format-date'
 import { Upload, X, FileText, Calendar } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
-import { useSession } from 'next-auth/react'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 
 interface UploadLicenseDocumentModalProps {
   isOpen: boolean
@@ -26,7 +25,6 @@ export default function UploadLicenseDocumentModal({
   onSuccess
 }: UploadLicenseDocumentModalProps) {
   const router = useRouter()
-  const { data: session } = useSession()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [documentName, setDocumentName] = useState('')
@@ -77,34 +75,12 @@ export default function UploadLicenseDocumentModal({
     setError(null)
 
     try {
-      const user = session?.user
-      if (!user) {
-        setError('You must be logged in to upload documents')
-        setIsUploading(false)
-        return
-      }
-      const supabase = createClient()
-
-      // Upload file to Azure Blob Storage via API route
-      const fileExt = selectedFile.name.split('.').pop()
-      const fileName = `${licenseId}/${Date.now()}.${fileExt}`
-      const filePath = fileName
-
-      const uploadForm = new FormData()
-      uploadForm.append('file', selectedFile)
-      uploadForm.append('bucket', 'application-documents')
-      uploadForm.append('path', filePath)
-      const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
-      if (!uploadRes.ok) {
-        const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
-        const errorMsg = uploadError || 'Failed to upload file'
-        throw new Error(`Upload failed: ${errorMsg}. Please check storage bucket exists and policies are configured.`)
-      }
+      const uploaded = await uploadStoredFile(selectedFile, 'license-document', licenseId)
 
       const documentData: any = {
         license_id: licenseId,
         document_name: documentName,
-        document_url: filePath,
+        document_url: uploaded.path,
         document_type: documentType || null
       }
 
@@ -115,12 +91,7 @@ export default function UploadLicenseDocumentModal({
 
       const { error: insertError } = await q.insertLicenseDocument(documentData)
       if (insertError) {
-        // If insert fails, try to delete the uploaded file
-        await fetch('/api/storage/upload', {
-          method: 'DELETE',
-          body: JSON.stringify({ bucket: 'application-documents', paths: [filePath] }),
-          headers: { 'Content-Type': 'application/json' },
-        })
+        await cleanupStoredFile(uploaded)
         throw insertError
       }
 

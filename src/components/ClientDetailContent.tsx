@@ -39,8 +39,8 @@ import {
 } from 'lucide-react'
 import UpgradePromptModal from './UpgradePromptModal'
 import Button from '@/components/ui/PrimaryButton'
-import { createClient } from '@/lib/supabase/client'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
 import { expandSeriesOccurrences } from '@/lib/recurrence-dates'
 import * as q from '@/app/actions/query-bridge'
@@ -49,7 +49,6 @@ import { upsertPatientCaregiverRequirementsAction } from '@/app/actions/patients
 import { uploadPatientDocumentsAction, deletePatientDocumentAction } from '@/app/actions/patient-documents'
 import { markScheduleMissedAction, markScheduleCancelledAction, markScheduleOnHoldAction, reinstateScheduleAction } from '@/app/actions/schedule-assignment-requests'
 import { addPatientAddressAction, updatePatientAddressAction, deletePatientAddressAction, setPrimaryPatientAddressAction } from '@/app/actions/patient-addresses'
-import { updatePatientServiceContractBillRateAction } from '@/app/actions/payroll-billing-report'
 import { getActiveBillingCodesAction } from '@/app/actions/billing'
 import type { PatientRepresentative } from '@/lib/supabase/query/patients-representatives'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
@@ -597,13 +596,12 @@ export default function ClientDetailContent({ client, allClients, representative
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: stale initialIncidents after refresh
   }, [client.id])
 
-  /** Load non-skilled plan from Supabase on mount / patient change — not from RSC props alone. After
+  /** Load the non-skilled plan from the server action on mount / patient change. After
    * `router.refresh()`, Next can remount with a cached `initialAdls` payload; a client refetch matches DB truth.
    * Aborted when saving so a slow in-flight fetch cannot overwrite `handleSaveAdlPlan` results. */
   useEffect(() => {
     const ac = new AbortController()
     adlHydrateAbortRef.current = ac
-    const supabase = createClient()
     ;(async () => {
       const [a, s] = await Promise.all([
         q.getAdlsByPatientId(localClient.id),
@@ -627,7 +625,6 @@ export default function ClientDetailContent({ client, allClients, representative
   }, [client.id])
 
   useEffect(() => {
-    const supabase = createClient()
     q.getTaskCatalogAdlLists().then(({ data }) => {
       if (data) setAdlLists(data)
     })
@@ -663,7 +660,6 @@ export default function ClientDetailContent({ client, allClients, representative
   useEffect(() => {
     if (activeTab !== 'schedule') return
     setScheduleLoading(true)
-    const supabase = createClient()
     q.getSchedulesByPatientIdAndDateRange(localClient.id, scheduleWeekStartStr, scheduleWeekEndStr)
       .then(({ data }) => { setWeekSchedules(data ?? []) })
       .finally(() => setScheduleLoading(false))
@@ -762,7 +758,6 @@ export default function ClientDetailContent({ client, allClients, representative
       setCaregiverAvailabilitySlots([])
       return
     }
-    const supabase = createClient()
     q.getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(schedulingAgencyId,
       dateForFetch,
       dateForFetch
@@ -863,7 +858,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setClientStatus(newStatus)
     
     try {
-      const supabase = createClient()
       const { error } = await q.updatePatientStatus(client.id, newStatus)
 
       if (error) {
@@ -881,7 +875,6 @@ export default function ClientDetailContent({ client, allClients, representative
   const handleLoginAccessToggle = async (checked: boolean) => {
     setLoginAccess(checked)
     try {
-      const supabase = createClient()
       const { error } = await q.updatePatientLoginAccess(client.id, checked)
       if (error) {
         console.error('Error updating login access:', error)
@@ -922,7 +915,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setIsSavingPersonal(true)
     setPersonalEditError(null)
     try {
-      const supabase = createClient()
       const { error } = await q.updatePatient(client.id, {
         first_name: editPersonalForm.first_name.trim(),
         last_name: editPersonalForm.last_name.trim(),
@@ -968,7 +960,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setIsSavingMedical(true)
     setMedicalEditError(null)
     try {
-      const supabase = createClient()
       const { error } = await q.updatePatientMedical(client.id, {
         primary_diagnosis: editMedicalForm.primary_diagnosis.trim() || null,
         current_medications: editMedicalForm.current_medications.trim() || null,
@@ -1033,7 +1024,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setDeletingRepId(rep.id)
     setRepListError(null)
     try {
-      const supabase = createClient()
       const { error } = await q.deleteRepresentative(rep.id)
       if (error) throw error
       setLocalRepresentatives((prev) => prev.filter((r) => r.id !== rep.id))
@@ -1061,7 +1051,6 @@ export default function ClientDetailContent({ client, allClients, representative
       email_address: repForm.email_address.trim() || null,
     }
     try {
-      const supabase = createClient()
       if (repModalMode === 'edit' && repModalEditingId) {
         const { error } = await q.updateRepresentative(repModalEditingId, payload)
         if (error) throw error
@@ -1188,7 +1177,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setCaregiverReqsModalOpen(true)
     void (async () => {
       try {
-        const supabase = createClient()
         const { data, error } = await q.getCaregiverRequirementsByPatientId(localClient.id)
         if (error) return
         const rawCodes: unknown[] = Array.isArray((data as { skill_codes?: unknown[] } | null)?.skill_codes)
@@ -1300,7 +1288,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setIsSavingIncident(true)
     setIncidentFormError(null)
     try {
-      const supabase = createClient()
       const { data: inserted, error } = await q.insertIncident({
         patient_id: localClient.id,
         incident_date: incidentForm.incident_date,
@@ -1312,22 +1299,21 @@ export default function ClientDetailContent({ client, allClients, representative
       if (!inserted) throw new Error('Insert failed')
       let file_path: string | null = null
       let file_name: string | null = null
-      const safeName = incidentFormFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const path = `${localClient.id}/incidents/${inserted.id}_${safeName}`
-      const uploadForm = new FormData()
-      uploadForm.append('file', incidentFormFile)
-      uploadForm.append('bucket', 'patient-documents')
-      uploadForm.append('path', path)
-      const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
-      if (!uploadRes.ok) {
+      let uploaded
+      try {
+        uploaded = await uploadStoredFile(incidentFormFile, 'patient-incident', inserted.id)
+      } catch (uploadError) {
         await q.deleteIncident(inserted.id)
-        const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
-        throw new Error(uploadError || 'Failed to upload incident file')
+        throw uploadError
       }
-      file_path = path
+      file_path = uploaded.path
       file_name = incidentFormFile.name
       const { data: updated, error: updateError } = await q.updateIncident(inserted.id, { file_path, file_name })
-      if (updateError) throw updateError
+      if (updateError) {
+        await cleanupStoredFile(uploaded)
+        await q.deleteIncident(inserted.id)
+        throw updateError
+      }
       const row = updated ?? { ...inserted, file_path, file_name }
       setLocalIncidents((prev) => [row, ...prev])
       setIncidentModalOpen(false)
@@ -1388,7 +1374,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setDeletingIncidentId(incident.id)
     setIncidentListError(null)
     try {
-      const supabase = createClient()
       const { error } = await q.deleteIncident(incident.id)
       if (error) throw error
       setLocalIncidents((prev) => prev.filter((i) => i.id !== incident.id))
@@ -1607,7 +1592,6 @@ export default function ClientDetailContent({ client, allClients, representative
     
     applyAdlNoteToLocalSchedule(adlNoteTarget.name, adlNoteDraft)
     if (id === '') return
-    const supabase = createClient()
     const { error } = await q.updatePatientAdlDaySchedule({
       id,
       adl_note: adlNoteDraft,
@@ -1764,7 +1748,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setDeletingAdlCode(adlCode)
     setAdlPlanError(null)
     try {
-      const supabase = createClient()
       const { error } = await q.deleteAdl(localClient.id, adlCode)
       if (error) throw error
       setLocalAdls((prev) => prev.filter((a) => a.adl_code !== adlCode))
@@ -1781,7 +1764,6 @@ export default function ClientDetailContent({ client, allClients, representative
   const handleAttemptRemoveAdlFromPlan = async (adlCode: string) => {
     setAdlPlanError(null)
     try {
-      const supabase = createClient()
       const { data: schedules, error } = await q.getSchedulesByPatientId(localClient.id)
       if (error) throw error
       const scheduleRows = (schedules ?? []) as ScheduleRow[]
@@ -1805,7 +1787,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setAdlPlanError(null)
     try {
       adlHydrateAbortRef.current?.abort()
-      const supabase = createClient()
       const localCodeSet = new Set(localAdls.map((a) => a.adl_code))
       const { data: dbAdlRows, error: dbAdlErr } = await q.getAdlsByPatientId(localClient.id)
       if (dbAdlErr) throw dbAdlErr
@@ -1861,7 +1842,6 @@ export default function ClientDetailContent({ client, allClients, representative
         setLocalAdlSchedules(schedD)
       })
       await new Promise((r) => setTimeout(r, 120))
-      const supabase2 = createClient()
       const [adls2, sched2] = await Promise.all([
         q.getAdlsByPatientId(localClient.id),
         q.getPatientAdlDaySchedulesByPatientId(localClient.id),
@@ -2684,7 +2664,6 @@ export default function ClientDetailContent({ client, allClients, representative
     let isMounted = true
     const loadModalData = async () => {
       setBillingCodesLoadError(null)
-      const supabase = createClient()
       const [{ data: codes, error: codesError }, { data: contracts, error: contractsError }] = await Promise.all([
         getActiveBillingCodesAction(),
         q.getPatientServiceContractsByPatientId(localClient.id),
@@ -2741,7 +2720,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setServiceContractError(null)
     setIsSavingServiceContract(true)
     try {
-      const supabase = createClient()
       const { data, error } = await q.insertPatientServiceContract({
         patient_id: localClient.id,
         contract_name: serviceContractForm.contract_name || null,
@@ -2762,15 +2740,6 @@ export default function ClientDetailContent({ client, allClients, representative
       if (error || !data) {
         setServiceContractError(error?.message ?? 'Failed to save contract.')
         return
-      }
-      // Guardrail: if contract starts today/past, enforce it as active so older same-service rows become inactive.
-      if (serviceContractForm.effective_date <= toLocalDateString(new Date())) {
-        const _statusRes = await q.updatePatientServiceContractStatus((data as PatientServiceContractRow).id,
-          'active'
-        )
-        if (_statusRes.error) {
-          setServiceContractError(_statusRes.error.message ?? 'Saved contract, but failed to sync active status.')
-        }
       }
       const { data: refreshed, error: refetchErr } = await q.getPatientServiceContractsByPatientId(localClient.id)
       if (!refetchErr && refreshed) {
@@ -2842,16 +2811,9 @@ export default function ClientDetailContent({ client, allClients, representative
     setServiceContractEditError(null)
     setIsSavingServiceContractEdit(true)
     try {
-      if (nextRateRaw) {
-        const rateRes = await updatePatientServiceContractBillRateAction(editingServiceContract.id, nextRate)
-        if (rateRes.error) {
-          setServiceContractEditError(rateRes.error || 'Failed to save bill rate.')
-          return
-        }
-      }
-      const supabase = createClient()
       const res = await q.updatePatientServiceContractDetails(editingServiceContract.id, {
         contract_name: serviceContractEditForm.contract_name.trim() || null,
+        bill_rate: nextRateRaw ? nextRate : null,
         end_date: nextEnd || null,
         note: serviceContractEditForm.note.trim() || null,
         bill_mileage: serviceContractEditForm.bill_mileage,
@@ -2883,7 +2845,6 @@ export default function ClientDetailContent({ client, allClients, representative
     if (isSavingServiceContractEdit || isSavingServiceContract || isSavingServiceContractRowAction) return
     if ((row.status ?? '').toLowerCase() === nextStatus) return
     setIsSavingServiceContractRowAction(true)
-    const supabase = createClient()
     const res = await q.updatePatientServiceContractStatus(row.id, nextStatus)
     if (res.error) {
       setServiceContractError(res.error.message || 'Failed to update contract status.')
@@ -2907,7 +2868,6 @@ export default function ClientDetailContent({ client, allClients, representative
       window.confirm('Delete this contract permanently? This action cannot be undone.')
     if (!confirmed) return
     setIsSavingServiceContractRowAction(true)
-    const supabase = createClient()
     const res = await q.deletePatientServiceContract(row.id)
     if (res.error) {
       setServiceContractError(res.error.message || 'Failed to delete contract.')
@@ -3023,8 +2983,6 @@ export default function ClientDetailContent({ client, allClients, representative
     const newEndMins = timeToMins(endTime)
     const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
       aStart < bEnd && aEnd > bStart
-
-    const supabase = createClient()
     const { data: existingInRange } = await q.getSchedulesByPatientIdAndDateRange(localClient.id,
       minDate,
       maxDate
@@ -3171,7 +3129,6 @@ export default function ClientDetailContent({ client, allClients, representative
     const newVisitMins = (newEndParts[0] * 60 + (newEndParts[1] ?? 0)) - (newStartParts[0] * 60 + (newStartParts[1] ?? 0))
     setIsSavingVisit(true)
     try {
-      const supabase = createClient()
       const updatePatch = {
         date: dateToSave,
         start_time: visitForm.startTime.length === 5 ? visitForm.startTime : visitForm.startTime.slice(0, 5),
@@ -3240,7 +3197,6 @@ export default function ClientDetailContent({ client, allClients, representative
   }
 
   const refreshWeekSchedules = async () => {
-    const supabase = createClient()
     const { data } = await q.getSchedulesByPatientIdAndDateRange(localClient.id,
       scheduleWeekStartStr,
       scheduleWeekEndStr
@@ -3305,7 +3261,6 @@ export default function ClientDetailContent({ client, allClients, representative
     if (!confirm('Delete this visit? This cannot be undone.')) return
     setIsSavingVisit(true)
     try {
-      const supabase = createClient()
       const { error: delErr } = await q.deleteSchedule(editingSchedule.id)
       if (delErr) {
         setVisitError(delErr.message ?? 'Could not delete this visit.')
@@ -3335,7 +3290,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setLimitError(null)
     setIsSavingLimit(true)
     try {
-      const supabase = createClient()
       const effectiveWeekStart = normalizeToWeekStart(limitForm.effectiveDate)
       const { data, error } = await q.insertPatientContractedHours({
         patient_id: localClient.id,
@@ -3360,7 +3314,6 @@ export default function ClientDetailContent({ client, allClients, representative
 
   const handleDeleteLimit = async (id: string) => {
     try {
-      const supabase = createClient()
       await q.deletePatientContractedHours(id)
       setLocalContractedHours((prev) => prev.filter((l) => l.id !== id))
       router.refresh()
@@ -3482,7 +3435,6 @@ export default function ClientDetailContent({ client, allClients, representative
     }
 
     void (async () => {
-      const supabase = createClient()
       const results = await Promise.allSettled(
         candidates.map((s) => q.updateSchedule(s.id, { status: 'missed' }))
       )
@@ -3714,7 +3666,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setSkilledTasksError(null)
     setIsSavingSkilledTasks(true)
     try {
-      const supabase = createClient()
       if (pendingSkilledDeletes.length > 0) {
         const { error: delBatchErr } = await q.deleteSkilledTaskPlanRowsBatch(localClient.id,
           pendingSkilledDeletes
@@ -3795,7 +3746,6 @@ export default function ClientDetailContent({ client, allClients, representative
       localSkilledSchedules.find((s) => s.task_id === taskId && s.day_of_week === 1)?.id ?? ''
     applySkilledNoteToLocalSchedule(taskId, skilledNoteDraft)
     if (!id || id.startsWith('temp-')) return
-    const supabase = createClient()
     await q.updatePatientSkilledTaskDayScheduleNote({ id, task_note: skilledNoteDraft })
   }
 
@@ -3806,7 +3756,6 @@ export default function ClientDetailContent({ client, allClients, representative
       localSkilledSchedules.find((s) => s.task_id === taskId && s.day_of_week === 1)?.id ?? ''
     applySkilledNoteToLocalSchedule(taskId, '')
     if (!id || id.startsWith('temp-')) return
-    const supabase = createClient()
     await q.updatePatientSkilledTaskDayScheduleNote({ id, task_note: '' })
   }
 
@@ -3820,7 +3769,6 @@ export default function ClientDetailContent({ client, allClients, representative
   const handleAttemptRemoveSkilledFromPlan = async (taskId: string) => {
     setSkilledTasksError(null)
     try {
-      const supabase = createClient()
       const { data: schedules, error } = await q.getSchedulesByPatientId(localClient.id)
       if (error) throw error
       const scheduleRows = (schedules ?? []) as ScheduleRow[]

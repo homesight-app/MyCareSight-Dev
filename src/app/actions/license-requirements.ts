@@ -226,7 +226,8 @@ export async function getLicenseRequirementId(state: string, licenseTypeName: st
   return { error: null, data: result.id }
 }
 
-// Returns expert step templates for a state + license type. Plain data only (no Error objects) so RSC serialization never hits "frame.join is not a function". Client uses this then inserts into application_steps via Supabase client.
+// Returns plain expert-step data for server-action callers so RSC serialization
+// never receives Error objects.
 export type ExpertStepTemplate = {
   step_name: string
   step_order: number

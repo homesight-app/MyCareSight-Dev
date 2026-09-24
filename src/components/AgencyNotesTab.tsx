@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Trash2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { NOTE_TYPES } from '@/lib/constants/lead-configs'
 import { addAgencyNote, deleteAgencyNote } from '@/app/actions/agencies'
 import { deleteLeadNote } from '@/app/actions/leads'
@@ -56,7 +55,6 @@ export default function AgencyNotesTab({ agencyId, leadIds, leadNameMap }: Agenc
   const [noteError, setNoteError] = useState<string | null>(null)
 
   const fetchNotes = useCallback(async () => {
-    const supabase = createClient()
     const [agencyRes, leadRes] = await Promise.all([
       q.getAgencyNotes(agencyId),
       q.getLeadNotesByLeadIds(leadIds),

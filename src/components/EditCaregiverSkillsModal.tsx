@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Save, Search, Sparkles, X } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { createClient } from '@/lib/supabase/client'
 import { normalizeCaregiverSkillsList } from '@/lib/caregiver-skills'
 import * as q from '@/app/actions/query-bridge'
 import ModalWrapper from './Modal'
@@ -109,7 +108,6 @@ export default function EditCaregiverSkillsModal({
     setIsSaving(true)
     setError(null)
     try {
-      const supabase = createClient()
       const { error: updateError } = await q.updateStaffMember(caregiver.id, {
         skills: normalizeCaregiverSkillsList(selectedSkills),
       })
@@ -137,7 +135,6 @@ export default function EditCaregiverSkillsModal({
     if (!isOpen) return
     let cancelled = false
     const run = async () => {
-      const supabase = createClient()
       const { data } = await q.getCaregiverSkillCatalogFromTaskRequirements()
       if (!cancelled) setSkillCatalog(data ?? [])
     }

@@ -5,7 +5,6 @@ import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
   CACHE_TAG_AGENCIES_ID_NAME,
   CACHE_TAG_AGENCIES_ORDERED,
-  CACHE_TAG_CAREGIVER_SKILL_CATALOG,
   CACHE_TAG_LICENSE_TYPES_ACTIVE,
   CACHE_TAG_TASK_CATALOG_NON_SKILLED,
   CACHE_TAG_TASK_CATALOG_SKILLED,
@@ -150,14 +149,6 @@ const getLicenseTypesActiveBillingCached = unstable_cache(
   { revalidate: 300, tags: [CACHE_TAG_LICENSE_TYPES_ACTIVE] }
 )
 
-const getCaregiverSkillCatalogCached = unstable_cache(
-  async () => {
-    return q.getCaregiverSkillCatalogFromTaskRequirements()
-  },
-  ['ref-caregiver-skill-catalog'],
-  { revalidate: 180, tags: [CACHE_TAG_CAREGIVER_SKILL_CATALOG] }
-)
-
 export function getCachedAgenciesIdName() {
   return getAgenciesIdNameCached()
 }
@@ -195,5 +186,6 @@ export function getCachedLicenseTypesForBilling() {
 }
 
 export function getCachedCaregiverSkillCatalog() {
-  return getCaregiverSkillCatalogCached()
+  // Compatibility name: authenticate each request; never cache an authorization result.
+  return q.getCaregiverSkillCatalogFromTaskRequirements()
 }

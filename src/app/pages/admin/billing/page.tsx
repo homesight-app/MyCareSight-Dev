@@ -1,5 +1,4 @@
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import BillingContent from '@/components/BillingContent'
 import { getPricingForMonth } from '@/app/actions/pricing'
@@ -11,7 +10,6 @@ export default async function BillingPage({
   searchParams: Promise<{ month?: string; year?: string }>
 }) {
   await requireAdmin()
-  const supabase = await createClient()
   const params = await searchParams
 
   const now = new Date()

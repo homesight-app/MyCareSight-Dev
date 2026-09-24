@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ProfileTabs from '@/components/ProfileTabs'
 
@@ -11,7 +10,6 @@ export default async function AdminProfilePage() {
     redirect('/pages/auth/login')
   }
 
-  const supabase = await createClient()
   const { data: profile } = await q.getUserProfileFull(session.user.id)
 
   // Get recent activity (placeholder - you can create an activity log table later)

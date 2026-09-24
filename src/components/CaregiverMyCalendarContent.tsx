@@ -12,12 +12,12 @@ import {
   X,
 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { createClient } from '@/lib/supabase/client'
 import type { CaregiverAvailabilitySlotRow } from '@/lib/supabase/query/caregiver-availability'
 import {
   insertAvailabilitySlotAction,
   updateAvailabilitySlotAction,
   deleteAvailabilitySlotAction,
+  getMyAvailabilitySlotsAction,
 } from '@/app/actions/caregiver-availability'
 
 function toYmd(d: Date): string {
@@ -177,12 +177,7 @@ export default function CaregiverMyCalendarContent({
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    const supabase = createClient()
-    const { data, error: e } = await supabase
-      .from('caregiver_availability_slots')
-      .select('*')
-      .eq('caregiver_member_id', caregiverMemberId)
-      .order('created_at', { ascending: true })
+    const { data, error: e } = await getMyAvailabilitySlotsAction(caregiverMemberId)
     if (!e && data) setSlots(data as CaregiverAvailabilitySlotRow[])
   }, [caregiverMemberId])
 

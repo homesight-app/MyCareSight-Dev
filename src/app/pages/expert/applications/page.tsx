@@ -1,12 +1,10 @@
 ﻿import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ExpertApplicationsContent from '@/components/ExpertApplicationsContent'
 
 export default async function ExpertApplicationsPage() {
   const session = await getSession()
 
-  const supabase = await createClient()
   const { data: assignedApplicationsData } = await q.getApplicationsByAssignedExpertId(session!.user.id)
   const filtered = (assignedApplicationsData ?? []).filter(app =>
     ['requested', 'in_progress', 'under_review', 'needs_revision', 'approved', 'rejected', 'closed'].includes(app.status ?? '')

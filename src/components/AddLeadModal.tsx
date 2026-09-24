@@ -6,8 +6,10 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { leadFormSchema, type LeadFormData } from '@/lib/schemas/lead'
 import { type LeadContext, LEAD_STAGES, type AgencyLeadStage } from '@/lib/constants/lead-configs'
-import { createLead, updateLead, updatePatientLeadDetailsAction } from '@/app/actions/leads'
-import { createClient } from '@/lib/supabase/client'
+import { createLead, getAdminLeadOwnerOptionsAction, updateLead, updatePatientLeadDetailsAction } from '@/app/actions/leads'
+import { getActiveAgencyOptionsAction } from '@/app/actions/agencies'
+import { getAgencyLeadStagesAction } from '@/app/actions/agency-lead-stages'
+import { getPeopleForAgency } from '@/app/actions/agency-people'
 import { formatUSPhone } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
 import EmailInput from '@/components/ui/EmailInput'
@@ -178,35 +180,19 @@ export default function AddLeadModal({
 
   useEffect(() => {
     if (!isOpen || !context.billingVisible || owners.length > 0) return
-    const supabase = createClient()
-    supabase
-      .from('user_profiles')
-      .select('id, full_name')
-      .in('role', ['admin', 'expert'])
-      .order('full_name')
-      .then(({ data }) => setOwners(data ?? []))
+    getAdminLeadOwnerOptionsAction().then(({ data }) => setOwners(data ?? []))
   }, [isOpen, context.billingVisible, owners.length])
 
   useEffect(() => {
     if (!isOpen || context.leadType !== 'patient' || !context.agencyId) return
-    const supabase = createClient()
-    supabase
-      .from('agency_lead_stages')
-      .select('id, key, label, color, sort_order, is_entry, is_won, is_lost')
-      .eq('agency_id', context.agencyId)
-      .order('sort_order', { ascending: true })
-      .then(({ data }) => setPatientStages(data ?? []))
+    getAgencyLeadStagesAction(context.agencyId)
+      .then(({ data }) => setPatientStages((data ?? []) as AgencyLeadStage[]))
   }, [isOpen, context.leadType, context.agencyId])
 
   useEffect(() => {
     if (contactMode !== 'existing' || agencies.length > 0) return
     setLoadingAgencies(true)
-    const supabase = createClient()
-    supabase
-      .from('agencies')
-      .select('id, name')
-      .eq('status', 'active')
-      .order('name')
+    getActiveAgencyOptionsAction()
       .then(({ data }) => {
         setAgencies(data ?? [])
         setLoadingAgencies(false)
@@ -219,15 +205,15 @@ export default function AddLeadModal({
       return
     }
     setLoadingKeyStaff(true)
-    const supabase = createClient()
-    supabase
-      .from('agency_key_staff')
-      .select('id, full_legal_name, email, telephone, officer_role')
-      .eq('agency_id', linkedAgencyId)
-      .eq('status', 'active')
-      .order('officer_role')
-      .then(({ data }) => {
-        setKeyStaff(data ?? [])
+    getPeopleForAgency(linkedAgencyId)
+      .then(({ keyStaff: data }) => {
+        setKeyStaff((data ?? []).map(staff => ({
+          id: staff.id,
+          full_legal_name: staff.full_legal_name,
+          email: staff.email,
+          telephone: staff.telephone,
+          officer_role: staff.officer_role ?? '',
+        })))
         setLoadingKeyStaff(false)
       })
   }, [contactMode, linkedAgencyId])

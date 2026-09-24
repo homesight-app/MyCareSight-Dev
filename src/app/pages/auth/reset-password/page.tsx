@@ -8,7 +8,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { Mail, Lock, FileText } from 'lucide-react'
 import {
-  checkEmailExistsForReset,
   sendPasswordResetAction,
   updatePasswordWithTokenAction,
 } from '@/app/actions/auth'
@@ -19,8 +18,8 @@ const resetSchema = z.object({
 
 const updatePasswordSchema = z
   .object({
-    password: z.string().min(6, 'Password must be at least 6 characters'),
-    confirmPassword: z.string().min(6, 'Please confirm your password'),
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+    confirmPassword: z.string().min(8, 'Please confirm your password'),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords don't match",
@@ -49,9 +48,11 @@ function ResetPasswordPageContent() {
   })
 
   useEffect(() => {
-    const tokenParam = searchParams.get('token')
+    const fragment = new URLSearchParams(window.location.hash.slice(1))
+    const tokenParam = fragment.get('token') ?? searchParams.get('token')
     if (tokenParam) {
       setToken(tokenParam)
+      window.history.replaceState(null, '', '/pages/auth/reset-password')
     }
   }, [searchParams])
 
@@ -60,18 +61,6 @@ function ResetPasswordPageContent() {
     setError(null)
 
     try {
-      const { exists, error: checkError } = await checkEmailExistsForReset(data.email)
-      if (checkError) {
-        setError(checkError)
-        setIsLoading(false)
-        return
-      }
-      if (!exists) {
-        setError("Email doesn't exist, please contact with admin")
-        setIsLoading(false)
-        return
-      }
-
       const { error: resetError } = await sendPasswordResetAction(data.email)
       if (resetError) {
         setError(resetError)
@@ -263,7 +252,7 @@ function ResetPasswordPageContent() {
 
             {success && (
               <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">
-                Password reset link has been sent to your email. Please check your inbox.
+                If an active account matches that email, a reset link has been sent.
               </div>
             )}
 

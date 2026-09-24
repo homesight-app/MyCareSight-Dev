@@ -11,6 +11,7 @@ on:
 
 jobs:
   build:
+    if: github.repository == 'homesight-app/MyCareSight-Dev'
     runs-on: ubuntu-latest
     permissions:
       contents: read #This is required for actions/checkout
@@ -31,8 +32,6 @@ jobs:
         env:
           NEXT_PUBLIC_SITE_URL: ${{ secrets.UAT_NEXT_PUBLIC_SITE_URL }}
           NEXT_PUBLIC_APP_URL: ${{ secrets.UAT_NEXT_PUBLIC_APP_URL }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.UAT_NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.UAT_NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.UAT_NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
           NEXT_PUBLIC_DEBUG_CAREGIVER_DOCS: ${{ secrets.UAT_NEXT_PUBLIC_DEBUG_CAREGIVER_DOCS }}
           AUTH_SECRET: ${{ secrets.UAT_AUTH_SECRET }}
@@ -40,7 +39,6 @@ jobs:
           DATABASE_URL: ${{ secrets.UAT_DATABASE_URL }}
           AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.UAT_AZURE_STORAGE_ACCOUNT_NAME }}
           AGENCY_SSN_KEY: ${{ secrets.UAT_AGENCY_SSN_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.UAT_SUPABASE_SERVICE_ROLE_KEY }}
           MAILGUN_API_KEY: ${{ secrets.UAT_MAILGUN_API_KEY }}
           MAILGUN_DOMAIN: ${{ secrets.UAT_MAILGUN_DOMAIN }}
           MAILGUN_FROM_EMAIL: ${{ secrets.UAT_MAILGUN_FROM_EMAIL }}
@@ -71,6 +69,7 @@ jobs:
           include-hidden-files: true
 
   deploy:
+    if: github.repository == 'homesight-app/MyCareSight-Dev'
     runs-on: ubuntu-latest
     needs: build
     permissions:
@@ -91,11 +90,23 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_DB9AF30FE95446C89C917CAE18946A66 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_AC846ECDEDA54AD0A8168CFED1DBD250 }}
 
+      - name: Verify UAT subscription
+        shell: bash
+        env:
+          EXPECTED_UAT_SUBSCRIPTION_ID: a268ab63-b7ec-490d-a858-0de0be69ed4f
+        run: |
+          active_subscription_id="$(az account show --query id --output tsv)"
+          if [ "$active_subscription_id" != "$EXPECTED_UAT_SUBSCRIPTION_ID" ]; then
+            echo "::error::Deployment is restricted to the MyCareSight-Dev-UAT subscription."
+            exit 1
+          fi
+
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'mycaresight-uat'
+          # Azure default slot of the UAT app; this is not the production platform.
           slot-name: 'Production'
           package: deploy
           startup-command: 'node server.js'

@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
+import { useVisiblePolling } from '@/hooks/useVisiblePolling'
 
 import {
   MessageSquare,
@@ -83,7 +83,6 @@ function ExpertMessagesContent() {
         return
       }
       setUser(currentUser)
-      const supabase = createClient()
 
       const { data: profileData } = await q.getUserProfileFull(currentUser.id)
       if (profileData?.role !== 'expert') {
@@ -139,12 +138,12 @@ function ExpertMessagesContent() {
             )
           : Promise.resolve({ data: [], error: null }),
         conversationIds.length > 0
-          ? supabase.from('messages').select('id', { count: 'exact', head: true }).in('conversation_id', conversationIds)
-          : Promise.resolve({ count: 0, error: null }),
+          ? q.getTotalMessageCountForUser(conversationIds, currentUser.id)
+          : Promise.resolve({ data: 0, error: null }),
       ])
 
       setMessageDashboardTotals({
-        total: typeof countRes.count === 'number' ? countRes.count : 0,
+        total: typeof countRes.data === 'number' ? countRes.data : 0,
         unread: totalUnreadSum,
       })
 
@@ -167,7 +166,6 @@ function ExpertMessagesContent() {
     try {
       const currentUser = session?.user
       if (!currentUser) return
-      const supabase = createClient()
 
       const { data: messagesData } = await q.getMessagesByConversationId(conversationId)
 
@@ -256,65 +254,10 @@ function ExpertMessagesContent() {
     }
   }, [fromNotification, messages])
 
-  // Set up real-time subscription for new messages
-  useEffect(() => {
-    if (!selectedConversation || !user) return
-
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`messages:${selectedConversation}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${selectedConversation}`
-        },
-        async (payload) => {
-          // Get the new message
-          const newMessage = payload.new as Message
-          
-          const { data: userProfiles } = await q.getUserProfilesByIds([newMessage.sender_id], 'id, full_name, role')
-          type ProfileShape = { id: string; full_name: string | null; role: string | null }
-          const userProfile = (userProfiles?.[0] ?? null) as ProfileShape | null
-
-          const messageWithSender: Message = {
-            ...newMessage,
-            sender: {
-              id: newMessage.sender_id,
-              user_profiles: userProfile || null
-            },
-            is_own: newMessage.sender_id === user.id
-          }
-
-          setMessages(prevMessages => {
-            // Check if message already exists (avoid duplicates)
-            const exists = prevMessages.some(m => m.id === newMessage.id)
-            if (exists) return prevMessages
-            
-            // Add new message and sort by created_at
-            const updated = [...prevMessages, messageWithSender]
-            return updated.sort((a, b) => 
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-            )
-          })
-
-          if (newMessage.sender_id !== user.id) {
-            const isRead = newMessage.is_read
-            const isReadByUser = Array.isArray(isRead) && isRead.includes(user.id)
-            if (!isReadByUser) {
-              await q.rpcMarkMessageAsReadByUser(newMessage.id, user.id)
-            }
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [selectedConversation, user])
+  useVisiblePolling(
+    () => selectedConversation ? loadMessages(selectedConversation) : undefined,
+    { enabled: Boolean(selectedConversation && user) }
+  )
 
   const handleSendMessage = async () => {
     if (!messageContent.trim() || !selectedClient || sending) return
@@ -323,7 +266,6 @@ function ExpertMessagesContent() {
       setSending(true)
       const currentUser = session?.user
       if (!currentUser) return
-      const supabase = createClient()
 
       const { data: client } = await q.getClientById(selectedClient)
       if (!client) throw new Error('Client not found')
@@ -357,12 +299,13 @@ function ExpertMessagesContent() {
       }
 
       if (!conversationId) throw new Error('Conversation not found')
-      const { error: messageError } = await q.insertMessage({
+      const { data: insertedMessage, error: messageError } = await q.insertMessage({
         conversation_id: conversationId,
         sender_id: currentUser.id,
         content: messageContent.trim()
       })
-      if (messageError) throw messageError
+      if (messageError || !insertedMessage) throw messageError ?? new Error('Message was not created')
+      await q.updateConversationLastMessageAt(conversationId)
 
       const { data: currentUserProfiles } = await q.getUserProfilesByIds([currentUser.id], 'id, full_name, role')
       type SenderProfile = { id: string; full_name: string | null; role: string | null }
@@ -374,12 +317,12 @@ function ExpertMessagesContent() {
       
       // Add the new message to the list immediately (optimistic update)
       const optimisticMessage: Message = {
-        id: '', // Will be set by real-time subscription
+        id: insertedMessage.id,
         conversation_id: conversationId!,
         sender_id: currentUser.id,
         content: messageText,
-        is_read: [currentUser.id], // Sender has read their own message
-        created_at: new Date().toISOString(),
+        is_read: insertedMessage.is_read ?? [currentUser.id],
+        created_at: insertedMessage.created_at,
         sender: {
           id: currentUser.id,
           user_profiles: currentUserProfile || null

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import { getSystemSettingsByCategory, upsertSystemSetting } from '@/lib/supabase/query/system-settings'
-import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { STORAGE_BUCKET } from '@/lib/storage'
 import { uploadFile, removeFiles, getPublicUrl } from '@/lib/storage/client'
 import { hexDarken, hexLighten } from '@/lib/color-utils'
 // Note: buildBrandingStyleVars lives in src/lib/color-utils.ts (not in this 'use server' file)

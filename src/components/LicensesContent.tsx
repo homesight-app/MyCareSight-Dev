@@ -31,10 +31,9 @@ import StatusBadge from '@/components/ui/StatusBadge'
 import SearchInput from '@/components/ui/SearchInput'
 import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { useRouter } from 'next/navigation'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 
 interface License {
   id: string
@@ -163,7 +162,6 @@ export default function LicensesContent({
     setResubmittingId(applicationId)
     
     try {
-      const supabase = createClient()
       
       // Change status from 'needs_revision' to 'in_progress' to allow resubmission
       const { error } = await q.updateApplicationById(applicationId, {
@@ -190,7 +188,6 @@ export default function LicensesContent({
     setCancellingId(applicationId)
     
     try {
-      const supabase = createClient()
       
       const { error } = await q.updateApplicationById(applicationId, { status: 'cancelled' })
 
@@ -222,7 +219,6 @@ export default function LicensesContent({
     setDownloadingApplicationId(applicationId)
     
     try {
-      const supabase = createClient()
       
       // Fetch the latest document for this application
       const { data: documents, error } = await q.getLatestApplicationDocumentByApplicationId(applicationId)
@@ -266,7 +262,6 @@ export default function LicensesContent({
     setDownloadingLicenseId(licenseId)
 
     try {
-      const supabase = createClient()
 
       // Fetch the latest document for this license
       const { data: documents, error } = await q.getLatestLicenseDocumentByLicenseId(licenseId)
@@ -1047,4 +1042,3 @@ export default function LicensesContent({
     </>
   )
 }
-

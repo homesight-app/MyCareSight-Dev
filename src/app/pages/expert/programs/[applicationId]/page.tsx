@@ -1,8 +1,7 @@
 ﻿import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
-import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { readExpertProgramPlaybookId } from '@/lib/repositories/platform-application-dashboard'
 import * as q from '@/lib/supabase/query'
 import ExpertProgramView from '@/components/ExpertProgramView'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
@@ -12,11 +11,7 @@ export default async function ExpertProgramDetailPage({
 }: {
   params: Promise<{ applicationId: string }>
 }) {
-  const session = await getSession()
-
   const { applicationId } = await params
-  const supabase = await createClient()
-
   const [{ data: application }, { data: items }] = await Promise.all([
     q.getApplicationById(applicationId),
     q.getApplicationPlaybookItems(applicationId),
@@ -47,15 +42,12 @@ export default async function ExpertProgramDetailPage({
   // Derive playbookId from items (for templates tab)
   const typedItems = (items ?? []) as ApplicationPlaybookItem[]
   const firstWithPlaybookItem = typedItems.find(i => i.playbook_item_id)
-  let playbookId: string | null = null
-  if (firstWithPlaybookItem) {
-    const { data: pi } = await supabase
-      .from('playbook_items')
-      .select('playbook_id')
-      .eq('id', firstWithPlaybookItem.playbook_item_id)
-      .maybeSingle()
-    playbookId = pi?.playbook_id ?? null
-  }
+  const playbookResult = await readExpertProgramPlaybookId(
+    applicationId,
+    firstWithPlaybookItem?.playbook_item_id ?? null
+  )
+  if (!playbookResult.data) redirect('/pages/expert/programs')
+  const playbookId = playbookResult.data.playbookId
 
   return (
     <div className="space-y-4">

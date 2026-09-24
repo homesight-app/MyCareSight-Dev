@@ -9,16 +9,17 @@ import {
   MessageSquare, FolderOpen, Pencil, Check, X, Plus, ArrowRight,
 } from 'lucide-react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { useVisiblePolling } from '@/hooks/useVisiblePolling'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
 import {
   getProgramItemNoteCounts,
   updateProgramItem,
+  getExpertProgramTemplatesAction,
 } from '@/app/actions/playbooks'
 import { approveProgramComplete, renameApplication, closeApplicationManually, completeApplicationManually, reopenApplication, updateApplicationProgressAction } from '@/app/actions/applications'
-import { linkProgramToCertification } from '@/app/actions/licenses'
+import { getProgramCertificationLinksAction, linkProgramToCertification } from '@/app/actions/licenses'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
 import AddProgramItemModal from './AddProgramItemModal'
 import InternalNotesPanel from './InternalNotesPanel'
@@ -95,8 +96,6 @@ export default function ExpertProgramView({
   completedAt,
   completeReason,
 }: Props) {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const supabase = createClient()
   const { data: session } = useSession()
 
   // ── Name editing ─────────────────────────────────────────────────────────────
@@ -142,14 +141,15 @@ export default function ExpertProgramView({
   // ── Linked certifications ─────────────────────────────────────────────────────
   const refreshLinkedCerts = useCallback(async () => {
     setLinkedCertsLoading(true)
-    const { data } = await supabase
-      .from('certification_applications')
-      .select('id, link_type, linked_at, licenses ( id, license_name, license_number, status, expiry_date, agency_id )')
-      .eq('application_id', applicationId)
-      .order('linked_at', { ascending: false })
-    setLinkedCerts((data as unknown as LinkedCertRow[]) ?? [])
+    if (!agencyId) {
+      setLinkedCerts([])
+      setLinkedCertsLoading(false)
+      return
+    }
+    const { data } = await getProgramCertificationLinksAction(applicationId, agencyId)
+    setLinkedCerts((data?.linked as unknown as LinkedCertRow[]) ?? [])
     setLinkedCertsLoading(false)
-  }, [applicationId, supabase])
+  }, [applicationId, agencyId])
 
   useEffect(() => { refreshLinkedCerts() }, [refreshLinkedCerts])
 
@@ -159,11 +159,8 @@ export default function ExpertProgramView({
     setLinkCertModal(true)
     if (!agencyId) return
     setAvailableCertsLoading(true)
-    const excludeIds = linkedCerts.map(r => r.licenses?.id).filter((id): id is string => !!id)
-    let query = supabase.from('licenses').select('id, license_name, license_number, status').eq('agency_id', agencyId).order('license_name')
-    if (excludeIds.length > 0) query = query.not('id', 'in', `(${excludeIds.join(',')})`)
-    const { data } = await query
-    setAvailableCerts((data ?? []) as typeof availableCerts)
+    const { data } = await getProgramCertificationLinksAction(applicationId, agencyId)
+    setAvailableCerts((data?.available ?? []) as typeof availableCerts)
     setAvailableCertsLoading(false)
   }
 
@@ -312,18 +309,14 @@ export default function ExpertProgramView({
     if (!playbookId) { setTemplates([]); return }
     setIsLoadingTemplates(true)
     try {
-      const { data } = await supabase
-        .from('playbook_templates')
-        .select('id, template_name, description, file_url, file_name')
-        .eq('playbook_id', playbookId)
-        .order('template_name', { ascending: true })
+      const { data } = await getExpertProgramTemplatesAction(applicationId, playbookId)
       setTemplates((data ?? []) as PlaybookTemplate[])
     } catch {
       setTemplates([])
     } finally {
       setIsLoadingTemplates(false)
     }
-  }, [playbookId, supabase])
+  }, [applicationId, playbookId])
 
   useEffect(() => {
     if (isTemplatesOpen) fetchTemplates()
@@ -388,38 +381,30 @@ export default function ExpertProgramView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId, applicationId])
 
-  // ── Real-time subscription ────────────────────────────────────────────────────
-  useEffect(() => {
+  useVisiblePolling(async () => {
     if (!conversationId || !currentUserId) return
-    const channel = supabase
-      .channel(`expert-program-msgs:${conversationId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-        async (payload) => {
-          const msg = payload.new as any
-          const { data: profiles } = await q.getUserProfilesByIds([msg.sender_id])
-          const enriched = {
-            ...msg,
-            sender: { id: msg.sender_id, user_profiles: profiles?.[0] ?? null },
-            is_own: msg.sender_id === currentUserId,
-          }
-          setMessages(prev => {
-            if (prev.some(m => m.id === enriched.id)) return prev
-            return [...prev, enriched].sort((a, b) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-            )
-          })
-          if (!enriched.is_own && !isMessagesOpenRef.current) {
-            setUnreadCount(c => c + 1)
-          }
-          setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-        }
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, currentUserId])
+    const { data: rows } = await q.getMessagesByConversationId(conversationId)
+    if (!rows) return
+    const senderIds = Array.from(new Set(rows.map(message => message.sender_id)))
+    const { data: profiles } = senderIds.length > 0
+      ? await q.getUserProfilesByIds(senderIds)
+      : { data: [] }
+    const profilesById = new Map((profiles ?? []).map(profile => [profile.id, profile]))
+    const refreshed = rows.map(message => ({
+      ...message,
+      sender: { id: message.sender_id, user_profiles: profilesById.get(message.sender_id) ?? null },
+      is_own: message.sender_id === currentUserId,
+    }))
+    setMessages(refreshed)
+    const unread = refreshed.filter(message =>
+      !message.is_own
+      && (!Array.isArray(message.is_read) || !message.is_read.includes(currentUserId))
+    )
+    if (!isMessagesOpenRef.current) setUnreadCount(unread.length)
+    if (unread.length > 0) {
+      await q.rpcMarkMessagesAsReadByUser(unread.map(message => message.id), currentUserId)
+    }
+  }, { enabled: Boolean(conversationId && currentUserId) })
 
   useEffect(() => {
     if (messages.length > 0) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

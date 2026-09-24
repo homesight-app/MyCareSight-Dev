@@ -1,5 +1,5 @@
 ﻿import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { readExpertClientDashboardMetrics } from '@/lib/repositories/platform-application-dashboard'
 import * as q from '@/lib/supabase/query'
 import ExpertClientsContent from '@/components/ExpertClientsContent'
 
@@ -15,16 +15,14 @@ export default async function ExpertClientsPage({
   const page    = Math.max(0, parseInt(params.page ?? '0') || 0)
   const search  = params.q ?? ''
 
-  const supabase = await createClient()
   const expertUserId = session!.user.id
 
-  const [appsResult, { count: totalCount }, { count: activeCount }, { count: pendingCount }] =
+  const [appsResult, metricsResult] =
     await Promise.all([
       q.getApplicationsByAssignedExpertIdPaginated(expertUserId, { page, pageSize: PAGE_SIZE, search }),
-      supabase.from('applications').select('id', { count: 'exact', head: true }).eq('assigned_expert_id', expertUserId),
-      supabase.from('applications').select('id', { count: 'exact', head: true }).eq('assigned_expert_id', expertUserId).in('status', ['requested', 'in_progress', 'under_review', 'needs_revision']),
-      supabase.from('applications').select('id', { count: 'exact', head: true }).eq('assigned_expert_id', expertUserId).in('status', ['under_review', 'needs_revision']),
+      readExpertClientDashboardMetrics(expertUserId),
     ])
+  const metrics = metricsResult.data ?? { totalCount: 0, activeCount: 0, pendingCount: 0 }
 
   const agencyIds = Array.from(new Set(
     (appsResult.data ?? []).map(a => (a as Record<string, unknown>).agency_id as string).filter(Boolean)
@@ -38,13 +36,13 @@ export default async function ExpertClientsPage({
   return (
     <ExpertClientsContent
       applications={appsResult.data ?? []}
-      totalCount={totalCount ?? 0}
+      totalCount={metrics.totalCount}
       page={page}
       pageSize={PAGE_SIZE}
       initialSearch={search}
-      totalApplications={totalCount ?? 0}
-      activeApplications={activeCount ?? 0}
-      pendingReviews={pendingCount ?? 0}
+      totalApplications={metrics.totalCount}
+      activeApplications={metrics.activeCount}
+      pendingReviews={metrics.pendingCount}
       agencyNames={agencyNames}
     />
   )

@@ -1,5 +1,7 @@
 # Step 1: Migration Control and Dependency Inventory
 
+> Historical baseline from 2026-09-02. The active, user-approved UAT scope and current evidence are tracked in [UAT Supabase removal](uat-supabase-removal.md). Earlier DigitalOcean and production-cutover references below are not instructions to change production during the UAT slice.
+
 **Status:** application controls complete; provider configuration verification pending
 
 **Decision date:** 2026-09-02

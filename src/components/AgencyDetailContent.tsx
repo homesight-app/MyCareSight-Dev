@@ -32,7 +32,7 @@ import {
   Layers,
   Lock,
 } from 'lucide-react'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
 import { assignPlanToAgency } from '@/app/actions/feature-plans'

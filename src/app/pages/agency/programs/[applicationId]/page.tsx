@@ -1,7 +1,6 @@
 ﻿import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ClientProgramView from '@/components/ClientProgramView'
 
@@ -16,7 +15,6 @@ export default async function AgencyProgramDetailPage({
   if (role !== 'company_owner' && role !== 'care_coordinator') redirect('/pages/agency')
 
   const { applicationId } = await params
-  const supabase = await createClient()
 
   const [{ data: application }, { items }] = await Promise.all([
     q.getApplicationById(applicationId),

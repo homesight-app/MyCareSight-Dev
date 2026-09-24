@@ -9,7 +9,6 @@ import EditCaregiverSkillsModal from '@/components/EditCaregiverSkillsModal'
 import { getCertificationTypes } from '@/app/actions/certifications'
 import { getCaregiverSkillCatalogAction } from '@/app/actions/reference-data'
 import { getMyStaffCertifications } from '@/app/actions/staff-member-certifications'
-import { createClient } from '@/lib/supabase/client'
 import { useSession } from 'next-auth/react'
 import { CAREGIVER_SKILL_POINTS } from '@/lib/constants'
 import { normalizeCaregiverSkillsList } from '@/lib/caregiver-skills'
@@ -142,20 +141,15 @@ function MyCertificationsContent() {
         router.push('/pages/auth/login')
         return
       }
-      const supabase = createClient()
-
-      const [certsResult, memberRes] = await Promise.all([
-        getMyStaffCertifications(),
-        supabase.from('caregiver_members').select('id, first_name, last_name, skills').eq('user_id', currentUser.id).maybeSingle(),
-      ])
+      const certsResult = await getMyStaffCertifications()
 
       setHasStaffProfile(certsResult.hasStaffProfile)
       if (certsResult.data) {
         setCertifications(certsResult.data as Certification[])
       }
 
-      if (memberRes.data) {
-        const m = memberRes.data as CaregiverSelf
+      if (certsResult.profile) {
+        const m = certsResult.profile as CaregiverSelf
         setCaregiverSelf({
           id: m.id,
           first_name: m.first_name,

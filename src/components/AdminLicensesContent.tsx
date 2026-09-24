@@ -12,7 +12,6 @@ import {
   MapPin,
   Users
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
 import { acceptApplicationRequest } from '@/app/actions/applications'
@@ -98,7 +97,6 @@ export default function AdminLicensesContent({
 
     setIsLoading(selectedApplication.id)
     try {
-      const supabase = createClient()
       
       const expert = experts.find(e => e.id === selectedExpertId)
       if (!expert) {
@@ -166,7 +164,6 @@ export default function AdminLicensesContent({
   const handleReject = async (applicationId: string) => {
     setIsLoading(applicationId)
     try {
-      const supabase = createClient()
       
       // Update application status to 'rejected'
       const { error } = await q.updateApplicationById(applicationId, {

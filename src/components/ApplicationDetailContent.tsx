@@ -1,12 +1,14 @@
 'use client'
 
+import { getApplicationNoteCountsAction } from '@/app/actions/internal-notes'
+
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { createClient } from '@/lib/supabase/client'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { replaceApplicationDocumentAction } from '@/app/actions/application-documents'
 import * as q from '@/app/actions/query-bridge'
+import { useVisiblePolling } from '@/hooks/useVisiblePolling'
 import {
   copyExpertStepsFromRequirementToApplication,
   getAllLicenseRequirements,
@@ -97,7 +99,7 @@ interface RequirementTemplate {
 // Dev Strict Mode can mount effects twice; dedupe in-flight conversation lookups per application.
 const conversationLookupInFlightByApp = new Map<string, Promise<string | null>>()
 
-async function getConversationIdByApplicationDeduped(supabase: ReturnType<typeof createClient>, applicationId: string) {
+async function getConversationIdByApplicationDeduped(applicationId: string) {
   const inFlight = conversationLookupInFlightByApp.get(applicationId)
   if (inFlight) return inFlight
 
@@ -235,7 +237,6 @@ export default function ApplicationDetailContent({
   } | null>(null)
   const [noteCounts, setNoteCounts] = useState<Record<string, number>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const supabase = createClient()
   // Unified progress — computed inline here so canClose/canApprove can use it at component init.
   // The full calculations (completedSteps, etc.) are re-declared below in the render section;
   // these early ones are for the button conditions only and use the same state sources.
@@ -303,7 +304,7 @@ export default function ApplicationDetailContent({
     } catch (error) {
       console.error('Error refreshing documents:', error)
     }
-  }, [application.id, supabase])
+  }, [application.id])
 
   const handleReplaceAdHocDocument = async (e: React.ChangeEvent<HTMLInputElement>, doc: Document) => {
     const file = e.target.files?.[0]
@@ -430,7 +431,7 @@ export default function ApplicationDetailContent({
     } finally {
       setIsLoadingSteps(false)
     }
-  }, [application, supabase])
+  }, [application])
 
   useEffect(() => {
     fetchSteps()
@@ -478,7 +479,7 @@ export default function ApplicationDetailContent({
     } finally {
       setIsLoadingRequirementDocuments(false)
     }
-  }, [application?.license_type_id, application?.state, supabase])
+  }, [application?.license_type_id, application?.state])
 
   useEffect(() => {
     fetchRequirementDocuments()
@@ -533,7 +534,7 @@ export default function ApplicationDetailContent({
     } finally {
       setIsLoadingTemplates(false)
     }
-  }, [application?.license_type_id, application?.state, supabase])
+  }, [application?.license_type_id, application?.state])
 
   useEffect(() => {
     fetchRequirementTemplates()
@@ -599,7 +600,7 @@ export default function ApplicationDetailContent({
     } finally {
       setIsLoadingExpertSteps(false)
     }
-  }, [application.id, application.license_type_id, application.state, supabase])
+  }, [application.id, application.license_type_id, application.state])
 
   const refreshExpertStepsSilently = useCallback(async () => {
     if (!application.id) return
@@ -620,7 +621,7 @@ export default function ApplicationDetailContent({
     } catch {
       // silent — optimistic update in ExpertStepsPanel already shows correct state
     }
-  }, [application.id, supabase])
+  }, [application.id])
 
   // Load expert steps on mount so progress percentage is accurate immediately
   useEffect(() => {
@@ -634,31 +635,28 @@ export default function ApplicationDetailContent({
     }
   }, [activeTab, fetchExpertSteps])
 
-  // Program notes count — fetch on mount and refresh whenever the notes tab is closed
+  // Counts are read through authenticated Neon actions, including program/step/document badges.
   useEffect(() => {
-    if (mode !== 'program') return
-    const client = createClient()
-    client
-      .from('internal_notes')
-      .select('id', { count: 'exact', head: true })
-      .eq('subject_type', 'application')
-      .eq('subject_id', application.id)
-      .then(({ count }) => setProgramNotesCount(count ?? 0))
-  }, [mode, application.id, activeTab])
+    let cancelled=false
+    if (mode !== 'program' || !['admin','expert'].includes(currentUserRole ?? '')) {
+      setProgramNotesCount(0)
+      return
+    }
+    getApplicationNoteCountsAction({subjectIds:[application.id],subjectType:'application',applicationId:application.id})
+      .then(result => { if (!cancelled) setProgramNotesCount(result.data?.[application.id] ?? 0) })
+      .catch(() => { if (!cancelled) setProgramNotesCount(0) })
+    return () => {cancelled=true}
+  }, [mode,application.id,activeTab,currentUserRole])
 
   const fetchNoteCounts = useCallback(async (subjectIds: string[]) => {
     if (!subjectIds.length) return
-    const { data } = await supabase
-      .from('internal_notes')
-      .select('subject_id')
-      .in('subject_id', subjectIds)
-    if (!data) return
-    const counts: Record<string, number> = {}
-    for (const row of data as { subject_id: string }[]) {
-      counts[row.subject_id] = (counts[row.subject_id] ?? 0) + 1
-    }
-    setNoteCounts(prev => ({ ...prev, ...counts }))
-  }, [supabase])
+    const result=await getApplicationNoteCountsAction({subjectIds,applicationId:application.id})
+    setNoteCounts(prev => {
+      const next={...prev}
+      for(const id of subjectIds) delete next[id]
+      return {...next,...(result.data ?? {})}
+    })
+  }, [application.id])
 
   useEffect(() => {
     if ((currentUserRole === 'admin' || currentUserRole === 'expert') && steps.length > 0) {
@@ -669,12 +667,11 @@ export default function ApplicationDetailContent({
   useEffect(() => {
     if (currentUserRole === 'admin' || currentUserRole === 'expert') {
       const ids = [
-        ...requirementDocuments.map(d => d.id),
         ...documents.map(d => d.id),
       ]
       if (ids.length) fetchNoteCounts(ids)
     }
-  }, [documents, requirementDocuments, currentUserRole, fetchNoteCounts])
+  }, [documents, currentUserRole, fetchNoteCounts])
 
   const openAddExpertStepModal = () => {
     setShowAddExpertStepModal(true)
@@ -929,7 +926,7 @@ export default function ApplicationDetailContent({
     }
 
     fetchLicenseType()
-  }, [application.license_type_id, supabase])
+  }, [application.license_type_id])
 
   // Fetch expert profile (for clients)
   useEffect(() => {
@@ -951,7 +948,7 @@ export default function ApplicationDetailContent({
     }
 
     fetchExpertProfile()
-  }, [application.assigned_expert_id, supabase])
+  }, [application.assigned_expert_id])
 
   // Fetch client profile (for experts)
   useEffect(() => {
@@ -972,7 +969,7 @@ export default function ApplicationDetailContent({
     }
 
     fetchClientProfile()
-  }, [application.company_owner_id, supabase])
+  }, [application.company_owner_id])
 
   // Get current user ID and role
   useEffect(() => {
@@ -982,7 +979,7 @@ export default function ApplicationDetailContent({
     q.getUserProfileRoleById(userId).then(({ data: profile }) => {
       if (profile) setCurrentUserRole(profile.role)
     })
-  }, [session, supabase])
+  }, [session])
 
   // Fetch or create conversation for application-based group chat
   useEffect(() => {
@@ -999,7 +996,7 @@ export default function ApplicationDetailContent({
         let convId = conversationId
 
         if (!convId) {
-          const existingConvId = await getConversationIdByApplicationDeduped(supabase, application.id)
+          const existingConvId = await getConversationIdByApplicationDeduped(application.id)
 
           if (existingConvId) {
             convId = existingConvId
@@ -1018,7 +1015,7 @@ export default function ApplicationDetailContent({
 
             if (convError) {
               if ((convError as any).code === '23505') {
-                const existingConvIdAfterConflict = await getConversationIdByApplicationDeduped(supabase, application.id)
+                const existingConvIdAfterConflict = await getConversationIdByApplicationDeduped(application.id)
                 if (existingConvIdAfterConflict) {
                   convId = existingConvIdAfterConflict
                   setConversationId(convId)
@@ -1112,65 +1109,34 @@ export default function ApplicationDetailContent({
     }
 
     setupConversation()
-  }, [application.id, currentUserId, supabase])
+  }, [application.id, currentUserId])
 
-  // Set up real-time subscription for new messages
-  useEffect(() => {
+  useVisiblePolling(async () => {
     if (!conversationId || !currentUserId) return
+    const { data: rows, error } = await q.getMessagesByConversationId(conversationId)
+    if (error || !rows) return
 
-    const channel = supabase
-      .channel(`messages:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`
-        },
-        async (payload) => {
-          const newMessage = payload.new as any
+    const senderIds = Array.from(new Set(rows.map(message => message.sender_id)))
+    const { data: profiles } = senderIds.length > 0
+      ? await q.getUserProfilesByIds(senderIds)
+      : { data: [] }
+    const profilesById = new Map((profiles ?? []).map(profile => [profile.id, profile]))
+    const refreshed = rows.map(message => ({
+      ...message,
+      sender: { id: message.sender_id, user_profiles: profilesById.get(message.sender_id) ?? null },
+      is_own: message.sender_id === currentUserId,
+    }))
+    setMessages(refreshed)
 
-          const { data: userProfile } = await q.getUserProfilesByIds([newMessage.sender_id])
-          const senderProfile = userProfile?.[0] ?? null
-
-          const messageWithSender = {
-            ...newMessage,
-            sender: {
-              id: newMessage.sender_id,
-              user_profiles: senderProfile || null
-            },
-            is_own: newMessage.sender_id === currentUserId
-          }
-
-          // Add new message (avoid duplicates)
-          setMessages(prevMessages => {
-            const exists = prevMessages.some(m => m.id === newMessage.id)
-            if (exists) return prevMessages
-
-            const updated = [...prevMessages, messageWithSender]
-            return updated.sort((a, b) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-            )
-          })
-
-          // Increment badge when message from another user arrives and Messages tab is not active
-          if (newMessage.sender_id !== currentUserId && activeTab !== 'message') {
-            setUnreadMessageCount(prev => prev + 1)
-          }
-
-          // Scroll to bottom
-          setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-          }, 100)
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
+    const unread = refreshed.filter(message =>
+      !message.is_own
+      && (!Array.isArray(message.is_read) || !message.is_read.includes(currentUserId))
+    )
+    if (activeTab !== 'message') setUnreadMessageCount(unread.length)
+    if (unread.length > 0) {
+      await q.rpcMarkMessagesAsReadByUser(unread.map(message => message.id), currentUserId)
     }
-  }, [conversationId, currentUserId, supabase])
+  }, { enabled: Boolean(conversationId && currentUserId) })
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -1194,7 +1160,7 @@ export default function ApplicationDetailContent({
       // If no conversation exists, create one
 
       if (!convId) {
-        const existingConvId = await getConversationIdByApplicationDeduped(supabase, application.id)
+        const existingConvId = await getConversationIdByApplicationDeduped(application.id)
 
         if (existingConvId) {
           convId = existingConvId
@@ -1211,7 +1177,7 @@ export default function ApplicationDetailContent({
 
           if (convError) {
             if ((convError as any).code === '23505') {
-              const existingConvIdAfterConflict = await getConversationIdByApplicationDeduped(supabase, application.id)
+              const existingConvIdAfterConflict = await getConversationIdByApplicationDeduped(application.id)
               if (existingConvIdAfterConflict) {
                 convId = existingConvIdAfterConflict
                 setConversationId(convId)
@@ -2129,15 +2095,15 @@ export default function ApplicationDetailContent({
                                       Review
                                     </button>
                                   )}
-                                  {(currentUserRole === 'admin' || currentUserRole === 'expert') && (
+                                  {(currentUserRole === 'admin' || currentUserRole === 'expert') && linked && (
                                     <button
-                                      onClick={() => setNotesModal({ subjectType: 'application_document', subjectId: reqDoc.id, title: `Notes — ${displayName}` })}
+                                      onClick={() => setNotesModal({ subjectType: 'application_document', subjectId: linked.id, title: `Notes — ${displayName}` })}
                                       className="inline-flex items-center gap-1.5 px-4 py-2 border border-amber-200 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium"
                                     >
                                       Notes
-                                      {(noteCounts[reqDoc.id] ?? 0) > 0 && (
+                                      {(noteCounts[linked.id] ?? 0) > 0 && (
                                         <span className="bg-amber-200 text-amber-800 rounded-full px-1.5 py-0.5 text-xs leading-none font-semibold">
-                                          {noteCounts[reqDoc.id]}
+                                          {noteCounts[linked.id]}
                                         </span>
                                       )}
                                     </button>

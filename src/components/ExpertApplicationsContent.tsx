@@ -15,7 +15,6 @@ import {
   Clock,
   Percent
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
 
@@ -118,7 +117,6 @@ export default function ExpertApplicationsContent({
     setIsLoading(selectedApplication.id)
 
     try {
-      const supabase = createClient()
 
       if (reviewAction === 'approve') {
         const { error } = await q.updateApplicationStatus(selectedApplication.id, { status: 'approved', revision_reason: null })

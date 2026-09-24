@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
+import { managerUpdateSchedule } from '@/lib/repositories/manager-scheduling'
 
 const COORDINATOR_PATH = '/pages/agency/care-visits'
 const CAREGIVER_PATH = '/pages/caregiver/my-care-visits'
@@ -203,7 +204,7 @@ export async function markScheduleMissedAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
   const trimmedReason = reason?.trim() || null
-  const { data, error } = await q.updateSchedule(scheduleId, {
+  const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: 'missed',
     status_reason: trimmedReason,
   })
@@ -211,11 +212,6 @@ export async function markScheduleMissedAction(
   if ((data?.status ?? '').toLowerCase().trim() !== 'missed') {
     return { error: 'Visit status was not updated to missed. Please refresh and try again.' }
   }
-  await logScheduleAudit(
-    session.user.id, 'MARK_MISSED', scheduleId,
-    { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
-    { agencyId: data?.agency_id, patientId: data?.patient_id }
-  )
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -228,7 +224,7 @@ export async function markScheduleCancelledAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
   const trimmedReason = reason.trim() || null
-  const { data, error } = await q.updateSchedule(scheduleId, {
+  const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: 'cancelled',
     status_reason: trimmedReason,
   })
@@ -236,11 +232,6 @@ export async function markScheduleCancelledAction(
   if ((data?.status ?? '').toLowerCase().trim() !== 'cancelled') {
     return { error: 'Visit status was not updated to cancelled. Please refresh and try again.' }
   }
-  await logScheduleAudit(
-    session.user.id, 'MARK_CANCELLED', scheduleId,
-    { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
-    { agencyId: data?.agency_id, patientId: data?.patient_id }
-  )
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -253,7 +244,7 @@ export async function markScheduleOnHoldAction(
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
   const trimmedReason = reason.trim() || null
-  const { data, error } = await q.updateSchedule(scheduleId, {
+  const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: 'on_hold',
     status_reason: trimmedReason,
   })
@@ -261,11 +252,6 @@ export async function markScheduleOnHoldAction(
   if ((data?.status ?? '').toLowerCase().trim() !== 'on_hold') {
     return { error: 'Visit status was not updated to on hold. Please refresh and try again.' }
   }
-  await logScheduleAudit(
-    session.user.id, 'MARK_ON_HOLD', scheduleId,
-    { schedule_id: scheduleId, reason: trimmedReason, caregiver_id: data?.caregiver_id ?? null },
-    { agencyId: data?.agency_id, patientId: data?.patient_id }
-  )
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -276,16 +262,11 @@ export async function reinstateScheduleAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
-  const { data, error } = await q.updateSchedule(scheduleId, {
+  const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: null,
     status_reason: null,
   })
   if (error) return { error: error.message || 'Could not reinstate visit.' }
-  await logScheduleAudit(
-    session.user.id, 'REINSTATE', scheduleId,
-    { schedule_id: scheduleId, caregiver_id: data?.caregiver_id ?? null },
-    { agencyId: data?.agency_id, patientId: data?.patient_id }
-  )
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -296,12 +277,11 @@ export async function assignCaregiverToScheduleAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  const { error } = await q.updateSchedule(scheduleId, {
+  const { error } = await managerUpdateSchedule(scheduleId, {
     caregiver_id: caregiverId,
     status: 'scheduled',
   })
   if (error) return { error: error.message || 'Could not assign caregiver.' }
-  await logScheduleAudit(session.user.id, 'ASSIGN_CAREGIVER', scheduleId, { schedule_id: scheduleId, caregiver_id: caregiverId })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -312,12 +292,11 @@ export async function unassignCaregiverFromScheduleAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  const { error } = await q.updateSchedule(scheduleId, {
+  const { error } = await managerUpdateSchedule(scheduleId, {
     caregiver_id: null,
     status: 'scheduled',
   })
   if (error) return { error: error.message || 'Could not unassign caregiver.' }
-  await logScheduleAudit(session.user.id, 'UNASSIGN_CAREGIVER', scheduleId, { schedule_id: scheduleId })
   revalidateVisitsPages()
   return { ok: true }
 }

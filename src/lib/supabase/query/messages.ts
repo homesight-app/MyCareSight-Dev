@@ -1,3 +1,21 @@
+export {
+  rpcGetTotalUnreadCountForUser,
+  getTotalMessageCountForUser,
+  rpcCountUnreadMessagesForUser,
+  rpcAdminUnreadMessageCountsByClient,
+  rpcGetUnreadMessagesForUserInConversations,
+  rpcMarkMessagesAsReadByUser,
+  rpcMarkMessageAsReadByUser,
+  markConversationMessagesAsReadExceptSender,
+} from '@/lib/repositories/message-read-state'
+export {
+  deleteOwnNotification as deleteNotificationByIdAndUser,
+  markOwnNotificationAsRead as markNotificationAsRead,
+  readUnreadNotificationItems as getUnreadNotificationItems,
+  readUnreadNotificationsByUserId as getUnreadNotificationsByUserId,
+  readUnreadNotificationsCount as getUnreadNotificationsCount,
+} from '@/lib/repositories/notification-lifecycle'
+
 import sql from '@/db'
 
 export async function getConversationByApplicationId(applicationId: string) {
@@ -55,75 +73,6 @@ export async function getMessagesByConversationIds(conversationIds: string[]) {
   }
 }
 
-/** Unread messages for a user across conversations (newest first), server-capped. Prefer over {@link getMessagesByConversationIds}. */
-export async function rpcGetUnreadMessagesForUserInConversations(
-  conversationIds: string[],
-  userId: string,
-  maxRows = 1500
-) {
-  if (conversationIds.length === 0) return { data: [], error: null }
-  try {
-    const rows = await sql`
-      SELECT * FROM get_unread_messages_for_user_in_conversations(
-        ${conversationIds as any},
-        ${userId},
-        ${maxRows}
-      )
-    `
-    return { data: rows as unknown as any[], error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
-/** Mark all messages in a conversation as read except those sent by excludeSenderId. */
-export async function markConversationMessagesAsReadExceptSender(
-  conversationId: string,
-  excludeSenderId: string
-) {
-  try {
-    await sql`
-      UPDATE messages
-      SET is_read = true
-      WHERE conversation_id = ${conversationId}
-        AND sender_id != ${excludeSenderId}
-    `
-    return { data: null, error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
-export async function rpcMarkMessageAsReadByUser(
-  messageId: string,
-  userId: string
-) {
-  try {
-    const rows = await sql`
-      SELECT * FROM mark_message_as_read_by_user(${messageId}, ${userId})
-    `
-    return { data: (rows as unknown as any[])[0] ?? null, error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
-/** Mark many messages read for one user (single RPC; same semantics as {@link rpcMarkMessageAsReadByUser}). */
-export async function rpcMarkMessagesAsReadByUser(
-  messageIds: string[],
-  userId: string
-) {
-  if (messageIds.length === 0) return { data: null, error: null }
-  try {
-    const rows = await sql`
-      SELECT * FROM mark_messages_as_read_by_user(${messageIds as any}, ${userId})
-    `
-    return { data: (rows as unknown as any[])[0] ?? null, error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
 export async function insertMessage(
   data: { conversation_id: string; sender_id: string; content: string }
 ) {
@@ -150,52 +99,6 @@ export async function updateConversationLastMessageAt(conversationId: string) {
   }
 }
 
-/** RPC: get total unread message count for user in given conversations. */
-export async function rpcGetTotalUnreadCountForUser(
-  conversationIds: string[],
-  userId: string
-) {
-  try {
-    const rows = await sql`
-      SELECT * FROM get_total_unread_count_for_user(${conversationIds as any}, ${userId})
-    `
-    return { data: (rows as unknown as any[])[0] ?? null, error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
-/** Get unread notifications for user (id, type, title). */
-export async function getUnreadNotificationsByUserId(userId: string) {
-  try {
-    const rows = await sql`
-      SELECT id, type, title
-      FROM notifications
-      WHERE user_id = ${userId} AND is_read = false
-    `
-    return { data: rows as unknown as any[], error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
-/** Get unread notification items for dropdown, limit 20. */
-export async function getUnreadNotificationItems(
-  userId: string
-) {
-  try {
-    const rows = await sql`
-      SELECT id, title, message, type, created_at, action_url
-      FROM notifications
-      WHERE user_id = ${userId} AND is_read = false
-      ORDER BY created_at DESC
-      LIMIT 20
-    `
-    return { data: rows as unknown as any[], error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
 
 /** Get conversation application_ids (for admin dropdown). */
 export async function getConversationApplicationIds(limitCount = 100) {
@@ -311,40 +214,6 @@ export async function getConversationsWithApplicationByApplicationIds(
   }
 }
 
-/** RPC: per-client unread counts for admin list (optional client id filter). */
-export async function rpcAdminUnreadMessageCountsByClient(
-  readerUserId: string,
-  clientIds?: string[] | null
-) {
-  try {
-    const resolvedClientIds = clientIds != null && clientIds.length > 0 ? clientIds : null
-    const rows = await sql`
-      SELECT * FROM admin_unread_message_counts_by_client(
-        ${readerUserId},
-        ${resolvedClientIds as any}
-      )
-    `
-    return { data: rows as unknown as any[], error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
-/** RPC: per-conversation unread counts for user. */
-export async function rpcCountUnreadMessagesForUser(
-  conversationIds: string[],
-  userId: string
-) {
-  try {
-    const rows = await sql`
-      SELECT * FROM count_unread_messages_for_user(${conversationIds as any}, ${userId})
-    `
-    return { data: rows as unknown as any[], error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
 /** Get conversations with application (id, application_id, last_message_at, applications). */
 export async function getConversationsWithApplications(
   applicationIds: string[]
@@ -373,46 +242,6 @@ export async function getConversationsWithApplications(
   }
 }
 
-/** Mark notification as read by id. */
-export async function markNotificationAsRead(notificationId: string) {
-  try {
-    await sql`
-      UPDATE notifications SET is_read = true WHERE id = ${notificationId}
-    `
-    return { data: null, error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
-/** Delete notification by id and user_id. */
-export async function deleteNotificationByIdAndUser(
-  notificationId: string,
-  userId: string
-) {
-  try {
-    await sql`
-      DELETE FROM notifications WHERE id = ${notificationId} AND user_id = ${userId}
-    `
-    return { data: null, error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
-
-/** Get unread notifications count for user. */
-export async function getUnreadNotificationsCount(userId: string) {
-  try {
-    const rows = await sql`
-      SELECT COUNT(*) AS count
-      FROM notifications
-      WHERE user_id = ${userId} AND is_read = false
-    `
-    return { data: rows[0] as any, error: null }
-  } catch (err) {
-    return { data: null, error: err as Error }
-  }
-}
 
 /** Get unread notifications for user (full rows), optional limit, for dashboard. */
 export async function getUnreadNotificationsForUser(

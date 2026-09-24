@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth'
 import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import { CACHE_TAG_AGENCY_LEAD_STAGES } from '@/lib/cache-tags'
+import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 
 async function requireAgencyOwner(agencyId: string) {
   const session = await getSession()
@@ -16,7 +17,7 @@ async function requireAgencyOwner(agencyId: string) {
 }
 
 export async function getAgencyLeadStagesAction(agencyId: string) {
-  const { error } = await requireAgencyOwner(agencyId)
+  const { error } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (error) return { success: false as const, error, data: null }
   const { data, error: dbErr } = await q.getAgencyLeadStages(agencyId)
   if (dbErr) return { success: false as const, error: dbErr.message, data: null }

@@ -5,7 +5,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
-import bcrypt from 'bcryptjs'
+import { hashPassword } from '@/lib/auth/password'
 import { sendInvitationEmail } from '@/lib/email'
 import sql from '@/db'
 
@@ -246,7 +246,7 @@ export async function setUserPassword(userId: string, newPassword: string) {
   const [userProfile] = await sql<{ email: string }[]>`SELECT email FROM user_profiles WHERE id = ${userId} LIMIT 1`
   if (!userProfile) return { error: 'User not found', data: null }
 
-  const passwordHash = await bcrypt.hash(newPassword, 12)
+  const passwordHash = await hashPassword(newPassword)
   try {
     await sql`UPDATE user_profiles SET password_hash = ${passwordHash}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
   } catch (err) {
@@ -367,7 +367,7 @@ export async function createUserAccount(
     const { data: existingProfile } = await q.getUserProfileByEmail(normalizedEmail)
 
     if (existingProfile) {
-      const passwordHash = await bcrypt.hash(password, 12)
+      const passwordHash = await hashPassword(password)
       await sql`
         UPDATE user_profiles SET password_hash = ${passwordHash}, role = ${role}, agency_id = ${agencyId ?? null}, updated_at = ${new Date().toISOString()}
         WHERE id = ${existingProfile.id}
@@ -383,7 +383,7 @@ export async function createUserAccount(
 
     const userId = randomUUID()
     provisionalUserId = userId
-    const passwordHash = await bcrypt.hash(password, 12)
+    const passwordHash = await hashPassword(password)
 
     await sql`INSERT INTO user_profiles ${sql({
       id: userId,
@@ -509,7 +509,7 @@ export async function createAgencyAdminAccount(
           agency_id: null,
         })}`
       }
-      const passwordHash = await bcrypt.hash(tempPassword, 12)
+      const passwordHash = await hashPassword(tempPassword)
       await sql`UPDATE user_profiles SET password_hash = ${passwordHash}, updated_at = ${new Date().toISOString()} WHERE id = ${existingProfile.id}`
       await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
       revalidatePath('/pages/admin/users')
@@ -520,7 +520,7 @@ export async function createAgencyAdminAccount(
     }
 
     const userId = randomUUID()
-    const passwordHash = await bcrypt.hash(tempPassword, 12)
+    const passwordHash = await hashPassword(tempPassword)
 
     await sql`INSERT INTO user_profiles ${sql({
       id: userId,
@@ -579,7 +579,7 @@ export async function createStaffUserAccount(
     const [existingProfile] = await sql<{ id: string }[]>`SELECT id FROM user_profiles WHERE email = ${normalizedEmail} LIMIT 1`
 
     if (existingProfile) {
-      const passwordHash = await bcrypt.hash(tempPassword, 12)
+      const passwordHash = await hashPassword(tempPassword)
       await sql`UPDATE user_profiles SET password_hash = ${passwordHash}, updated_at = ${new Date().toISOString()} WHERE id = ${existingProfile.id}`
       await sendInvitationEmail(normalizedEmail, fullName, tempPassword, agencyName)
       return {
@@ -589,7 +589,7 @@ export async function createStaffUserAccount(
     }
 
     const userId = randomUUID()
-    const passwordHash = await bcrypt.hash(tempPassword, 12)
+    const passwordHash = await hashPassword(tempPassword)
 
     await sql`INSERT INTO user_profiles ${sql({
       id: userId,

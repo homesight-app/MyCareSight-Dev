@@ -19,10 +19,9 @@ import {
   Circle,
   Mail
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 
 interface Application {
   id: string
@@ -121,7 +120,6 @@ export default function ExpertApplicationDetailModal({
     
     setIsLoadingDocs(true)
     try {
-      const supabase = createClient()
       const { data, error } = await q.getApplicationDocumentsByApplicationId(application.id)
 
       if (error) {
@@ -144,7 +142,6 @@ export default function ExpertApplicationDetailModal({
     
     setIsLoadingSteps(true)
     try {
-      const supabase = createClient()
       
       // First, try to fetch application_steps (steps specific to this application)
       const { data: applicationSteps, error: appStepsError } = await q.getApplicationStepsByApplicationId(application.id)
@@ -276,7 +273,6 @@ export default function ExpertApplicationDetailModal({
     setIsSubmitting(true)
 
     try {
-      const supabase = createClient()
 
       if (reviewAction === 'approve') {
         // Approve application - status becomes 'approved'

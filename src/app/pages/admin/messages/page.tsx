@@ -1,11 +1,9 @@
 ﻿import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import AdminMessagesContent from '@/components/AdminMessagesContent'
 
 export default async function MessagesPage() {
   const { user } = await requireAdmin()
-  const supabase = await createClient()
 
   const { data: conversations } = await q.getConversationsByAdminId(user.id)
 

@@ -6,7 +6,6 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { clientSchema, type ClientFormData } from '@/lib/schemas/client'
 import PhoneInput from '@/components/ui/PhoneInput'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
 import { Loader2 } from 'lucide-react'
@@ -73,7 +72,6 @@ export default function EditClientModal({
     setError(null)
 
     try {
-      const supabase = createClient()
 
       const { error: updateError } = await q.updateClientById(client.id, {
         company_name: data.company_name,

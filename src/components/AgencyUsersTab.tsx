@@ -5,7 +5,6 @@ import {
   Users, UserPlus, X, Loader2, Mail, Phone, RefreshCw, ChevronDown,
   Shield, Stethoscope, User, UserX, UserCheck, Settings,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import Modal from './Modal'
 import ResetPasswordModal from './ResetPasswordModal'
 import { addAdminToAgency, removeAdminFromAgency } from '@/app/actions/agencies'
@@ -19,6 +18,7 @@ import {
   updateCaregiverProfile,
   updateCareCoordinatorProfile,
   updateAgencyAdminProfile,
+  getAgencyUserDirectory,
 } from '@/app/actions/agency-users'
 
 // ——— Types ———————————————————————————————————————————
@@ -922,41 +922,15 @@ export default function AgencyUsersTab({ agencyId }: AgencyUsersTabProps) {
   const fetchData = useCallback(async () => {
     setLoading(true)
     setFetchError(null)
-    const supabase = createClient()
-
-    const [adminsRes, availableRes, coordsRes, caregiversRes] = await Promise.all([
-      supabase
-        .from('agency_admins')
-        .select('id, user_id, contact_name, contact_email, contact_phone, status')
-        .eq('agency_id', agencyId)
-        .order('contact_name', { ascending: true }),
-      supabase
-        .from('agency_admins')
-        .select('id, user_id, contact_name, contact_email, contact_phone')
-        .is('agency_id', null)
-        .not('user_id', 'is', null)
-        .order('contact_name', { ascending: true }),
-      supabase
-        .from('care_coordinators')
-        .select('id, user_id, first_name, last_name, email, status')
-        .eq('agency_id', agencyId)
-        .order('first_name', { ascending: true }),
-      supabase
-        .from('caregiver_members')
-        .select('id, user_id, first_name, last_name, email, phone, role, job_title, status')
-        .eq('agency_id', agencyId)
-        .order('first_name', { ascending: true }),
-    ])
-
-    const err = adminsRes.error || coordsRes.error || caregiversRes.error
-    if (err) {
-      setFetchError(err.message)
+    const result = await getAgencyUserDirectory(agencyId)
+    if (result.error || !result.data) {
+      setFetchError(result.error ?? 'Unable to load agency users.')
     } else {
       setUserData({
-        admins: (adminsRes.data ?? []) as AdminRecord[],
-        availableAdmins: (availableRes.data ?? []) as AdminRecord[],
-        coordinators: (coordsRes.data ?? []) as CoordinatorRecord[],
-        caregivers: (caregiversRes.data ?? []) as CaregiverRecord[],
+        admins: result.data.admins as unknown as AdminRecord[],
+        availableAdmins: result.data.availableAdmins as unknown as AdminRecord[],
+        coordinators: result.data.coordinators as unknown as CoordinatorRecord[],
+        caregivers: result.data.caregivers as unknown as CaregiverRecord[],
       })
     }
     setLoading(false)

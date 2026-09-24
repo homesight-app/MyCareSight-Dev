@@ -1,6 +1,7 @@
 import sql from '@/db'
 import { patientFullName } from '@/lib/patient-name'
 import { hoursFromScheduleWithDates } from '@/lib/payroll-calculations'
+import { withAgencyManagerFinancialRead } from '@/lib/repositories/visit-financial-reads'
 
 export type TimeBillingStatus = 'pending' | 'approved' | 'voided'
 
@@ -34,7 +35,22 @@ function round2(n: number): number {
 }
 
 export async function fetchTimeBillingRows(
-  opts?: { startDate?: string; endDate?: string; agencyId?: string | null }
+  opts?: { startDate?: string; endDate?: string }
+): Promise<{ rows: TimeBillingRow[]; error?: string; agencyId?: string }> {
+  try{
+    return await withAgencyManagerFinancialRead(async actor=>{
+      const result=await fetchScopedTimeBillingRows({...opts,agencyId:actor.agencyId})
+      if(result.error) throw new Error(result.error)
+      await sql`INSERT INTO audit_log(agency_id,table_name,record_id,action,performed_by_user_id,details)
+        VALUES(${actor.agencyId}::uuid,'visit_financials',NULL,'READ',${actor.id}::uuid,
+        ${JSON.stringify({operation:'read_time_billing_dashboard',resource_ids:result.rows.map(row=>row.scheduledVisitId),result_count:result.rows.length})}::jsonb)`
+      return {...result,agencyId:actor.agencyId}
+    })
+  }catch{return {rows:[],error:'Unable to load time and billing'}}
+}
+
+async function fetchScopedTimeBillingRows(
+  opts: { startDate?: string; endDate?: string; agencyId: string }
 ): Promise<{ rows: TimeBillingRow[]; error?: string }> {
   type VisitRow = {
     id: string

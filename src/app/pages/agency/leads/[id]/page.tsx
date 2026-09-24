@@ -1,6 +1,6 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { authorizeAndAuditAgencyLeadRead } from '@/lib/repositories/agency-lead-reads'
 import * as q from '@/lib/supabase/query'
 import LeadDetailContent from '@/components/LeadDetailContent'
 import { AGENCY_LEAD_CONTEXT, type LeadContext } from '@/lib/constants/lead-configs'
@@ -16,12 +16,12 @@ export default async function AgencyLeadDetailPage({
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
 
-  const supabase = await createClient()
-
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency')
 
   const { id } = await params
+  const leadAccess = await authorizeAndAuditAgencyLeadRead(agencyId, id)
+  if (!leadAccess.allowed) redirect('/pages/agency/leads')
 
   const [{ data: lead }, { data: notes }, { data: tasks }, { data: documents }, agencyStagesResult, patientDetailsResult] = await Promise.all([
     q.getLeadById(id),
@@ -33,16 +33,6 @@ export default async function AgencyLeadDetailPage({
   ])
 
   if (!lead || lead.agency_id !== agencyId) redirect('/pages/agency/leads')
-
-  // HIPAA audit log: patient leads can contain PHI
-  await supabase.from('audit_log').insert({
-    action: 'VIEW_LEAD',
-    table_name: 'leads',
-    record_id: lead.id,
-    performed_by_user_id: session.user.id,
-    agency_id: agencyId,
-    details: { lead_type: 'patient' },
-  })
 
   const context: LeadContext = { ...AGENCY_LEAD_CONTEXT, agencyId }
   const agencyStages = (agencyStagesResult.data ?? []) as import('@/lib/constants/lead-configs').AgencyLeadStage[]

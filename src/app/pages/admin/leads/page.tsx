@@ -1,5 +1,4 @@
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import LeadsContent from '@/components/LeadsContent'
 import { ADMIN_LEAD_CONTEXT } from '@/lib/constants/lead-configs'
@@ -15,7 +14,6 @@ export default async function AdminLeadsPage({
   }>
 }) {
   await requireAdmin()
-  const supabase = await createClient()
 
   const params      = await searchParams
   const page        = Math.max(0, parseInt(params.page ?? '0') || 0)

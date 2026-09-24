@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { fetchFilteredExpertsAction } from '@/app/actions/admin-list-filters'
 import { Search, Mail, Phone, MapPin, Briefcase } from 'lucide-react'
@@ -126,7 +125,6 @@ export default function ExpertListWithFilters({
     setLocalExperts((prev) => prev.filter((e) => e.id !== expert.id))
 
     try {
-      const supabase = createClient()
       const newStatus = isActive ? 'inactive' : 'active'
 
       const { error } = await q.updateLicensingExpertById(expert.id, {

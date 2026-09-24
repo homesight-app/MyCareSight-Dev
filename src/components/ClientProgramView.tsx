@@ -10,9 +10,9 @@ import {
 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { useVisiblePolling } from '@/hooks/useVisiblePolling'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import UploadDocumentModal from './UploadDocumentModal'
 import ProgramItemDetailModal from './ProgramItemDetailModal'
 import Modal from './Modal'
@@ -77,8 +77,6 @@ export default function ClientProgramView({
   initialItems,
   initialPct = 0,
 }: Props) {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const supabase = createClient()
   const { data: session } = useSession()
 
   // ── Tab ───────────────────────────────────────────────────────────────────────
@@ -126,18 +124,10 @@ export default function ClientProgramView({
 
   // ── Progress % — sourced from DB (written by expert view) so both views match ──
   const [pct, setPct] = useState(initialPct)
-  useEffect(() => {
-    const channel = supabase
-      .channel(`app-progress-${applicationId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'applications', filter: `id=eq.${applicationId}` },
-        (payload) => {
-          const val = (payload.new as { progress_percentage?: number }).progress_percentage
-          if (typeof val === 'number') setPct(val)
-        }
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [applicationId])
+  useVisiblePolling(async () => {
+    const { data } = await q.getApplicationForClose(applicationId)
+    if (typeof data?.progress_percentage === 'number') setPct(data.progress_percentage)
+  })
 
   // ── Split by item type ────────────────────────────────────────────────────────
   // ── Client-visible items (assignment client or both) ─────────────────────────
@@ -225,7 +215,7 @@ export default function ClientProgramView({
     } finally {
       setIsLoadingTemplates(false)
     }
-  }, [licenseTypeId, state, supabase])
+  }, [licenseTypeId, state])
 
   useEffect(() => {
     if (isTemplatesOpen) fetchTemplates()
@@ -290,38 +280,30 @@ export default function ClientProgramView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId, applicationId])
 
-  // ── Real-time subscription ────────────────────────────────────────────────────
-  useEffect(() => {
+  useVisiblePolling(async () => {
     if (!conversationId || !currentUserId) return
-    const channel = supabase
-      .channel(`program-msgs:${conversationId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-        async (payload) => {
-          const msg = payload.new as any
-          const { data: profiles } = await q.getUserProfilesByIds([msg.sender_id])
-          const enriched = {
-            ...msg,
-            sender: { id: msg.sender_id, user_profiles: profiles?.[0] ?? null },
-            is_own: msg.sender_id === currentUserId,
-          }
-          setMessages(prev => {
-            if (prev.some(m => m.id === enriched.id)) return prev
-            return [...prev, enriched].sort((a, b) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-            )
-          })
-          if (!enriched.is_own && !isMessagesOpenRef.current) {
-            setUnreadCount(c => c + 1)
-          }
-          setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-        }
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, currentUserId])
+    const { data: rows } = await q.getMessagesByConversationId(conversationId)
+    if (!rows) return
+    const senderIds = Array.from(new Set(rows.map(message => message.sender_id)))
+    const { data: profiles } = senderIds.length > 0
+      ? await q.getUserProfilesByIds(senderIds)
+      : { data: [] }
+    const profilesById = new Map((profiles ?? []).map(profile => [profile.id, profile]))
+    const refreshed = rows.map(message => ({
+      ...message,
+      sender: { id: message.sender_id, user_profiles: profilesById.get(message.sender_id) ?? null },
+      is_own: message.sender_id === currentUserId,
+    }))
+    setMessages(refreshed)
+    const unread = refreshed.filter(message =>
+      !message.is_own
+      && (!Array.isArray(message.is_read) || !message.is_read.includes(currentUserId))
+    )
+    if (!isMessagesOpenRef.current) setUnreadCount(unread.length)
+    if (unread.length > 0) {
+      await q.rpcMarkMessagesAsReadByUser(unread.map(message => message.id), currentUserId)
+    }
+  }, { enabled: Boolean(conversationId && currentUserId) })
 
   useEffect(() => {
     if (messages.length > 0) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

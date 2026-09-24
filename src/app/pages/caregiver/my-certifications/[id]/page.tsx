@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { getUnifiedCaregiverCertificationDetail } from '@/app/actions/staff-member-certifications'
 import {
@@ -27,7 +26,6 @@ export default async function CertificationDetailPage({
   }
 
   const { id } = await params
-  const supabase = await createClient()
 
   const unified = await getUnifiedCaregiverCertificationDetail(id)
   let certification = unified.data

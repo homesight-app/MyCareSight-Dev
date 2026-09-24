@@ -1,7 +1,11 @@
 import NextAuth, { type DefaultSession } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
-import bcrypt from 'bcryptjs'
-import { createAdminClient } from '@/lib/supabase/admin'
+import type { JWT } from '@auth/core/jwt'
+import {
+  authenticateCredentials,
+  readOpaqueSession,
+  revokeOpaqueSession,
+} from '@/lib/repositories/auth-identity'
 import type { UserRole } from '@/types/auth'
 
 declare module 'next-auth' {
@@ -18,6 +22,7 @@ declare module 'next-auth' {
     role: UserRole
     agencyId: string | null
     fullName: string | null
+    sessionToken: string
   }
 }
 
@@ -26,49 +31,66 @@ declare module '@auth/core/jwt' {
     role?: UserRole
     agencyId?: string | null
     fullName?: string | null
+    sessionToken?: string
   }
 }
 
+function requestIp(request: Request): string | null {
+  const forwarded = request.headers.get('x-forwarded-for')
+  return forwarded?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  session: { strategy: 'jwt', maxAge: 60 * 60 }, // 1-hour tokens; is_active is fetched fresh on every request
+  // Credentials requires Auth.js's jwt strategy. These hooks replace its JWT
+  // payload with a random opaque token backed by PostgreSQL.
+  session: { strategy: 'jwt', maxAge: 60 * 60 },
+  jwt: {
+    maxAge: 60 * 60,
+    async encode({ token }) {
+      if (!token?.sessionToken) throw new Error('Opaque session token is missing')
+      return token.sessionToken
+    },
+    async decode({ token }): Promise<JWT | null> {
+      if (!token) return null
+      const identity = await readOpaqueSession(token)
+      if (!identity) return null
+      return {
+        sub: identity.userId,
+        email: identity.email,
+        name: identity.fullName,
+        role: identity.role,
+        agencyId: identity.agencyId,
+        fullName: identity.fullName,
+        sessionToken: identity.sessionToken,
+        exp: Math.floor(identity.expiresAt.getTime() / 1000),
+      }
+    },
+  },
   providers: [
     Credentials({
       credentials: {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null
-
-        const supabase = createAdminClient()
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('id, email, role, agency_id, full_name, password_hash, is_active')
-          .eq('email', (credentials.email as string).toLowerCase().trim())
-          .single()
-
+      async authorize(credentials, request) {
+        if (typeof credentials?.email !== 'string' || typeof credentials?.password !== 'string') {
+          return null
+        }
+        if (credentials.password.length < 1 || credentials.password.length > 256) return null
+        const profile = await authenticateCredentials({
+          email: credentials.email,
+          password: credentials.password,
+          ipAddress: requestIp(request),
+          userAgent: request.headers.get('user-agent'),
+        })
         if (!profile) return null
-        if (profile.is_active === false) return null
-
-        // No password hash means the user needs to reset before they can log in.
-        // Return null — the login page will detect this error and prompt a reset.
-        if (!profile.password_hash) return null
-
-        const valid = await bcrypt.compare(credentials.password as string, profile.password_hash)
-        if (!valid) return null
-
-        // HIPAA § 164.312(b): record login timestamp for audit trail
-        await supabase
-          .from('user_profiles')
-          .update({ last_login_at: new Date().toISOString() })
-          .eq('id', profile.id)
-
         return {
-          id: profile.id,
-          email: profile.email ?? '',
-          role: profile.role as UserRole,
-          agencyId: profile.agency_id ?? null,
-          fullName: profile.full_name ?? null,
+          id: profile.userId,
+          email: profile.email,
+          role: profile.role,
+          agencyId: profile.agencyId,
+          fullName: profile.fullName,
+          sessionToken: profile.sessionToken,
         }
       },
     }),
@@ -76,18 +98,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     jwt({ token, user }) {
       if (user) {
+        token.sub = user.id
+        token.email = user.email
         token.role = user.role
         token.agencyId = user.agencyId
         token.fullName = user.fullName
+        token.sessionToken = user.sessionToken
       }
       return token
     },
     session({ session, token }) {
       if (token.sub) session.user.id = token.sub
+      if (token.email) session.user.email = token.email
       if (token.role) session.user.role = token.role
       session.user.agencyId = token.agencyId ?? null
       session.user.fullName = token.fullName ?? null
       return session
+    },
+  },
+  events: {
+    async signOut(message) {
+      if ('token' in message && message.token?.sessionToken) {
+        await revokeOpaqueSession(message.token.sessionToken)
+      }
     },
   },
   pages: {

@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { getMyStaffCertifications, type MyStaffCertificationUi } from '@/app/actions/staff-member-certifications'
 import Link from 'next/link'
@@ -19,7 +18,6 @@ import StatusBadge from '@/components/ui/StatusBadge'
 export default async function StaffDashboardPage() {
   const session = await getSession()
 
-  const supabase = await createClient()
 
   const { data: staffMember, error: staffMemberError } = await q.getStaffMemberByUserId(session!.user.id)
   if (staffMemberError || !staffMember) {

@@ -1,6 +1,5 @@
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import * as q from '@/lib/supabase/query'
 import CaregiverVisitExecutionContent from '@/components/CaregiverVisitExecutionContent'
 import { getCachedCaregiverVisitExecutionDetail } from '@/lib/server-cache/caregiver-visit-execution-detail'
 
@@ -13,21 +12,10 @@ export default async function CaregiverVisitExecutionPage({ params }: PageProps)
   if (!visitId || visitId === 'null') notFound()
 
   const session = await getSession()
+  if (!session?.user.id) notFound()
 
-  const { data: staffMember, error: staffMemberError } = await q.getStaffMemberByUserId(session!.user.id)
-  if (staffMemberError || !staffMember) {
-    redirect('/pages/auth/login?error=Staff member record not found. Please contact your administrator.')
-  }
+  const result = await getCachedCaregiverVisitExecutionDetail(visitId, session.user.id).catch(() => null)
+  if (!result?.data || result.error) notFound()
 
-  const { data, error } = await getCachedCaregiverVisitExecutionDetail(
-    visitId,
-    staffMember.id,
-    staffMember.agency_id ?? null,
-    session!.user.id,
-    session!.profile?.role ?? ''
-  )
-
-  if (error || !data) notFound()
-
-  return <CaregiverVisitExecutionContent initial={data} />
+  return <CaregiverVisitExecutionContent initial={result.data} />
 }

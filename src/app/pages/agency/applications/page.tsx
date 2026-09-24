@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ApplicationsContent from '@/components/ApplicationsContent'
 
@@ -11,7 +10,6 @@ export default async function ApplicationsPage() {
     redirect('/pages/auth/login')
   }
 
-  const supabase = await createClient()
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 

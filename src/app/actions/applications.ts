@@ -8,12 +8,9 @@ import {
   getApplicationForClose,
   closeApplicationUpdate,
   updateApplicationStatus,
-  closeApplicationManualUpdate,
-  completeApplicationManualUpdate,
-  reopenApplicationUpdate,
-  getApplicationAgencyAndStatus,
 } from '@/lib/supabase/query'
 import { applyPlaybookToApplication } from './playbooks'
+import { changeApplicationStatusWithNote } from '@/lib/repositories/internal-note-writes'
 
 /**
  * Admin action to approve an application under review.
@@ -338,51 +335,15 @@ function revalidateApplicationPages(applicationId: string) {
   revalidatePath(`/pages/agency/programs/${applicationId}`)
 }
 
-async function insertApplicationStatusNote(
-  applicationId: string,
-  agencyId: string,
-  userId: string,
-  content: string
-) {
-  try {
-    await sql`
-      INSERT INTO internal_notes (agency_id, subject_type, subject_id, content, created_by)
-      VALUES (${agencyId}, 'application', ${applicationId}, ${content}, ${userId})
-    `
-  } catch (err) {
-    console.error('[applications] Failed to insert status note:', err)
-  }
-}
-
 /** Manually close an application regardless of task completion. Admin/expert only. */
 export async function closeApplicationManually(
   applicationId: string,
   reason: string
 ): Promise<{ error: string | null }> {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
-  const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
-
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Reason is required' }
-
-  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(applicationId)
-  if (fetchErr || !app) return { error: 'Application not found' }
-  if (!app.agency_id) return { error: 'Application has no agency' }
-  if (app.status === 'approved' || app.status === 'rejected') {
-    return { error: 'Cannot close an approved or rejected application' }
-  }
-
-  const { error } = await closeApplicationManualUpdate(applicationId, app.agency_id, session.user.id, trimmedReason)
-  if (error) return { error: error.message }
-
-  await insertApplicationStatusNote(
-    applicationId,
-    app.agency_id,
-    session.user.id,
-    `Application manually closed. Reason: ${trimmedReason}`
-  )
+  const result=await changeApplicationStatusWithNote({applicationId,operation:'close',reason:trimmedReason})
+  if(result.error) return result
 
   revalidateApplicationPages(applicationId)
   return { error: null }
@@ -393,30 +354,10 @@ export async function completeApplicationManually(
   applicationId: string,
   reason: string
 ): Promise<{ error: string | null }> {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
-  const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
-
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Notes are required' }
-
-  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(applicationId)
-  if (fetchErr || !app) return { error: 'Application not found' }
-  if (!app.agency_id) return { error: 'Application has no agency' }
-  if (app.status === 'approved' || app.status === 'rejected') {
-    return { error: 'Cannot mark an approved or rejected application complete' }
-  }
-
-  const { error } = await completeApplicationManualUpdate(applicationId, app.agency_id, session.user.id, trimmedReason)
-  if (error) return { error: error.message }
-
-  await insertApplicationStatusNote(
-    applicationId,
-    app.agency_id,
-    session.user.id,
-    `Application marked complete. Notes: ${trimmedReason}`
-  )
+  const result=await changeApplicationStatusWithNote({applicationId,operation:'complete',reason:trimmedReason})
+  if(result.error) return result
 
   revalidateApplicationPages(applicationId)
   return { error: null }
@@ -427,30 +368,10 @@ export async function reopenApplication(
   applicationId: string,
   reason: string
 ): Promise<{ error: string | null }> {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
-  const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden' }
-
   const trimmedReason = reason.trim()
   if (!trimmedReason) return { error: 'Reason is required' }
-
-  const { data: app, error: fetchErr } = await getApplicationAgencyAndStatus(applicationId)
-  if (fetchErr || !app) return { error: 'Application not found' }
-  if (!app.agency_id) return { error: 'Application has no agency' }
-  if (app.status !== 'closed' && app.status !== 'complete') {
-    return { error: 'Application is not closed or complete' }
-  }
-
-  const { error } = await reopenApplicationUpdate(applicationId, app.agency_id)
-  if (error) return { error: error.message }
-
-  await insertApplicationStatusNote(
-    applicationId,
-    app.agency_id,
-    session.user.id,
-    `Application re-opened. Reason: ${trimmedReason}`
-  )
+  const result=await changeApplicationStatusWithNote({applicationId,operation:'reopen',reason:trimmedReason})
+  if(result.error) return result
 
   revalidateApplicationPages(applicationId)
   return { error: null }

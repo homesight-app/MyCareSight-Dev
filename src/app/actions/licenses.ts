@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth'
 import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import { removeFiles } from '@/lib/storage/client'
+import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 
 function assertCanManageCert(role: string | null | undefined): string | null {
   const allowed = ['admin', 'expert', 'company_owner', 'care_coordinator']
@@ -169,6 +170,52 @@ export async function linkProgramToCertification(
 
   revalidateCertificationPages(agencyId)
   return { error: null }
+}
+
+export async function getProgramCertificationLinksAction(applicationId: string, agencyId: string) {
+  const { error: authError, session } = await requirePlatformStaffOrAgencyRole(agencyId)
+  if (authError || !session) return { data: null, error: authError ?? 'Forbidden' }
+  try {
+    const [application] = await sql<{ assigned_expert_id: string | null }[]>`
+      SELECT assigned_expert_id
+      FROM public.applications
+      WHERE id = ${applicationId}::uuid AND agency_id = ${agencyId}::uuid
+      LIMIT 1
+    `
+    if (!application) return { data: null, error: 'Not found' }
+    if (session.profile.role === 'expert' && application.assigned_expert_id !== session.user.id) {
+      return { data: null, error: 'Forbidden' }
+    }
+
+    const linked = await sql`
+      SELECT link.id, link.link_type, link.linked_at,
+        json_build_object(
+          'id', license.id,
+          'license_name', license.license_name,
+          'license_number', license.license_number,
+          'status', license.status,
+          'expiry_date', license.expiry_date,
+          'agency_id', license.agency_id
+        ) AS licenses
+      FROM public.certification_applications link
+      JOIN public.licenses license ON license.id = link.certification_id
+      WHERE link.application_id = ${applicationId}::uuid
+        AND license.agency_id = ${agencyId}::uuid
+      ORDER BY link.linked_at DESC, link.id
+    `
+    const linkedIds = linked.map(row => String((row as { licenses: { id: string } }).licenses.id))
+    const availableResult = await q.getAgencyCertificationsForLinking(agencyId, linkedIds)
+    if (availableResult.error) return { data: null, error: availableResult.error.message }
+
+    await sql`
+      INSERT INTO public.audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+      VALUES (${agencyId}::uuid, 'certification_applications', ${applicationId}::uuid, 'READ', ${session.user.id}::uuid,
+        ${JSON.stringify({ operation: 'read_program_certification_links' })}::jsonb)
+    `
+    return { data: { linked, available: availableResult.data ?? [] }, error: null }
+  } catch {
+    return { data: null, error: 'Unable to load linked certifications.' }
+  }
 }
 
 /** Remove a program link from a certification. */

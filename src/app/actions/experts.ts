@@ -3,7 +3,7 @@
 import sql from '@/db'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
-import bcrypt from 'bcryptjs'
+import { hashPassword } from '@/lib/auth/password'
 import { randomUUID } from 'crypto'
 import { sendInvitationEmail } from '@/lib/email'
 
@@ -38,7 +38,7 @@ export async function createExpert(data: CreateExpertData) {
         WHERE id = ${userId}
       `
     } else {
-      const passwordHash = await bcrypt.hash(data.password, 12)
+      const passwordHash = await hashPassword(data.password)
       userId = randomUUID()
       await sql`
         INSERT INTO user_profiles (id, email, full_name, role, password_hash, is_active, created_at, updated_at)

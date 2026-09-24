@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Upload, FileText, Loader2, Search } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { uploadAgencyDocument, deleteAgencyDocumentAction } from '@/app/actions/agencies'
 import { deleteLeadDocumentAction } from '@/app/actions/leads'
 import * as q from '@/app/actions/query-bridge'
@@ -56,8 +55,6 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-
-  const supabase = createClient()
 
   const { search, setSearch, sort, setSort, page, setPage, pageSize, applySortedData, applyPageSlice } = useTableState({
     defaultSort: { key: 'date', dir: 'desc' },

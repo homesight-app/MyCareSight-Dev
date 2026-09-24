@@ -7,7 +7,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { profileSchema, type ProfileFormData } from '@/lib/schemas/profile'
 import { User, Mail, Save, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { UserRole } from '@/types/auth'
 import { updateUserEmailAction } from '@/app/actions/auth'
@@ -69,7 +68,6 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
     setSuccess(false)
 
     try {
-      const supabase = createClient()
 
       const { error: updateError } = await q.updateUserProfile(user.id, {
         full_name: data.fullName,

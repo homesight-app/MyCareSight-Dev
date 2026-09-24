@@ -1,5 +1,4 @@
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ExpertListWithFilters from '@/components/ExpertListWithFilters'
 import { 
@@ -12,7 +11,6 @@ import Link from 'next/link'
 
 export default async function ExpertsPage() {
   await requireAdmin()
-  const supabase = await createClient()
 
   const { data: experts } = await q.getLicensingExpertsOrdered()
   const expertIds = experts?.map(e => e.id) || []

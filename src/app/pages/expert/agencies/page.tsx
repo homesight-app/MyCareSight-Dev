@@ -1,4 +1,3 @@
-import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import AgenciesContent from '@/components/AgenciesContent'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
@@ -17,7 +16,6 @@ export default async function ExpertAgenciesPage({
   const sortKey = params.sortKey ?? 'name'
   const sortDir = (params.sortDir === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc'
 
-  const supabaseAdmin = createAdminClient()
 
   const [agenciesResult, { data: agencyAdminsWithUser }] = await Promise.all([
     q.getAgenciesFilteredPaginated({ page, pageSize: PAGE_SIZE, search, status, sortKey, sortDir }),

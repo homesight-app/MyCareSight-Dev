@@ -6,7 +6,7 @@ import { withUserContext } from '@/db'
 import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
-import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { STORAGE_BUCKET } from '@/lib/storage'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
 
 function revalidatePatientPages(patientId: string) {

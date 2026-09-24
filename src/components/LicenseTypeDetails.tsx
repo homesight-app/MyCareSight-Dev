@@ -4,9 +4,9 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { CheckCircle2, Clock, DollarSign, Calendar, Loader2, Plus, Save, X, FileText, UserCog, Edit2, Trash2, GripVertical, Users2, Copy, Search, ChevronDown, Upload } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import { 
   createStep, 
   createDocument, 
@@ -175,8 +175,6 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
   })
   const [overviewSaveStatus, setOverviewSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  
-  const supabase = createClient()
 
   // Get default service fee if not set
   const getDefaultServiceFee = (lt: LicenseType | null) => {
@@ -747,28 +745,17 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
     setIsSubmitting(true)
     setError(null)
     try {
-      const fileExt = templateFile.name.split('.').pop()
-      const filePath = `${requirementId}/${Date.now()}.${fileExt}`
-      const uploadForm = new FormData()
-      uploadForm.append('file', templateFile)
-      uploadForm.append('bucket', 'license-templates')
-      uploadForm.append('path', filePath)
-      const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
-      if (!uploadRes.ok) {
-        const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
-        setError(uploadError || 'Failed to upload file')
-        setIsSubmitting(false)
-        return
-      }
+      const uploaded = await uploadStoredFile(templateFile, 'license-requirement-template', requirementId)
       // Store the storage path (not a public URL) — signed URLs are generated at download time.
       const result = await createTemplate({
         licenseRequirementId: requirementId,
         templateName: templateFormData.templateName,
         description: templateFormData.description,
-        fileUrl: filePath,
+        fileUrl: uploaded.path,
         fileName: templateFile.name,
       })
       if (result.error) {
+        await cleanupStoredFile(uploaded)
         setError(result.error)
         setIsSubmitting(false)
         return
@@ -777,6 +764,8 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
       setTemplateFormData({ templateName: '', description: '', category: '' })
       setTemplateFile(null)
       await loadData()
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Failed to upload file')
     } finally {
       setIsSubmitting(false)
     }

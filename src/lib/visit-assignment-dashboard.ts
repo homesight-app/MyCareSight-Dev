@@ -1,6 +1,7 @@
 import zipcodes from 'zipcodes'
 import sql from '@/db'
 import * as q from '@/lib/supabase/query'
+import { managerGetSchedulesByIds } from '@/lib/repositories/manager-scheduling'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import type {
   ScheduleAssignmentRequestRow,
@@ -312,7 +313,7 @@ export async function fetchVisitAssignmentDashboardData(agencyId: string | null)
     scheduleIds.concat(resolvedScheduleIds).concat(unassignScheduleIds).concat(resolvedUnassignScheduleIds)
   )
 
-  const { data: schedulesData, error: schedErr } = await q.getScheduledVisitsByIdsAsScheduleRows(allScheduleIds)
+  const { data: schedulesData, error: schedErr } = await managerGetSchedulesByIds(allScheduleIds)
 
   if (schedErr) {
     return {

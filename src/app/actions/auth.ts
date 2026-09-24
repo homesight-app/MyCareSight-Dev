@@ -3,31 +3,16 @@
 import { signOut, resetPassword, updatePassword } from '@/lib/auth'
 import { auth } from '@/auth'
 import sql from '@/db'
-import bcrypt from 'bcryptjs'
+import { verifyPassword } from '@/lib/auth/password'
 
 export { signOut }
-
-/**
- * Check if an email exists in the app (user_profiles).
- * Used before sending password reset so we can show a clear message when the email is not registered.
- */
-export async function checkEmailExistsForReset(email: string): Promise<{ exists: boolean; error?: string }> {
-  try {
-    const rows = await sql<{ id: string }[]>`
-      SELECT id FROM user_profiles WHERE email = ${email.trim().toLowerCase()} LIMIT 1
-    `
-    return { exists: rows.length > 0 }
-  } catch {
-    return { exists: false, error: 'Unable to verify email. Please try again.' }
-  }
-}
 
 /** Triggers a password reset email with a time-limited token link. */
 export async function sendPasswordResetAction(email: string): Promise<{ error: string | null }> {
   return resetPassword(email)
 }
 
-/** Validates a reset token and writes the new bcrypt hash. Used by the reset-password page. */
+/** Validates a one-time reset token and writes a new Argon2id hash. */
 export async function updatePasswordWithTokenAction(
   token: string,
   newPassword: string
@@ -54,8 +39,8 @@ export async function changePasswordAction(
     return { error: 'No password set. Please use "Forgot password?" to set your password.' }
   }
 
-  const isMatch = await bcrypt.compare(currentPassword, profile.password_hash)
-  if (!isMatch) return { error: 'Current password is incorrect.' }
+  const passwordResult = await verifyPassword(currentPassword, profile.password_hash)
+  if (!passwordResult.valid) return { error: 'Current password is incorrect.' }
 
   return updatePassword(newPassword)
 }

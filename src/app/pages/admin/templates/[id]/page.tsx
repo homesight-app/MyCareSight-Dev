@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getTemplateById } from '@/lib/supabase/query'
 import TemplateDetailContent from '@/components/TemplateDetailContent'
 

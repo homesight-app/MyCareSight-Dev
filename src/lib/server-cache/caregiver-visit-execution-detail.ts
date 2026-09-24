@@ -1,27 +1,12 @@
-import { unstable_cache } from 'next/cache'
-import { withUserContext } from '@/db'
 import { fetchCaregiverVisitExecutionDetail } from '@/lib/caregiver-visit-execution'
-import { CACHE_TAG_CAREGIVER_VISIT_EXECUTION } from '@/lib/cache-tags'
+import { withAuditedActiveCaregiverRead } from '@/lib/repositories/caregiver-visit-execution'
 
-// viewerUserId + viewerRole are cache-key params so each user gets their own cached result.
-// withUserContext is called INSIDE the cache callback so that on a cache miss the RLS session
-// variables are set correctly. On a cache hit the callback never runs — no SQL is executed.
-const getCaregiverVisitExecutionDetailCached = unstable_cache(
-  async (visitId: string, staffMemberId: string, agencyId: string | null, viewerUserId: string, viewerRole: string) => {
-    return withUserContext(viewerUserId, viewerRole, agencyId, () =>
-      fetchCaregiverVisitExecutionDetail(visitId, staffMemberId, agencyId)
-    )
-  },
-  ['caregiver-visit-execution-detail'],
-  { revalidate: 15, tags: [CACHE_TAG_CAREGIVER_VISIT_EXECUTION] }
-)
-
+/** Existing import name retained; current authorization and audit run on every request. */
 export function getCachedCaregiverVisitExecutionDetail(
   visitId: string,
-  staffMemberId: string,
-  agencyId: string | null,
-  viewerUserId: string,
-  viewerRole: string
+  viewerUserId: string
 ) {
-  return getCaregiverVisitExecutionDetailCached(visitId, staffMemberId, agencyId, viewerUserId, viewerRole)
+  return withAuditedActiveCaregiverRead(viewerUserId, 'visit_execution_detail', visitId, actor =>
+    fetchCaregiverVisitExecutionDetail(visitId, actor.caregiverMemberId, actor.agencyId)
+  )
 }

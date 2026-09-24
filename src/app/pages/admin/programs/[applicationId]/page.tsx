@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
+import { readAdminProgramReferences } from '@/lib/repositories/platform-application-dashboard'
 import * as q from '@/lib/supabase/query'
 import ExpertProgramView from '@/components/ExpertProgramView'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
@@ -14,8 +14,6 @@ export default async function AdminProgramDetailPage({
 }) {
   await requireAdmin()
   const { applicationId } = await params
-  const supabase = await createClient()
-
   const [{ data: application }, { data: items }] = await Promise.all([
     q.getApplicationById(applicationId),
     q.getApplicationPlaybookItems(applicationId),
@@ -39,27 +37,17 @@ export default async function AdminProgramDetailPage({
   }
   const app = application as unknown as AppRow
 
-  const [{ data: agencyData }, categoryResult, subcategoryResult] = await Promise.all([
-    app.agency_id ? q.getAgencyNameById(app.agency_id) : Promise.resolve({ data: null }),
-    app.category_id
-      ? supabase.from('configuration_values').select('name').eq('id', app.category_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-    app.subcategory_id
-      ? supabase.from('configuration_values').select('name').eq('id', app.subcategory_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ])
-
   const typedItems = (items ?? []) as ApplicationPlaybookItem[]
   const firstWithPlaybookItem = typedItems.find(i => i.playbook_item_id)
-  let playbookId: string | null = null
-  if (firstWithPlaybookItem) {
-    const { data: pi } = await supabase
-      .from('playbook_items')
-      .select('playbook_id')
-      .eq('id', firstWithPlaybookItem.playbook_item_id)
-      .maybeSingle()
-    playbookId = pi?.playbook_id ?? null
-  }
+  const [{ data: agencyData }, referencesResult] = await Promise.all([
+    app.agency_id ? q.getAgencyNameById(app.agency_id) : Promise.resolve({ data: null }),
+    readAdminProgramReferences({
+      categoryId: app.category_id,
+      subcategoryId: app.subcategory_id,
+      playbookItemId: firstWithPlaybookItem?.playbook_item_id ?? null,
+    }),
+  ])
+  const references = referencesResult.data ?? { categoryName: null, subcategoryName: null, playbookId: null }
 
   return (
       <div className="space-y-4">
@@ -85,9 +73,9 @@ export default async function AdminProgramDetailPage({
           status={app.status}
           agencyId={app.agency_id}
           agencyName={agencyData?.name ?? null}
-          categoryName={(categoryResult.data as { name?: string } | null)?.name ?? null}
-          subcategoryName={(subcategoryResult.data as { name?: string } | null)?.name ?? null}
-          playbookId={playbookId}
+          categoryName={references.categoryName}
+          subcategoryName={references.subcategoryName}
+          playbookId={references.playbookId}
           initialItems={typedItems}
           isAdmin
           closedAt={app.closed_at}

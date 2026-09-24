@@ -6,9 +6,9 @@ import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import PlaybookTab from './PlaybookTab'
 import Modal from './Modal'
-import { createClient } from '@/lib/supabase/client'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
-import { updatePlaybook, createPlaybookTemplate, updatePlaybookTemplateAction, deletePlaybookTemplateAction } from '@/app/actions/playbooks'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import { updatePlaybook, createPlaybookTemplate, getPlaybookTemplatesAction, updatePlaybookTemplateAction, deletePlaybookTemplateAction } from '@/app/actions/playbooks'
 import { US_STATES } from '@/lib/constants'
 import type { PlaybookItem, PlaybookTemplate } from '@/lib/supabase/query/playbooks'
 
@@ -91,8 +91,6 @@ function formatRenewalPeriod(value: string): string {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function PlaybookDetailContent({ playbook, licenseRequirementId, initialItems, initialTemplates, categories }: Props) {
-  const supabase = createClient()
-
   const [activeTab, setActiveTab] = useState<TabType>('general')
   const [isActive, setIsActive] = useState(playbook.is_active)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -207,38 +205,29 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
     setIsSubmitting(true)
     setError(null)
     try {
-      const fileExt = templateFile.name.split('.').pop()
-      const filePath = `playbooks/${playbook.id}/${Date.now()}.${fileExt}`
-      const uploadForm = new FormData()
-      uploadForm.append('file', templateFile)
-      uploadForm.append('bucket', 'license-templates')
-      uploadForm.append('path', filePath)
-      const uploadRes = await fetch('/api/storage/upload', { method: 'POST', body: uploadForm })
-      if (!uploadRes.ok) {
-        const { error: uploadError } = await uploadRes.json().catch(() => ({ error: 'Failed to upload file' }))
-        setError(uploadError || 'Failed to upload file')
-        return
-      }
+      const uploaded = await uploadStoredFile(templateFile, 'playbook-template', playbook.id)
 
       const result = await createPlaybookTemplate({
         playbookId: playbook.id,
         templateName: templateForm.templateName,
         description: templateForm.description,
-        fileUrl: filePath,
+        fileUrl: uploaded.path,
         fileName: templateFile.name,
       })
-      if (result.error) { setError(result.error); return }
+      if (result.error) {
+        await cleanupStoredFile(uploaded)
+        setError(result.error)
+        return
+      }
 
       setShowUploadModal(false)
       setTemplateForm({ templateName: '', description: '' })
       setTemplateFile(null)
       // Reload templates from DB
-      const { data: fresh } = await supabase
-        .from('playbook_templates')
-        .select('id, playbook_id, template_name, description, file_url, file_name, created_at')
-        .eq('playbook_id', playbook.id)
-        .order('template_name')
+      const { data: fresh } = await getPlaybookTemplatesAction(playbook.id)
       setTemplates((fresh ?? []) as PlaybookTemplate[])
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Failed to upload file')
     } finally {
       setIsSubmitting(false)
     }

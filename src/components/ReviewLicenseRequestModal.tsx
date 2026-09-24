@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import Modal from './Modal'
 import { Heart, Users, MapPin, DollarSign, Clock, RefreshCw, CheckCircle2, ArrowRight } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { LicenseType } from '@/types/license'
 import { createApplicationForAgency } from '@/app/actions/applications'
@@ -68,7 +67,6 @@ export default function ReviewLicenseRequestModal({
         setError('You must be logged in to submit a license request')
         return
       }
-      const supabase = createClient()
 
       const todayStr = new Date().toISOString().split('T')[0]
 

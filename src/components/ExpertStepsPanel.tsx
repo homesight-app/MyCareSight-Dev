@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { getApplicationNoteCountsAction } from '@/app/actions/internal-notes'
 import * as q from '@/app/actions/query-bridge'
 import { EXPERT_STEP_PHASES } from '@/lib/constants'
 import ApplicationNotesModal from './ApplicationNotesModal'
@@ -40,17 +40,13 @@ export default function ExpertStepsPanel({
 
   const fetchNoteCounts = useCallback(async (subjectIds: string[]) => {
     if (!subjectIds.length) return
-    const { data } = await createClient()
-      .from('internal_notes')
-      .select('subject_id')
-      .in('subject_id', subjectIds)
-    if (!data) return
-    const counts: Record<string, number> = {}
-    for (const row of data as { subject_id: string }[]) {
-      counts[row.subject_id] = (counts[row.subject_id] ?? 0) + 1
-    }
-    setNoteCounts(prev => ({ ...prev, ...counts }))
-  }, [])
+    const result=await getApplicationNoteCountsAction({subjectIds,subjectType:'application_step',applicationId})
+    setNoteCounts(prev => {
+      const next={...prev}
+      for(const id of subjectIds) delete next[id]
+      return {...next,...(result.data ?? {})}
+    })
+  }, [applicationId])
 
   useEffect(() => {
     if (agencyId && expertSteps.length > 0) {

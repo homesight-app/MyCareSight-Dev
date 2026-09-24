@@ -4,8 +4,9 @@ import { revalidatePath } from 'next/cache'
 import sql from '@/db'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
-import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { STORAGE_BUCKET } from '@/lib/storage'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
+import { readAdminLeadPlatformStaff } from '@/lib/repositories/platform-application-dashboard'
 
 function revalidateLeadPaths() {
   revalidatePath('/pages/admin/leads')
@@ -31,6 +32,10 @@ async function requireAgencyMember() {
   const role = session.profile?.role
   if (role !== 'company_owner' && role !== 'care_coordinator') return { error: 'Forbidden', session: null }
   return { error: null, session }
+}
+
+export async function getAdminLeadOwnerOptionsAction() {
+  return readAdminLeadPlatformStaff()
 }
 
 // ——— Create / Update ————————————————————————————————————————

@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
+import { useVisiblePolling } from '@/hooks/useVisiblePolling'
 import { MessageSquare, Paperclip, Send, Check } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import SearchInput from '@/components/ui/SearchInput'
@@ -59,13 +59,12 @@ export default function ClientMessagesContent({
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const supabase = createClient()
 
   const selectedConversation = conversations.find(c => c.id === selectedConversationId)
 
-  const loadMessages = async (conversationId: string) => {
+  const loadMessages = async (conversationId: string, background = false) => {
     try {
-      setLoading(true)
+      if (!background) setLoading(true)
       const { data: messagesData, error } = await q.getMessagesByConversationId(conversationId)
 
       if (error) throw error
@@ -98,7 +97,7 @@ export default function ClientMessagesContent({
       const { data: messagesData } = await q.getMessagesByConversationId(conversationId)
       setMessages(messagesData || [])
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }
 
@@ -125,10 +124,9 @@ export default function ClientMessagesContent({
 
       await q.updateConversationLastMessageAt(selectedConversationId)
 
-      // Clear message - real-time subscription will add the new message
       setMessageContent('')
-      
-      // Scroll to bottom (message will appear via real-time subscription)
+      await loadMessages(selectedConversationId, true)
+
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
       }, 100)
@@ -197,68 +195,10 @@ export default function ClientMessagesContent({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Set up real-time subscription for new messages
-  useEffect(() => {
-    if (!selectedConversationId) return
-
-    const channel = supabase
-      .channel(`messages:${selectedConversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${selectedConversationId}`
-        },
-        async (payload) => {
-          // Get the new message
-          const newMessage = payload.new as Message
-          
-          const { data: profiles } = await q.getUserProfilesByIds([newMessage.sender_id])
-          type ProfileRow = { id: string; full_name?: string | null; role?: string | null }
-          const userProfile = ((profiles ?? []) as unknown as ProfileRow[])[0]
-
-          const messageWithSender: Message = {
-            ...newMessage,
-            sender: {
-              id: newMessage.sender_id,
-              email: '',
-              user_profiles: userProfile
-                ? { full_name: userProfile.full_name ?? undefined, role: userProfile.role ?? undefined }
-                : undefined
-            }
-          }
-
-          // Add new message to existing messages (avoid duplicates)
-          setMessages(prevMessages => {
-            // Check if message already exists (avoid duplicates)
-            const exists = prevMessages.some(m => m.id === newMessage.id)
-            if (exists) return prevMessages
-            
-            // Add new message and sort by created_at
-            const updated = [...prevMessages, messageWithSender]
-            return updated.sort((a, b) => 
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-            )
-          })
-
-          if (newMessage.sender_id !== userId && !newMessage.is_read) {
-            await q.rpcMarkMessageAsReadByUser(newMessage.id, userId)
-          }
-
-          // Scroll to bottom
-          setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-          }, 100)
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [selectedConversationId, userId, supabase])
+  useVisiblePolling(
+    () => selectedConversationId ? loadMessages(selectedConversationId, true) : undefined,
+    { enabled: Boolean(selectedConversationId) }
+  )
 
   const totalUnread = conversations.reduce((acc, conv) => acc + (conv.unread_count || 0), 0)
 

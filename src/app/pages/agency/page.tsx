@@ -1,6 +1,6 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { readRecentOwnNotifications } from '@/lib/repositories/notification-lifecycle'
 import * as q from '@/lib/supabase/query'
 import Link from 'next/link'
 import {
@@ -18,8 +18,6 @@ export default async function DashboardPage() {
   if (!session) {
     redirect('/pages/auth/login')
   }
-
-  const supabase = await createClient()
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
 
@@ -44,14 +42,9 @@ export default async function DashboardPage() {
     days_until_expiry: (app.days_until_expiry as number | null) ?? null,
   }))
 
-  const { data: notifications } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('user_id', session.user.id)
-    .order('created_at', { ascending: false })
-    .limit(10)
+  const { data: notifications } = await readRecentOwnNotifications(10)
 
-  const unreadNotifications = (notifications ?? []).filter((n: { is_read?: boolean }) => !n.is_read).length
+  const unreadNotifications = (notifications ?? []).filter(n => !n.is_read).length
 
   const expiringStaffCertifications = staffLicenses?.filter(sl => {
     if (sl.days_until_expiry) {

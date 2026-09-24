@@ -21,8 +21,8 @@ import AppHeader from './ui/AppHeader'
 import AppSidebar, { type MenuItemDef } from './ui/AppSidebar'
 import LinkNavigationOverlay from './LinkNavigationOverlay'
 import UpgradePromptModal from './UpgradePromptModal'
-import { createClient } from '@/lib/supabase/client'
 import { getCareVisitsPendingBadgeCountAction } from '@/app/actions/care-visits-badge'
+import { getTimeBillingPendingBadgeCountAction } from '@/app/actions/time-billing-badge'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -81,13 +81,9 @@ export default function DashboardLayout({
     }
     if (profile?.role !== 'care_coordinator') return
     let mounted = true
-    const supabase = createClient()
     ;(async () => {
-      const { count, error } = await supabase
-        .from('visit_financials')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending')
-      if (mounted && !error) setResolvedTimeBilling(count ?? 0)
+      const count=await getTimeBillingPendingBadgeCountAction()
+      if (mounted) setResolvedTimeBilling(count)
     })()
     return () => { mounted = false }
   }, [timeBillingPendingCount, profile?.role, pathname])

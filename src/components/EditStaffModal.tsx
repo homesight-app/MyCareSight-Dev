@@ -4,44 +4,14 @@ import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
-import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
-import { createClient } from '@/lib/supabase/client'
-import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
-import { Loader2 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { appendCaregiverPayRateAction } from '@/app/actions/caregiver-pay-rates'
+import { saveCaregiverProfileAction } from '@/app/actions/caregiver-pay-rates'
+import { caregiverEditSchema, type CaregiverEditInput } from '@/lib/schemas/caregiver-edit'
+import EmailInput from '@/components/ui/EmailInput'
+import { toast } from 'sonner'
 
-const staffMemberSchema = z
-  .object({
-    first_name: z.string().min(1, 'First name is required').min(2, 'First name must be at least 2 characters'),
-    last_name: z.string().min(1, 'Last name is required').min(2, 'Last name must be at least 2 characters'),
-    email: z.string().email('Please enter a valid email address'),
-    phone: z.string().optional().refine(val => !val || US_PHONE_REGEX.test(val.trim()), PHONE_ERROR),
-    role: z.string().min(1, 'Role is required'),
-    job_title: z.string().optional(),
-    status: z.enum(['active', 'inactive', 'pending']),
-    employee_id: z.string().optional(),
-    start_date: z.string().optional(),
-    pay_rate_hourly: z.string().optional(),
-    pay_rate_effective_date: z.string().optional(),
-  })
-  .superRefine((data, ctx) => {
-    const t = data.pay_rate_hourly?.trim() ?? ''
-    if (!t) return
-    const n = Number(t)
-    if (!Number.isFinite(n) || n < 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Pay rate must be a valid non-negative number.',
-        path: ['pay_rate_hourly'],
-      })
-    }
-  })
-
-type StaffMemberFormData = z.infer<typeof staffMemberSchema>
 
 function normalizeStaffStatus(status: string): 'active' | 'inactive' | 'pending' {
   const s = status.toLowerCase()
@@ -108,7 +78,6 @@ export default function EditStaffModal({
 }: EditStaffModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const roleSelectOptions = useMemo(() => {
     const base =
@@ -124,8 +93,9 @@ export default function EditStaffModal({
     handleSubmit,
     formState: { errors },
     reset,
-  } = useForm<StaffMemberFormData>({
-    resolver: zodResolver(staffMemberSchema),
+    setError,
+  } = useForm<CaregiverEditInput>({
+    resolver: zodResolver(caregiverEditSchema),
     mode: 'onBlur',
     defaultValues: {
       first_name: staff.first_name,
@@ -160,65 +130,24 @@ export default function EditStaffModal({
     }
   }, [isOpen, staff, reset])
 
-  const onSubmit = async (data: StaffMemberFormData) => {
+  const onSubmit = async (data: CaregiverEditInput) => {
     setIsLoading(true)
-    setError(null)
-
     try {
-      const supabase = createClient()
-
-      const { error: updateError } = await q.updateStaffMember(staff.id, {
-        first_name: data.first_name,
-        last_name: data.last_name,
-        email: data.email,
-        phone: data.phone || null,
-        role: data.role,
-        job_title: data.job_title || null,
-        status: data.status,
-        employee_id: data.employee_id || null,
-        start_date: data.start_date || null,
-      })
-
-      if (updateError) {
-        throw updateError
-      }
-
-      const payTrim = (data.pay_rate_hourly ?? '').trim()
-      if (payTrim !== '') {
-        const nextRate = Number(payTrim)
-        const prev =
-          staff.currentPayRate !== undefined && staff.currentPayRate !== null
-            ? Number(staff.currentPayRate)
-            : staff.pay_rate !== null && staff.pay_rate !== undefined && staff.pay_rate !== ''
-              ? typeof staff.pay_rate === 'number'
-                ? staff.pay_rate
-                : Number(staff.pay_rate)
-              : NaN
-        const eff = (data.pay_rate_effective_date ?? '').trim() || defaultPayRateEffectiveDate()
-        const rateChanged = !Number.isFinite(prev) || Math.abs(nextRate - prev) > 0.000001
-        if (rateChanged) {
-          const payRes = await appendCaregiverPayRateAction({
-            caregiverMemberId: staff.id,
-            payRate: nextRate,
-            effectiveDate: eff.slice(0, 10),
-            serviceType: null,
-          })
-          if (payRes.error) {
-            throw new Error(payRes.error)
-          }
+      const result = await saveCaregiverProfileAction(staff.id, data)
+      if (!result.success) {
+        for (const [field, messages] of Object.entries(result.fieldErrors ?? {})) {
+          setError(field as keyof CaregiverEditInput, { message: messages[0] })
         }
+        if (!result.fieldErrors) toast.error(result.error ?? 'Unable to update caregiver')
+        return
       }
-
+      toast.success('Caregiver updated')
       reset()
       onClose()
-
       router.refresh()
-
-      if (onSuccess) {
-        onSuccess()
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to update staff member. Please try again.')
+      onSuccess?.()
+    } catch {
+      toast.error('Unable to update caregiver')
     } finally {
       setIsLoading(false)
     }
@@ -227,19 +156,13 @@ export default function EditStaffModal({
   const handleClose = () => {
     if (!isLoading) {
       reset()
-      setError(null)
       onClose()
     }
   }
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Edit Caregiver" size="xl">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-            {error}
-          </div>
-        )}
+      <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-6">
 
         {/* Name Fields */}
         <div className="grid grid-cols-2 gap-4">
@@ -281,16 +204,13 @@ export default function EditStaffModal({
           <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-2">
             Email <span className="text-red-500">*</span>
           </label>
-          <input
+          <EmailInput
             id="email"
-            type="email"
             {...register('email')}
+            error={errors.email?.message}
             className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
             disabled={isLoading}
           />
-          {errors.email && (
-            <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
-          )}
         </div>
 
         {/* Phone Field */}
@@ -408,7 +328,7 @@ export default function EditStaffModal({
             <h3 className="text-sm font-semibold text-gray-900">Pay rate ($/hr)</h3>
             <p className="text-xs text-gray-500 mt-1">
               Changing the amount adds a new dated row and closes the previous rate on the effective date you choose
-              (same day is allowed).
+              Same-day corrections retain the previous rate in history.
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -463,6 +463,27 @@ export async function getClientsByCompanyOwnerIds(
   }
 }
 
+/** Admin user-directory company mappings for owner profile ids. */
+export async function getAgencyAdminCompanyMappingsByOwnerIds(ownerUserIds: string[]) {
+  if (ownerUserIds.length === 0) return { data: [], error: null }
+  try {
+    const rows = await sql`
+      SELECT user_id, company_owner_id, company_name, agency_id
+      FROM agency_admins
+      WHERE user_id = ANY(${ownerUserIds}::uuid[])
+         OR company_owner_id = ANY(${ownerUserIds}::uuid[])
+    `
+    return { data: rows as unknown as {
+      user_id: string | null
+      company_owner_id: string | null
+      company_name: string | null
+      agency_id: string | null
+    }[], error: null }
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
+  }
+}
+
 /** Get the payroll configuration for an agency. Returns null if not yet configured. */
 export async function getAgencyConfiguration(agencyId: string) {
   try {

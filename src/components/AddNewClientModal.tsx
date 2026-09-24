@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { X, Plus } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
@@ -152,7 +151,6 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
         setIsLoading(false)
         return
       }
-      const supabase = createClient()
 
       const { data: up } = await q.getAgencyIdFromProfile(user.id)
       if (!up?.agency_id) {

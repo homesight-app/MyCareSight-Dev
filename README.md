@@ -1,6 +1,6 @@
 # Home Care Licensing - Next.js Starter Template
 
-A complete authentication and user management system built with Next.js 15, TypeScript, Tailwind CSS, and Supabase.
+A care-management application built with Next.js 15, TypeScript, Tailwind CSS, Auth.js, Neon Postgres, and Azure Blob Storage.
 
 ## Features
 
@@ -17,7 +17,9 @@ A complete authentication and user management system built with Next.js 15, Type
 - **Framework**: Next.js 15 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
-- **Database & Auth**: Supabase
+- **Database**: Neon Postgres
+- **Authentication**: Auth.js with database-backed sessions
+- **Storage**: Private Azure Blob Storage containers
 - **Form Handling**: React Hook Form + Zod
 - **Icons**: Lucide React
 
@@ -26,7 +28,7 @@ A complete authentication and user management system built with Next.js 15, Type
 ### Prerequisites
 
 - Node.js 18+ installed
-- A Supabase account (free tier works)
+- Access to the designated Neon branch and Azure Storage account
 - npm, yarn, pnpm, or bun
 
 ### Setup Instructions
@@ -46,29 +48,26 @@ A complete authentication and user management system built with Next.js 15, Type
    pnpm install
    ```
 
-3. **Set up Supabase**
-   - Create a new project at [supabase.com](https://supabase.com)
-   - Go to Project Settings > API
-   - Copy your Project URL and anon/public key
+3. **Set up the database**
+   - Use the designated Neon development branch.
+   - Apply the ordered scripts in `scripts/migrations/` before running the app.
 
 4. **Configure environment variables**
    - Copy `.env.example` to `.env.local`
    ```bash
    cp .env.example .env.local
    ```
-   - Fill in your Supabase credentials:
+   - Fill in the server-only runtime credentials:
    ```env
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+   DATABASE_URL=postgresql://runtime-role:password@your-neon-host/your-database?sslmode=require
+   AUTH_SECRET=replace-with-a-long-random-secret
+   AUTH_URL=http://localhost:3000
+   AZURE_STORAGE_ACCOUNT_NAME=your-storage-account
    NEXT_PUBLIC_SITE_URL=http://localhost:3000
    ```
-   - **Note:** `SUPABASE_SERVICE_ROLE_KEY` is required for agency admins to create caregiver/staff accounts (Admin API). Get it from Project Settings > API in Supabase. Never expose it in the browser.
 
-5. **Set up the database schema**
-   - In your Supabase dashboard, go to SQL Editor
-   - Run the migration file: `supabase/migrations/001_initial_schema.sql`
-   - This creates the `user_profiles` table and sets up Row Level Security (RLS)
+5. **Verify the database schema**
+   - Follow `docs/migrations/uat-supabase-removal.md` for the current migration and verification order.
 
 6. **Run the development server**
    ```bash
@@ -169,8 +168,10 @@ When users check "Remember me" during login, their session is extended for a lon
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL | Yes |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Your Supabase anon/public key | Yes |
+| `DATABASE_URL` | Server-only Neon runtime connection | Yes |
+| `AUTH_SECRET` | Auth.js signing/encryption secret | Yes |
+| `AUTH_URL` | Canonical application URL | Yes |
+| `AZURE_STORAGE_ACCOUNT_NAME` | Azure Blob Storage account name | Yes |
 | `NEXT_PUBLIC_SITE_URL` | Your site URL (for redirects) | No |
 
 ## Building for Production

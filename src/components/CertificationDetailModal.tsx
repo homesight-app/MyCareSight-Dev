@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import {
   updateCertificationDetails,
   deleteLicenseDocument,

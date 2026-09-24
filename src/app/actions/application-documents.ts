@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
-import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { STORAGE_BUCKET } from '@/lib/storage'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
 
 function revalidateApplicationPages(applicationId: string) {

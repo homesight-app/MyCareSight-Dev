@@ -6,7 +6,6 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { staffMemberSchema, type StaffMemberFormData } from '@/lib/schemas/staff-member'
 import PhoneInput from '@/components/ui/PhoneInput'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { createStaffUserAccount } from '@/app/actions/users'
 import { useSession } from 'next-auth/react'
@@ -52,7 +51,6 @@ export default function AddStaffMemberModal({ isOpen, onClose, onSuccess, staffR
         setIsLoading(false)
         return
       }
-      const supabase = createClient()
 
       const { data: up } = await q.getAgencyIdFromProfile(user.id)
       const agencyId = up?.agency_id ?? null

@@ -33,15 +33,15 @@ export async function getMessagesByConversationIdAction(conversationId: string) 
 }
 
 export async function markConversationMessagesAsReadExceptSenderAction(conversationId: string, userId: string) {
-  return ctx(() => q.markConversationMessagesAsReadExceptSender(conversationId, userId))
+  return q.markConversationMessagesAsReadExceptSender(conversationId, userId)
 }
 
 export async function rpcMarkMessageAsReadByUserAction(messageId: string, userId: string) {
-  return ctx(() => q.rpcMarkMessageAsReadByUser(messageId, userId))
+  return q.rpcMarkMessageAsReadByUser(messageId, userId)
 }
 
 export async function rpcMarkMessagesAsReadByUserAction(messageIds: string[], userId: string) {
-  return ctx(() => q.rpcMarkMessagesAsReadByUser(messageIds, userId))
+  return q.rpcMarkMessagesAsReadByUser(messageIds, userId)
 }
 
 export async function insertMessageAction(data: { conversation_id: string; sender_id: string; content: string }) {
@@ -57,23 +57,23 @@ export async function getUserProfilesByIdsAction(ids: string[]) {
 }
 
 export async function getUnreadNotificationsCountAction(userId: string) {
-  return ctx(() => q.getUnreadNotificationsCount(userId))
+  return q.getUnreadNotificationsCount(userId)
 }
 
 export async function getUnreadNotificationsByUserIdAction(userId: string) {
-  return ctx(() => q.getUnreadNotificationsByUserId(userId))
+  return q.getUnreadNotificationsByUserId(userId)
 }
 
 export async function getUnreadNotificationItemsAction(userId: string) {
-  return ctx(() => q.getUnreadNotificationItems(userId))
+  return q.getUnreadNotificationItems(userId)
 }
 
 export async function markNotificationAsReadAction(notificationId: string) {
-  return ctx(() => q.markNotificationAsRead(notificationId))
+  return q.markNotificationAsRead(notificationId)
 }
 
 export async function deleteNotificationByIdAndUserAction(notificationId: string, userId: string) {
-  return ctx(() => q.deleteNotificationByIdAndUser(notificationId, userId))
+  return q.deleteNotificationByIdAndUser(notificationId, userId)
 }
 
 export async function getUserProfileRoleByIdAction(userId: string) {
@@ -105,9 +105,9 @@ export async function getConversationsWithApplicationsAction(applicationIds: str
 }
 
 export async function rpcCountUnreadMessagesForUserAction(conversationIds: string[], userId: string) {
-  return ctx(() => q.rpcCountUnreadMessagesForUser(conversationIds, userId))
+  return q.rpcCountUnreadMessagesForUser(conversationIds, userId)
 }
 
 export async function rpcGetTotalUnreadCountForUserAction(conversationIds: string[], userId: string) {
-  return ctx(() => q.rpcGetTotalUnreadCountForUser(conversationIds, userId))
+  return q.rpcGetTotalUnreadCountForUser(conversationIds, userId)
 }

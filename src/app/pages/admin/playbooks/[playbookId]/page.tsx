@@ -2,7 +2,6 @@
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import PlaybookDetailContent, { type PlaybookRow } from '@/components/PlaybookDetailContent'
 import PlaybookNameHeading from '@/components/PlaybookNameHeading'
@@ -22,7 +21,6 @@ export default async function AdminPlaybookDetailPage({
 }) {
   await requireAdmin()
   const { playbookId } = await params
-  const supabase = await createClient()
 
   const [{ data: playbook }, { data: items }, { data: templates }, { data: categories }] = await Promise.all([
     q.getPlaybookById(playbookId),

@@ -1,6 +1,4 @@
 ﻿import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import { getCachedAgenciesIdName } from '@/lib/server-cache/reference-lists'
 import UserManagementTabs from '@/components/UserManagementTabs'
@@ -8,7 +6,6 @@ import { Users } from 'lucide-react'
 
 export default async function UsersPage() {
   const { user } = await requireAdmin()
-  const supabase = await createClient()
 
   const { data: userProfilesRaw } = await q.getUserProfilesOrderedByCreatedAt()
   type UserProfileRow = { id: string; role: string | null; [key: string]: unknown }
@@ -24,24 +21,8 @@ export default async function UsersPage() {
 
   const companyOwnerIds = profilesList.filter(u => u.role === 'company_owner').map(u => u.id)
   type ClientCompanyRow = { user_id: string | null; company_owner_id: string | null; company_name: string | null; agency_id: string | null }
-  const supabaseAdmin = createAdminClient()
-  const [clientCompaniesByUserRes, clientCompaniesByOwnerRes] =
-    companyOwnerIds.length > 0
-      ? await Promise.all([
-          supabaseAdmin
-            .from('agency_admins')
-            .select('user_id, company_owner_id, company_name, agency_id')
-            .in('user_id', companyOwnerIds),
-          supabaseAdmin
-            .from('agency_admins')
-            .select('user_id, company_owner_id, company_name, agency_id')
-            .in('company_owner_id', companyOwnerIds),
-        ])
-      : [{ data: [], error: null }, { data: [], error: null }]
-  const clientCompanies = [
-    ...((clientCompaniesByUserRes.data ?? []) as unknown as ClientCompanyRow[]),
-    ...((clientCompaniesByOwnerRes.data ?? []) as unknown as ClientCompanyRow[]),
-  ]
+  const { data: clientCompaniesData } = await q.getAgencyAdminCompanyMappingsByOwnerIds(companyOwnerIds)
+  const clientCompanies = (clientCompaniesData ?? []) as ClientCompanyRow[]
   const companyNameByUserId: Record<string, string> = {}
   clientCompanies.forEach(c => {
     const ownerUserId = c.user_id ?? c.company_owner_id
@@ -242,4 +223,3 @@ export default async function UsersPage() {
       </div>
   )
 }
-

@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ExpertApplicationDetailWrapper from '@/components/ExpertApplicationDetailWrapper'
 import Link from 'next/link'
@@ -24,7 +23,6 @@ export default async function ExpertApplicationDetailPage({
     : '/pages/expert/clients'
   const backLabel = back ? 'Back to Agency' : 'Back to Licenses'
 
-  const supabase = await createClient()
   const { data: application } = await q.getApplicationById(id)
   if (!application) redirect('/pages/expert/clients')
   const [

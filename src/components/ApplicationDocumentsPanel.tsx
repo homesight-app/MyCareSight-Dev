@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Folder, Download, FileText } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 
 interface Document {
   id: string
@@ -31,7 +30,6 @@ export default function ApplicationDocumentsPanel({
   const fetchDocuments = useCallback(async () => {
     setIsLoading(true)
     try {
-      const supabase = createClient()
       const { data, error } = await q.getApplicationDocumentsByApplicationId(applicationId)
 
       if (error) {
@@ -161,4 +159,3 @@ export default function ApplicationDocumentsPanel({
     </div>
   )
 }
-

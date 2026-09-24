@@ -1,6 +1,7 @@
-﻿import { redirect } from 'next/navigation'
+﻿import { readCaregiverPayRates } from '@/lib/repositories/caregiver-pay-rates'
+import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { readAgencyCaregiverDashboardStats } from '@/lib/repositories/agency-caregiver-dashboard'
 import * as q from '@/lib/supabase/query'
 import StaffManagementClient from '@/components/StaffManagementClient'
 import FeatureGate from '@/components/FeatureGate'
@@ -26,8 +27,6 @@ export default async function UserManagementPage({
   let caregiverContent: React.ReactNode = null
 
   if (tab === 'caregivers') {
-    const supabase = await createClient()
-
     const { data: staffRolesData } = await q.getConfigurationValuesWithSubcategories('STAFF_ROLE')
     const role = session.profile?.role ?? ''
     const canManageNotes = role === 'company_owner' || role === 'care_coordinator'
@@ -38,40 +37,24 @@ export default async function UserManagementPage({
     const roleFilter = params.role ?? 'all'
     const statusFilter = params.status ?? 'all'
 
-    const [staffResult, { count: totalStaff }, { count: activeStaff }] = await Promise.all([
+    const [staffResult, statsResult] = await Promise.all([
       q.getStaffMembersByAgencyIdPaginated(agencyId, { page, pageSize: PAGE_SIZE, search, status: statusFilter, role: roleFilter }),
-      supabase.from('caregiver_members').select('id', { count: 'exact', head: true }).eq('agency_id', agencyId),
-      supabase.from('caregiver_members').select('id', { count: 'exact', head: true }).eq('agency_id', agencyId).eq('status', 'active'),
+      readAgencyCaregiverDashboardStats(agencyId),
     ])
+    const stats = statsResult.data ?? { totalStaff: 0, activeStaff: 0, expiringLicenses: 0 }
 
     const staffMembers = staffResult.data ?? []
     const staffMemberIds = staffMembers.map((s) => s.id)
     const todayYmd = new Date().toISOString().slice(0, 10)
 
-    const [{ data: currentEffectivePayRates }, { data: allStaffLicensesData }, allStaffIdsResult] = await Promise.all([
+    const [{ data: currentEffectivePayRates }, { data: allStaffLicensesData }] = await Promise.all([
       staffMemberIds.length > 0
-        ? supabase
-            .from('caregiver_pay_rates')
-            .select('caregiver_member_id, pay_rate, service_type, effective_start')
-            .in('caregiver_member_id', staffMemberIds)
-            .lte('effective_start', todayYmd)
-            .or(`effective_end.is.null,effective_end.gt.${todayYmd}`)
+        ? readCaregiverPayRates({ caregiverIds: staffMemberIds, agencyId, effectiveOn: todayYmd })
         : Promise.resolve({ data: [] as { caregiver_member_id: string; pay_rate: number; service_type: string | null; effective_start: string }[], error: null }),
       staffMemberIds.length > 0
         ? q.getStaffLicensesByStaffMemberIds(staffMemberIds)
         : Promise.resolve({ data: [], error: null }),
-      supabase.from('caregiver_members').select('id').eq('agency_id', agencyId),
     ])
-
-    const allStaffIds = (allStaffIdsResult.data ?? []).map((r: { id: string }) => r.id)
-    const { count: expiringLicenses } = allStaffIds.length > 0
-      ? await supabase
-          .from('caregiver_credentials')
-          .select('id', { count: 'exact', head: true })
-          .in('caregiver_member_id', allStaffIds)
-          .lte('days_until_expiry', 30)
-          .gt('days_until_expiry', 0)
-      : { count: 0 }
 
     const currentPayRateByCaregiverId = new Map<string, number>()
     const byCaregiver = new Map<string, typeof currentEffectivePayRates>()
@@ -129,9 +112,9 @@ export default async function UserManagementPage({
         <StaffManagementClient
           staffMembers={staffMembers}
           licensesByStaff={licensesByStaff}
-          totalStaff={totalStaff ?? 0}
-          activeStaff={activeStaff ?? 0}
-          expiringLicenses={expiringLicenses ?? 0}
+          totalStaff={stats.totalStaff}
+          activeStaff={stats.activeStaff}
+          expiringLicenses={stats.expiringLicenses}
           staffWithExpiringLicenses={staffWithExpiringLicenses}
           staffRoleNames={staffRoleNames}
           canManageNotes={canManageNotes}

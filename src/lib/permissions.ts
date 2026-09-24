@@ -3,14 +3,14 @@
 import { getSession } from '@/lib/auth'
 
 const AGENCY_ROLES = ['company_owner', 'care_coordinator'] as const
-const ACTIVE_STATUSES = ['active', 'invited', 'pending'] as const
+const ACTIVE_STATUSES = ['active'] as const
 
 /**
  * Shared permission guard for all agency people / onboarding server actions.
  * Replaces the copy-pasted requirePlatformStaffOrAgencyAdmin helper that
  * previously lived in each action file and made its own DB query each time.
  *
- * Reads from session.agencyRoles (loaded once at login) — zero extra DB queries.
+ * Reads the agency roles returned by the current revocable session check.
  */
 export async function requirePlatformStaffOrAgencyRole(agencyId: string) {
   const session = await getSession()
@@ -19,8 +19,7 @@ export async function requirePlatformStaffOrAgencyRole(agencyId: string) {
   const profile = session.profile as { role?: string; is_active?: boolean } | null
   const role = profile?.role
 
-  // Platform staff have universal access regardless of is_active
-  // (blocking an admin via this guard would lock them out of fixing the situation)
+  // getSession has already rejected inactive profiles.
   if (role === 'admin' || role === 'expert') return { error: null, session }
 
   // Deactivated non-platform accounts are blocked

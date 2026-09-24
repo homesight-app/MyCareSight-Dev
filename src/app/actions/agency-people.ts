@@ -53,8 +53,8 @@ export interface PeopleData {
 // ——— Server action ——————————————————————————————————————————————————————————
 
 export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> {
-  const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
-  if (authErr) return { keyStaff: [], admins: [], coordinators: [], error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
+  if (authErr || !session) return { keyStaff: [], admins: [], coordinators: [], error: authErr ?? 'Forbidden' }
 
   const [staffRes, adminsRes, coordsRes] = await Promise.all([
     getAgencyKeyStaff(agencyId),
@@ -95,6 +95,16 @@ export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> 
     ...(s as Omit<RawKeyStaff, 'is_active'>),
     is_active: s.user_profile_id ? (isActiveByUserId.get(s.user_profile_id) ?? null) : null,
   }))
+
+  try {
+    await sql`
+      INSERT INTO public.audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+      VALUES (${agencyId}::uuid, 'agency_key_staff', NULL, 'READ', ${session.user.id}::uuid,
+        ${JSON.stringify({ operation: 'read_agency_people' })}::jsonb)
+    `
+  } catch {
+    return { keyStaff: [], admins: [], coordinators: [], error: 'Unable to record people-directory access' }
+  }
 
   return {
     keyStaff,

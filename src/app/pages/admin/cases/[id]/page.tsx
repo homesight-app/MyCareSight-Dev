@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import CaseTabs from '@/components/CaseTabs'
 import Link from 'next/link'
@@ -19,7 +18,6 @@ export default async function CaseDetailPage({
 }) {
   await requireAdmin()
   const { id } = await params
-  const supabase = await createClient()
 
   const { data: caseItem } = await q.getCaseById(id)
 

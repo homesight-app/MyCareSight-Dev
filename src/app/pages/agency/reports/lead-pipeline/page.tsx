@@ -1,7 +1,7 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
-import { createClient } from '@/lib/supabase/server'
+import { readAgencyLeadStageCounts } from '@/lib/repositories/agency-lead-reads'
 import * as q from '@/lib/supabase/query'
 import PageHeader from '@/components/ui/PageHeader'
 
@@ -13,16 +13,9 @@ export default async function LeadPipelineReportPage() {
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency/reports')
 
-  const supabase = await createClient()
-
   const [stagesResult, leadsResult] = await Promise.all([
     q.getAgencyLeadStages(agencyId),
-    supabase
-      .from('leads')
-      .select('stage')
-      .eq('agency_id', agencyId)
-      .eq('lead_type', 'patient')
-      .eq('status', 'active'),
+    readAgencyLeadStageCounts(agencyId),
   ])
 
   const stages = stagesResult.data ?? []
@@ -31,7 +24,7 @@ export default async function LeadPipelineReportPage() {
   // Count leads per stage
   const countsMap: Record<string, number> = {}
   for (const lead of leads) {
-    countsMap[lead.stage] = (countsMap[lead.stage] ?? 0) + 1
+    countsMap[lead.stage] = lead.count
   }
 
   const lostStages = stages.filter(s => s.is_lost)

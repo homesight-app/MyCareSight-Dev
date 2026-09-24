@@ -5,7 +5,7 @@ import * as q from '@/lib/supabase/query'
 import sql from '@/db'
 import { getSession } from '@/lib/auth'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
-import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { STORAGE_BUCKET } from '@/lib/storage'
 import { uploadFile, removeFiles, getPublicUrl } from '@/lib/storage/client'
 import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
@@ -22,6 +22,28 @@ function revalidateAgencyListCaches() {
 }
 
 export type { AgencyFormData }
+
+export async function getActiveAgencyOptionsAction() {
+  const session = await getSession()
+  if (!session || !['admin', 'expert'].includes(session.profile.role)) {
+    return { data: null, error: 'Forbidden' }
+  }
+  try {
+    const data = await sql<{ id: string; name: string }[]>`
+      SELECT id, name FROM public.agencies
+      WHERE status = 'active'
+      ORDER BY name, id
+    `
+    await sql`
+      INSERT INTO public.audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+      VALUES (NULL, 'agencies', NULL, 'READ', ${session.user.id}::uuid,
+        ${JSON.stringify({ operation: 'read_active_agency_options' })}::jsonb)
+    `
+    return { data, error: null }
+  } catch {
+    return { data: null, error: 'Unable to load agencies.' }
+  }
+}
 
 function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
   return {

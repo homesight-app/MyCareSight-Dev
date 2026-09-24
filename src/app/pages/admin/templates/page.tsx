@@ -1,5 +1,4 @@
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getTemplates } from '@/lib/supabase/query'
 import TemplatesContent from '@/components/TemplatesContent'
 

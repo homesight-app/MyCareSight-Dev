@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { Upload, FileText, Trash2, Download, Loader2 } from 'lucide-react'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { uploadLeadDocument, deleteLeadDocumentAction } from '@/app/actions/leads'
 
 export interface LeadDocument {

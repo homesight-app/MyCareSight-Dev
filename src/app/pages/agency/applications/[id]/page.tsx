@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ApplicationDetailWrapper from '@/components/ApplicationDetailWrapper'
 
@@ -12,7 +11,6 @@ export default async function ApplicationDetailPage({
   const session = await getSession()
 
   const { id } = await params
-  const supabase = await createClient()
 
   const { data: application } = await q.getApplicationById(id)
 

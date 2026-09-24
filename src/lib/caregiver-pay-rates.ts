@@ -20,7 +20,7 @@ export function pickCaregiverPayRateForVisit(
       r.caregiver_member_id === caregiverId &&
       (r.service_type == null || r.service_type === serviceType) &&
       r.effective_start <= visitDate &&
-      (!r.effective_end || r.effective_end >= visitDate)
+      (!r.effective_end || r.effective_end > visitDate)
   )
   const hit = candidates
     .sort((a, b) => {

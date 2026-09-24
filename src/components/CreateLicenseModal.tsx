@@ -5,7 +5,6 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { licenseSchema, type CreateLicenseFormData } from '@/lib/schemas/license'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { useSession } from 'next-auth/react'
 import { revalidateLicensesPage, createLicenseForAgency, linkProgramToCertification, createCertificationAndLink } from '@/app/actions/licenses'
@@ -140,7 +139,6 @@ export default function CreateLicenseModal({
     setIsSubmitting(true)
 
     try {
-      const supabase = createClient()
       const docsWithFiles = pendingDocs.filter(d => d.file !== null)
 
       // ── Edit mode ──────────────────────────────────────────────────────────

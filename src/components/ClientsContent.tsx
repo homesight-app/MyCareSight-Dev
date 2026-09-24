@@ -7,7 +7,6 @@ import { Users, CheckCircle2, FileText, Plus, Search, Eye, ChevronLeft, ChevronR
 import LoadingSpinner from '@/components/LoadingSpinner'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import AddNewClientModal from './AddNewClientModal'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { mapInsertedPatientToListPatient, type ClientsListPatient } from '@/lib/map-inserted-patient-to-list-row'
 import { patientFullName } from '@/lib/patient-name'
@@ -112,7 +111,6 @@ export default function ClientsContent({
       setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: newStatus } : c)))
     }
     try {
-      const supabase = createClient()
       const { error } = await q.updatePatientStatus(clientId, newStatus)
       if (error) console.error('Error updating status:', error)
     } catch (error) {

@@ -1,6 +1,6 @@
 /**
- * Centralized query layer. All database queries should go through this module.
- * Callers create the appropriate Supabase client (browser, server, or admin)
- * and pass it as the first argument to each query function.
+ * Historical entry point for the centralized PostgreSQL query layer.
+ * The directory name is retained temporarily to avoid a broad import-only
+ * change; these modules use the server-only Neon connection from `src/db`.
  */
 export * from './query/index'

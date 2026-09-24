@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
+import { readAdminLeadPlatformStaff } from '@/lib/repositories/platform-application-dashboard'
 import * as q from '@/lib/supabase/query'
 import LeadDetailContent from '@/components/LeadDetailContent'
 import { ADMIN_LEAD_CONTEXT } from '@/lib/constants/lead-configs'
@@ -15,15 +15,13 @@ export default async function AdminLeadDetailPage({
 }) {
   const { profile } = await requireAdmin()
   const { id } = await params
-  const supabase = await createClient()
-
   const [{ data: lead }, { data: notes }, { data: tasks }, { data: documents }, { data: platformStaff }] =
     await Promise.all([
       q.getLeadById(id),
       q.getLeadNotes(id),
       q.getLeadTasks(id),
       q.getLeadDocuments(id),
-      supabase.from('user_profiles').select('id, full_name').in('role', ['admin', 'expert']).order('full_name'),
+      readAdminLeadPlatformStaff(),
     ])
 
   if (!lead) redirect('/pages/admin/leads')

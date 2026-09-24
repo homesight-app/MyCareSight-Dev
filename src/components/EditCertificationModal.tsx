@@ -10,7 +10,8 @@ import { certificationSchema, type CertificationFormData } from '@/lib/schemas/c
 import { updateUnifiedCaregiverCertification } from '@/app/actions/staff-member-certifications'
 import { US_STATES } from '@/lib/constants'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
-import { useSession } from 'next-auth/react'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import type { StoredFileUpload } from '@/lib/storage/contracts'
 
 interface EditCertificationModalProps {
   isOpen: boolean
@@ -37,7 +38,6 @@ export default function EditCertificationModal({
   certificationTypes,
   certification
 }: EditCertificationModalProps) {
-  const { data: session } = useSession()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [existingDocumentUrl, setExistingDocumentUrl] = useState<string | null>(certification.document_url)
@@ -143,34 +143,15 @@ export default function EditCertificationModal({
 
   const onSubmit = async (data: CertificationFormData) => {
     setIsSubmitting(true)
+    let uploaded: StoredFileUpload | null = null
 
     try {
       let documentUrl: string | null = existingDocumentUrl
 
       if (selectedFile) {
         setIsUploading(true)
-        const user = session?.user
-        if (!user) {
-          showValidationToast({ error: 'You must be logged in to upload documents' })
-          setIsSubmitting(false)
-          setIsUploading(false)
-          return
-        }
-        const fileExt = selectedFile.name.split('.').pop()
-        const fileName = `certifications/${user.id}/${Date.now()}.${fileExt}`
-
-        const form = new FormData()
-        form.append('file', selectedFile)
-        form.append('bucket', 'application-documents')
-        form.append('path', fileName)
-        const res = await fetch('/api/storage/upload', { method: 'POST', body: form })
-        if (!res.ok) {
-          const { error: uploadError } = await res.json().catch(() => ({ error: 'Failed to upload file' }))
-          throw new Error(uploadError || 'Failed to upload file')
-        }
-        const { path: uploadedPath } = await res.json()
-
-        documentUrl = uploadedPath
+        uploaded = await uploadStoredFile(selectedFile, 'caregiver-certification')
+        documentUrl = uploaded.path
         setIsUploading(false)
       }
 
@@ -180,6 +161,7 @@ export default function EditCertificationModal({
       })
 
       if (!result.success) {
+        if (uploaded) await cleanupStoredFile(uploaded)
         if (result.fieldErrors) {
           Object.entries(result.fieldErrors).forEach(([field, msgs]) => {
             setError(field as keyof CertificationFormData, { message: msgs[0] })
@@ -193,6 +175,7 @@ export default function EditCertificationModal({
       onSuccess?.()
       onClose()
     } catch (err: any) {
+      if (uploaded) await cleanupStoredFile(uploaded)
       showValidationToast({ error: err.message || 'Failed to update certification. Please try again.' })
     } finally {
       setIsSubmitting(false)

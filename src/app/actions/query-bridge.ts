@@ -3,6 +3,7 @@
 import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
+import * as managerSchedules from '@/lib/repositories/manager-scheduling'
 
 const AGENCY_MANAGE_ROLES = new Set(['admin', 'expert', 'agency_admin', 'company_owner', 'care_coordinator'])
 
@@ -46,7 +47,7 @@ async function ctx<T>(fn: () => Promise<T>, opts?: { allowedRoles?: Set<string> 
 // ---------------------------------------------------------------------------
 
 export async function deleteNotificationByIdAndUser(...args: Parameters<typeof q.deleteNotificationByIdAndUser>) {
-  return ctx(() => q.deleteNotificationByIdAndUser(...args))
+  return q.deleteNotificationByIdAndUser(...args)
 }
 
 export async function getAgencyIdFromProfile(...args: Parameters<typeof q.getAgencyIdFromProfile>) {
@@ -98,31 +99,35 @@ export async function insertMessage(...args: Parameters<typeof q.insertMessage>)
 }
 
 export async function markConversationMessagesAsReadExceptSender(...args: Parameters<typeof q.markConversationMessagesAsReadExceptSender>) {
-  return ctx(() => q.markConversationMessagesAsReadExceptSender(...args))
+  return q.markConversationMessagesAsReadExceptSender(...args)
 }
 
 export async function markNotificationAsRead(...args: Parameters<typeof q.markNotificationAsRead>) {
-  return ctx(() => q.markNotificationAsRead(...args))
+  return q.markNotificationAsRead(...args)
 }
 
 export async function rpcCountUnreadMessagesForUser(...args: Parameters<typeof q.rpcCountUnreadMessagesForUser>) {
-  return ctx(() => q.rpcCountUnreadMessagesForUser(...args))
+  return q.rpcCountUnreadMessagesForUser(...args)
 }
 
 export async function rpcGetTotalUnreadCountForUser(...args: Parameters<typeof q.rpcGetTotalUnreadCountForUser>) {
-  return ctx(() => q.rpcGetTotalUnreadCountForUser(...args))
+  return q.rpcGetTotalUnreadCountForUser(...args)
+}
+
+export async function getTotalMessageCountForUser(...args: Parameters<typeof q.getTotalMessageCountForUser>) {
+  return q.getTotalMessageCountForUser(...args)
 }
 
 export async function rpcGetUnreadMessagesForUserInConversations(...args: Parameters<typeof q.rpcGetUnreadMessagesForUserInConversations>) {
-  return ctx(() => q.rpcGetUnreadMessagesForUserInConversations(...args))
+  return q.rpcGetUnreadMessagesForUserInConversations(...args)
 }
 
 export async function rpcMarkMessageAsReadByUser(...args: Parameters<typeof q.rpcMarkMessageAsReadByUser>) {
-  return ctx(() => q.rpcMarkMessageAsReadByUser(...args))
+  return q.rpcMarkMessageAsReadByUser(...args)
 }
 
 export async function rpcMarkMessagesAsReadByUser(...args: Parameters<typeof q.rpcMarkMessagesAsReadByUser>) {
-  return ctx(() => q.rpcMarkMessagesAsReadByUser(...args))
+  return q.rpcMarkMessagesAsReadByUser(...args)
 }
 
 export async function updateConversationLastMessageAt(...args: Parameters<typeof q.updateConversationLastMessageAt>) {
@@ -134,20 +139,24 @@ export async function getMessagesByConversationId(...args: Parameters<typeof q.g
 }
 
 export async function getUnreadNotificationItems(...args: Parameters<typeof q.getUnreadNotificationItems>) {
-  return ctx(() => q.getUnreadNotificationItems(...args))
+  return q.getUnreadNotificationItems(...args)
 }
 
 export async function getUnreadNotificationsByUserId(...args: Parameters<typeof q.getUnreadNotificationsByUserId>) {
-  return ctx(() => q.getUnreadNotificationsByUserId(...args))
+  return q.getUnreadNotificationsByUserId(...args)
 }
 
 export async function getUnreadNotificationsCount(...args: Parameters<typeof q.getUnreadNotificationsCount>) {
-  return ctx(() => q.getUnreadNotificationsCount(...args))
+  return q.getUnreadNotificationsCount(...args)
 }
 
 // ---------------------------------------------------------------------------
 // Applications
 // ---------------------------------------------------------------------------
+
+export async function getApplicationForClose(...args: Parameters<typeof q.getApplicationForClose>) {
+  return ctx(() => q.getApplicationForClose(...args))
+}
 
 export async function getApplicationAssignedExpertId(...args: Parameters<typeof q.getApplicationAssignedExpertId>) {
   return ctx(() => q.getApplicationAssignedExpertId(...args))
@@ -330,11 +339,11 @@ export async function deleteIncident(...args: Parameters<typeof q.deleteIncident
 }
 
 export async function deletePatientContractedHours(...args: Parameters<typeof q.deletePatientContractedHours>) {
-  return ctx(() => q.deletePatientContractedHours(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return q.deletePatientContractedHours(...args)
 }
 
 export async function deletePatientServiceContract(...args: Parameters<typeof q.deletePatientServiceContract>) {
-  return ctx(() => q.deletePatientServiceContract(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return q.deletePatientServiceContract(...args)
 }
 
 export async function deleteRepresentative(...args: Parameters<typeof q.deleteRepresentative>) {
@@ -342,7 +351,7 @@ export async function deleteRepresentative(...args: Parameters<typeof q.deleteRe
 }
 
 export async function deleteSchedule(...args: Parameters<typeof q.deleteSchedule>) {
-  return ctx(() => q.deleteSchedule(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return managerSchedules.managerDeleteSchedule(...args)
 }
 
 export async function deleteSkilledTaskPlanRowsBatch(...args: Parameters<typeof q.deleteSkilledTaskPlanRowsBatch>) {
@@ -362,7 +371,7 @@ export async function getCaregiverRequirementsByPatientId(...args: Parameters<ty
 }
 
 export async function getCaregiverSkillCatalogFromTaskRequirements(...args: Parameters<typeof q.getCaregiverSkillCatalogFromTaskRequirements>) {
-  return ctx(() => q.getCaregiverSkillCatalogFromTaskRequirements(...args))
+  return q.getCaregiverSkillCatalogFromTaskRequirements(...args)
 }
 
 export async function getClientsByExpertId(...args: Parameters<typeof q.getClientsByExpertId>) {
@@ -374,7 +383,7 @@ export async function getPatientAdlDaySchedulesByPatientId(...args: Parameters<t
 }
 
 export async function getPatientServiceContractsByPatientId(...args: Parameters<typeof q.getPatientServiceContractsByPatientId>) {
-  return ctx(() => q.getPatientServiceContractsByPatientId(...args))
+  return q.getPatientServiceContractsByPatientId(...args)
 }
 
 export async function getPatientSkilledCarePlanTasks(...args: Parameters<typeof q.getPatientSkilledCarePlanTasks>) {
@@ -386,15 +395,15 @@ export async function getPatientSkilledDaySchedulesByPatientId(...args: Paramete
 }
 
 export async function getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(...args: Parameters<typeof q.getScheduledVisitsAsScheduleRowsForAgencyAndDateRange>) {
-  return ctx(() => q.getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(...args))
+  return managerSchedules.managerGetSchedulesByAgencyAndRange(...args)
 }
 
 export async function getSchedulesByPatientId(...args: Parameters<typeof q.getSchedulesByPatientId>) {
-  return ctx(() => q.getSchedulesByPatientId(...args))
+  return managerSchedules.managerGetSchedulesByPatient(...args)
 }
 
 export async function getSchedulesByPatientIdAndDateRange(...args: Parameters<typeof q.getSchedulesByPatientIdAndDateRange>) {
-  return ctx(() => q.getSchedulesByPatientIdAndDateRange(...args))
+  return managerSchedules.managerGetSchedulesByPatientAndRange(...args)
 }
 
 export async function getTaskCatalogAdlLists(...args: Parameters<typeof q.getTaskCatalogAdlLists>) {
@@ -422,15 +431,15 @@ export async function insertPatientAddress(...args: Parameters<typeof q.insertPa
 }
 
 export async function insertPatientContractedHours(...args: Parameters<typeof q.insertPatientContractedHours>) {
-  return ctx(() => q.insertPatientContractedHours(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return q.insertPatientContractedHours(...args)
 }
 
 export async function insertPatientServiceContract(...args: Parameters<typeof q.insertPatientServiceContract>) {
-  return ctx(() => q.insertPatientServiceContract(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return q.insertPatientServiceContract(...args)
 }
 
 export async function insertRecurringSchedulesFromSeries(...args: Parameters<typeof q.insertRecurringSchedulesFromSeries>) {
-  return ctx(() => q.insertRecurringSchedulesFromSeries(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return managerSchedules.managerInsertRecurringSchedules(...args)
 }
 
 export async function insertRepresentative(...args: Parameters<typeof q.insertRepresentative>) {
@@ -438,7 +447,7 @@ export async function insertRepresentative(...args: Parameters<typeof q.insertRe
 }
 
 export async function insertSchedule(...args: Parameters<typeof q.insertSchedule>) {
-  return ctx(() => q.insertSchedule(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return managerSchedules.managerInsertSchedule(...args)
 }
 
 export async function updateIncident(...args: Parameters<typeof q.updateIncident>) {
@@ -462,11 +471,11 @@ export async function updatePatientMedical(...args: Parameters<typeof q.updatePa
 }
 
 export async function updatePatientServiceContractDetails(...args: Parameters<typeof q.updatePatientServiceContractDetails>) {
-  return ctx(() => q.updatePatientServiceContractDetails(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return q.updatePatientServiceContractDetails(...args)
 }
 
 export async function updatePatientServiceContractStatus(...args: Parameters<typeof q.updatePatientServiceContractStatus>) {
-  return ctx(() => q.updatePatientServiceContractStatus(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return q.updatePatientServiceContractStatus(...args)
 }
 
 export async function updatePatientSkilledTaskDayScheduleNote(...args: Parameters<typeof q.updatePatientSkilledTaskDayScheduleNote>) {
@@ -478,7 +487,7 @@ export async function updatePatientStatus(...args: Parameters<typeof q.updatePat
 }
 
 export async function updateRecurringSchedulesByScope(...args: Parameters<typeof q.updateRecurringSchedulesByScope>) {
-  return ctx(() => q.updateRecurringSchedulesByScope(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return managerSchedules.managerUpdateRecurringSchedules(...args)
 }
 
 export async function updateRepresentative(...args: Parameters<typeof q.updateRepresentative>) {
@@ -486,7 +495,7 @@ export async function updateRepresentative(...args: Parameters<typeof q.updateRe
 }
 
 export async function updateSchedule(...args: Parameters<typeof q.updateSchedule>) {
-  return ctx(() => q.updateSchedule(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return managerSchedules.managerUpdateSchedule(...args)
 }
 
 export async function upsertPatientAdlDaySchedulesBatch(...args: Parameters<typeof q.upsertPatientAdlDaySchedulesBatch>) {

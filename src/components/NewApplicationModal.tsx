@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { applicationSchema, type ApplicationFormData } from '@/lib/schemas/application'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { useSession } from 'next-auth/react'
 import Modal from './Modal'
@@ -45,7 +44,6 @@ export default function NewApplicationModal({ isOpen, onClose, onSuccess }: NewA
         setIsLoading(false)
         return
       }
-      const supabase = createClient()
 
       const today = new Date().toISOString().split('T')[0]
 

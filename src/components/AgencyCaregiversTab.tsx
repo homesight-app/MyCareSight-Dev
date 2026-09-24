@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { UserPlus, RefreshCw, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import Modal from './Modal'
 import ResetPasswordModal from './ResetPasswordModal'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
@@ -15,6 +14,7 @@ import {
   updateCaregiverStatus,
   addCaregiverForAgency,
   updateCaregiverProfile,
+  getAgencyCaregiverDirectory,
 } from '@/app/actions/agency-users'
 
 interface CaregiverRecord {
@@ -194,39 +194,22 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
   const fetchActive = useCallback(async () => {
     setLoading(true)
     setFetchError(null)
-    const supabase = createClient()
-    const [{ data, error }, { count }] = await Promise.all([
-      supabase
-        .from('caregiver_members')
-        .select('id, user_id, first_name, last_name, email, phone, role, job_title, status')
-        .eq('agency_id', agencyId)
-        .eq('status', 'active')
-        .order('first_name'),
-      supabase
-        .from('caregiver_members')
-        .select('id', { count: 'exact', head: true })
-        .eq('agency_id', agencyId)
-        .neq('status', 'active'),
-    ])
-    if (error) {
-      setFetchError(error.message)
+    const result = await getAgencyCaregiverDirectory(agencyId)
+    if (result.error || !result.data) {
+      setFetchError(result.error ?? 'Unable to load caregivers.')
     } else {
-      setActiveData((data ?? []) as CaregiverRecord[])
-      setInactiveCount(count ?? 0)
+      setActiveData(result.data.active as unknown as CaregiverRecord[])
+      setInactiveData(result.data.inactive as unknown as CaregiverRecord[])
+      setInactiveCount(result.data.inactive.length)
+      setInactiveLoaded(true)
     }
     setLoading(false)
   }, [agencyId])
 
   const fetchInactive = useCallback(async () => {
     setLoadingInactive(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('caregiver_members')
-      .select('id, user_id, first_name, last_name, email, phone, role, job_title, status')
-      .eq('agency_id', agencyId)
-      .neq('status', 'active')
-      .order('first_name')
-    setInactiveData((data ?? []) as CaregiverRecord[])
+    const result = await getAgencyCaregiverDirectory(agencyId)
+    setInactiveData((result.data?.inactive ?? []) as unknown as CaregiverRecord[])
     setInactiveLoaded(true)
     setLoadingInactive(false)
   }, [agencyId])

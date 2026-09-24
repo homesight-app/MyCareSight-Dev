@@ -1,13 +1,11 @@
 import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import AdminLicensesContent from '@/components/AdminLicensesContent'
 
 export default async function AdminLicensesPage() {
   await requireAdmin()
   redirect('/pages/admin')
-  const supabase = await createClient()
 
   const [
     { data: requestedApplicationsData, error: requestedError },

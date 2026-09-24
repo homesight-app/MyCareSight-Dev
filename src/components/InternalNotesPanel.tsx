@@ -1,6 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { toast } from 'sonner'
 import Link from 'next/link'
 import { Plus, Pencil, Trash2, X, Check, Loader2, FileText, Tag, Link as LinkIcon } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
@@ -13,8 +16,8 @@ import {
   getInternalNotesPanelDataAction,
   logNoteSearchAction,
 } from '@/app/actions/internal-notes'
-import { getAgencyPatientNamesAction } from '@/app/actions/patients'
 import type { InternalNoteSubjectType } from '@/lib/supabase/query/internal-notes'
+import { noteEditorSchema, type NoteEditorInput } from '@/lib/schemas/internal-notes'
 
 interface NoteRow {
   id: string
@@ -123,22 +126,27 @@ export default function InternalNotesPanel({
   const [tagCaregivers, setTagCaregivers] = useState<CaregiverTagOption[]>([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const fetchGeneration=useRef(0)
 
   // Add form state
   const [showAddForm, setShowAddForm] = useState(false)
-  const [addContent, setAddContent] = useState('')
-  const [addTagPatient, setAddTagPatient] = useState<string>('')
-  const [addTagCaregiver, setAddTagCaregiver] = useState<string>('')
-  const [addLoading, setAddLoading] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
+  const addForm=useForm<NoteEditorInput>({resolver:zodResolver(noteEditorSchema),mode:'onBlur',
+    defaultValues:{content:'',taggedPatientId:'',taggedCaregiverId:''}})
+  const addContent=addForm.watch('content')
+  const addTagPatient=addForm.watch('taggedPatientId') ?? ''
+  const addTagCaregiver=addForm.watch('taggedCaregiverId') ?? ''
+  const addLoading=addForm.formState.isSubmitting
+  const addError=addForm.formState.errors.content?.message ?? addForm.formState.errors.root?.server?.message ?? null
 
   // Edit form state
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editContent, setEditContent] = useState('')
-  const [editTagPatient, setEditTagPatient] = useState<string>('')
-  const [editTagCaregiver, setEditTagCaregiver] = useState<string>('')
-  const [editLoading, setEditLoading] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
+  const editForm=useForm<NoteEditorInput>({resolver:zodResolver(noteEditorSchema),mode:'onBlur',
+    defaultValues:{content:'',taggedPatientId:'',taggedCaregiverId:''}})
+  const editContent=editForm.watch('content')
+  const editTagPatient=editForm.watch('taggedPatientId') ?? ''
+  const editTagCaregiver=editForm.watch('taggedCaregiverId') ?? ''
+  const editLoading=editForm.formState.isSubmitting
+  const editError=editForm.formState.errors.content?.message ?? editForm.formState.errors.root?.server?.message ?? null
 
   // Delete state
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -196,6 +204,7 @@ export default function InternalNotesPanel({
       agencyId,
       subjectType,
       subjectId,
+      applicationId: applicationId ?? null,
       searchTerm: debouncedSearch.trim(),
       resultsReturned: filteredNotes.length,
     })
@@ -214,91 +223,83 @@ export default function InternalNotesPanel({
   }
 
   const fetchAll = useCallback(async () => {
+    const generation=++fetchGeneration.current
+    setNotes([])
+    setAssociatedNotes([])
+    setTagPatients([])
+    setTagCaregivers([])
     setLoading(true)
     setFetchError(null)
 
-    const patientsQuery = isAppNote
-      ? Promise.resolve([] as PatientTagOption[])
-      : getAgencyPatientNamesAction()
-
-    const [panelData, patientsData] = await Promise.all([
-      getInternalNotesPanelDataAction({ subjectType, subjectId, agencyId }),
-      patientsQuery,
-    ])
-
-    setLoading(false)
-
-    setTagPatients(patientsData ?? [])
-    setTagCaregivers(panelData.caregivers ?? [])
-
-    if (panelData.error) {
+    try {
+      const panelData=await getInternalNotesPanelDataAction({subjectType,subjectId,agencyId,applicationId:applicationId ?? null})
+      if(generation !== fetchGeneration.current) return
+      setTagPatients(panelData.patients)
+      setTagCaregivers(panelData.caregivers)
+      setNotes(panelData.notes)
+      setAssociatedNotes(panelData.associatedNotes)
+      if(panelData.error) setFetchError(panelData.error)
+    } catch {
+      if(generation !== fetchGeneration.current) return
+      setNotes([])
+      setAssociatedNotes([])
+      setTagPatients([])
+      setTagCaregivers([])
       setFetchError('Failed to load notes.')
-      return
+    } finally {
+      if(generation === fetchGeneration.current) setLoading(false)
     }
-
-    setNotes(panelData.notes ?? [])
-    setAssociatedNotes(panelData.associatedNotes ?? [])
-  }, [subjectType, subjectId, agencyId, isAppNote])
+  }, [subjectType,subjectId,agencyId,applicationId])
 
   useEffect(() => {
+    const generationRef=fetchGeneration
     fetchAll()
+    return () => {generationRef.current++}
   }, [fetchAll])
 
-  const handleAdd = async () => {
-    if (!addContent.trim()) return
-    setAddLoading(true)
-    setAddError(null)
+  const handleAdd = async (values:NoteEditorInput) => {
+    addForm.clearErrors()
     const result = await addInternalNoteAction({
       subjectType,
       subjectId,
       agencyId,
-      content: addContent,
+      content: values.content,
       applicationId: applicationId ?? null,
-      taggedPatientId:   isAppNote ? null : (addTagPatient   || null),
-      taggedCaregiverId: isAppNote ? null : (addTagCaregiver || null),
+      taggedPatientId:   isAppNote ? null : (values.taggedPatientId   || null),
+      taggedCaregiverId: isAppNote ? null : (values.taggedCaregiverId || null),
     })
-    setAddLoading(false)
-    if (result.error) { setAddError(result.error); return }
-    setAddContent('')
-    setAddTagPatient('')
-    setAddTagCaregiver('')
+    if (result.error) { addForm.setError('root.server',{message:result.error}); toast.error(result.error); return }
+    addForm.reset()
     setShowAddForm(false)
+    toast.success('Note saved')
     await fetchAll()
   }
 
   const startEdit = (note: UnifiedNote) => {
     setEditingId(note.id)
-    setEditContent(note.content)
-    setEditTagPatient(note.tagged_patient_id ?? '')
-    setEditTagCaregiver(note.tagged_caregiver_id ?? '')
-    setEditError(null)
+    editForm.reset({content:note.content,taggedPatientId:note.tagged_patient_id ?? '',taggedCaregiverId:note.tagged_caregiver_id ?? ''})
   }
 
   const cancelEdit = () => {
     setEditingId(null)
-    setEditContent('')
-    setEditTagPatient('')
-    setEditTagCaregiver('')
-    setEditError(null)
+    editForm.reset()
   }
 
-  const handleEdit = async (noteId: string) => {
-    if (!editContent.trim()) return
-    setEditLoading(true)
-    setEditError(null)
+  const handleEdit = async (noteId: string,values:NoteEditorInput) => {
+    editForm.clearErrors()
     const result = await editInternalNoteAction({
       noteId,
-      content: editContent,
+      content: values.content,
       agencyId,
       subjectType,
       subjectId,
       applicationId: applicationId ?? null,
-      taggedPatientId:   isAppNote ? null : (editTagPatient   || null),
-      taggedCaregiverId: isAppNote ? null : (editTagCaregiver || null),
+      taggedPatientId:   isAppNote ? null : (values.taggedPatientId   || null),
+      taggedCaregiverId: isAppNote ? null : (values.taggedCaregiverId || null),
     })
-    setEditLoading(false)
-    if (result.error) { setEditError(result.error); return }
+    if (result.error) { editForm.setError('root.server',{message:result.error});toast.error(result.error);return }
     cancelEdit()
+    toast.success('Note updated')
     await fetchAll()
   }
 
@@ -306,8 +307,9 @@ export default function InternalNotesPanel({
     setDeleteLoading(true)
     const result = await deleteInternalNoteAction({ noteId, agencyId, subjectType, subjectId, applicationId: applicationId ?? null })
     setDeleteLoading(false)
-    if (result.error) return
+    if (result.error) {toast.error(result.error);return}
     setDeletingId(null)
+    toast.success('Note deleted')
     await fetchAll()
   }
 
@@ -377,7 +379,7 @@ export default function InternalNotesPanel({
         </div>
         {canManage && !showAddForm && (
           <button
-            onClick={() => { setShowAddForm(true); setAddError(null) }}
+            onClick={() => { addForm.reset(); setShowAddForm(true) }}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -389,10 +391,9 @@ export default function InternalNotesPanel({
       <div className="p-6 space-y-4">
         {/* Add note form */}
         {showAddForm && canManage && (
-          <div className="border border-blue-200 rounded-xl p-4 bg-blue-50/40">
+          <form onSubmit={addForm.handleSubmit(handleAdd)} noValidate className="border border-blue-200 rounded-xl p-4 bg-blue-50/40">
             <textarea
-              value={addContent}
-              onChange={(e) => setAddContent(e.target.value)}
+              {...addForm.register('content')}
               placeholder="Enter your note..."
               rows={4}
               className="w-full text-sm text-gray-900 bg-white border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
@@ -403,31 +404,32 @@ export default function InternalNotesPanel({
               <TagSelects
                 patientVal={addTagPatient}
                 caregiverVal={addTagCaregiver}
-                onPatientChange={setAddTagPatient}
-                onCaregiverChange={setAddTagCaregiver}
+                onPatientChange={value=>addForm.setValue('taggedPatientId',value,{shouldValidate:true})}
+                onCaregiverChange={value=>addForm.setValue('taggedCaregiverId',value,{shouldValidate:true})}
                 disabled={addLoading}
               />
             )}
             {addError && <p className="mt-1.5 text-sm text-red-600">{addError}</p>}
             <div className="flex items-center justify-end gap-2 mt-3">
               <button
-                onClick={() => { setShowAddForm(false); setAddContent(''); setAddTagPatient(''); setAddTagCaregiver(''); setAddError(null) }}
+                type="button"
+                onClick={() => { setShowAddForm(false); addForm.reset() }}
                 disabled={addLoading}
                 className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <Button
+                type="submit"
                 variant="primary"
                 size="sm"
-                onClick={handleAdd}
                 disabled={addLoading || !addContent.trim()}
                 loading={addLoading}
               >
                 {addLoading ? 'Saving...' : 'Save Note'}
               </Button>
             </div>
-          </div>
+          </form>
         )}
 
         {/* Loading state */}
@@ -608,10 +610,9 @@ export default function InternalNotesPanel({
 
             {/* Edit mode (direct notes only) */}
             {note.source === 'direct' && editingId === note.id ? (
-              <div>
+              <form onSubmit={editForm.handleSubmit(values=>handleEdit(note.id,values))} noValidate>
                 <textarea
-                  value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
+                  {...editForm.register('content')}
                   rows={4}
                   className="w-full text-sm text-gray-900 bg-white border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
                   disabled={editLoading}
@@ -621,14 +622,15 @@ export default function InternalNotesPanel({
                   <TagSelects
                     patientVal={editTagPatient}
                     caregiverVal={editTagCaregiver}
-                    onPatientChange={setEditTagPatient}
-                    onCaregiverChange={setEditTagCaregiver}
+                    onPatientChange={value=>editForm.setValue('taggedPatientId',value,{shouldValidate:true})}
+                    onCaregiverChange={value=>editForm.setValue('taggedCaregiverId',value,{shouldValidate:true})}
                     disabled={editLoading}
                   />
                 )}
                 {editError && <p className="mt-1 text-sm text-red-600">{editError}</p>}
                 <div className="flex items-center justify-end gap-2 mt-2">
                   <button
+                    type="button"
                     onClick={cancelEdit}
                     disabled={editLoading}
                     className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
@@ -637,7 +639,7 @@ export default function InternalNotesPanel({
                     <X className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => handleEdit(note.id)}
+                    type="submit"
                     disabled={editLoading || !editContent.trim()}
                     className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Save edit"
@@ -649,7 +651,7 @@ export default function InternalNotesPanel({
                     )}
                   </button>
                 </div>
-              </div>
+              </form>
             ) : note.source === 'direct' && deletingId === note.id ? (
               /* Delete confirmation (direct notes only) */
               <div>

@@ -15,7 +15,7 @@ const _store = new AsyncLocalStorage<any>()
 // Intercepts ONLY tagged-template calls (sql`...`). All property accesses
 // (sql.begin, sql.unsafe, sql.options, etc.) fall through to _sql directly —
 // this avoids accidentally nesting transactions or corrupting structural state.
-// All query functions in src/lib/supabase/query/* use the sql`...` form only,
+// All functions in the historical query directory use the sql`...` form only,
 // so the apply-only proxy covers the full query layer without a get-trap.
 export const sql = new Proxy(_sql, {
   apply(_target, _thisArg, args) {
@@ -64,4 +64,19 @@ export async function withUserContext<T>(
     `
     return _store.run(tx, fn)
   }) as Promise<T>
+}
+
+/**
+ * Reuse an existing transaction only when it belongs to this verified actor.
+ * This prevents nested pool acquisition in report reads and keeps audits in
+ * the parent transaction. Never replace an existing actor's context.
+ */
+export async function withActorContext<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const tx = _store.getStore()
+  if (!tx) return withUserContext(userId, '', null, fn)
+  const [context] = await tx`
+    SELECT current_setting('app.current_user_id', true) AS user_id
+  `
+  if (context?.user_id !== userId) throw new Error('Database actor context mismatch')
+  return fn()
 }

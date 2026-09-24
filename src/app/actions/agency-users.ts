@@ -3,7 +3,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
-import bcrypt from 'bcryptjs'
+import { hashPassword } from '@/lib/auth/password'
 import { sendInvitationEmail } from '@/lib/email'
 import sql from '@/db'
 import * as q from '@/lib/supabase/query'
@@ -12,6 +12,79 @@ function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
   revalidatePath(`/pages/expert/agencies/${agencyId}`)
   revalidatePath(`/pages/agency/people`)
+}
+
+export async function getAgencyCaregiverDirectory(agencyId: string) {
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
+  if (authErr || !session) return { data: null, error: authErr ?? 'Forbidden' }
+  try {
+    const [active, inactive] = await Promise.all([
+      sql`
+        SELECT id, user_id, first_name, last_name, email, phone, role, job_title, status
+        FROM public.caregiver_members
+        WHERE agency_id = ${agencyId}::uuid AND status = 'active'
+        ORDER BY first_name, last_name, id
+      `,
+      sql`
+        SELECT id, user_id, first_name, last_name, email, phone, role, job_title, status
+        FROM public.caregiver_members
+        WHERE agency_id = ${agencyId}::uuid AND status <> 'active'
+        ORDER BY first_name, last_name, id
+      `,
+    ])
+    await sql`
+      INSERT INTO public.audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+      VALUES (${agencyId}::uuid, 'caregiver_members', NULL, 'READ', ${session.user.id}::uuid,
+        ${JSON.stringify({ operation: 'read_agency_caregiver_directory' })}::jsonb)
+    `
+    return { data: { active, inactive }, error: null }
+  } catch {
+    return { data: null, error: 'Unable to load caregivers.' }
+  }
+}
+
+export async function getAgencyUserDirectory(agencyId: string) {
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
+  if (authErr || !session) return { data: null, error: authErr ?? 'Forbidden' }
+  try {
+    const canAssignExistingOwner = ['admin', 'expert'].includes(session.profile.role)
+    const [admins, availableAdmins, coordinators, caregivers] = await Promise.all([
+      sql`
+        SELECT id, user_id, contact_name, contact_email, contact_phone, status
+        FROM public.agency_admins
+        WHERE agency_id = ${agencyId}::uuid
+        ORDER BY contact_name NULLS LAST, id
+      `,
+      canAssignExistingOwner
+        ? sql`
+            SELECT id, user_id, contact_name, contact_email, contact_phone, status
+            FROM public.agency_admins
+            WHERE agency_id IS NULL AND user_id IS NOT NULL
+            ORDER BY contact_name NULLS LAST, id
+          `
+        : Promise.resolve([]),
+      sql`
+        SELECT id, user_id, first_name, last_name, email, status
+        FROM public.care_coordinators
+        WHERE agency_id = ${agencyId}::uuid
+        ORDER BY first_name, last_name, id
+      `,
+      sql`
+        SELECT id, user_id, first_name, last_name, email, phone, role, job_title, status
+        FROM public.caregiver_members
+        WHERE agency_id = ${agencyId}::uuid
+        ORDER BY first_name, last_name, id
+      `,
+    ])
+    await sql`
+      INSERT INTO public.audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+      VALUES (${agencyId}::uuid, 'user_profiles', NULL, 'READ', ${session.user.id}::uuid,
+        ${JSON.stringify({ operation: 'read_agency_user_directory' })}::jsonb)
+    `
+    return { data: { admins, availableAdmins, coordinators, caregivers }, error: null }
+  } catch {
+    return { data: null, error: 'Unable to load agency users.' }
+  }
 }
 
 async function createUserForAgency(
@@ -28,7 +101,7 @@ async function createUserForAgency(
   `
 
   if (existingProfile) {
-    const passwordHash = await bcrypt.hash(tempPassword, 12)
+    const passwordHash = await hashPassword(tempPassword)
     await sql`
       UPDATE user_profiles SET password_hash = ${passwordHash}, role = ${role}, agency_id = ${agencyId}, updated_at = ${new Date().toISOString()}
       WHERE id = ${existingProfile.id}
@@ -38,7 +111,7 @@ async function createUserForAgency(
   }
 
   const userId = randomUUID()
-  const passwordHash = await bcrypt.hash(tempPassword, 12)
+  const passwordHash = await hashPassword(tempPassword)
 
   try {
     await sql`INSERT INTO user_profiles ${sql({
@@ -229,7 +302,7 @@ export async function addCaregiverForAgency(
     record_id: result.userId,
     action: 'GRANT_SYSTEM_ACCESS',
     performed_by_user_id: session.user.id,
-    details: { credential: 'staff_member', contact_name: `${opts.firstName} ${opts.lastName}` },
+    details: { credential: 'staff_member' },
   })
 
   revalidateAgencyDetailPages(agencyId)
@@ -252,7 +325,7 @@ export async function addCareCoordinatorForAgency(
     record_id: result.userId,
     action: 'GRANT_SYSTEM_ACCESS',
     performed_by_user_id: session.user.id,
-    details: { credential: 'care_coordinator', contact_name: `${opts.firstName} ${opts.lastName}` },
+    details: { credential: 'care_coordinator' },
   })
 
   revalidateAgencyDetailPages(agencyId)
@@ -275,7 +348,7 @@ export async function createAndLinkAgencyAdmin(
     record_id: result.userId,
     action: 'GRANT_SYSTEM_ACCESS',
     performed_by_user_id: session.user.id,
-    details: { credential: 'company_owner', contact_name: `${opts.firstName} ${opts.lastName}` },
+    details: { credential: 'company_owner' },
   })
 
   revalidateAgencyDetailPages(agencyId)
@@ -388,7 +461,7 @@ export async function promoteKeyStaffToUser(
   const normalizedEmail = opts.email.toLowerCase().trim()
   const fullName = `${opts.firstName} ${opts.lastName}`.trim()
   const userId = randomUUID()
-  const passwordHash = await bcrypt.hash(opts.tempPassword, 12)
+  const passwordHash = await hashPassword(opts.tempPassword)
 
   try {
     await sql`INSERT INTO user_profiles ${sql({

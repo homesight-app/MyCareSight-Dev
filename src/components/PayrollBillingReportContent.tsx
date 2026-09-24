@@ -20,12 +20,17 @@ import type { PayrollBillingDetailRow } from '@/lib/payroll-billing-report'
 import {
   getPayrollBillingReportRowsAction,
   getRateManagerDataAction,
-  updatePatientServiceContractBillRateAction,
-  updateCaregiverPayRateFromManagerAction,
+  savePatientServiceContractBillRatesAction,
   type RateManagerBillRow,
   type RateManagerPayRow,
 } from '@/app/actions/payroll-billing-report'
 import Modal from '@/components/Modal'
+import { useForm, type FieldPath } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { payRateBatchSchema, type PayRateBatchInput, type PayRateBatch, type PayRateMutationInput } from '@/lib/schemas/caregiver-pay-rates'
+import { saveCaregiverPayRatesAction } from '@/app/actions/caregiver-pay-rates'
+import { toast } from 'sonner'
+import { billRateBatchSchema } from '@/lib/schemas/financial-maintenance'
 
 type TabKey = 'detail' | 'payroll' | 'billing'
 
@@ -694,7 +699,7 @@ export default function PayrollBillingReportContent({
   )
 }
 
-function RateManagerModal({
+export function RateManagerModal({
   isOpen,
   onClose,
   onSaved,
@@ -707,7 +712,20 @@ function RateManagerModal({
   const [search, setSearch] = useState('')
   const [payRows, setPayRows] = useState<RateManagerPayRow[]>([])
   const [billRows, setBillRows] = useState<RateManagerBillRow[]>([])
-  const [payDraft, setPayDraft] = useState<Record<string, string>>({})
+  const { register: registerPay, handleSubmit: submitPay, reset: resetPay, setError: setPayError,
+    watch: watchPay, formState: { errors: payErrors, isSubmitting: paySaving } } =
+    useForm<PayRateBatchInput, unknown, PayRateBatch>({
+      resolver: zodResolver(payRateBatchSchema), mode: 'onBlur', defaultValues: { rates: [] },
+    })
+  const payValues = watchPay('rates')
+  const payDefaults = useCallback((rows: RateManagerPayRow[]): PayRateBatchInput => ({
+    rates: rows.map(row => ({
+      caregiverMemberId: row.caregiver_member_id, payRate: row.rate,
+      effectiveDate: new Date().toISOString().slice(0,10),
+      serviceType: row.service_type as PayRateMutationInput['serviceType'],
+      unitType: row.unit_type as PayRateMutationInput['unitType'],
+    })),
+  }), [])
   const [billDraft, setBillDraft] = useState<Record<string, string>>({})
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [actionErr, setActionErr] = useState<string | null>(null)
@@ -724,10 +742,10 @@ function RateManagerModal({
       }
       setPayRows(res.payRows)
       setBillRows(res.billRows)
-      setPayDraft(Object.fromEntries(res.payRows.map((r) => [r.id, String(r.rate)])))
+      resetPay(payDefaults(res.payRows))
       setBillDraft(Object.fromEntries(res.billRows.map((r) => [r.id, String(r.bill_rate ?? '')])))
     })()
-  }, [])
+  }, [resetPay, payDefaults])
 
   useEffect(() => {
     if (isOpen) void load()
@@ -749,14 +767,7 @@ function RateManagerModal({
     )
   }, [billRows, search])
 
-  const payDirty = useMemo(() => {
-    for (const r of payRows) {
-      const d = payDraft[r.id]
-      if (d === undefined) continue
-      if (Number(d) !== r.rate) return true
-    }
-    return false
-  }, [payRows, payDraft])
+  const payDirty = payRows.some((row, i) => Number(payValues?.[i]?.payRate) !== row.rate)
 
   const billDirty = useMemo(() => {
     for (const r of billRows) {
@@ -768,35 +779,59 @@ function RateManagerModal({
     return false
   }, [billRows, billDraft])
 
-  const anyDirty = payDirty || billDirty
+  const anyDirty = subTab === 'pay' ? payDirty : billDirty
 
   const resetDrafts = () => {
-    setPayDraft(Object.fromEntries(payRows.map((r) => [r.id, String(r.rate)])))
+    resetPay(payDefaults(payRows))
     setBillDraft(Object.fromEntries(billRows.map((r) => [r.id, String(r.bill_rate ?? '')])))
     setActionErr(null)
   }
 
+  const savePay = async (data: PayRateBatch) => {
+    const changed = data.rates.map((rate,index) => ({rate,index}))
+      .filter(({rate,index}) => rate.payRate !== payRows[index]?.rate)
+    if (!changed.length) return
+    try {
+      const result = await saveCaregiverPayRatesAction({rates:changed.map(item=>item.rate)})
+      if (!result.success) {
+        for (const [path,messages] of Object.entries(result.fieldErrors ?? {})) {
+          const match = /^rates.(d+).(.+)$/.exec(path)
+          const field = match ? 'rates.' + changed[Number(match[1])].index + '.' + match[2] : 'root'
+          setPayError(field as FieldPath<PayRateBatchInput>,{message:messages[0]})
+        }
+        if (!result.fieldErrors) toast.error(result.error ?? 'Unable to save pay rates')
+        return
+      }
+      toast.success('Pay rates saved')
+      await load()
+      onSaved?.()
+      onClose()
+    } catch { toast.error('Unable to save pay rates') }
+  }
+
   const save = () => {
+    if (subTab === 'pay') {
+      void submitPay(savePay)()
+      return
+    }
     setActionErr(null)
     startTransition(async () => {
-      for (const r of payRows) {
-        const d = payDraft[r.id]
-        if (d === undefined || Number(d) === r.rate) continue
-        const res = await updateCaregiverPayRateFromManagerAction(r.caregiver_member_id, r.service_type, Number(d))
-        if (res.error) {
-          setActionErr(res.error)
-          return
-        }
+      const input = { rates: billRows.flatMap(row => {
+        const draft = billDraft[row.id]
+        return draft === undefined || Number(draft) === (row.bill_rate ?? 0)
+          ? [] : [{ contractId: row.id, billRate: draft.trim() === '' ? Number.NaN : Number(draft) }]
+      }) }
+      const parsed = billRateBatchSchema.safeParse(input)
+      if (!parsed.success) {
+        setActionErr(parsed.error.issues[0]?.message ?? 'Check the bill-rate fields.')
+        return
       }
-      for (const r of billRows) {
-        const d = billDraft[r.id]
-        if (d === undefined || Number(d) === (r.bill_rate ?? 0)) continue
-        const res = await updatePatientServiceContractBillRateAction(r.id, Number(d))
-        if (res.error) {
-          setActionErr(res.error)
-          return
-        }
+      const result = await savePatientServiceContractBillRatesAction(parsed.data)
+      if (!result.success) {
+        setActionErr(result.error ?? 'Unable to save bill rates')
+        return
       }
+      toast.success('Bill rates saved')
       await load()
       onSaved?.()
       onClose()
@@ -813,7 +848,7 @@ function RateManagerModal({
           Rate Manager
         </span>
       }
-      subtitle="View and update caregiver pay rates and client bill rates. Pay rate edits add a new effective-dated row and close the previous open row on the same date (see caregiver_pay_rates). Bill rate edits update the active contract row."
+      subtitle="Update caregiver pay by effective date, or update client bill rates on the active contract."
       size="xl"
     >
       <div className="space-y-4">
@@ -838,8 +873,8 @@ function RateManagerModal({
               variant="primary"
               type="button"
               onClick={save}
-              disabled={pending || !anyDirty}
-              loading={pending}
+              disabled={pending || paySaving || !anyDirty}
+              loading={pending || paySaving}
               icon={Save}
             >
               Save Changes
@@ -858,7 +893,13 @@ function RateManagerModal({
           <Tabs
             variant="pill"
             active={subTab}
-            onChange={(k) => setSubTab(k as 'pay' | 'bill')}
+            onChange={(k) => {
+              if (anyDirty) {
+                toast.error('Save or reset changes before switching tabs')
+                return
+              }
+              setSubTab(k as 'pay' | 'bill')
+            }}
             items={[
               { key: 'pay', label: 'Caregiver Pay Rates' },
               { key: 'bill', label: 'Client Bill Rates' },
@@ -870,7 +911,8 @@ function RateManagerModal({
         {actionErr ? <p className="text-sm text-red-600">{actionErr}</p> : null}
 
         {subTab === 'pay' && (
-          <div className="max-h-[360px] overflow-y-auto rounded-lg border border-gray-200">
+          <form noValidate onSubmit={submitPay(savePay)} className="max-h-[360px] overflow-y-auto rounded-lg border border-gray-200">
+            {payErrors.root?.message && <p className="p-3 text-sm text-red-600">{payErrors.root.message}</p>}
             {payFiltered.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-16 text-gray-500">
                 <Users className="h-10 w-10 text-gray-300" />
@@ -882,7 +924,7 @@ function RateManagerModal({
                   <tr>
                     <th className="text-left px-3 py-2">Caregiver</th>
                     <th className="text-left px-3 py-2">Service</th>
-                    <th className="text-right px-3 py-2">Rate</th>
+                    <th className="text-right px-3 py-2">Rate <span className="text-red-500">*</span></th>
                     <th className="text-left px-3 py-2">Unit</th>
                     <th className="text-left px-3 py-2">Effective</th>
                   </tr>
@@ -897,10 +939,16 @@ function RateManagerModal({
                           type="number"
                           min={0}
                           step={0.01}
-                          value={payDraft[r.id] ?? ''}
-                          onChange={(e) => setPayDraft((p) => ({ ...p, [r.id]: e.target.value }))}
+                          {...registerPay(`rates.${payRows.findIndex(row => row.id === r.id)}.payRate`)}
+                          aria-label={`Pay rate for ${r.caregiverName}`}
+                          disabled={paySaving}
                           className="w-24 rounded border border-gray-300 px-2 py-1 text-right text-gray-900"
                         />
+                        {payErrors.rates?.[payRows.findIndex(row => row.id === r.id)]?.payRate?.message && (
+                          <p className="mt-1 text-xs text-red-600">
+                            {payErrors.rates[payRows.findIndex(row => row.id === r.id)]?.payRate?.message}
+                          </p>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-gray-600">{r.unit_type}</td>
                       <td className="px-3 py-2 text-gray-600 text-xs">{r.effective_start}</td>
@@ -909,7 +957,7 @@ function RateManagerModal({
                 </tbody>
               </table>
             )}
-          </div>
+          </form>
         )}
 
         {subTab === 'bill' && (
@@ -926,7 +974,7 @@ function RateManagerModal({
                     <th className="text-left px-3 py-2">Client</th>
                     <th className="text-left px-3 py-2">Contract</th>
                     <th className="text-left px-3 py-2">Service</th>
-                    <th className="text-right px-3 py-2">Bill rate</th>
+                    <th className="text-right px-3 py-2">Bill rate <span className="text-red-500">*</span></th>
                     <th className="text-left px-3 py-2">Unit</th>
                   </tr>
                 </thead>
@@ -943,6 +991,7 @@ function RateManagerModal({
                           step={0.01}
                           value={billDraft[r.id] ?? ''}
                           onChange={(e) => setBillDraft((p) => ({ ...p, [r.id]: e.target.value }))}
+                          aria-label={`Bill rate for ${r.clientName}`}
                           className="w-24 rounded border border-gray-300 px-2 py-1 text-right text-gray-900"
                         />
                       </td>
@@ -969,8 +1018,8 @@ function RateManagerModal({
               variant="primary"
               type="button"
               onClick={save}
-              disabled={pending || !anyDirty}
-              loading={pending}
+              disabled={pending || paySaving || !anyDirty}
+              loading={pending || paySaving}
               icon={Save}
             >
               Save Changes

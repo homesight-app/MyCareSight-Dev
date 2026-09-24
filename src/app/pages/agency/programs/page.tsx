@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import AgencyProgramsContent from '@/components/AgencyProgramsContent'
 
@@ -20,7 +19,6 @@ export default async function AgencyProgramsPage({
   const page   = Math.max(0, parseInt(params.page ?? '0') || 0)
   const search = params.q ?? ''
 
-  const supabase = await createClient()
   const [result, { data: pendingRequests }] = await Promise.all([
     q.getApplicationsWithProgramsPaginated({ page, pageSize: PAGE_SIZE, search }),
     q.getRequestedProgramsForAgency(),

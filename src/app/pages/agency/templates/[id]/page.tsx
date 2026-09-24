@@ -1,6 +1,5 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import { getTemplateById } from '@/lib/supabase/query'
 import TemplateDetailContent from '@/components/TemplateDetailContent'
 
@@ -9,7 +8,6 @@ export default async function AgencyEditTemplatePage({ params }: { params: Promi
   if (!session) redirect('/pages/auth/login')
 
   const { id } = await params
-  const supabase = await createClient()
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency')

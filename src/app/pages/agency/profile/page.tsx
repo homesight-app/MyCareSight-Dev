@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import ProfileTabs from '@/components/ProfileTabs'
 import Button from '@/components/ui/PrimaryButton'
@@ -12,7 +11,6 @@ export default async function ProfilePage() {
     redirect('/pages/auth/login')
   }
 
-  const supabase = await createClient()
 
   const profile = session!.profile
   let initialAgency: Record<string, unknown> | null = null

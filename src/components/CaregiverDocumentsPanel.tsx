@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { createSignedStorageUrl } from '@/lib/supabase/storage'
+import { createSignedStorageUrl } from '@/lib/storage'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { uploadCaregiverDocumentsAction, deleteCaregiverDocumentAction } from '@/app/actions/caregiver-documents'
 import { FileText, Upload, Download, Trash2, Loader2 } from 'lucide-react'

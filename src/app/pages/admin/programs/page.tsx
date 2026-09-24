@@ -1,11 +1,9 @@
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import AdminProgramsContent from '@/components/AdminProgramsContent'
 
 export default async function AdminProgramsPage() {
   await requireAdmin()
-  const supabase = await createClient()
 
   const [
     { data: requestedData },

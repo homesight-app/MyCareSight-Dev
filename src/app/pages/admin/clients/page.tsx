@@ -1,5 +1,5 @@
 ﻿import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
+import { readAdminClientDashboardMetrics } from '@/lib/repositories/platform-application-dashboard'
 import * as q from '@/lib/supabase/query'
 import ClientListWithFilters from '@/components/ClientListWithFilters'
 import { Building2, CheckCircle2, Clock, MessageSquare } from 'lucide-react'
@@ -15,21 +15,21 @@ export default async function ClientsPage({
   const params = await searchParams
   const page   = Math.max(0, parseInt(params.page ?? '0') || 0)
 
-  const supabase = await createClient()
-
   const [
     clientsResult,
-    { count: activeAppCount },
-    { count: pendingCount },
+    metricsResult,
     { data: allExperts },
-    { data: allClientIdRows },
   ] = await Promise.all([
     q.getAllClientsOrderedPaginated(page, PAGE_SIZE),
-    supabase.from('applications').select('id', { count: 'exact', head: true }).in('status', ['requested', 'in_progress', 'under_review', 'needs_revision']),
-    supabase.from('applications').select('id', { count: 'exact', head: true }).eq('status', 'under_review'),
+    readAdminClientDashboardMetrics(),
     q.getLicensingExpertsActive(),
-    supabase.from('agency_admins').select('id'),
   ])
+
+  const metrics = metricsResult.data ?? {
+    activeApplicationCount: 0,
+    pendingReviewCount: 0,
+    clientIds: [],
+  }
 
   const clients    = clientsResult.data ?? []
   const clientIds  = clients.map((c) => c.id).filter(Boolean) as string[]
@@ -51,8 +51,8 @@ export default async function ClientsPage({
       : Promise.resolve({ data: [], error: null }),
     expertIds.length > 0 ? q.getLicensingExpertsByIds(expertIds, '*') : Promise.resolve({ data: [], error: null }),
     // Unread stat: use all client IDs for the global count
-    (allClientIdRows ?? []).length > 0
-      ? q.rpcAdminUnreadMessageCountsByClient(user.id, (allClientIdRows ?? []).map(r => r.id))
+    metrics.clientIds.length > 0
+      ? q.rpcAdminUnreadMessageCountsByClient(user.id, metrics.clientIds)
       : Promise.resolve({ data: [], error: null }),
   ])
 
@@ -111,7 +111,7 @@ export default async function ClientsPage({
               <CheckCircle2 className="w-5 h-5 md:w-6 md:h-6 text-green-600" />
             </div>
           </div>
-          <div className="text-xl md:text-2xl font-bold text-gray-900 mb-1">{activeAppCount ?? 0}</div>
+          <div className="text-xl md:text-2xl font-bold text-gray-900 mb-1">{metrics.activeApplicationCount}</div>
           <div className="text-xs md:text-sm text-gray-600">Active Applications</div>
         </div>
 
@@ -121,7 +121,7 @@ export default async function ClientsPage({
               <Clock className="w-5 h-5 md:w-6 md:h-6 text-yellow-600" />
             </div>
           </div>
-          <div className="text-xl md:text-2xl font-bold text-gray-900 mb-1">{pendingCount ?? 0}</div>
+          <div className="text-xl md:text-2xl font-bold text-gray-900 mb-1">{metrics.pendingReviewCount}</div>
           <div className="text-xs md:text-sm text-gray-600">Pending Review</div>
         </div>
 

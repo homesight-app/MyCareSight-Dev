@@ -12,7 +12,6 @@ import {
   Phone,
   Medal,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import AddStaffMemberModal from './AddStaffMemberModal'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
@@ -179,7 +178,6 @@ export default function StaffManagementClient({
     if (current === nextStatus) return
     setStatusUpdatingId(staff.id)
     try {
-      const supabase = createClient()
       const { error } = await q.updateStaffMember(staff.id, { status: nextStatus })
       if (error) {
         alert(`Could not update status: ${error.message}`)

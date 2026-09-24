@@ -7,7 +7,6 @@ import Button from '@/components/ui/PrimaryButton'
 import SearchInput from '@/components/ui/SearchInput'
 import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 
 interface SelectLicenseTypeModalProps {
@@ -145,7 +144,6 @@ export default function SelectLicenseTypeModal({
     setError(null)
 
     try {
-      const supabase = createClient()
 
       const [licenseResult, playbookResult, categoryResult] = await Promise.all([
         q.getLicenseTypes({ state, isActive: true }),

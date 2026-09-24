@@ -7,7 +7,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { US_PHONE_REGEX, PHONE_ERROR } from '@/lib/validation'
 import PhoneInput from '@/components/ui/PhoneInput'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import Button from '@/components/ui/PrimaryButton'
 
@@ -76,7 +75,6 @@ export default function EditExpertForm({ expert }: EditExpertFormProps) {
     setError(null)
 
     try {
-      const supabase = createClient()
 
       const { error: updateError } = await q.updateLicensingExpertById(expert.id, {
         first_name: data.firstName,

@@ -1,12 +1,15 @@
 ﻿'use server'
 
+import { readApplicationNoteCounts } from '@/lib/repositories/internal-note-reads'
+import { createInternalNote } from '@/lib/repositories/internal-note-writes'
+
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
-import sql from '@/db'
+import sql, { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbooks'
 import { removeFiles } from '@/lib/storage/client'
-import { STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { STORAGE_BUCKET } from '@/lib/storage'
 
 export type OtherPlaybook = {
   id: string
@@ -532,6 +535,20 @@ import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
  * Called on first load of the Requirements tab for any application.
  */
 export async function migrateApplicationToProgram(applicationId: string): Promise<{ error: string | null; count: number }> {
+  const session=await getSession()
+  if(!session) return {error:'Not authenticated',count:0}
+  try{
+    return await withUserContext(session.user.id,'',null,async()=>{
+      const [actor]=await sql<{id:string;role:string}[]>`SELECT id,role FROM user_profiles
+        WHERE id=${session.user.id}::uuid AND is_active=true AND role IN ('admin','expert')`
+      if(!actor) return {error:'Forbidden',count:0}
+      await sql`SELECT set_config('app.current_user_role',${actor.role},true)`
+      return migrateApplicationToProgramTransaction(applicationId,actor.id)
+    })
+  }catch{return {error:'Unable to migrate application program',count:0}}
+}
+
+async function migrateApplicationToProgramTransaction(applicationId:string,actorId:string): Promise<{ error: string | null; count: number }> {
   // Fetch existing program items to know what's already been migrated.
   // If this SELECT fails (e.g. missing column, RLS), bail out — never proceed
   // blindly with an empty set or we risk re-inserting every item on every load.
@@ -548,6 +565,8 @@ export async function migrateApplicationToProgram(applicationId: string): Promis
   const [app] = await sql<{ license_type_id: string | null; state: string | null; agency_id: string | null }[]>`
     SELECT license_type_id, state, agency_id FROM applications WHERE id = ${applicationId} LIMIT 1
   `
+  if(!app?.agency_id) return {error:'Application not found or has no agency',count:0}
+  await sql`SELECT set_config('app.current_agency_id',${app.agency_id},true)`
 
   type StepRow = { id: string; step_name: string; step_order: number; description: string | null; instructions: string | null; phase: string | null; is_expert_step: boolean; is_completed: boolean | null; completed_at: string | null; completed_by: string | null; notes: string | null }
   type LrdRow = { id: string; document_name: string; document_type: string | null; description: string | null; is_required: boolean }
@@ -674,27 +693,23 @@ export async function migrateApplicationToProgram(applicationId: string): Promis
         .filter(i => i.source_application_step_id)
         .map(i => [i.source_application_step_id!, i])
     )
-    const session = await getSession()
-    const authorId = session?.user?.id ?? null
-
-    type NoteInsert = { agency_id: string | null; subject_type: string; subject_id: string; content: string; created_by: string }
-    const noteInserts: NoteInsert[] = []
     for (const s of stepsWithNotes) {
       const pi = itemByStepId[s.id]
-      if (!pi || !authorId) continue
-      noteInserts.push({
-        agency_id: app.agency_id,
-        subject_type: 'application_playbook_item',
-        subject_id: pi.id,
+      if (!pi) continue
+      const noteResult = await createInternalNote({
+        agencyId: app.agency_id,
+        subjectType: 'application_playbook_item',
+        subjectId: pi.id,
+        applicationId,
         content: s.notes!.trim(),
-        created_by: authorId,
       })
-    }
-
-    if (noteInserts.length > 0) {
-      await sql`INSERT INTO internal_notes ${sql(noteInserts)}`
+      if (noteResult.error) throw new Error(noteResult.error)
     }
   }
+
+  await sql`INSERT INTO audit_log(agency_id,table_name,record_id,action,performed_by_user_id,details)
+    VALUES (${app.agency_id}::uuid,'applications',${applicationId}::uuid,'MIGRATE_PROGRAM',${actorId}::uuid,
+      ${JSON.stringify({step_count:steps.length,document_count:lrds.length,note_count:stepsWithNotes.length})}::jsonb)`
 
   revalidatePath('/pages/admin/programs')
   revalidatePath('/pages/expert/programs')
@@ -709,17 +724,9 @@ export async function getApplicationProgramItems(applicationId: string): Promise
 }
 
 export async function getProgramItemNoteCounts(itemIds: string[]): Promise<Record<string, number>> {
-  if (itemIds.length === 0) return {}
-  const rows = await sql<{ subject_id: string }[]>`
-    SELECT subject_id FROM internal_notes
-    WHERE subject_type = 'application_playbook_item'
-    AND subject_id = ANY(${itemIds}::uuid[])
-  `
-  const counts: Record<string, number> = {}
-  for (const row of rows) {
-    counts[row.subject_id] = (counts[row.subject_id] ?? 0) + 1
-  }
-  return counts
+  const result=await readApplicationNoteCounts({subjectIds:itemIds,subjectType:'application_playbook_item'})
+  // Compatibility for legacy badge callers: denied/failed counts disclose no note metadata.
+  return result.data ?? {}
 }
 
 /**
@@ -1088,7 +1095,7 @@ export async function runDocumentValidation(itemId: string, agencyId: string | n
   let failCount = 0
 
   if (documents.length > 0) {
-    const { createSignedStorageUrl, STORAGE_BUCKET } = await import('@/lib/supabase/storage')
+    const { createSignedStorageUrl, STORAGE_BUCKET } = await import('@/lib/storage')
 
     for (const doc of documents) {
       const docUrl = (doc as { document_url: string }).document_url
@@ -1453,6 +1460,39 @@ export async function updatePlaybook(
 
 // ── Playbook Template Actions ────────────────────────────────────────────────
 
+export async function getPlaybookTemplatesAction(playbookId: string) {
+  const { error: authErr, session } = await requireStaff()
+  if (authErr || !session || session.profile?.role !== 'admin') {
+    return { error: authErr ?? 'Forbidden', data: null }
+  }
+  const { data, error } = await q.getPlaybookTemplates(playbookId)
+  return { data, error: error ? error.message : null }
+}
+
+export async function getExpertProgramTemplatesAction(applicationId: string, playbookId: string) {
+  const { error: authErr, session } = await requireStaff()
+  if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
+  const [application] = await sql<{ assigned_expert_id: string | null; playbook_id: string | null }[]>`
+    SELECT assigned_expert_id, playbook_id FROM public.applications
+    WHERE id = ${applicationId}::uuid
+    LIMIT 1
+  `
+  if (!application) return { error: 'Not found', data: null }
+  if (session.profile.role === 'expert') {
+    if (application.assigned_expert_id !== session.user.id || application.playbook_id !== playbookId) {
+      return { error: 'Forbidden', data: null }
+    }
+  }
+  const { data, error } = await q.getPlaybookTemplates(playbookId)
+  if (error) return { error: error.message, data: null }
+  await sql`
+    INSERT INTO public.audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+    VALUES (NULL, 'playbook_templates', ${playbookId}::uuid, 'READ', ${session.user.id}::uuid,
+      ${JSON.stringify({ operation: 'read_expert_program_templates', application_id: applicationId })}::jsonb)
+  `
+  return { error: null, data }
+}
+
 export async function createPlaybookTemplate(data: {
   playbookId: string
   templateName: string
@@ -1460,8 +1500,8 @@ export async function createPlaybookTemplate(data: {
   fileUrl: string
   fileName: string
 }): Promise<{ error: string | null; data: { id: string } | null }> {
-  const { error: authErr } = await requireStaff()
-  if (authErr) return { error: authErr, data: null }
+  const { error: authErr, session } = await requireStaff()
+  if (authErr || !session || session.profile?.role !== 'admin') return { error: authErr ?? 'Forbidden', data: null }
 
   const { data: row, error } = await q.insertPlaybookTemplate({
     playbook_id: data.playbookId,
@@ -1480,8 +1520,8 @@ export async function updatePlaybookTemplateAction(
   id: string,
   data: { templateName: string; description: string }
 ): Promise<{ error: string | null }> {
-  const { error: authErr } = await requireStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requireStaff()
+  if (authErr || !session || session.profile?.role !== 'admin') return { error: authErr ?? 'Forbidden' }
 
   const { error } = await q.updatePlaybookTemplateById(id, {
     template_name: data.templateName,
@@ -1494,8 +1534,8 @@ export async function updatePlaybookTemplateAction(
 }
 
 export async function deletePlaybookTemplateAction(id: string): Promise<{ error: string | null }> {
-  const { error: authErr } = await requireStaff()
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requireStaff()
+  if (authErr || !session || session.profile?.role !== 'admin') return { error: authErr ?? 'Forbidden' }
 
   const { error } = await q.deletePlaybookTemplateById(id)
   if (error) return { error: error.message }

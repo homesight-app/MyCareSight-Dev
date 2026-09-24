@@ -1,6 +1,6 @@
 ﻿import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
+import { readAdminExpertEmail } from '@/lib/repositories/platform-application-dashboard'
 import * as q from '@/lib/supabase/query'
 import Link from 'next/link'
 import {
@@ -24,8 +24,6 @@ export default async function ExpertDetailPage({
 }) {
   await requireAdmin()
   const { id } = await params
-  const supabase = await createClient()
-
   const [
     { data: expert },
     { data: expertStates }
@@ -46,11 +44,7 @@ export default async function ExpertDetailPage({
   }
 
   // Get user profile for email
-  const { data: userProfile } = await supabase
-    .from('user_profiles')
-    .select('email')
-    .eq('id', expert.user_id)
-    .single()
+  const { data: userProfile } = await readAdminExpertEmail(expert.user_id)
 
   const formatDate = (date: string | Date | null) => {
     if (!date) return 'N/A'

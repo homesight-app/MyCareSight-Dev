@@ -1,4 +1,3 @@
-import { createAdminClient } from '@/lib/supabase/admin'
 import * as q from '@/lib/supabase/query'
 import AgencyOnboardingForm from '@/components/AgencyOnboardingForm'
 
@@ -8,8 +7,6 @@ export default async function OnboardingPage({
   params: Promise<{ token: string }>
 }) {
   const { token } = await params
-  const supabase = createAdminClient()
-
   const { data: tokenData } = await q.getOnboardingTokenByValue(token)
 
   const isExpired = !tokenData || new Date(tokenData.expires_at) <= new Date()
@@ -33,7 +30,7 @@ export default async function OnboardingPage({
   }
 
   const [{ data: agency }, { data: keyStaff }] = await Promise.all([
-    supabase.from('agencies').select('*').eq('id', tokenData.agency_id).single(),
+    q.getAgencyById(tokenData.agency_id),
     q.getKeyStaffByAgencyId(tokenData.agency_id),
   ])
 

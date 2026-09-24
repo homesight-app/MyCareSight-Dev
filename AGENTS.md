@@ -4,7 +4,9 @@ This file provides project guidance for Codex and other coding agents working in
 
 ## Current Migration Context
 
-The application is currently a Next.js 15 App Router application backed by Supabase Auth, Postgres, Storage, and RLS. The approved target stack is DigitalOcean for application hosting, Neon Postgres, Azure Blob Storage, and GitHub.
+The active migration is UAT-only: Azure App Service in subscription **MyCareSight-Dev-UAT** (`a268ab63-b7ec-490d-a858-0de0be69ed4f`), Neon Postgres, Azure Blob Storage, and GitHub. The local migration branch has removed the Supabase SDK and runtime settings: business data uses Neon, authentication uses Auth.js with Neon-backed opaque sessions, and files use the application-owned Azure Storage boundary. Deployment and UAT acceptance gates remain.
+
+Production remains on Supabase and Vercel in a separate repository. Prepare this work through local file changes; do not deploy to production, copy production data, revoke shared credentials, or design the production migration yet. The earlier DigitalOcean hosting target is not part of this UAT slice. See [UAT migration status](docs/migrations/uat-supabase-removal.md) for the approved sequence, evidence, and outstanding gates.
 
 The current application has internal platform administrators only. Do not add real agency, caregiver, patient, visit, document, or other PHI data to new non-HIPAA environments. The pre-HIPAA migration environment must contain only synthetic or otherwise non-PHI data.
 
@@ -12,7 +14,7 @@ The migration order is deliberate:
 
 1. Decouple business-data access from Supabase while temporarily retaining internal Supabase authentication.
 2. Move Storage behind application-owned server interfaces and migrate it to Azure Blob Storage.
-3. Make the Next.js application deployable on DigitalOcean.
+3. Keep the UAT application deployable on Azure App Service; do not change hosting in this slice.
 4. Replace Supabase Auth with Auth.js and Neon-backed sessions.
 5. Complete BAA, infrastructure, operational, and security gates before external users or PHI are introduced.
 
@@ -82,7 +84,7 @@ If the MCP connection is unavailable, stop before writing or reviewing database-
 
 **Current stack:** Next.js 15 App Router, TypeScript, Supabase Auth/DB/Storage, Tailwind CSS, React Hook Form, Zod, and TanStack React Query.
 
-**Target stack:** Next.js on DigitalOcean, Neon Postgres, private Azure Blob Storage containers, Auth.js, server-only data access, and database-backed revocable sessions.
+**UAT target stack:** Next.js on Azure App Service, Neon Postgres, private Azure Blob Storage containers, Auth.js, server-only data access, and database-backed revocable sessions.
 
 ### Current Role System
 

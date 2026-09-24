@@ -1,5 +1,4 @@
 ﻿import { requireAdmin } from '@/lib/auth-helpers'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import CasesByStatusChart from '@/components/CasesByStatusChart'
 import CasesByStateChart from '@/components/CasesByStateChart'
@@ -13,7 +12,6 @@ import {
 
 export default async function AdminDashboardPage() {
   await requireAdmin()
-  const supabase = await createClient()
 
   const { data: applicationsData } = await q.getApplicationsByStatuses([
     'requested',

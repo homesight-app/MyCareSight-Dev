@@ -1,7 +1,5 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
 import * as q from '@/lib/supabase/query'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import AgencyDetailContent from '@/components/AgencyDetailContent'
@@ -16,8 +14,6 @@ export default async function ExpertAgencyDetailPage({
   const { user } = session!
   const { id } = await params
 
-  const supabase = await createClient()
-  const supabaseAdmin = createAdminClient()
 
   const { data: agency } = await q.getAgencyById(id)
 

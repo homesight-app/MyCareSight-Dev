@@ -1,6 +1,7 @@
 import 'server-only'
 
 import sql from '@/db'
+import { requireCaregiverPayRates } from '@/lib/repositories/caregiver-pay-rates'
 import { resolvePayRateForVisit, type CaregiverPayRateRow } from '@/lib/caregiver-pay-rates'
 import type { PatientServiceContractRow } from '@/lib/supabase/query/patient-service-contracts'
 import {
@@ -109,25 +110,22 @@ type ApprovalRow = {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function fetchPayrollBillingReportRows(
-  params: { agencyId: string | null; dateFrom: string; dateTo: string }
+  params: { agencyId: string; dateFrom: string; dateTo: string }
 ): Promise<{ rows: PayrollBillingDetailRow[]; error?: string }> {
   const { agencyId, dateFrom, dateTo } = params
 
   let config: AgencyConfig = {}
   try {
-    if (agencyId) {
-      const [row] = await sql<AgencyConfig[]>`
-        SELECT * FROM agency_configurations WHERE agency_id = ${agencyId} LIMIT 1
-      `
-      config = row ?? {}
-    }
+    const [row] = await sql<AgencyConfig[]>`
+      SELECT * FROM agency_configurations WHERE agency_id = ${agencyId}::uuid LIMIT 1
+    `
+    config = row ?? {}
   } catch {
     // agency config is optional — proceed with defaults
   }
 
   let visitList: VisitRow[]
   try {
-    const agencyFilter = agencyId ? sql`AND agency_id = ${agencyId}` : sql``
     visitList = await sql<VisitRow[]>`
       SELECT id, agency_id, patient_id, caregiver_member_id, visit_date, scheduled_start_time,
              scheduled_end_time, scheduled_end_date, service_type, visit_type, mileage_miles
@@ -135,7 +133,7 @@ export async function fetchPayrollBillingReportRows(
       WHERE status = 'completed'
         AND visit_date >= ${dateFrom}
         AND visit_date <= ${dateTo}
-        ${agencyFilter}
+        AND agency_id = ${agencyId}::uuid
       ORDER BY visit_date ASC, scheduled_start_time ASC
     `
   } catch (err) {
@@ -161,46 +159,44 @@ export async function fetchPayrollBillingReportRows(
   try {
     ;[patRows, cgRows, contractRows, caregiverPayRows, financialRows, approvalRows, taskRows] = await Promise.all([
       sql<{ id: string; first_name: string; last_name: string }[]>`
-        SELECT id, first_name, last_name FROM patients WHERE id = ANY(${patientIds}::uuid[])
+        SELECT id, first_name, last_name FROM patients
+        WHERE agency_id=${agencyId}::uuid AND id = ANY(${patientIds}::uuid[])
       `,
       caregiverIds.length > 0
         ? sql<{ id: string; first_name: string; last_name: string }[]>`
-            SELECT id, first_name, last_name FROM caregiver_members WHERE id = ANY(${caregiverIds}::uuid[])
+            SELECT id, first_name, last_name FROM caregiver_members
+            WHERE agency_id=${agencyId}::uuid AND id = ANY(${caregiverIds}::uuid[])
           `
         : Promise.resolve([]),
       sql<PatientServiceContractRow[]>`
         SELECT id, patient_id, contract_type, service_type, bill_rate, bill_unit_type, effective_date,
                end_date, status, created_at, updated_at, bill_mileage, mileage_bill_rate_per_mile
         FROM patient_service_contracts
-        WHERE patient_id = ANY(${patientIds}::uuid[])
+        WHERE agency_id=${agencyId}::uuid AND patient_id = ANY(${patientIds}::uuid[])
       `,
       caregiverIds.length > 0
-        ? sql<CaregiverPayRateRow[]>`
-            SELECT caregiver_member_id, pay_rate, unit_type, service_type, effective_start, effective_end
-            FROM caregiver_pay_rates
-            WHERE caregiver_member_id = ANY(${caregiverIds}::uuid[])
-          `
+        ? requireCaregiverPayRates({ caregiverIds, agencyId })
         : Promise.resolve([]),
       visitIds.length > 0
         ? sql<FinancialRow[]>`
             SELECT scheduled_visit_id, service_type, status, pay_rate, pay_amount, bill_rate, bill_amount,
                    approved_billable_hours, approved_actual_hours, pay_unit_type, bill_unit_type
             FROM visit_financials
-            WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+            WHERE agency_id=${agencyId}::uuid AND scheduled_visit_id = ANY(${visitIds}::uuid[])
           `
         : Promise.resolve([]),
       visitIds.length > 0
         ? sql<ApprovalRow[]>`
             SELECT scheduled_visit_id, approval_status, approved_billable_hours, approved_actual_hours, pay_rate, bill_rate
             FROM visit_approvals
-            WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+            WHERE agency_id=${agencyId}::uuid AND scheduled_visit_id = ANY(${visitIds}::uuid[])
           `
         : Promise.resolve([]),
       visitIds.length > 0
         ? sql<{ scheduled_visit_id: string; task_id: string | null; sort_order: number }[]>`
             SELECT scheduled_visit_id, task_id, sort_order
             FROM scheduled_visit_tasks
-            WHERE scheduled_visit_id = ANY(${visitIds}::uuid[])
+            WHERE agency_id=${agencyId}::uuid AND scheduled_visit_id = ANY(${visitIds}::uuid[])
               AND task_id IS NOT NULL
             ORDER BY sort_order ASC
           `

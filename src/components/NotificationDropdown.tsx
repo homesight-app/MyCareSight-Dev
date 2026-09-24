@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Bell, MessageSquare, Clock, FileText, Trash2 } from 'lucide-react'
 import { flushSync } from 'react-dom'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import LoadingSpinner from './LoadingSpinner'
@@ -64,7 +63,6 @@ export default function NotificationDropdown({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const supabase = createClient()
 
   const pendingRouteRef = useRef<string | null>(null)
   const navTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -164,7 +162,7 @@ export default function NotificationDropdown({
 
 
   // Helper: fetch unread notification items for admin/expert/owner (used in all paths so dropdown is never empty)
-  const fetchUnreadNotificationItems = async (): Promise<AdminNotificationItem[]> => {
+  const fetchUnreadNotificationItems = useCallback(async (): Promise<AdminNotificationItem[]> => {
     if (!userId || !roleSeesInAppNotificationList(userRole)) return []
     const { data: notificationRows } = await q.getUnreadNotificationItems(userId)
     const allItems = (notificationRows || []).map((n: { id: string; title: string; message?: string | null; type: string; created_at: string; action_url?: string | null }) => ({
@@ -176,7 +174,7 @@ export default function NotificationDropdown({
       action_url: n.action_url ?? null,
     }))
     return allItems.filter(n => !(n.type === 'general' && n.title === 'New Message'))
-  }
+  }, [userId, userRole])
 
   // Optimized: Single query with aggregation using query builder
   const fetchApplicationsWithUnread = useCallback(async () => {
@@ -321,7 +319,7 @@ export default function NotificationDropdown({
     } finally {
       setIsLoading(false)
     }
-  }, [userRole, userId, supabase])
+  }, [userRole, userId, fetchUnreadNotificationItems])
 
   // Quick badge count refresh function
   const refreshBadgeCount = useCallback(async () => {
@@ -397,7 +395,7 @@ export default function NotificationDropdown({
     } catch (err) {
       console.error('Error refreshing badge:', err)
     }
-  }, [userRole, userId, supabase])
+  }, [userRole, userId])
 
   // Debounced refresh for badge count only
   const debouncedRefreshBadge = useCallback(() => {
@@ -421,118 +419,24 @@ export default function NotificationDropdown({
       }
     }, DEBOUNCE_MS)
   }, [isOpen, refreshBadgeCount, fetchApplicationsWithUnread])
-
-  // Set up real-time subscription with debouncing (after functions are defined)
+  // Poll through the application-owned server boundary until an Azure-compatible
+  // event channel is selected. Focus/visibility refreshes keep returning users current.
   useEffect(() => {
     if (!userId || !userRole) return
-
-    // Use unique channel name per user to avoid conflicts
-    const channelName = `notification-messages-${userId}`
-    
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages'
-          // Remove filter - we'll check in the callback to ensure reliability
-        },
-        async (payload) => {
-          const newMessage = payload.new as any
-          
-          // Skip if message is from current user
-          if (!newMessage || newMessage.sender_id === userId) {
-            return
-          }
-          
-          // Add a small delay to ensure database transaction is fully committed
-          // This prevents race conditions where the query runs before the message is visible
-          await new Promise(resolve => setTimeout(resolve, 300))
-
-          debouncedRefreshBadge()
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages'
-          // Remove filter - we'll check in the callback
-        },
-        async (payload) => {
-          const updatedMessage = payload.new as any
-          
-          // Only refresh if message is from another user (not our own messages being marked as read)
-          if (updatedMessage && updatedMessage.sender_id !== userId) {
-            // Add a small delay to ensure the update is committed
-            await new Promise(resolve => setTimeout(resolve, 200))
-            
-            debouncedRefreshBadge()
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          // Refresh badge count when subscription is established
-          refreshBadgeCount()
-        } else if (status === 'CHANNEL_ERROR') {
-          // Realtime requires messages/notifications in supabase_realtime publication (migration 072)
-          if (process.env.NODE_ENV === 'development') {
-            console.warn(
-              'Realtime subscription failed for', channelName,
-              '— ensure migration 072_enable_realtime_messages_notifications has been applied.',
-              err?.message ?? ''
-            )
-          }
-        }
-      })
-
-    // For admin, expert, owner: subscribe to notifications table so badge updates when new notification arrives
-    if (roleSeesInAppNotificationList(userRole) && userId) {
-      const notifChannelName = `notification-${userRole}-${userId}`
-      const notifChannel = supabase
-        .channel(notifChannelName)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'notifications',
-            filter: `user_id=eq.${userId}`
-          },
-          async () => {
-            await new Promise(resolve => setTimeout(resolve, 300))
-            debouncedRefreshBadge()
-          }
-        )
-        .subscribe()
-
-      return () => {
-        supabase.removeChannel(channel)
-        supabase.removeChannel(notifChannel)
-        if (fetchTimeoutRef.current) {
-          clearTimeout(fetchTimeoutRef.current)
-        }
-        if (navTimeoutRef.current) {
-          clearTimeout(navTimeoutRef.current)
-        }
-      }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') debouncedRefreshBadge()
     }
-
+    const interval = window.setInterval(refreshWhenVisible, 30000)
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
     return () => {
-      supabase.removeChannel(channel)
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current)
-      }
-      if (navTimeoutRef.current) {
-        clearTimeout(navTimeoutRef.current)
-      }
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current)
+      if (navTimeoutRef.current) clearTimeout(navTimeoutRef.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, userRole, debouncedRefreshBadge, refreshBadgeCount])
+  }, [userId, userRole, debouncedRefreshBadge])
 
   const handleApplicationClick = (applicationId: string) => {
     setIsOpen(false)

@@ -82,12 +82,17 @@ export async function getMyStaffCertifications(): Promise<{
   data: MyStaffCertificationUi[] | null
   error: string | null
   hasStaffProfile: boolean
+  profile: { id: string; first_name: string; last_name: string; skills: string[] | null } | null
 }> {
   const session = await getSession()
-  if (!session) return { data: null, error: 'You must be logged in', hasStaffProfile: false }
+  if (!session) return { data: null, error: 'You must be logged in', hasStaffProfile: false, profile: null }
 
-  const { data: staff, error: staffError } = await q.getStaffMemberByUserId(session.user.id)
-  if (staffError) return { data: null, error: staffError.message, hasStaffProfile: false }
+  const [staff] = await sql<{ id: string; agency_id: string; first_name: string; last_name: string; skills: string[] | null }[]>`
+    SELECT id, agency_id, first_name, last_name, skills
+    FROM public.caregiver_members
+    WHERE user_id = ${session.user.id}::uuid AND status = 'active'
+    LIMIT 1
+  `
 
   try {
     const rows = staff?.id
@@ -102,9 +107,19 @@ export async function getMyStaffCertifications(): Promise<{
           ORDER BY expiration_date ASC
         `
 
-    return { data: rows.map(mapCredentialRowToUi), error: null, hasStaffProfile: Boolean(staff?.id) }
+    return {
+      data: rows.map(mapCredentialRowToUi),
+      error: null,
+      hasStaffProfile: Boolean(staff?.id),
+      profile: staff ? {
+        id: staff.id,
+        first_name: staff.first_name,
+        last_name: staff.last_name,
+        skills: staff.skills,
+      } : null,
+    }
   } catch (err: any) {
-    return { data: null, error: err.message, hasStaffProfile: Boolean(staff?.id) }
+    return { data: null, error: err.message, hasStaffProfile: Boolean(staff?.id), profile: null }
   }
 }
 

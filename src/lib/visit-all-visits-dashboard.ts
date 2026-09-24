@@ -3,6 +3,7 @@ import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { patientFullName } from '@/lib/patient-name'
+import { managerGetSchedulesByAgencyAndRange } from '@/lib/repositories/manager-scheduling'
 
 export type VisitStatus = 'completed' | 'missed' | 'cancelled' | 'on_hold' | 'in_progress' | 'scheduled' | 'unassigned'
 
@@ -171,7 +172,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
   const { startDate, endDate } = q.getDefaultScheduledVisitBulkDateRange()
 
   const [visitsRes, allPatientsData, allStaffDataAll] = await Promise.all([
-    q.getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(agencyId, startDate, endDate),
+    managerGetSchedulesByAgencyAndRange(agencyId, startDate, endDate),
     sql<MinRow[]>`
       SELECT id, first_name, last_name
       FROM patients

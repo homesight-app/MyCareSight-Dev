@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Save, X, FileText } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { createLicenseType, deleteLicenseType, type CreateLicenseTypeData } from '@/app/actions/license-types'
-import { createClient } from '@/lib/supabase/client'
 import * as q from '@/app/actions/query-bridge'
 import { US_STATES } from '@/lib/constants'
 
@@ -48,8 +47,6 @@ export default function LicenseTypesManager({
     serviceFee: '',
     renewalPeriod: '',
   })
-
-  const supabase = createClient()
 
   const loadLicenseTypes = useCallback(async () => {
     setIsLoading(true)
@@ -322,7 +319,6 @@ interface LicenseTypeItemProps {
 function LicenseTypeItem({ licenseType, selectedState, onDelete, isDeleting, isSelected, onSelect }: LicenseTypeItemProps) {
   const [counts, setCounts] = useState({ steps: 0, documents: 0 })
   const [loadingCounts, setLoadingCounts] = useState(true)
-  const supabase = createClient()
 
   const loadCounts = useCallback(async () => {
     setLoadingCounts(true)

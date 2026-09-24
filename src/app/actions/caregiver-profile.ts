@@ -2,6 +2,7 @@
 
 import sql, { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
+import { readCaregiverPayRates } from '@/lib/repositories/caregiver-pay-rates'
 
 export type CaregiverPayRateHistoryRow = {
   id: string
@@ -48,22 +49,8 @@ async function resolveAuthorizedCaregiver(
 export async function getCaregiverPayRateHistoryAction(
   caregiverMemberId: string
 ): Promise<{ data: CaregiverPayRateHistoryRow[]; error: string | null }> {
-  const session = await getSession()
-  if (!session) return { data: [], error: 'Not authenticated' }
-
-  return withUserContext(session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null, async () => {
-    const member = await resolveAuthorizedCaregiver(caregiverMemberId, session)
-    if (!member) return { data: [], error: 'Caregiver not found or not authorized' }
-
-    const rows = await sql<CaregiverPayRateHistoryRow[]>`
-      SELECT id, pay_rate, unit_type, service_type, effective_start, effective_end, created_at
-      FROM caregiver_pay_rates
-      WHERE caregiver_member_id = ${caregiverMemberId}
-        AND (${member.agency_id}::uuid IS NULL OR agency_id = ${member.agency_id})
-      ORDER BY effective_start DESC
-    `
-    return { data: rows, error: null }
-  })
+  const result = await readCaregiverPayRates({ caregiverIds: [caregiverMemberId] })
+  return { data: result.data ?? [], error: result.error }
 }
 
 export async function getCaregiverSchedulesAction(

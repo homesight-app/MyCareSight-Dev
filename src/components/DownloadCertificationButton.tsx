@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 
 interface DownloadCertificationButtonProps {
   documentUrl: string | null | undefined

@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import Modal from './Modal'
 import UploadDocumentModal from './UploadDocumentModal'
 import InternalNotesPanel from './InternalNotesPanel'
@@ -221,7 +220,6 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
   type PreviewDoc = { url: string; name: string; ext: string }
   const [previewDocs, setPreviewDocs] = useState<PreviewDoc[]>([])
   const [previewIdx, setPreviewIdx] = useState(0)
-  const supabase = createClient()
 
   // History
   const [validationRuns, setValidationRuns] = useState<ValidationRun[]>([])

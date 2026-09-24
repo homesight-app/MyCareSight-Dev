@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { FileText, Download, Image as ImageIcon, Loader2, ExternalLink } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/supabase/storage'
+import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 
 interface CertificationDocumentViewerProps {
   documentUrl: string | null | undefined

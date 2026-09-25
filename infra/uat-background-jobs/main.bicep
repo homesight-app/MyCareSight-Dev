@@ -344,7 +344,6 @@ resource appSettings 'Microsoft.Web/sites/config@2024-04-01' = {
   parent: functionApp
   name: 'appsettings'
   properties: {
-    FUNCTIONS_WORKER_RUNTIME: 'node'
     AzureWebJobsStorage__accountName: storage.name
     AzureWebJobsStorage__credential: 'managedidentity'
     AzureWebJobsStorage__clientId: identity.properties.clientId

@@ -202,4 +202,18 @@ All direct callers were converted to authenticated server actions and applicatio
 
 This completes the local code dependency removal and permits deleting the three Supabase settings from the UAT Azure App Service only after the reviewed branch is deployed and the UAT smoke tests pass. Live Azure storage acceptance, cross-agency negative testing, malware scanning/quarantine before PHI, full synthetic workflow regression, and the previously listed Auth.js denial/revocation cases remain deployment gates. Production remains unchanged and out of scope.
 
+## Background jobs (started 2026-09-24)
+
+Live Supabase inventory identified three active schedules that were not replaced by the
+web-runtime migration: visit-status synchronization, recurring-visit refill, and
+lead-task reminders. Migration 016 prepares the restricted Neon job role, forced-RLS
+control tables, idempotent work ledger, transactional outbox, scalable claim indexes,
+and visit-status functions. See [UAT background-job migration](uat-background-jobs.md).
+Production Supabase schedules remain enabled. Migrations 016, 016b, and 016c are applied
+and independently verified on Dev and UAT. Dev synthetic refill acceptance passed with
+duplicate delivery suppression and no queue publication or email. The disabled-by-default
+Azure worker builds locally, and reviewable Flex Consumption/managed-identity/Key Vault
+infrastructure is prepared. Azure what-if, resource deployment, secret references,
+reminder delivery, and live UAT acceptance remain pending.
+
 Validation: all 203 tests across 25 suites pass. The final storage/dependency focused run passes 11 tests, TypeScript passes, `git diff --check` passes, the compatible focused ESLint run has zero errors (two existing hook warnings), and the Next.js production build completes. The standard `npm run lint` entry point remains blocked before linting by the repository's pre-existing ESLint 9 flat-config mismatch.

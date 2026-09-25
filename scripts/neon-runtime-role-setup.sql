@@ -17,7 +17,7 @@ CREATE TEMP TABLE _mycaresight_runtime_role_secret (
 ) ON COMMIT DROP;
 
 INSERT INTO _mycaresight_runtime_role_secret (password)
-VALUES ('BCec50^Ec1C%2R9vG@@GpKrh5G');
+VALUES ('REPLACE_WITH_STRONG_PASSWORD');
 
 DO $$
 DECLARE

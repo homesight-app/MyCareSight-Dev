@@ -1,0 +1,59 @@
+name: UAT background-job infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Review changes with what-if before selecting deploy
+        required: true
+        default: what-if
+        type: choice
+        options:
+          - what-if
+          - deploy
+
+concurrency:
+  group: mycaresight-uat-background-job-infrastructure
+  cancel-in-progress: false
+
+jobs:
+  infrastructure:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to UAT Azure subscription
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_197393B814204234BDA58EF923D8AE21 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_DB9AF30FE95446C89C917CAE18946A66 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_AC846ECDEDA54AD0A8168CFED1DBD250 }}
+
+      - name: Verify UAT target
+        shell: bash
+        run: |
+          test "$(az account show --query id --output tsv)" = "a268ab63-b7ec-490d-a858-0de0be69ed4f"
+          test "$(az group show --name rg-mycaresight-uat --query location --output tsv)" = "westus2"
+
+      - name: Validate Bicep
+        run: az bicep build --file infra/uat-background-jobs/main.bicep --stdout > /dev/null
+
+      - name: Azure what-if
+        if: inputs.operation == 'what-if'
+        run: >-
+          az deployment group what-if
+          --name uat-background-jobs
+          --resource-group rg-mycaresight-uat
+          --template-file infra/uat-background-jobs/main.bicep
+
+      - name: Deploy reviewed infrastructure
+        if: inputs.operation == 'deploy'
+        run: >-
+          az deployment group create
+          --name uat-background-jobs
+          --resource-group rg-mycaresight-uat
+          --template-file infra/uat-background-jobs/main.bicep
+          --output json

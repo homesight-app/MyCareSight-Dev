@@ -39,7 +39,8 @@ mandatory before PHI is introduced.
 1. Run scripts/neon-runtime-role-rotate.sql to rotate the exposed mycaresight_app
    password in Neon Dev and update local DATABASE_URL.
    Rotate UAT during a coordinated App Service configuration update. The Neon production
-   branch does not currently contain this role and remains untouched.
+   branch does not currently contain this role and remains untouched. Completed for Dev
+   and UAT on 2026-09-25; the user confirmed both connection settings were updated.
 2. Copy scripts/neon-job-role-setup.sql into the Neon Dev SQL editor, replace the
    placeholder in the editor with a unique generated password, and run it without saving
    the secret to the repository.

@@ -1,0 +1,75 @@
+name: UAT background jobs
+
+on:
+  pull_request:
+    paths:
+      - 'azure-functions/**'
+      - 'infra/uat-background-jobs/**'
+      - '.github/workflows/uat-background-jobs.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'azure-functions/**'
+      - 'infra/uat-background-jobs/**'
+      - '.github/workflows/uat-background-jobs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: mycaresight-uat-background-jobs-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: azure-functions
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+          cache: npm
+          cache-dependency-path: azure-functions/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Validate UAT infrastructure template
+        working-directory: ${{ github.workspace }}
+        run: az bicep build --file infra/uat-background-jobs/main.bicep --stdout > /dev/null
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+          cache: npm
+          cache-dependency-path: azure-functions/package-lock.json
+      - name: Build deployment package
+        working-directory: azure-functions
+        run: |
+          npm ci
+          npm run build
+          npm prune --omit=dev
+      - name: Login to UAT Azure subscription
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_197393B814204234BDA58EF923D8AE21 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_DB9AF30FE95446C89C917CAE18946A66 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_AC846ECDEDA54AD0A8168CFED1DBD250 }}
+      - name: Verify UAT subscription
+        shell: bash
+        run: |
+          test "$(az account show --query id -o tsv)" = "a268ab63-b7ec-490d-a858-0de0be69ed4f"
+      - name: Deploy disabled-by-default jobs
+        uses: Azure/functions-action@v1
+        with:
+          app-name: mycaresight-uat-jobs
+          package: azure-functions

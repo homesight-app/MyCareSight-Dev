@@ -1,0 +1,25 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      },
+      "enableLiveMetricsFilters": true
+    },
+    "logLevel": {
+      "default": "Information",
+      "Host.Results": "Warning",
+      "Function": "Information"
+    }
+  },
+  "extensions": {
+    "queues": {
+      "batchSize": 8,
+      "newBatchThreshold": 4,
+      "maxDequeueCount": 5,
+      "visibilityTimeout": "00:05:00"
+    }
+  }
+}

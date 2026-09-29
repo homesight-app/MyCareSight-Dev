@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { addUtcDays, utcDate, utcWeekday } from '../dist/dates.js'
-import { errorCode } from '../dist/log.js'
+import { errorCode, sanitizedError } from '../dist/log.js'
 
 test('UTC recurrence calculations remain stable across month and leap boundaries', () => {
   assert.equal(addUtcDays('2028-02-09', 21), '2028-03-01')
@@ -14,4 +14,10 @@ test('telemetry exposes allowlisted error codes and suppresses error messages', 
   assert.equal(errorCode({ code: '23505', message: 'sensitive row content' }), '23505')
   assert.equal(errorCode(new Error('sensitive row content')), 'UNCLASSIFIED_ERROR')
   assert.equal(errorCode({ code: 'bad code with spaces' }), 'UNCLASSIFIED_ERROR')
+
+  const sanitized = sanitizedError('28P01')
+  assert.equal(sanitized.code, '28P01')
+  assert.equal(sanitized.name, 'BackgroundJobError')
+  assert.equal(sanitized.message, 'Background job failed: 28P01')
+  assert.equal(sanitized.message.includes('sensitive row content'), false)
 })

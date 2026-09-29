@@ -17,3 +17,10 @@ export function errorCode(error: unknown): string {
   }
   return 'UNCLASSIFIED_ERROR'
 }
+
+export function sanitizedError(code: string): Error & { code: string } {
+  const safeCode = errorCode({ code })
+  const error = Object.assign(new Error(`Background job failed: ${safeCode}`), { code: safeCode })
+  error.name = 'BackgroundJobError'
+  return error
+}

@@ -1,5 +1,9 @@
 {
   "version": "2.0",
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.0.0, 5.0.0)"
+  },
   "logging": {
     "applicationInsights": {
       "samplingSettings": {
@@ -10,12 +14,13 @@
     },
     "logLevel": {
       "default": "Information",
-      "Host.Results": "Warning",
+      "Host.Results": "Information",
       "Function": "Information"
     }
   },
   "extensions": {
     "queues": {
+      "messageEncoding": "none",
       "batchSize": 8,
       "newBatchThreshold": 4,
       "maxDequeueCount": 5,

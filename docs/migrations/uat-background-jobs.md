@@ -70,6 +70,23 @@ deployment must also set each `AzureWebJobs.<functionName>.Disabled` setting to 
 including `processBackgroundJob`, so a paused queue message is not consumed. Enable
 individual functions only during their acceptance gate.
 
+## UAT queue-trigger acceptance follow-up (2026-09-29)
+
+Read-only UAT ledger checks confirmed successful refill discovery for three series
+and publication of all three outbox messages. The latest processing check showed
+three queued items with zero attempts and no result records. User-provided host
+telemetry then reported that `queueTrigger` was not registered.
+
+Prepared a local `azure-functions/host.json` correction: load extension bundle 4.x,
+set queue `messageEncoding` to `none` to match the dispatcher's plain JSON payloads,
+and retain successful invocation telemetry with `Host.Results=Information`.
+The deployed host must load the bundle before queue-worker acceptance can continue.
+Deploy the corrected jobs package with the queue worker disabled, then enable only
+that worker for the existing three messages. Keep discovery and dispatcher timers
+disabled during this check. Do not republish or delete the existing messages.
+If messages have moved to the poison queue, inspect metadata before controlled replay.
+Live queue-trigger loading, visit creation, and reminder delivery remain unverified.
+
 ## Rollback
 
 Disable the Azure Function App timers and queue workers. Do not switch the UAT web app to

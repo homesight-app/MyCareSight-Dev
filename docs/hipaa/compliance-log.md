@@ -574,3 +574,11 @@ and auditors.
 - **Relevant safeguards:** Supports 45 CFR 164.312(b) Audit Controls and 164.312(e)(1) Transmission Security by retaining actionable failure evidence without forwarding database messages, identifiers, query context, or provider details.
 - **Files:** `azure-functions/src/log.ts`, `azure-functions/src/index.ts`, `azure-functions/test/jobs.test.mjs`, and this log.
 - **Gap and remediation:** Existing Application Insights records from the failed synthetic acceptance attempt contain the database role name and runtime stack, but no password or PHI. Keep the remaining jobs disabled, correct the UAT Key Vault credential, deploy this sanitization, and verify future failures contain only the allowlisted code before continuing acceptance. Apply an appropriate telemetry retention/deletion response under the UAT evidence procedure.
+
+### UAT Queue Binding and Invocation Visibility (2026-09-29)
+
+- **What:** User-provided Azure telemetry reports an unregistered `queueTrigger`; read-only UAT ledger checks show three published refill messages whose items remain queued with zero processing attempts. Prepared extension bundle 4.x in the Functions host, explicit plain-JSON queue decoding matching the existing producer, and Information-level successful invocation results.
+- **Relevant safeguards:** Supports 45 CFR 164.312(b) Audit Controls and 164.312(c)(1) Integrity by restoring processing visibility and matching the queue consumer to the identifier-only producer format. No authorization rules or message contents changed.
+- **Files:** `azure-functions/host.json`, `docs/migrations/uat-background-jobs.md`, and this log.
+- **Gap and remediation:** This is a local configuration fix, not evidence of successful Azure processing. Deploy with the worker disabled, verify host extension loading, then resume the existing messages and check durable results. Preserve queued messages and audit evidence; inspect poison-queue metadata before any replay. No remote write or deployment was performed by the agent.
+- **Validation:** Host JSON parsing, whitespace checks, the worker TypeScript build, and both existing worker tests pass. Azure Functions Core Tools is unavailable locally, so live host extension loading is not tested. The root web-app lint, typecheck, and build were not run for this worker configuration/documentation-only change.

@@ -10,6 +10,7 @@ const IP_WINDOW_MINUTES = 5
 const IP_REQUEST_LIMIT = 120
 const CREDENTIAL_WINDOW_MINUTES = 1
 const CREDENTIAL_REQUEST_LIMIT = 60
+const RATE_LIMIT_CLEANUP_BATCH_SIZE = 1000
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex')
@@ -173,8 +174,13 @@ export async function ingestWebsiteLead(input: {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`ip:${ipHash}`}, 17017))`
     await tx`
       DELETE FROM public.lead_integration_rate_limit_events
-      WHERE created_at < now() - interval '1 day'
-        AND subject_hash IN (${ipHash}, ${apiKeyHash})
+      WHERE id IN (
+        SELECT id
+        FROM public.lead_integration_rate_limit_events
+        WHERE created_at < now() - interval '1 day'
+        ORDER BY created_at
+        LIMIT ${RATE_LIMIT_CLEANUP_BATCH_SIZE}
+      )
     `
     const [ipAttempts] = await tx<{ attempts: number }[]>`
       SELECT count(*)::integer AS attempts

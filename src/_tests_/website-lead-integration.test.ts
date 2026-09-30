@@ -267,6 +267,10 @@ test('credential rate limiting is durable across requests', async () => {
     INSERT INTO lead_integration_rate_limit_events (scope, subject_hash)
     SELECT 'credential', $1 FROM generate_series(1, 60)
   `, [stored.rows[0]?.key_hash])
+  await db.query(`
+    INSERT INTO lead_integration_rate_limit_events (scope, subject_hash, created_at)
+    VALUES ('ip', $1, now() - interval '2 days')
+  `, ['f'.repeat(64)])
 
   await expect(ingestWebsiteLead({
     apiKey: created.apiKey,
@@ -274,6 +278,13 @@ test('credential rate limiting is durable across requests', async () => {
     ipAddress: '192.0.2.14',
     lead: validLead,
   })).resolves.toEqual({ kind: 'rate_limited' })
+
+  const staleEvents = await db.query<{ count: number }>(`
+    SELECT count(*)::integer AS count
+    FROM lead_integration_rate_limit_events
+    WHERE subject_hash = $1
+  `, ['f'.repeat(64)])
+  expect(staleEvents.rows[0]?.count).toBe(0)
 })
 
 test('migration denies public reads while granting only required runtime access', async () => {

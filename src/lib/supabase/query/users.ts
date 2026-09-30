@@ -1,7 +1,17 @@
 import sql from '@/db'
 import type { PatientDocument } from './patients'
+import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
 
 const USER_PROFILE_COLS = 'id, email, full_name, role, created_at, updated_at, phone, job_title, department, work_location, start_date, agency_id, is_active, last_login_at'
+
+const PERSON_TEMPORAL_CONTRACT = {
+  dates: ['start_date', 'date_of_birth'] as const,
+  timestamps: ['created_at', 'updated_at', 'last_login_at'] as const,
+}
+
+function normalizePersonRow<T extends Record<string, unknown>>(row: T): T {
+  return normalizeDatabaseRow(row, PERSON_TEMPORAL_CONTRACT)
+}
 
 export async function updateUserProfileUpdatedAt(userId: string) {
   try {
@@ -91,7 +101,7 @@ export async function insertStaffMemberReturning(data: Record<string, unknown>) 
     const keys = Object.keys(data) as unknown as any[]
     const rows = await sql`INSERT INTO caregiver_members ${sql(data, ...keys)} RETURNING *`
     if (!rows[0]) throw new Error('Insert returned no rows')
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizePersonRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -215,7 +225,7 @@ export async function getUserProfileFull(userId: string) {
   try {
     const rows = await sql`SELECT * FROM user_profiles WHERE id = ${userId} LIMIT 1`
     if (!rows[0]) throw new Error('Not found')
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizePersonRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -255,7 +265,7 @@ export async function getStaffMembersByAgencyOrCompanyOwner(
         ORDER BY created_at DESC
       `
     }
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -284,7 +294,7 @@ export async function getStaffMemberByIdWithAgencyOrCompanyOwner(
         LIMIT 1
       `
     }
-    return { data: (rows[0] ?? null), error: null }
+    return { data: rows[0] ? normalizePersonRow(rows[0]) : null, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -301,7 +311,7 @@ export async function getStaffMembersByAgencyId(agencyId: string, options?: { st
       ORDER BY created_at DESC
       LIMIT 500
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -344,7 +354,7 @@ export async function getStaffMembersByAgencyIdPaginated(agencyId: string, opts?
     ])
 
     return {
-      data:  dataRows as unknown as any[],
+      data:  normalizeDatabaseRows(dataRows, PERSON_TEMPORAL_CONTRACT) as unknown as any[],
       count: countRows[0]?.count ?? 0,
       error: null,
     }
@@ -357,7 +367,7 @@ export async function getStaffMembersByAgencyIdPaginated(agencyId: string, opts?
 export async function getStaffMemberByIdAndAgencyId(staffId: string, agencyId: string) {
   try {
     const rows = await sql`SELECT * FROM caregiver_members WHERE id = ${staffId} AND agency_id = ${agencyId} LIMIT 1`
-    return { data: (rows[0] ?? null), error: null }
+    return { data: rows[0] ? normalizePersonRow(rows[0]) : null, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -380,7 +390,7 @@ export async function getUserProfilesByIds(userIds: string[], select = 'id, full
   try {
     // select param is a trusted internal constant — not user input
     const rows = await sql`SELECT ${sql.unsafe(select)} FROM user_profiles WHERE id IN ${sql(userIds)}`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -390,7 +400,7 @@ export async function getUserProfilesByIds(userIds: string[], select = 'id, full
 export async function getUserProfilesOrdered() {
   try {
     const rows = await sql`SELECT ${sql.unsafe(USER_PROFILE_COLS)} FROM user_profiles ORDER BY full_name ASC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -400,7 +410,7 @@ export async function getUserProfilesOrdered() {
 export async function getUserProfilesOrderedByCreatedAt() {
   try {
     const rows = await sql`SELECT ${sql.unsafe(USER_PROFILE_COLS)} FROM user_profiles ORDER BY created_at DESC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -410,7 +420,7 @@ export async function getUserProfilesOrderedByCreatedAt() {
 export async function getUserProfilesByRole(role: string, select = '*') {
   try {
     const rows = await sql`SELECT ${sql.unsafe(select)} FROM user_profiles WHERE role = ${role} ORDER BY created_at DESC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -446,7 +456,7 @@ export async function getStaffMembersWithAgencyActive() {
         AND status = 'active'
       LIMIT 2000
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }

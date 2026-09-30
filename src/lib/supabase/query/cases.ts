@@ -1,14 +1,20 @@
 import sql from '@/db'
+import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
 
 /** Get all cases ordered by created_at desc. */
 const CASES_COLUMNS = sql`id, case_id, client_id, business_name, owner_name, state, status, progress_percentage, expert_id, documents_count, steps_count, last_activity, started_date, created_at, updated_at`
+
+const CASE_TEMPORAL_CONTRACT = {
+  dates: ['started_date'] as const,
+  timestamps: ['last_activity', 'created_at', 'updated_at'] as const,
+}
 
 export async function getCases() {
   try {
     const rows = await sql`
       SELECT ${CASES_COLUMNS} FROM cases ORDER BY created_at DESC LIMIT 500
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, CASE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -20,7 +26,7 @@ export async function getCasesOrderedByStartedDate() {
     const rows = await sql`
       SELECT ${CASES_COLUMNS} FROM cases ORDER BY started_date DESC LIMIT 500
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, CASE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -33,7 +39,7 @@ export async function getCaseById(caseId: string) {
       SELECT ${CASES_COLUMNS} FROM cases WHERE id = ${caseId}
     `
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: rows[0] as any, error: null }
+    return { data: normalizeDatabaseRow(rows[0], CASE_TEMPORAL_CONTRACT) as any, error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -45,7 +51,7 @@ export async function getCasesByClientId(clientId: string) {
     const rows = await sql`
       SELECT ${CASES_COLUMNS} FROM cases WHERE client_id = ${clientId} LIMIT 500
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, CASE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -62,7 +68,7 @@ export async function getCasesByClientIds(
     const rows = await sql`
       SELECT ${sql.unsafe(select)} FROM cases WHERE client_id = ANY(${clientIds as any}) LIMIT 500
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, CASE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }

@@ -1,4 +1,14 @@
 import sql from '@/db'
+import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
+
+const LEAD_TEMPORAL_CONTRACT = {
+  dates: ['retainer_paid_date', 'signed_date', 'proposal_sent_date'] as const,
+  timestamps: ['converted_at', 'created_at', 'updated_at'] as const,
+}
+
+function normalizeLeadRow<T extends Record<string, unknown>>(row: T): T {
+  return normalizeDatabaseRow(row, LEAD_TEMPORAL_CONTRACT)
+}
 
 export async function getLeads(
   opts: {
@@ -37,10 +47,13 @@ export async function getLeads(
       LIMIT 1000
     `
 
-    const data = rows.map(r => ({
+    const data = rows.map(rawRow => {
+      const r = normalizeLeadRow(rawRow)
+      return {
       ...r,
       lead_owner: r.lead_owner_id_ref ? { id: r.lead_owner_id_ref, full_name: r.lead_owner_full_name } : null,
-    })) as unknown as any[]
+      }
+    }) as unknown as any[]
 
     return { data, error: null }
   } catch (err) {
@@ -132,10 +145,13 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
       `,
     ])
 
-    const data = dataRows.map(r => ({
+    const data = dataRows.map(rawRow => {
+      const r = normalizeLeadRow(rawRow)
+      return {
       ...r,
       lead_owner: r.lead_owner_id_ref ? { id: r.lead_owner_id_ref, full_name: r.lead_owner_full_name } : null,
-    }))
+      }
+    })
 
     return {
       data,
@@ -225,7 +241,7 @@ export async function getLeadById(leadId: string) {
       LIMIT 1
     `
     if (!rows[0]) throw new Error('Not found')
-    const r = rows[0] as any
+    const r = normalizeLeadRow(rows[0]) as any
     return {
       data: {
         ...r,
@@ -261,16 +277,39 @@ export async function getLeadNotes(leadId: string) {
   }
 }
 
+type LeadTaskRow = {
+  id: string
+  lead_id: string
+  created_by: string
+  assigned_to: string | null
+  title: string
+  due_date: Date | string | null
+  completed_at: Date | string | null
+  created_at: Date | string
+  updated_at: Date | string
+}
+
+type SerializedLeadTaskRow = Omit<LeadTaskRow, 'due_date' | 'completed_at' | 'created_at' | 'updated_at'> & {
+  due_date: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export async function getLeadTasks(leadId: string) {
   try {
-    const rows = await sql`
+    const rows = await sql<LeadTaskRow[]>`
       SELECT id, lead_id, created_by, assigned_to, title, due_date, completed_at, created_at, updated_at
       FROM lead_tasks
       WHERE lead_id = ${leadId}
       ORDER BY completed_at ASC NULLS FIRST, due_date ASC NULLS LAST, created_at ASC
       LIMIT 200
     `
-    return { data: rows as unknown as any[], error: null }
+    const data = normalizeDatabaseRows(rows, {
+      dates: ['due_date'],
+      timestamps: ['completed_at', 'created_at', 'updated_at'],
+    }) as unknown as SerializedLeadTaskRow[]
+    return { data, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -285,7 +324,9 @@ export async function getLeadDocuments(leadId: string) {
       ORDER BY created_at DESC
       LIMIT 200
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, {
+      timestamps: ['created_at'],
+    }) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -325,7 +366,10 @@ export async function getLeadsByAgency(agencyId: string) {
         AND converted_agency_id = ${agencyId}
       ORDER BY created_at DESC
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, {
+      dates: ['signed_date'],
+      timestamps: ['converted_at', 'created_at'],
+    }) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -356,7 +400,7 @@ export async function getLeadTaskStatusByLeadIds(leadIds: string[], today: strin
         AND completed_at IS NULL
         AND due_date <= ${today}
     `
-    return { data: rows as unknown as { lead_id: string; due_date: string }[], error: null }
+    return { data: normalizeDatabaseRows(rows, { dates: ['due_date'] }) as unknown as { lead_id: string; due_date: string }[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -569,7 +613,11 @@ export async function getPatientLeadDetails(leadId: string) {
       WHERE lead_id = ${leadId}
       LIMIT 1
     `
-    return { data: (rows[0] ?? null) as PatientLeadDetails | null, error: null }
+    const data = rows[0] ? normalizeDatabaseRow(rows[0], {
+      dates: ['date_of_birth', 'start_date'],
+      timestamps: ['created_at', 'updated_at'],
+    }) : null
+    return { data: data as PatientLeadDetails | null, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }

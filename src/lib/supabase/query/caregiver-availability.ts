@@ -1,4 +1,10 @@
 import sql from '@/db'
+import { normalizeDatabaseRows } from '@/lib/database-date-contract'
+
+const AVAILABILITY_TEMPORAL_CONTRACT = {
+  dates: ['repeat_start', 'repeat_end', 'specific_date'] as const,
+  timestamps: ['created_at', 'updated_at'] as const,
+}
 
 export type CaregiverAvailabilitySlotRow = {
   id: string
@@ -27,7 +33,7 @@ export async function getCaregiverAvailabilitySlots(
       WHERE caregiver_member_id = ${caregiverMemberId}
       ORDER BY created_at ASC
     `
-    return { data: rows as unknown as CaregiverAvailabilitySlotRow[], error: null }
+    return { data: normalizeDatabaseRows(rows, AVAILABILITY_TEMPORAL_CONTRACT) as unknown as CaregiverAvailabilitySlotRow[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -106,7 +112,7 @@ export async function getCaregiverAvailabilitySlotsByCaregiverIds(
       WHERE caregiver_member_id = ANY(${caregiverMemberIds})
       ORDER BY created_at ASC
     `
-    return { data: rows as unknown as CaregiverAvailabilitySlotRow[], error: null }
+    return { data: normalizeDatabaseRows(rows, AVAILABILITY_TEMPORAL_CONTRACT) as unknown as CaregiverAvailabilitySlotRow[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }

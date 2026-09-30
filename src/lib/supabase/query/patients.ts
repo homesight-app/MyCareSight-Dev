@@ -1,4 +1,14 @@
 import sql from '@/db'
+import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
+
+const PATIENT_TEMPORAL_CONTRACT = {
+  dates: ['date_of_birth', 'start_date'] as const,
+  timestamps: ['created_at', 'updated_at'] as const,
+}
+
+function normalizePatientRow<T extends Record<string, unknown>>(row: T): T {
+  return normalizeDatabaseRow(row, PATIENT_TEMPORAL_CONTRACT)
+}
 
 const pgError = (err: unknown) => ({
   message: err instanceof Error ? err.message : String(err),
@@ -22,7 +32,7 @@ export async function insertPatient(data: Record<string, unknown>) {
         ) AS patients_representatives
     `
     if (!rows[0]) throw new Error('Insert did not return a row')
-    const row = rows[0] as any
+    const row = normalizePatientRow(rows[0]) as any
     if (!row.patients_representatives) row.patients_representatives = []
     return { data: row, error: null }
   } catch (err) {
@@ -54,7 +64,7 @@ export async function getPatientsByOwnerId(ownerId: string) {
       ORDER BY p.created_at DESC
       LIMIT 1000
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PATIENT_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: pgError(err) }
   }
@@ -85,7 +95,7 @@ export async function getPatientsByOwnerIds(ownerIds: string[]) {
       ORDER BY p.created_at DESC
       LIMIT 1000
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, PATIENT_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: pgError(err) }
   }
@@ -158,7 +168,7 @@ export async function getPatientsByAgencyId(
     ])
 
     return {
-      data: dataRows as unknown as any[],
+      data: normalizeDatabaseRows(dataRows, PATIENT_TEMPORAL_CONTRACT) as unknown as any[],
       count: countRows[0]?.count ?? 0,
       error: null,
     }
@@ -248,7 +258,7 @@ export async function updatePatientDocuments(patientId: string, documents: Patie
       RETURNING *
     `
     if (!rows[0]) throw new Error('Update did not return a row')
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizePatientRow(rows[0]) as any, error: null }
   } catch (err) {
     return { data: null, error: pgError(err) }
   }
@@ -279,7 +289,7 @@ export async function getPatientByIdAndOwnerId(patientId: string, ownerId: strin
       LIMIT 1
     `
     if (!rows[0]) throw new Error('Patient not found')
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizePatientRow(rows[0]) as any, error: null }
   } catch (err) {
     return { data: null, error: pgError(err) }
   }
@@ -310,7 +320,7 @@ export async function getPatientByIdAndOwnerIds(patientId: string, ownerIds: str
         AND p.owner_id IN ${sql(ownerIds)}
       LIMIT 1
     `
-    return { data: (rows as unknown as any[])[0] ?? null, error: null }
+    return { data: rows[0] ? normalizePatientRow(rows[0]) as any : null, error: null }
   } catch (err) {
     return { data: null, error: pgError(err) }
   }
@@ -340,7 +350,7 @@ export async function getPatientByIdAndAgencyId(patientId: string, agencyId: str
         AND p.agency_id = ${agencyId}
       LIMIT 1
     `
-    return { data: (rows as unknown as any[])[0] ?? null, error: null }
+    return { data: rows[0] ? normalizePatientRow(rows[0]) as any : null, error: null }
   } catch (err) {
     return { data: null, error: pgError(err) }
   }

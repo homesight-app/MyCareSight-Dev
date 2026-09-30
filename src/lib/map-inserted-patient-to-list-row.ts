@@ -1,6 +1,7 @@
 /**
  * Normalize a freshly inserted patient row into the agency clients table row shape (including age).
  */
+import { databaseDate, databaseTimestamp } from '@/lib/database-date-contract'
 
 export interface RepresentativeEmbed {
   id: string
@@ -33,9 +34,9 @@ export interface ClientsListPatient {
   patients_representatives: RepresentativeEmbed[]
 }
 
-function ageFromDobYmd(dob: string | null | undefined): number | null {
-  if (!dob || typeof dob !== 'string') return null
-  const ymd = dob.split('T')[0] ?? dob
+function ageFromDobYmd(dob: Date | string | null | undefined): number | null {
+  if (!dob) return null
+  const ymd = databaseDate(dob)
   const parts = ymd.split('-').map(Number)
   if (parts.length < 3 || parts.some((n) => Number.isNaN(n))) return null
   const [year, month, day] = parts as [number, number, number]
@@ -51,8 +52,9 @@ function ageFromDobYmd(dob: string | null | undefined): number | null {
 export function mapInsertedPatientToListPatient(raw: Record<string, unknown>): ClientsListPatient {
   const reps = Array.isArray(raw.patients_representatives) ? raw.patients_representatives : []
   const representatives = reps as RepresentativeEmbed[]
-  const dobRaw = typeof raw.date_of_birth === 'string' ? raw.date_of_birth : ''
-  const dobYmd = dobRaw.split('T')[0] ?? ''
+  const dobRaw = raw.date_of_birth instanceof Date || typeof raw.date_of_birth === 'string'
+    ? databaseDate(raw.date_of_birth)
+    : ''
 
   const st = typeof raw.status === 'string' && raw.status === 'inactive' ? 'inactive' : 'active'
 
@@ -60,8 +62,8 @@ export function mapInsertedPatientToListPatient(raw: Record<string, unknown>): C
     id: String(raw.id ?? ''),
     first_name: String(raw.first_name ?? ''),
     last_name: String(raw.last_name ?? ''),
-    date_of_birth: dobYmd || dobRaw,
-    age: ageFromDobYmd(raw.date_of_birth != null ? String(raw.date_of_birth) : null),
+    date_of_birth: dobRaw,
+    age: ageFromDobYmd(raw.date_of_birth instanceof Date || typeof raw.date_of_birth === 'string' ? raw.date_of_birth : null),
     gender: raw.gender != null ? String(raw.gender) : null,
     class: raw.class != null ? String(raw.class) : null,
     phone_number: typeof raw.phone_number === 'string' ? raw.phone_number : '',
@@ -77,7 +79,9 @@ export function mapInsertedPatientToListPatient(raw: Record<string, unknown>): C
       raw.representative_2_relationship != null ? String(raw.representative_2_relationship) : null,
     representative_2_phone: raw.representative_2_phone != null ? String(raw.representative_2_phone) : null,
     status: st,
-    created_at: typeof raw.created_at === 'string' ? raw.created_at : new Date().toISOString(),
+    created_at: raw.created_at instanceof Date || typeof raw.created_at === 'string'
+      ? databaseTimestamp(raw.created_at)
+      : new Date().toISOString(),
     patients_representatives: representatives,
   }
 }

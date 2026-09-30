@@ -1,7 +1,17 @@
 import sql from '@/db'
+import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
 
 const LICENSE_COLS = 'id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id'
 const LICENSE_DOC_COLS = 'id, license_id, document_name, document_url, document_type, created_at, expiry_date'
+
+const LICENSE_TEMPORAL_CONTRACT = {
+  dates: ['activated_date', 'expiry_date', 'renewal_due_date', 'first_issued_date'] as const,
+  timestamps: ['created_at', 'updated_at'] as const,
+}
+
+function normalizeLicenseRow<T extends Record<string, unknown>>(row: T): T {
+  return normalizeDatabaseRow(row, LICENSE_TEMPORAL_CONTRACT)
+}
 
 /** Insert a license and return the created row. */
 export async function insertLicenseReturning(
@@ -9,7 +19,7 @@ export async function insertLicenseReturning(
 ) {
   try {
     const rows = await sql`INSERT INTO licenses ${sql(data, ...Object.keys(data) as any)} RETURNING id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id`
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeLicenseRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -57,7 +67,7 @@ export async function getLatestLicenseDocumentByLicenseId(
 export async function getLicensesByCompanyOwnerId(companyOwnerId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id FROM licenses WHERE company_owner_id = ${companyOwnerId}`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, LICENSE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -67,7 +77,7 @@ export async function getLicensesByCompanyOwnerId(companyOwnerId: string) {
 export async function getLicensesByCompanyOwnerIdOrdered(companyOwnerId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id FROM licenses WHERE company_owner_id = ${companyOwnerId} ORDER BY expiry_date ASC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, LICENSE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -99,7 +109,7 @@ export async function getLicenseById(licenseId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id FROM licenses WHERE id = ${licenseId}`
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeLicenseRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -110,7 +120,7 @@ export async function getLicenseByIdAndOwner(licenseId: string, companyOwnerId: 
   try {
     const rows = await sql`SELECT id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id FROM licenses WHERE id = ${licenseId} AND company_owner_id = ${companyOwnerId}`
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeLicenseRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -120,7 +130,7 @@ export async function getLicenseByIdAndOwner(licenseId: string, companyOwnerId: 
 export async function getLicensesByAgencyId(agencyId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id FROM licenses WHERE agency_id = ${agencyId} ORDER BY created_at DESC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, LICENSE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -130,7 +140,7 @@ export async function getLicensesByAgencyId(agencyId: string) {
 export async function getLicensesByAgencyIdOrdered(agencyId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id FROM licenses WHERE agency_id = ${agencyId} ORDER BY expiry_date ASC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, LICENSE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -141,7 +151,7 @@ export async function getLicenseByIdAndAgencyId(licenseId: string, agencyId: str
   try {
     const rows = await sql`SELECT id, company_owner_id, state, license_name, license_number, status, activated_date, expiry_date, renewal_due_date, created_at, updated_at, agency_id, issuing_body, first_issued_date, previous_version_id, category_id, subcategory_id FROM licenses WHERE id = ${licenseId} AND agency_id = ${agencyId}`
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeLicenseRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -151,7 +161,10 @@ export async function getLicenseByIdAndAgencyId(licenseId: string, agencyId: str
 export async function getLicenseDocumentsByLicenseId(licenseId: string) {
   try {
     const rows = await sql`SELECT id, license_id, document_name, document_url, document_type, created_at, expiry_date FROM license_documents WHERE license_id = ${licenseId} ORDER BY created_at DESC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, {
+      dates: ['expiry_date'],
+      timestamps: ['created_at'],
+    }) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -194,7 +207,7 @@ export async function getAgencyCertificationsWithHistory(agencyId: string) {
       GROUP BY l.id, cat.id, sub.id
       ORDER BY l.created_at DESC
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, LICENSE_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -230,7 +243,7 @@ export async function getAgencyApplicationsForLinking(agencyId: string, excludeA
     } else {
       rows = await sql`SELECT id, application_name, status, started_date, license_type_id FROM applications WHERE agency_id = ${agencyId} AND playbook_id IS NOT NULL ORDER BY created_at DESC`
     }
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, { dates: ['started_date'] }) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -245,7 +258,7 @@ export async function getAgencyCertificationsForLinking(agencyId: string, exclud
     } else {
       rows = await sql`SELECT id, license_name, license_number, status, expiry_date FROM licenses WHERE agency_id = ${agencyId} ORDER BY license_name ASC`
     }
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeDatabaseRows(rows, { dates: ['expiry_date'] }) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }

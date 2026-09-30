@@ -7,12 +7,12 @@ const nextConfig = {
 
   serverExternalPackages: ['pdf-parse', 'mammoth'],
 
-  // Disable client-side router cache so navigating to a page always fetches
-  // fresh server data. Without this, Next.js 15 caches rendered pages on the
-  // client for 30 s, causing stale data after server-side mutations.
+  // Reuse recently visited dynamic page segments in this browser tab. Server
+  // actions invalidate affected paths immediately; this short upper bound
+  // protects routes whose data can also change outside the current session.
   experimental: {
     staleTimes: {
-      dynamic: 0,
+      dynamic: 30,
     },
   },
 

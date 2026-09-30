@@ -61,8 +61,14 @@ Run this only from the website's server. Never embed the API key in browser Java
 The external website remains responsible for its own form CSRF protection, bot challenge, consent text, and abuse controls before it calls this service.
 
 ```bash
+UAT_HOST="$(az webapp show \
+  --resource-group rg-mycaresight-uat \
+  --name mycaresight-uat \
+  --query defaultHostName \
+  --output tsv)"
+
 curl --request POST \
-  --url "https://mycaresight-uat.azurewebsites.net/api/integrations/v1/leads" \
+  --url "https://${UAT_HOST}/api/integrations/v1/leads" \
   --header "Authorization: Bearer $MYCARESIGHT_LEAD_API_KEY" \
   --header "Content-Type: application/json" \
   --header "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \

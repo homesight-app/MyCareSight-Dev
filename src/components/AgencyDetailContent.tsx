@@ -47,9 +47,11 @@ import AgencyPeopleTab from './AgencyPeopleTab'
 import AgencyCaregiversTab from './AgencyCaregiversTab'
 import AgencyNotesTab from './AgencyNotesTab'
 import AgencyDocumentsTab from './AgencyDocumentsTab'
+import AgencyLeadIntegrationPanel from './AgencyLeadIntegrationPanel'
 import ApplyForNewLicenseButton from './ApplyForNewLicenseButton'
 import Modal from './Modal'
 import type { OnboardingToken, AgencyKeyStaff } from '@/app/actions/query-bridge'
+import type { LeadIntegrationCredentialSummary } from '@/types/lead-integrations'
 import { formatDateShort } from '@/lib/format-date'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import Button from '@/components/ui/PrimaryButton'
@@ -239,6 +241,8 @@ interface AgencyDetailContentProps {
   agencyLeads?: AgencyLead[]
   agencyLeadDocuments?: AgencyLeadDocument[]
   featurePlans?: FeaturePlanSummary[]
+  integrationCredentials?: LeadIntegrationCredentialSummary[]
+  canManageIntegrations?: boolean
 }
 
 type OrgFormState = {
@@ -354,6 +358,8 @@ export default function AgencyDetailContent({
   agencyLeadDocuments = [],
   programs = [],
   featurePlans = [],
+  integrationCredentials = [],
+  canManageIntegrations = false,
 }: AgencyDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1416,6 +1422,13 @@ export default function AgencyDetailContent({
                         )
                       })()}
                     </div>
+                  )}
+
+                  {canManageIntegrations && (
+                    <AgencyLeadIntegrationPanel
+                      agencyId={agency.id}
+                      initialCredentials={integrationCredentials}
+                    />
                   )}
                 </div>
               )}

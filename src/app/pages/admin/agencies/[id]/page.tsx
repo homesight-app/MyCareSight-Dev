@@ -4,6 +4,8 @@ import * as q from '@/lib/supabase/query'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import AgencyDetailContent from '@/components/AgencyDetailContent'
 import type { FeaturePlanSummary } from '@/components/AgencyDetailContent'
+import { listLeadIntegrationCredentials } from '@/lib/repositories/lead-integrations'
+import { websiteLeadIntegrationEnabled } from '@/lib/features/website-lead-integration'
 
 export default async function AdminAgencyDetailPage({
   params,
@@ -12,6 +14,7 @@ export default async function AdminAgencyDetailPage({
 }) {
   await requireAdmin()
   const { id } = await params
+  const integrationEnabled = websiteLeadIntegrationEnabled()
 
 
   const { data: agency } = await q.getAgencyById(id)
@@ -29,6 +32,7 @@ export default async function AdminAgencyDetailPage({
     { data: agencyLeads },
     { data: programs },
     { data: rawFeaturePlans },
+    integrationCredentials,
   ] = await Promise.all([
     adminIds.length > 0
       ? q.getAgencyAdminsByIds(adminIds)
@@ -40,6 +44,7 @@ export default async function AdminAgencyDetailPage({
     q.getLeadsByAgency(id),
     q.getApplicationsWithProgramsByAgencyId(id),
     q.getFeaturePlans(),
+    integrationEnabled ? listLeadIntegrationCredentials(id) : Promise.resolve([]),
   ])
 
   const featurePlans: FeaturePlanSummary[] = (rawFeaturePlans ?? []).map(p => ({
@@ -67,6 +72,8 @@ export default async function AdminAgencyDetailPage({
         agencyLeadDocuments={agencyLeadDocuments ?? []}
         programs={programs ?? []}
         featurePlans={featurePlans}
+        integrationCredentials={integrationCredentials}
+        canManageIntegrations={integrationEnabled}
       />
   )
 }

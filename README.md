@@ -173,6 +173,7 @@ When users check "Remember me" during login, their session is extended for a lon
 | `AUTH_URL` | Canonical application origin, read at runtime for password-reset links; HTTPS required in production | Yes |
 | `AZURE_STORAGE_ACCOUNT_NAME` | Azure Blob Storage account name | Yes |
 | `NEXT_PUBLIC_SITE_URL` | Build-time public site URL; not used for password-reset links | No |
+| `WEBSITE_LEAD_INTEGRATION_ENABLED` | Server-only switch for the agency website lead API and credential UI; defaults to disabled | No |
 
 ## Building for Production
 

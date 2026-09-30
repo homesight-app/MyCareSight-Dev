@@ -95,6 +95,34 @@ series has no existing visit to use as a template. No item recorded an error.
 This establishes live queue-worker execution and two refill creations, not full
 refill acceptance: task-copy parity, replay, and reminder delivery remain pending.
 
+## UAT end-to-end acceptance (2026-09-30)
+
+User-executed UAT checks closed the remaining functional job gates using synthetic
+records and content-free operational queries:
+
+- Lead-reminder discovery examined one due task and queued one item. The outbox
+  published it, the queue worker completed successfully, and Mailgun delivered the
+  generic reminder to an authorized test recipient. Repeating discovery for the same
+  UTC day returned the existing daily run and did not send another message.
+- The two previously successful refill results contained exactly the same task counts
+  as their template visits (two-to-two and one-to-one). Replaying a completed refill
+  outbox identifier left the item succeeded, its attempt count unchanged, and exactly
+  one visit for the series/date.
+- The 2026-09-30 refill discovery examined and queued three eligible series. All three
+  items succeeded on their first attempt, produced result visits, and had published
+  outbox rows with no errors, retries, or dead letters.
+- The jobs-specific Application Insights resource contained the successful refill
+  discovery, three successful queue-worker events, and normal once-per-minute idle
+  outbox polling. The inspected two-hour slice contained only Information-level rows
+  and no warnings or errors.
+
+`JOBS_ENABLED` and all five function registrations are enabled. Functional UAT
+acceptance is complete for status synchronization, both discovery jobs, outbox
+dispatch, queue processing, refill creation/task copying/replay safety, and reminder
+delivery/replay safety. Continue routine monitoring of the next natural 08:00 UTC and
+14:00 UTC daily timer executions; manual invocation was used for the daily acceptance
+checks. Production schedules and data were not changed.
+
 ## Rollback
 
 Disable the Azure Function App timers and queue workers. Do not switch the UAT web app to

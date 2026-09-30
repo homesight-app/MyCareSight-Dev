@@ -170,9 +170,9 @@ When users check "Remember me" during login, their session is extended for a lon
 |----------|-------------|----------|
 | `DATABASE_URL` | Server-only Neon runtime connection | Yes |
 | `AUTH_SECRET` | Auth.js signing/encryption secret | Yes |
-| `AUTH_URL` | Canonical application URL | Yes |
+| `AUTH_URL` | Canonical application origin, read at runtime for password-reset links; HTTPS required in production | Yes |
 | `AZURE_STORAGE_ACCOUNT_NAME` | Azure Blob Storage account name | Yes |
-| `NEXT_PUBLIC_SITE_URL` | Your site URL (for redirects) | No |
+| `NEXT_PUBLIC_SITE_URL` | Build-time public site URL; not used for password-reset links | No |
 
 ## Building for Production
 

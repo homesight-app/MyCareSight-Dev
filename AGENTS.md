@@ -232,6 +232,13 @@ Treat audit logs as sensitive, append-only evidence. Log who accessed which reso
 
 ## Change Discipline
 
+Prefer durable, scalable fixes that address the underlying cause over temporary
+workarounds or repeated manual configuration steps. Reuse application-owned
+boundaries, validate configuration at the point of use, and add proportionate
+regression coverage. Keep solutions scoped and avoid speculative infrastructure
+or unnecessary complexity. If a workaround is unavoidable, identify it explicitly
+and record the permanent remediation.
+
 Before making changes:
 
 1. Read relevant existing files and search for existing patterns.

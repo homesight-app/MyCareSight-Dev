@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { headers } from 'next/headers'
 import { auth, signIn as nextAuthSignIn, signOut as nextAuthSignOut } from '@/auth'
 import { sendPasswordResetEmail } from '@/lib/email'
+import { getAuthOrigin } from '@/lib/auth/url'
 import {
   consumePasswordResetToken,
   createPasswordReset,
@@ -67,13 +68,21 @@ export async function signIn(email: string, password: string) {
 }
 
 export async function resetPassword(email: string) {
+  let origin: string
+  try {
+    origin = getAuthOrigin()
+  } catch {
+    console.error('[resetPassword] Invalid AUTH_URL configuration')
+    return { error: 'Password reset is temporarily unavailable. Please try again later.' }
+  }
+
   const reset = await createPasswordReset({ email, ipAddress: await clientIpAddress() })
   if (!reset) return { error: null }
 
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.AUTH_URL ?? 'http://localhost:3000'
   // Keep the credential in the URL fragment so browsers do not send it in HTTP request logs.
-  const resetLink = `${baseUrl}/pages/auth/reset-password#token=${encodeURIComponent(reset.token)}`
-  const emailResult = await sendPasswordResetEmail(reset.email, resetLink)
+  const resetLink = new URL('/pages/auth/reset-password', origin)
+  resetLink.hash = `token=${encodeURIComponent(reset.token)}`
+  const emailResult = await sendPasswordResetEmail(reset.email, resetLink.toString())
   if (!emailResult.success) {
     console.error('[resetPassword] Email provider rejected password-reset delivery')
   }

@@ -87,6 +87,14 @@ disabled during this check. Do not republish or delete the existing messages.
 If messages have moved to the poison queue, inspect metadata before controlled replay.
 Live queue-trigger loading, visit creation, and reminder delivery remain unverified.
 
+Subsequent verification after the user deployed the fix and enabled the worker:
+all three refill items reached a terminal state on their first processing attempt.
+Two succeeded with result visits matching their work-item agency, series, and
+run date plus 21 days. One was skipped; aggregate inspection confirms its active
+series has no existing visit to use as a template. No item recorded an error.
+This establishes live queue-worker execution and two refill creations, not full
+refill acceptance: task-copy parity, replay, and reminder delivery remain pending.
+
 ## Rollback
 
 Disable the Azure Function App timers and queue workers. Do not switch the UAT web app to

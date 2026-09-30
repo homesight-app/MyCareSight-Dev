@@ -1,4 +1,8 @@
 import sql from '@/db'
+import {
+  normalizeAgencyTemporalRow,
+  normalizeAgencyTemporalRows,
+} from '@/lib/agency-date-contract'
 
 const AGENCY_COLS = `id, name, created_at, updated_at, business_type, tax_id, primary_license_number, website,
   physical_street_address, physical_city, physical_state, physical_zip_code, same_as_physical,
@@ -23,7 +27,10 @@ export async function getAgencyById(agencyId: string) {
       FROM agencies WHERE id = ${agencyId}
     `
     if (!rows[0]) throw new Error('Row not found')
-    return { data: (rows as unknown as any[])[0], error: null }
+    return {
+      data: normalizeAgencyTemporalRow((rows as unknown as any[])[0]),
+      error: null,
+    }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -201,7 +208,12 @@ export async function getAgencyByAdminIdFull(adminId: string) {
       FROM agencies WHERE id = ${aa.agency_id}
       LIMIT 1
     `
-    return { data: (rows[0] as any ?? null), error: null }
+    return {
+      data: rows[0]
+        ? normalizeAgencyTemporalRow(rows[0] as any)
+        : null,
+      error: null,
+    }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -248,7 +260,10 @@ export async function getAgenciesOrdered() {
         licensed_same_as_physical, plan_id, primary_contact_first_name, primary_contact_last_name
       FROM agencies ORDER BY created_at DESC
     `
-    return { data: rows as unknown as any[], error: null }
+    return {
+      data: normalizeAgencyTemporalRows(rows as unknown as any[]),
+      error: null,
+    }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -286,7 +301,9 @@ export async function getAgenciesFilteredPaginated(opts?: GetAgenciesPaginatedOp
       sql`SELECT COUNT(*)::int AS count FROM agencies WHERE TRUE ${searchCond} ${statusCond}`,
     ])
     return {
-      data:  (dataRows as unknown as any[]) ?? [],
+      data: normalizeAgencyTemporalRows(
+        dataRows as unknown as any[]
+      ),
       count: (countRows[0] as any | undefined)?.count ?? 0,
       error: null,
     }

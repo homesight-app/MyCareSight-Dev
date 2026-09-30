@@ -71,6 +71,7 @@ export default function AppHeader({
           {user?.id && (
             <NotificationDropdown
               userId={user.id}
+              userRole={profile?.role ?? null}
             />
           )}
           {user && (

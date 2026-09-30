@@ -4,6 +4,10 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Bell, MessageSquare, Clock, FileText, Trash2 } from 'lucide-react'
 import { flushSync } from 'react-dom'
 import * as q from '@/app/actions/query-bridge'
+import {
+  getNotificationBadgeSnapshotAction,
+  getNotificationDropdownSnapshotAction,
+} from '@/app/actions/notification-dropdown'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import LoadingSpinner from './LoadingSpinner'
 
@@ -45,11 +49,13 @@ function roleSeesInAppNotificationList(role: string | null): boolean {
 
 interface NotificationDropdownProps {
   userId: string
+  userRole: string | null
   initialUnreadCount?: number
 }
 
 export default function NotificationDropdown({ 
   userId,
+  userRole,
   initialUnreadCount = 0 
 }: NotificationDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -58,8 +64,8 @@ export default function NotificationDropdown({
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount)
   const [isLoading, setIsLoading] = useState(false)
   const [isNavigating, setIsNavigating] = useState(false)
-  const [userRole, setUserRole] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const initialBadgeLoadedRef = useRef(false)
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -105,31 +111,6 @@ export default function NotificationDropdown({
     [router]
   )
 
-  // Get user role on mount
-  useEffect(() => {
-    if (!userId) return
-    getUserRole()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId])
-
-  // Fetch initial badge count when userRole is available
-  useEffect(() => {
-    if (userRole && userId) {
-      refreshBadgeCount()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userRole, userId])
-
-  // Always refetch when the dropdown opens. A 30s cache was skipping this when the list
-  // already had rows, so the badge (updated via realtime + refreshBadgeCount) could show
-  // new unread items while the panel still showed stale notifications (e.g. care coordinators).
-  useEffect(() => {
-    if (isOpen && userId && userRole) {
-      fetchApplicationsWithUnread()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, userId, userRole])
-
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -147,278 +128,52 @@ export default function NotificationDropdown({
     }
   }, [isOpen])
 
-  const getUserRole = async () => {
-    try {
-      const { data: profile } = await q.getUserProfileRoleById(userId)
-      if (profile) {
-        setUserRole(profile.role)
-        return profile.role
-      }
-    } catch (err) {
-      console.error('Error fetching user role:', err)
-    }
-    return null
-  }
-
-
-  // Helper: fetch unread notification items for admin/expert/owner (used in all paths so dropdown is never empty)
-  const fetchUnreadNotificationItems = useCallback(async (): Promise<AdminNotificationItem[]> => {
-    if (!userId || !roleSeesInAppNotificationList(userRole)) return []
-    const { data: notificationRows } = await q.getUnreadNotificationItems(userId)
-    const allItems = (notificationRows || []).map((n: { id: string; title: string; message?: string | null; type: string; created_at: string; action_url?: string | null }) => ({
-      id: n.id,
-      title: n.title,
-      message: n.message ?? null,
-      type: n.type,
-      created_at: n.created_at,
-      action_url: n.action_url ?? null,
-    }))
-    return allItems.filter(n => !(n.type === 'general' && n.title === 'New Message'))
-  }, [userId, userRole])
-
-  // Optimized: Single query with aggregation using query builder
-  const fetchApplicationsWithUnread = useCallback(async () => {
-    if (!userRole) return
-    
+  const refreshDropdown = useCallback(async () => {
     setIsLoading(true)
     try {
-      // Step 1: Get application IDs based on role (single query)
-      let applicationIds: string[] = []
-      
-      if (userRole === 'admin') {
-        const { data: conversations } = await q.getConversationApplicationIds(100)
-        const uniqueAppIds = new Set(conversations?.map((c: { application_id: string }) => c.application_id).filter(Boolean) || [])
-        applicationIds = Array.from(uniqueAppIds) as string[]
-      } else if (userRole === 'company_owner' || userRole === 'care_coordinator') {
-        const { data: up } = await q.getAgencyIdFromProfile(userId)
-        const agencyId = up?.agency_id ?? null
-        if (agencyId) {
-          const { data: apps } = await q.getApplicationIdsByAgencyId(agencyId)
-          applicationIds = apps?.map((a: { id: string }) => a.id) || []
-        }
-      } else if (userRole === 'expert') {
-        const { data: apps } = await q.getApplicationIdsByAssignedExpertId(userId)
-        applicationIds = apps?.map((a: { id: string }) => a.id) || []
-      } else if (userRole === 'care_coordinator' || userRole === 'staff_member') {
-        applicationIds = []
-      } else {
-        applicationIds = []
-      }
-
-      let notificationItems: AdminNotificationItem[] = []
-      if (roleSeesInAppNotificationList(userRole) && userId) {
-        notificationItems = await fetchUnreadNotificationItems()
-      }
-
-      if (applicationIds.length === 0) {
-        setApplications([])
-        setAdminNotifications(notificationItems)
-        setUnreadCount(notificationItems.length)
-        setIsLoading(false)
-        return
-      }
-
-      const { data: conversations, error: convError } = await q.getConversationsWithApplications(applicationIds)
-      if (convError) {
-        console.error('Error fetching conversations:', convError)
-        setApplications([])
-        setAdminNotifications(notificationItems)
-        setUnreadCount(notificationItems.length)
-        setIsLoading(false)
-        return
-      }
-
-      if (!conversations || conversations.length === 0) {
-        setApplications([])
-        setAdminNotifications(notificationItems)
-        setUnreadCount(notificationItems.length)
-        setIsLoading(false)
-        return
-      }
-
-      // Step 3: Get unread counts using RPC function (user ID not in is_read array)
-      const conversationIds = conversations.map(c => c.id)
-      
-      // Validate inputs before calling RPC
-      if (!userId || !Array.isArray(conversationIds) || conversationIds.length === 0) {
-        console.warn('Invalid inputs for RPC call in fetchApplicationsWithUnread:', { userId, conversationIds: conversationIds.length })
-        setApplications([])
-        setAdminNotifications(notificationItems)
-        setUnreadCount(notificationItems.length)
-        setIsLoading(false)
-        return
-      }
-
-      const { data: unreadCounts, error: countError } = await q.rpcCountUnreadMessagesForUser(conversationIds, userId)
-
-      if (countError) {
-        console.error('Error counting unread messages in fetchApplicationsWithUnread:', {
-          error: countError,
-          message: countError.message,
-          details: (countError as any).details,
-          hint: (countError as any).hint,
-          code: (countError as any).code,
-          conversationIds: conversationIds.length,
-          userId
-        })
-        setApplications([])
-        setAdminNotifications(notificationItems)
-        setUnreadCount(notificationItems.length)
-        setIsLoading(false)
-        return
-      }
-
-      // Step 4: Aggregate in memory (minimal processing)
-      const unreadCountsByConv: Record<string, number> = {}
-      unreadCounts?.forEach((row: { conversation_id: string; unread_count: number }) => {
-        unreadCountsByConv[row.conversation_id] = Number(row.unread_count)
-      })
-
-      // Step 5: Build result (single pass)
-      const appMap = new Map<string, ApplicationNotification>()
-      
-      conversations.forEach(conv => {
-        const appId = conv.application_id
-        if (!appId) return
-        
-        const app = (conv as any).applications
-        const unread = unreadCountsByConv[conv.id] || 0
-        
-        if (unread > 0) {
-          const existing = appMap.get(appId)
-          if (existing) {
-            existing.unread_count += unread
-            if (conv.last_message_at && (!existing.last_message_at || conv.last_message_at > existing.last_message_at)) {
-              existing.last_message_at = conv.last_message_at
-            }
-          } else {
-            appMap.set(appId, {
-              application_id: appId,
-              application_name: app.application_name || `Application ${app.state}`,
-              state: app.state,
-              unread_count: unread,
-              last_message_at: conv.last_message_at || ''
-            })
-          }
-        }
-      })
-
-      const appNotifications = Array.from(appMap.values())
-        .sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime())
-
-      setApplications(appNotifications)
-      let totalUnread = appNotifications.reduce((sum, app) => sum + app.unread_count, 0)
-      setAdminNotifications(notificationItems)
-      totalUnread += notificationItems.length
-      setUnreadCount(totalUnread)
+      const result = await getNotificationDropdownSnapshotAction()
+      if (result.error || !result.data) throw new Error(result.error?.message ?? 'Unable to load notifications')
+      setApplications(result.data.applications)
+      setAdminNotifications(result.data.notifications)
+      setUnreadCount(result.data.unreadCount)
     } catch (err) {
       console.error('Error fetching applications with unread:', err)
-      setApplications([])
-      setAdminNotifications([])
-      setUnreadCount(0)
     } finally {
       setIsLoading(false)
     }
-  }, [userRole, userId, fetchUnreadNotificationItems])
+  }, [])
 
-  // Quick badge count refresh function
   const refreshBadgeCount = useCallback(async () => {
     try {
-      let conversationIds: string[] = []
-      
-      if (userRole === 'admin') {
-        const { data: conversations } = await q.getConversationIds(500)
-        conversationIds = conversations?.map((c: { id: string }) => c.id) || []
-      } else if (userRole === 'company_owner' || userRole === 'care_coordinator') {
-        const { data: up } = await q.getAgencyIdFromProfile(userId)
-        const agencyId = up?.agency_id ?? null
-        const applicationIds: string[] = []
-        if (agencyId) {
-          const { data } = await q.getApplicationIdsByAgencyId(agencyId)
-          applicationIds.push(...(data?.map((a: { id: string }) => a.id) || []))
-        }
-        if (applicationIds.length === 0) {
-          const { data: countData } = await q.getUnreadNotificationsCount(userId)
-          setUnreadCount(parseInt(countData?.count ?? '0', 10))
-          return
-        }
-        const { data: convData } = await q.getConversationsWithApplications(applicationIds)
-        conversationIds = convData?.map((c: { id: string }) => c.id) || []
-      } else if (userRole === 'expert') {
-        const { data } = await q.getApplicationIdsByAssignedExpertId(userId)
-        const applicationIds = data?.map((a: { id: string }) => a.id) || []
-        if (applicationIds.length === 0) {
-          setUnreadCount(0)
-          return
-        }
-        const { data: convData } = await q.getConversationsWithApplications(applicationIds)
-        conversationIds = convData?.map((c: { id: string }) => c.id) || []
-      } else if (userRole === 'care_coordinator' || userRole === 'staff_member') {
-        const { data: countData } = await q.getUnreadNotificationsCount(userId)
-        setUnreadCount(parseInt(countData?.count ?? '0', 10))
-        return
-      } else {
-        setUnreadCount(0)
-        return
-      }
-
-      let count = 0
-      let countError: { message?: string; details?: unknown; hint?: string; code?: string } | null = null
-
-      if (conversationIds.length > 0 && userId && Array.isArray(conversationIds)) {
-        const result = await q.rpcGetTotalUnreadCountForUser(conversationIds, userId)
-        count = result.data ?? 0
-        countError = result.error
-      }
-
-      let totalCount = countError ? 0 : (count || 0)
-
-      if (roleSeesInAppNotificationList(userRole) && userId) {
-        const { data: notificationRows } = await q.getUnreadNotificationsByUserId(userId)
-        const nonMessageCount = (notificationRows || []).filter(n => !(n.type === 'general' && n.title === 'New Message')).length
-        totalCount += nonMessageCount
-      }
-
-      if (countError && !roleSeesInAppNotificationList(userRole)) {
-        console.error('Error counting unread messages:', {
-          error: countError,
-          message: countError.message,
-          details: countError.details,
-          hint: countError.hint,
-          code: countError.code,
-          conversationIds: conversationIds.length,
-          userId
-        })
-      } else {
-        setUnreadCount(totalCount)
-      }
+      const result = await getNotificationBadgeSnapshotAction()
+      if (result.error || !result.data) throw new Error(result.error?.message ?? 'Unable to count notifications')
+      setUnreadCount(result.data.unreadCount)
     } catch (err) {
       console.error('Error refreshing badge:', err)
     }
-  }, [userRole, userId])
+  }, [])
 
-  // Debounced refresh for badge count only
+  useEffect(() => {
+    if (!userId || !userRole || initialBadgeLoadedRef.current) return
+    initialBadgeLoadedRef.current = true
+    void refreshBadgeCount()
+  }, [refreshBadgeCount, userId, userRole])
+
+  useEffect(() => {
+    if (isOpen && userId && userRole) void refreshDropdown()
+  }, [isOpen, refreshDropdown, userId, userRole])
+
   const debouncedRefreshBadge = useCallback(() => {
     if (fetchTimeoutRef.current) {
       clearTimeout(fetchTimeoutRef.current)
     }
 
     fetchTimeoutRef.current = setTimeout(async () => {
-      // Add a delay to ensure database transaction is fully committed before querying
-      // This prevents race conditions where the query runs before the message is visible
       await new Promise(resolve => setTimeout(resolve, 400))
-      
-      // Always refresh badge count when message arrives (even if dropdown is open)
-      await refreshBadgeCount()
-
-      // If the panel is open, reload list content too (same stale-cache issue as on open).
-      if (isOpen) {
-        setTimeout(() => {
-          fetchApplicationsWithUnread()
-        }, 500)
-      }
+      if (isOpen) await refreshDropdown()
+      else await refreshBadgeCount()
     }, DEBOUNCE_MS)
-  }, [isOpen, refreshBadgeCount, fetchApplicationsWithUnread])
+  }, [isOpen, refreshBadgeCount, refreshDropdown])
   // Poll through the application-owned server boundary until an Azure-compatible
   // event channel is selected. Focus/visibility refreshes keep returning users current.
   useEffect(() => {

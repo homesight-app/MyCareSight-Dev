@@ -1,6 +1,10 @@
 import 'server-only'
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions } from '@azure/storage-blob'
 import { DefaultAzureCredential } from '@azure/identity'
+import {
+  measureStorageOperation,
+  storageSizeClass,
+} from '@/lib/observability/performance'
 
 const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME!
 const accountUrl = `https://${accountName}.blob.core.windows.net`
@@ -29,11 +33,18 @@ export async function uploadFile(
     } else {
       data = file
     }
-    await blockBlob.uploadData(data, {
-      blobHTTPHeaders: {
-        blobContentType: options?.contentType ?? (file instanceof File ? file.type : undefined),
-      },
-    })
+    const bytes = file instanceof File || file instanceof Blob
+      ? file.size
+      : Buffer.isBuffer(file)
+        ? file.byteLength
+        : file.byteLength
+    await measureStorageOperation('upload', storageSizeClass(bytes), () =>
+      blockBlob.uploadData(data, {
+        blobHTTPHeaders: {
+          blobContentType: options?.contentType ?? (file instanceof File ? file.type : undefined),
+        },
+      })
+    )
     return { path, error: null }
   } catch (err) {
     return { path: null, error: err instanceof Error ? err : new Error(String(err)) }
@@ -48,7 +59,9 @@ export async function removeFiles(
   if (paths.length === 0) return { error: null }
   try {
     const container = containerClient(bucket)
-    await Promise.all(paths.map(p => container.deleteBlob(p).catch(() => null)))
+    await measureStorageOperation('delete', 'unknown', () =>
+      Promise.all(paths.map(p => container.deleteBlob(p).catch(() => null)))
+    )
     return { error: null }
   } catch (err) {
     return { error: err instanceof Error ? err : new Error(String(err)) }
@@ -76,26 +89,30 @@ export async function getSignedUrl(
   }
 
   try {
-    const startsOn = new Date()
-    const expiresOn = new Date(Date.now() + expiresIn * 1000)
+    return await measureStorageOperation('sign_url', 'unknown', async () => {
+      const startsOn = new Date()
+      const expiresOn = new Date(Date.now() + expiresIn * 1000)
 
-    const userDelegationKey = await blobServiceClient.getUserDelegationKey(startsOn, expiresOn)
+      const userDelegationKey = await blobServiceClient.getUserDelegationKey(startsOn, expiresOn)
 
-    const sasToken = generateBlobSASQueryParameters(
-      {
-        containerName: bucket,
-        blobName: blobPath,
-        permissions: BlobSASPermissions.parse('r'),
-        startsOn,
-        expiresOn,
-      },
-      userDelegationKey,
-      accountName
-    ).toString()
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName: bucket,
+          blobName: blobPath,
+          permissions: BlobSASPermissions.parse('r'),
+          startsOn,
+          expiresOn,
+        },
+        userDelegationKey,
+        accountName
+      ).toString()
 
-    return `${accountUrl}/${bucket}/${blobPath}?${sasToken}`
+      return `${accountUrl}/${bucket}/${blobPath}?${sasToken}`
+    })
   } catch (err) {
-    console.error('[storage] getSignedUrl failed:', bucket, err instanceof Error ? err.message : err)
+    // Provider errors can include blob URLs or paths. The timing span already
+    // records failure status without forwarding provider details.
+    console.error('[storage] getSignedUrl failed')
     return null
   }
 }

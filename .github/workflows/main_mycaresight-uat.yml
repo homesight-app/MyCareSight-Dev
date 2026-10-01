@@ -91,6 +91,33 @@ jobs:
             exit 1
           fi
 
+      - name: Enable web Application Insights agent
+        shell: bash
+        run: |
+          app_name="mycaresight-uat"
+          resource_group="$(az webapp list --query "[?name=='${app_name}'].resourceGroup | [0]" --output tsv)"
+          if [ -z "$resource_group" ]; then
+            echo "::error::Unable to resolve the UAT web app resource group."
+            exit 1
+          fi
+
+          connection_string_present="$(az webapp config appsettings list \
+            --name "$app_name" \
+            --resource-group "$resource_group" \
+            --query "length([?name=='APPLICATIONINSIGHTS_CONNECTION_STRING' && value!=''])" \
+            --output tsv)"
+          if [ "$connection_string_present" != "1" ]; then
+            echo "::warning::APPLICATIONINSIGHTS_CONNECTION_STRING is missing from the UAT web app; managed telemetry will remain inactive."
+            exit 0
+          fi
+
+          az webapp config appsettings set \
+            --name "$app_name" \
+            --resource-group "$resource_group" \
+            --settings 'ApplicationInsightsAgent_EXTENSION_VERSION=~3' \
+            --output none
+          echo "Application Insights Node agent configured for the UAT web app."
+
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3

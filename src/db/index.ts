@@ -1,6 +1,7 @@
 import 'server-only'
 import postgres from 'postgres'
 import { AsyncLocalStorage } from 'async_hooks'
+import { measureDatabaseTransaction } from '@/lib/observability/performance'
 
 const _sql = postgres(process.env.DATABASE_URL!, {
   ssl: 'require',
@@ -55,15 +56,17 @@ export async function withUserContext<T>(
   agencyId: string | null,
   fn: () => Promise<T>
 ): Promise<T> {
-  return _sql.begin(async (tx): Promise<any> => {
-    await tx`
-      SELECT
-        set_config('app.current_user_id',  ${userId},         true),
-        set_config('app.current_user_role', ${role},           true),
-        set_config('app.current_agency_id', ${agencyId ?? ''}, true)
-    `
-    return _store.run(tx, fn)
-  }) as Promise<T>
+  return measureDatabaseTransaction(() =>
+    _sql.begin(async (tx): Promise<any> => {
+      await tx`
+        SELECT
+          set_config('app.current_user_id',  ${userId},         true),
+          set_config('app.current_user_role', ${role},           true),
+          set_config('app.current_agency_id', ${agencyId ?? ''}, true)
+      `
+      return _store.run(tx, fn)
+    }) as Promise<T>
+  )
 }
 
 /**

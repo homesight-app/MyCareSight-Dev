@@ -22,8 +22,36 @@ const ALLOWED_DOCUMENT_TYPES = new Set([
 ])
 const STANDARD_DOCUMENT_TYPES = ['license', 'certificate', 'insurance', 'contract', 'policy', 'other']
 const MAX_FILES = 20
+const MAX_CONCURRENT_UPLOADS = 3
 
 type SelectedFile = { id: string; file: File; name: string }
+
+async function uploadFiles(
+  files: SelectedFile[],
+  applicationId: string
+): Promise<PromiseSettledResult<StoredFileUpload>[]> {
+  const results: PromiseSettledResult<StoredFileUpload>[] = new Array(files.length)
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < files.length) {
+      const index = nextIndex++
+      try {
+        results[index] = {
+          status: 'fulfilled',
+          value: await uploadStoredFile(files[index].file, 'application-document', applicationId),
+        }
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason }
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(MAX_CONCURRENT_UPLOADS, files.length) }, () => worker())
+  )
+  return results
+}
 
 interface UploadDocumentModalProps {
   isOpen: boolean
@@ -145,9 +173,7 @@ export default function UploadDocumentModal({
     const uploaded: StoredFileUpload[] = []
 
     try {
-      const uploadResults = await Promise.allSettled(
-        selectedFiles.map(file => uploadStoredFile(file.file, 'application-document', applicationId))
-      )
+      const uploadResults = await uploadFiles(selectedFiles, applicationId)
       uploadResults.forEach(result => {
         if (result.status === 'fulfilled') uploaded.push(result.value)
       })

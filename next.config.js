@@ -11,6 +11,9 @@ const nextConfig = {
   // actions invalidate affected paths immediately; this short upper bound
   // protects routes whose data can also change outside the current session.
   experimental: {
+    // Requests passing through middleware are cloned in memory. Keep this
+    // above the 10 MB application upload limit to allow multipart overhead.
+    middlewareClientMaxBodySize: '12mb',
     staleTimes: {
       dynamic: 30,
     },

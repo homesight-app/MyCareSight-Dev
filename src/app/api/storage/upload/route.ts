@@ -5,6 +5,7 @@ import { auditStoredObjectAccess, authorizeStorageUpload } from '@/lib/storage/a
 import { createStorageCleanupToken, readStorageCleanupToken } from '@/lib/storage/cleanup-token'
 import { STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/contracts'
 
+const MAX_MULTIPART_REQUEST_BYTES = STORAGE_UPLOAD_MAX_BYTES + 256 * 1024
 const PURPOSES = new Set<UploadPurpose>([
   'application-document',
   'caregiver-certification',
@@ -29,7 +30,13 @@ export async function POST(request: Request) {
   const session = await getSession()
   if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const form = await request.formData()
+  const contentLength = Number(request.headers.get('content-length'))
+  if (Number.isFinite(contentLength) && contentLength > MAX_MULTIPART_REQUEST_BYTES) {
+    return Response.json({ error: 'Files must be 10 MB or smaller' }, { status: 413 })
+  }
+
+  const form = await request.formData().catch(() => null)
+  if (!form) return Response.json({ error: 'The upload request could not be read' }, { status: 400 })
   const file = form.get('file')
   const purpose = form.get('purpose')
   const resourceId = form.get('resourceId')

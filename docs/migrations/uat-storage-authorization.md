@@ -10,6 +10,8 @@ Browser uploads no longer choose a container or object path. They send a narrow 
 
 Application document creation and replacement now use this boundary directly. Binary files are no longer serialized through Server Actions, whose default request limit caused uploads above 1 MB to fail before application code ran. The follow-up Server Action accepts only signed path metadata, verifies it against the current actor and application, and writes document metadata plus audit evidence transactionally. Failed commits remove the verified new objects; successful replacement removes the superseded object after the new reference commits.
 
+The global Auth.js middleware excludes only `/api/storage/upload` because that route authenticates the same opaque session itself. This avoids cloning multipart bodies before the route. The general middleware clone limit is explicitly 12 MB, while the route retains a 10 MB file limit and a bounded multipart allowance. Multi-file uploads use at most three concurrent requests to limit App Service memory pressure.
+
 The old provider-named `src/lib/supabase/storage.ts` helper was removed. Shared bucket names, upload contracts, signed-URL requests, Azure server operations, authorization, and cleanup-token logic now live under `src/lib/storage/`.
 
 ## Access rules

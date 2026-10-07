@@ -2,7 +2,9 @@ import type { StoredFileUpload, UploadPurpose } from './contracts'
 
 async function responseError(response: Response, fallback: string) {
   const body = await response.json().catch(() => null) as { error?: string } | null
-  return body?.error || fallback
+  if (body?.error) return body.error
+  if (response.status === 413) return 'The upload was rejected because the request was too large'
+  return `${fallback} (HTTP ${response.status})`
 }
 
 export async function uploadStoredFile(

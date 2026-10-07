@@ -138,6 +138,15 @@ test('writes identifier-only signing evidence without storing the object path', 
   expect(JSON.stringify(result.rows[0])).not.toContain('synthetic.pdf')
 })
 
+test('writes identifier-only download evidence as a read without storing the object path', async () => {
+  const object = await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'applications/synthetic.pdf')
+  expect(object).not.toBeNull()
+  await auditStoredObjectAccess(OWNER, object!, 'DOWNLOAD')
+  const result = await db.query<{ action: string; details: unknown }>('SELECT action, details FROM audit_log')
+  expect(result.rows).toEqual([{ action: 'READ', details: { operation: 'DOWNLOAD' } }])
+  expect(JSON.stringify(result.rows[0])).not.toContain('synthetic.pdf')
+})
+
 test('generates server-owned upload scopes and denies cross-agency resources', async () => {
   expect(await authorizeStorageUpload('application-document', APP)).toMatchObject({
     bucket: STORAGE_BUCKET.APPLICATION,

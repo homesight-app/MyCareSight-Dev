@@ -1,6 +1,7 @@
 import 'server-only'
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions } from '@azure/storage-blob'
 import { DefaultAzureCredential } from '@azure/identity'
+import { Readable } from 'node:stream'
 import {
   measureStorageOperation,
   storageSizeClass,
@@ -16,6 +17,13 @@ const blobServiceClient = new BlobServiceClient(accountUrl, credential)
 
 function containerClient(bucket: string) {
   return blobServiceClient.getContainerClient(bucket)
+}
+
+function normalizeBlobPath(bucket: string, path: string) {
+  if (!path.includes('/storage/v1/object/')) return path
+  const marker = `/object/public/${bucket}/`
+  const idx = path.indexOf(marker)
+  return idx !== -1 ? path.slice(idx + marker.length) : path
 }
 
 /** Upload a file to an Azure Blob Storage container. Returns the stored path or an error. */
@@ -68,6 +76,43 @@ export async function removeFiles(
   }
 }
 
+export type DownloadedFile = {
+  stream: ReadableStream<Uint8Array>
+  contentLength: number
+  contentType: string | null
+}
+
+/** Download a bounded private object for an authorized server-side use. */
+export async function downloadFile(
+  bucket: string,
+  path: string,
+  maxBytes: number
+): Promise<DownloadedFile | null> {
+  if (!path || !Number.isSafeInteger(maxBytes) || maxBytes < 1) return null
+
+  try {
+    const blob = containerClient(bucket).getBlockBlobClient(normalizeBlobPath(bucket, path))
+    const properties = await blob.getProperties()
+    const bytes = properties.contentLength
+    if (bytes === undefined || bytes < 1 || bytes > maxBytes) return null
+
+    const response = await measureStorageOperation('download', storageSizeClass(bytes), () =>
+      blob.download(0, bytes)
+    )
+    if (!response.readableStreamBody) return null
+
+    return {
+      stream: Readable.toWeb(response.readableStreamBody as Readable) as ReadableStream<Uint8Array>,
+      contentLength: bytes,
+      contentType: properties.contentType ?? null,
+    }
+  } catch {
+    // Provider errors can include blob URLs or paths. Do not forward them.
+    console.error('[storage] downloadFile failed')
+    return null
+  }
+}
+
 /**
  * Generate a time-limited User Delegation SAS URL for a private blob.
  * Uses Managed Identity / DefaultAzureCredential — no account key required.
@@ -80,13 +125,8 @@ export async function getSignedUrl(
 ): Promise<string | null> {
   if (!path) return null
 
-  // Strip legacy Supabase full-URL paths stored in the DB
-  let blobPath = path
-  if (path.includes('/storage/v1/object/')) {
-    const marker = `/object/public/${bucket}/`
-    const idx = path.indexOf(marker)
-    blobPath = idx !== -1 ? path.slice(idx + marker.length) : path
-  }
+  // Strip legacy Supabase full-URL paths stored in the DB.
+  const blobPath = normalizeBlobPath(bucket, path)
 
   try {
     return await measureStorageOperation('sign_url', 'unknown', async () => {

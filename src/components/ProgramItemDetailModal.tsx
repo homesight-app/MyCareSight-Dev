@@ -66,6 +66,16 @@ interface AgencyFields {
 const addr = (...parts: (string | null | undefined)[]) =>
   parts.filter(Boolean).join(', ') || '—'
 
+function fileExtension(value: string) {
+  try {
+    const pathname = /^https?:\/\//i.test(value) ? new URL(value).pathname : value.split(/[?#]/, 1)[0]
+    const filename = decodeURIComponent(pathname).split('/').pop() ?? ''
+    return filename.includes('.') ? filename.split('.').pop()?.toLowerCase() ?? '' : ''
+  } catch {
+    return ''
+  }
+}
+
 const FIELD_VALUES: Record<string, (a: AgencyFields) => string> = {
   legal_entity_name:  a => a.legal_entity_name ?? '—',
   agency_name:        a => a.dba_name ?? a.name ?? '—',
@@ -176,8 +186,15 @@ function DocxViewerPane({ url }: { url: string }) {
         </div>
       )}
       {status === 'error' && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-red-500">
-          Failed to render document — try downloading it instead.
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-red-500">
+          <span>Failed to render document.</span>
+          <a
+            href={url}
+            download
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 font-medium text-white hover:bg-brand-hover"
+          >
+            <Download className="h-4 w-4" /> Download to view
+          </a>
         </div>
       )}
       <div
@@ -318,14 +335,21 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
       notesOverride: '',
     })))
 
-    // Generate signed URLs for all uploaded documents so they can be previewed
+    // DOCX content is fetched through a same-origin, server-authorized endpoint.
+    // Other formats retain short-lived direct Blob URLs for browser-native viewing.
     const previews: PreviewDoc[] = []
     for (const doc of documents) {
-      const ext = doc.document_name.split('.').pop()?.toLowerCase() ?? ''
-      let url = doc.document_url
-      if (url && !url.startsWith('http')) {
-        const signed = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, url, 3600)
-        url = signed ?? ''
+      const ext = fileExtension(doc.document_url) || fileExtension(doc.document_name)
+      let url = ''
+      if (ext === 'docx' && doc.document_url) {
+        const params = new URLSearchParams({ path: doc.document_url })
+        url = `/api/storage/document-preview?${params}`
+      } else if (doc.document_url) {
+        url = doc.document_url
+        if (!url.startsWith('http')) {
+          const signed = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, url, 3600)
+          url = signed ?? ''
+        }
       }
       if (url) previews.push({ url, name: doc.document_name, ext })
     }
@@ -922,7 +946,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
                       const doc = previewDocs[previewIdx]
                       const isPdf   = doc.ext === 'pdf'
                       const isImage = ['jpg','jpeg','png','gif','webp','svg'].includes(doc.ext)
-                      const isDocx  = ['docx','doc'].includes(doc.ext)
+                      const isDocx  = doc.ext === 'docx'
                       if (isPdf) {
                         return (
                           <iframe

@@ -2,7 +2,7 @@ import 'server-only'
 
 import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api'
 
-type StorageOperation = 'upload' | 'delete' | 'sign_url'
+type StorageOperation = 'upload' | 'download' | 'delete' | 'sign_url'
 type StorageSizeClass = 'empty' | 'under_1_mb' | '1_to_5_mb' | '5_to_10_mb' | 'over_10_mb' | 'unknown'
 
 async function measure<T>(

@@ -1,6 +1,6 @@
 # UAT Supabase removal
 
-Status: local migration work in progress. Database migrations 001-015a have been applied to Dev/UAT as directed and the prepared catalog controls have been verified where recorded below. Remaining browser database calls, Azure runtime/storage acceptance, deployment, and final environment cleanup are pending.
+Status: UAT is deployed on Azure App Service with Neon, Auth.js, and Azure Blob Storage. The West-region Neon cutover passed schema/data/access parity, restricted runtime-login checks, interactive web acceptance, and background-job acceptance on 2026-10-07. Remaining security, operational, and HIPAA-readiness gates are recorded below.
 Approved scope recorded: 2026-09-20.
 Local branch: codex/uat-supabase-removal. Baseline commit: 0eab0d1.
 
@@ -9,10 +9,11 @@ Local branch: codex/uat-supabase-removal. Baseline commit: 0eab0d1.
 - Azure subscription: MyCareSight-Dev-UAT (a268ab63-b7ec-490d-a858-0de0be69ed4f).
 - Application: mycaresight-uat on Azure App Service.
 - Repository: homesight-app/MyCareSight-Dev. The user confirmed production deploys from a separate repository.
-- Target business database: Neon project steep-sky-59385366. Verified branches: local dev (br-bitter-dust-axfgiziy) and UAT uat (br-empty-mouse-axnk8fbc), both neondb. Azure runtime configuration is not yet independently verified.
+- Active UAT business database: Neon project `mycaresight-platform` in AWS US West 2, branch `uat`, database `neondb`. The Azure web and jobs runtimes use separate pooled `mycaresight_app` and `mycaresight_jobs` identities without elevated role attributes. The prior East-region UAT database remains temporarily available for rollback.
+- The earlier Neon project `steep-sky-59385366` remains historical migration evidence and the current local-development source until a separately scoped development migration is approved.
 - Target storage: Azure Blob Storage. The application-owned authorization boundary is prepared locally; the UAT account, private containers, managed identity, malware scanning, and role workflows still require live verification.
 - Production stays on Supabase and Vercel. Its migration plan is explicitly deferred.
-- Work is prepared through local file changes. No push, deployment, production change, data copy, or credential removal has been performed.
+- UAT code and infrastructure have been deployed and accepted as recorded in this document and the compliance log. Production remains unchanged; no production data was copied or modified.
 - Use only synthetic/non-PHI data for UAT. Source schema inspection is read-only; no source records are to be copied for this verification.
 - Azure's slot named Production is the default slot of the UAT app, not the production platform.
 

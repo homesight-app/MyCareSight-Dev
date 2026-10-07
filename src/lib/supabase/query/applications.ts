@@ -132,8 +132,37 @@ export async function updateApplicationDocumentFile(
   data: { document_url: string; document_name: string; document_type: string | null; description: string | null }
 ) {
   try {
-    await sql`UPDATE application_documents SET ${sql(data as Record<string, unknown>, ...Object.keys(data) as any)} WHERE id = ${documentId} AND application_id = ${applicationId}`
-    return { data: null, error: null }
+    const rows = await sql`
+      UPDATE application_documents
+      SET ${sql(data as Record<string, unknown>, ...Object.keys(data) as any)}
+      WHERE id = ${documentId} AND application_id = ${applicationId}
+      RETURNING id
+    `
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: (rows as unknown as Array<{ id: string }>)[0], error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
+/** Lock an application document while replacing its stored object. */
+export async function getApplicationDocumentForUpdate(documentId: string, applicationId: string) {
+  try {
+    const rows = await sql`
+      SELECT id, application_id, document_url
+      FROM application_documents
+      WHERE id = ${documentId} AND application_id = ${applicationId}
+      FOR UPDATE
+    `
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return {
+      data: (rows as unknown as Array<{
+        id: string
+        application_id: string
+        document_url: string
+      }>)[0],
+      error: null,
+    }
   } catch (err) {
     return { data: null, error: err as Error }
   }

@@ -6,6 +6,9 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import type { StoredFileUpload } from '@/lib/storage/contracts'
+import { APPLICATION_DOCUMENT_MAX_BYTES } from '@/lib/schemas/application-documents'
 import { replaceApplicationDocumentAction } from '@/app/actions/application-documents'
 import * as q from '@/app/actions/query-bridge'
 import { useVisiblePolling } from '@/hooks/useVisiblePolling'
@@ -311,17 +314,29 @@ export default function ApplicationDetailContent({
     e.target.value = ''
     if (!file) return
     setReplacingAdHocDocId(doc.id)
+    let uploaded: StoredFileUpload | null = null
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const { error } = await replaceApplicationDocumentAction(doc.id, application.id, formData, {
-        document_name: doc.document_name,
-        document_type: doc.document_type ?? null,
+      if (file.size < 1 || file.size > APPLICATION_DOCUMENT_MAX_BYTES) {
+        throw new Error('The file must be between 1 byte and 10 MB')
+      }
+      uploaded = await uploadStoredFile(file, 'application-document', application.id)
+      const result = await replaceApplicationDocumentAction({
+        documentId: doc.id,
+        applicationId: application.id,
+        upload: uploaded,
+        documentName: doc.document_name,
+        documentType: doc.document_type ?? null,
         description: doc.description ?? null,
       })
-      if (error) throw new Error(error)
+      if (!result.success) {
+        if (result.cleanupRequired !== false) await cleanupStoredFile(uploaded)
+        uploaded = null
+        throw new Error(result.error)
+      }
+      uploaded = null
       await refreshDocuments()
     } catch (err: unknown) {
+      if (uploaded) await cleanupStoredFile(uploaded)
       alert('Failed to replace document: ' + (err instanceof Error ? err.message : 'Unknown error'))
     } finally {
       setReplacingAdHocDocId(null)

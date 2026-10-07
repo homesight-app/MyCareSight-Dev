@@ -3,9 +3,8 @@ import { getSession } from '@/lib/auth'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
 import { auditStoredObjectAccess, authorizeStorageUpload } from '@/lib/storage/authorization'
 import { createStorageCleanupToken, readStorageCleanupToken } from '@/lib/storage/cleanup-token'
-import type { UploadPurpose } from '@/lib/storage/contracts'
+import { STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/contracts'
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024
 const PURPOSES = new Set<UploadPurpose>([
   'application-document',
   'caregiver-certification',
@@ -40,7 +39,7 @@ export async function POST(request: Request) {
     || !PURPOSES.has(purpose as UploadPurpose)
     || (resourceId !== null && typeof resourceId !== 'string')
     || file.size < 1
-    || file.size > MAX_FILE_SIZE
+    || file.size > STORAGE_UPLOAD_MAX_BYTES
   ) {
     return Response.json({ error: 'Invalid upload request' }, { status: 400 })
   }

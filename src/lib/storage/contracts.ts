@@ -22,3 +22,5 @@ export type StoredFileUpload = {
   path: string
   cleanupToken: string
 }
+
+export const STORAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024

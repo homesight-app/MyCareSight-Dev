@@ -290,6 +290,28 @@ export async function getApplicationPlaybookItems(applicationId: string) {
   }
 }
 
+/** Verify that a playbook item belongs to an application before attaching records to it. */
+export async function getApplicationPlaybookItemById(
+  applicationPlaybookItemId: string,
+  applicationId: string
+) {
+  try {
+    const rows = await sql`
+      SELECT id, application_id
+      FROM application_playbook_items
+      WHERE id = ${applicationPlaybookItemId} AND application_id = ${applicationId}
+      LIMIT 1
+    `
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return {
+      data: (rows as unknown as Array<{ id: string; application_id: string }>)[0],
+      error: null,
+    }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
 export async function updateApplicationPlaybookItemRow(
   itemId: string,
   payload: Partial<{

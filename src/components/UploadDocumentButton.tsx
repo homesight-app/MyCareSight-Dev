@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation'
 import { Upload, CheckCircle2 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { uploadApplicationDocumentsAction } from '@/app/actions/application-documents'
+import { APPLICATION_DOCUMENT_MAX_BYTES } from '@/lib/schemas/application-documents'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import type { StoredFileUpload } from '@/lib/storage/contracts'
 
 interface UploadDocumentButtonProps {
   applicationId: string
@@ -28,13 +31,29 @@ export default function UploadDocumentButton({
     setIsUploading(true)
     setUploadStatus('idle')
     setErrorMessage(null)
+    let uploaded: StoredFileUpload | null = null
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      if (file.size < 1 || file.size > APPLICATION_DOCUMENT_MAX_BYTES) {
+        throw new Error('The file must be between 1 byte and 10 MB')
+      }
 
-      const result = await uploadApplicationDocumentsAction(applicationId, formData)
-      if (result.error) throw new Error(result.error)
+      uploaded = await uploadStoredFile(file, 'application-document', applicationId)
+      const result = await uploadApplicationDocumentsAction({
+        applicationId,
+        uploads: [{ ...uploaded, documentName: file.name }],
+        documentType: null,
+        description: null,
+        status: 'draft',
+        licenseRequirementDocumentId: null,
+        applicationPlaybookItemId: null,
+      })
+      if (!result.success) {
+        if (result.cleanupRequired !== false) await cleanupStoredFile(uploaded)
+        uploaded = null
+        throw new Error(result.error)
+      }
+      uploaded = null
 
       setUploadStatus('success')
       router.refresh()
@@ -43,11 +62,10 @@ export default function UploadDocumentButton({
       setTimeout(() => {
         setUploadStatus('idle')
       }, 2000)
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (uploaded) await cleanupStoredFile(uploaded)
       setUploadStatus('error')
-      console.error('Upload error:', err)
-      // Show more detailed error message
-      const errorMsg = err.message || err.error?.message || 'Failed to upload document. Please try again.'
+      const errorMsg = err instanceof Error ? err.message : 'Failed to upload document. Please try again.'
       setErrorMessage(errorMsg)
       
       // Reset status after 5 seconds to give user time to read the error

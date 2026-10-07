@@ -3,9 +3,35 @@
 import { revalidatePath } from 'next/cache'
 import { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
-import * as q from '@/lib/supabase/query'
+import {
+  createApplicationDocumentsSchema,
+  replaceApplicationDocumentSchema,
+} from '@/lib/schemas/application-documents'
 import { STORAGE_BUCKET } from '@/lib/storage'
-import { uploadFile, removeFiles } from '@/lib/storage/client'
+import { auditStoredObjectAccess } from '@/lib/storage/authorization'
+import { removeFiles } from '@/lib/storage/client'
+import { readStorageCleanupToken } from '@/lib/storage/cleanup-token'
+import type { StoredFileUpload } from '@/lib/storage/contracts'
+import * as q from '@/lib/supabase/query'
+import { zodErrorToFieldErrors } from '@/lib/validation'
+
+type InsertedDocument = { id: string; document_url: string; document_name: string }
+
+type ActionResult<T = null> =
+  | { success: true; data: T; error?: never; fieldErrors?: never }
+  | {
+      success: false
+      data: null
+      error: string
+      fieldErrors?: Record<string, string[]>
+      cleanupRequired?: boolean
+    }
+
+type VerifiedUpload = StoredFileUpload & {
+  agencyId: string | null
+  recordId: string
+  tableName: string
+}
 
 function revalidateApplicationPages(applicationId: string) {
   revalidatePath(`/pages/admin/programs/${applicationId}`)
@@ -13,137 +39,237 @@ function revalidateApplicationPages(applicationId: string) {
   revalidatePath(`/pages/agency/programs/${applicationId}`)
 }
 
-/**
- * Upload one or more documents for an application. Accepts files via FormData fields:
- *   file (repeatable), document_type, description
- * Each file's browser name is used as document_name.
- */
-export async function uploadApplicationDocumentsAction(
-  applicationId: string,
-  formData: FormData,
-  options?: {
-    status?: 'draft' | 'approved' | 'pending'
-    licenseRequirementDocumentId?: string | null
-    applicationPlaybookItemId?: string | null
+function verifyUpload(
+  upload: StoredFileUpload,
+  actorId: string,
+  applicationId: string
+): VerifiedUpload | null {
+  const claim = readStorageCleanupToken(upload.cleanupToken)
+  if (
+    !claim
+    || claim.actorId !== actorId
+    || claim.bucket !== STORAGE_BUCKET.APPLICATION
+    || claim.path !== upload.path
+    || claim.recordId !== applicationId
+    || claim.tableName !== 'applications'
+  ) return null
+
+  return {
+    path: upload.path,
+    cleanupToken: upload.cleanupToken,
+    agencyId: claim.agencyId,
+    recordId: claim.recordId,
+    tableName: claim.tableName,
   }
-): Promise<{ error: string | null; data: { id: string; document_url: string; document_name: string }[] | null }> {
-  const session = await getSession()
-  if (!session?.user) return { error: 'Not authenticated', data: null }
-
-  const files = formData.getAll('file') as File[]
-  const documentType = formData.get('document_type') as string | null
-  const description = formData.get('description') as string | null
-
-  if (files.length === 0) return { error: 'No files provided', data: null }
-
-  const uploadedPaths: string[] = []
-  const inserted: { id: string; document_url: string; document_name: string }[] = []
-
-  for (const file of files) {
-    const fileExt = file.name.split('.').pop()
-    const filePath = `${applicationId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
-
-    const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.APPLICATION, filePath, file)
-    if (uploadErr) {
-      await removeFiles(STORAGE_BUCKET.APPLICATION, uploadedPaths)
-      return { error: uploadErr.message, data: null }
-    }
-    uploadedPaths.push(filePath)
-
-    const insertData: Record<string, unknown> = {
-      application_id: applicationId,
-      document_name: file.name,
-      document_url: filePath,
-      document_type: documentType || null,
-      description: description?.trim() || null,
-      status: options?.status ?? 'draft',
-    }
-    if (options?.licenseRequirementDocumentId) {
-      insertData.license_requirement_document_id = options.licenseRequirementDocumentId
-    }
-    if (options?.applicationPlaybookItemId) {
-      insertData.application_playbook_item_id = options.applicationPlaybookItemId
-    }
-
-    const { data: doc, error: insertErr } = await q.insertApplicationDocument(insertData)
-    if (insertErr) {
-      await removeFiles(STORAGE_BUCKET.APPLICATION, uploadedPaths)
-      return { error: insertErr.message, data: null }
-    }
-
-    inserted.push({ id: doc!.id, document_url: filePath, document_name: doc!.document_name })
-
-    try {
-      await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
-        const { data: appRow } = await q.getApplicationById(applicationId)
-        const agencyId = (appRow as unknown as { agency_id?: string | null } | null)?.agency_id ?? null
-        const { error: auditErr } = await q.insertAuditLog({
-          agency_id: agencyId,
-          table_name: 'application_documents',
-          record_id: doc!.id,
-          action: 'CREATE',
-          performed_by_user_id: session.user.id,
-          details: { application_id: applicationId, document_name: doc!.document_name },
-        })
-        if (auditErr) console.error('[application-documents/upload] Audit log failed. docId=%s err=%s', doc!.id, auditErr.message)
-      })
-    } catch (err) {
-      console.error('[application-documents/uploadApplicationDocumentsAction] audit context failed', err)
-    }
-  }
-
-  revalidateApplicationPages(applicationId)
-  return { error: null, data: inserted }
 }
 
-/** Replace the file of an existing application_document row. */
-export async function replaceApplicationDocumentAction(
-  docId: string,
-  applicationId: string,
-  formData: FormData,
-  docMeta: { document_name: string; document_type: string | null; description: string | null }
-): Promise<{ error: string | null }> {
+async function cleanupVerifiedUploads(actorId: string, uploads: VerifiedUpload[]) {
+  if (!uploads.length) return true
+  const { error } = await removeFiles(STORAGE_BUCKET.APPLICATION, uploads.map(upload => upload.path))
+  if (error) return false
+
+  await Promise.allSettled(uploads.map(upload => auditStoredObjectAccess(actorId, upload, 'DELETE')))
+  return true
+}
+
+/**
+ * Commit one or more previously authorized application uploads to the database.
+ * Files are uploaded through /api/storage/upload so the Server Action receives
+ * only small, signed metadata and is not constrained by the Server Action body limit.
+ */
+export async function uploadApplicationDocumentsAction(input: unknown): Promise<ActionResult<InsertedDocument[]>> {
+  const parsed = createApplicationDocumentsSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      success: false,
+      data: null,
+      error: 'Check the highlighted fields',
+      fieldErrors: zodErrorToFieldErrors(parsed.error),
+      cleanupRequired: true,
+    }
+  }
+
   const session = await getSession()
-  if (!session?.user) return { error: 'Not authenticated' }
+  if (!session?.user) return { success: false, data: null, error: 'Not authenticated' }
 
-  const file = formData.get('file') as File | null
-  if (!file) return { error: 'File is required' }
-
-  const fileExt = file.name.split('.').pop()
-  const filePath = `${applicationId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
-
-  const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.APPLICATION, filePath, file)
-  if (uploadErr) return { error: uploadErr.message }
-
-  const { error: updateErr } = await q.updateApplicationDocumentFile(docId, applicationId, {
-    document_url: filePath,
-    document_name: docMeta.document_name,
-    document_type: docMeta.document_type,
-    description: docMeta.description,
-  })
-  if (updateErr) {
-    await removeFiles(STORAGE_BUCKET.APPLICATION, [filePath])
-    return { error: updateErr.message }
+  const { applicationId, uploads } = parsed.data
+  const verifiedUploads = uploads.map(upload => verifyUpload(upload, session.user.id, applicationId))
+  if (verifiedUploads.some(upload => !upload)) {
+    return {
+      success: false,
+      data: null,
+      error: 'The uploaded file authorization is invalid or expired',
+      cleanupRequired: true,
+    }
+  }
+  const verified = verifiedUploads as VerifiedUpload[]
+  if (new Set(verified.map(upload => upload.path)).size !== verified.length) {
+    return {
+      success: false,
+      data: null,
+      error: 'Duplicate uploaded files are not allowed',
+      cleanupRequired: true,
+    }
   }
 
   try {
-    await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
-      const { data: appRow } = await q.getApplicationById(applicationId)
-      const agencyId = (appRow as unknown as { agency_id?: string | null } | null)?.agency_id ?? null
-      const { error: auditErr } = await q.insertAuditLog({
-        agency_id: agencyId,
-        table_name: 'application_documents',
-        record_id: docId,
-        action: 'UPDATE',
-        performed_by_user_id: session.user.id,
-        details: { application_id: applicationId, field: 'file', new_path: filePath },
-      })
-      if (auditErr) console.error('[application-documents/replace] Audit log failed. docId=%s err=%s', docId, auditErr.message)
-    })
-  } catch (err) {
-    console.error('[application-documents/replaceApplicationDocumentAction] audit context failed', err)
+    const inserted = await withUserContext(
+      session.user.id,
+      session.profile.role ?? '',
+      session.profile.agency_id ?? null,
+      async () => {
+        const { data: application, error: applicationError } = await q.getApplicationById(applicationId)
+        if (applicationError || !application) throw new Error('APPLICATION_NOT_FOUND')
+
+        if (parsed.data.applicationPlaybookItemId) {
+          const { data: item, error: itemError } = await q.getApplicationPlaybookItemById(
+            parsed.data.applicationPlaybookItemId,
+            applicationId
+          )
+          if (itemError || !item) throw new Error('PLAYBOOK_ITEM_NOT_FOUND')
+        }
+
+        const rows: InsertedDocument[] = []
+        for (const upload of uploads) {
+          const insertData: Record<string, unknown> = {
+            application_id: applicationId,
+            document_name: upload.documentName,
+            document_url: upload.path,
+            document_type: parsed.data.documentType ?? null,
+            description: parsed.data.description?.trim() || null,
+            status: parsed.data.status,
+          }
+          if (parsed.data.licenseRequirementDocumentId) {
+            insertData.license_requirement_document_id = parsed.data.licenseRequirementDocumentId
+          }
+          if (parsed.data.applicationPlaybookItemId) {
+            insertData.application_playbook_item_id = parsed.data.applicationPlaybookItemId
+          }
+
+          const { data: document, error: insertError } = await q.insertApplicationDocument(insertData)
+          if (insertError || !document) throw new Error('DOCUMENT_INSERT_FAILED')
+
+          const { error: auditError } = await q.insertAuditLog({
+            agency_id: (application as { agency_id?: string | null }).agency_id ?? null,
+            table_name: 'application_documents',
+            record_id: document.id,
+            action: 'CREATE',
+            performed_by_user_id: session.user.id,
+            details: { application_id: applicationId },
+          })
+          if (auditError) throw new Error('AUDIT_INSERT_FAILED')
+
+          rows.push({
+            id: document.id,
+            document_url: upload.path,
+            document_name: document.document_name,
+          })
+        }
+        return rows
+      }
+    )
+
+    revalidateApplicationPages(applicationId)
+    return { success: true, data: inserted }
+  } catch {
+    const cleaned = await cleanupVerifiedUploads(session.user.id, verified)
+    console.error('[application-documents/create] Database commit failed')
+    return {
+      success: false,
+      data: null,
+      error: 'The document could not be saved. Please try again.',
+      cleanupRequired: !cleaned,
+    }
+  }
+}
+
+/** Replace the stored object and metadata of an existing application document. */
+export async function replaceApplicationDocumentAction(input: unknown): Promise<ActionResult> {
+  const parsed = replaceApplicationDocumentSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      success: false,
+      data: null,
+      error: 'Check the highlighted fields',
+      fieldErrors: zodErrorToFieldErrors(parsed.error),
+      cleanupRequired: true,
+    }
+  }
+
+  const session = await getSession()
+  if (!session?.user) return { success: false, data: null, error: 'Not authenticated' }
+
+  const { documentId, applicationId, upload } = parsed.data
+  const verified = verifyUpload(upload, session.user.id, applicationId)
+  if (!verified) {
+    return {
+      success: false,
+      data: null,
+      error: 'The uploaded file authorization is invalid or expired',
+      cleanupRequired: true,
+    }
+  }
+
+  let oldPath: string | null = null
+  let applicationAgencyId: string | null = null
+  try {
+    await withUserContext(
+      session.user.id,
+      session.profile.role ?? '',
+      session.profile.agency_id ?? null,
+      async () => {
+        const { data: application, error: applicationError } = await q.getApplicationById(applicationId)
+        if (applicationError || !application) throw new Error('APPLICATION_NOT_FOUND')
+        applicationAgencyId = (application as { agency_id?: string | null }).agency_id ?? null
+
+        const { data: document, error: documentError } = await q.getApplicationDocumentForUpdate(
+          documentId,
+          applicationId
+        )
+        if (documentError || !document) throw new Error('DOCUMENT_NOT_FOUND')
+        oldPath = document.document_url
+
+        const { error: updateError } = await q.updateApplicationDocumentFile(documentId, applicationId, {
+          document_url: upload.path,
+          document_name: parsed.data.documentName,
+          document_type: parsed.data.documentType,
+          description: parsed.data.description,
+        })
+        if (updateError) throw new Error('DOCUMENT_UPDATE_FAILED')
+
+        const { error: auditError } = await q.insertAuditLog({
+          agency_id: applicationAgencyId,
+          table_name: 'application_documents',
+          record_id: documentId,
+          action: 'UPDATE',
+          performed_by_user_id: session.user.id,
+          details: { application_id: applicationId, field: 'file' },
+        })
+        if (auditError) throw new Error('AUDIT_INSERT_FAILED')
+      }
+    )
+  } catch {
+    const cleaned = await cleanupVerifiedUploads(session.user.id, [verified])
+    console.error('[application-documents/replace] Database commit failed')
+    return {
+      success: false,
+      data: null,
+      error: 'The document could not be replaced. Please try again.',
+      cleanupRequired: !cleaned,
+    }
+  }
+
+  if (oldPath && oldPath !== upload.path) {
+    const { error: deleteError } = await removeFiles(STORAGE_BUCKET.APPLICATION, [oldPath])
+    if (!deleteError) {
+      await auditStoredObjectAccess(session.user.id, {
+        agencyId: applicationAgencyId,
+        recordId: documentId,
+        tableName: 'application_documents',
+      }, 'DELETE').catch(() => undefined)
+    }
   }
 
   revalidateApplicationPages(applicationId)
-  return { error: null }
+  return { success: true, data: null }
 }

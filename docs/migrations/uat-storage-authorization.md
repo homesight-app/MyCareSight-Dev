@@ -8,6 +8,8 @@ Private-object downloads now pass through an application-owned storage boundary.
 
 Browser uploads no longer choose a container or object path. They send a narrow purpose and resource identifier. The server verifies access to that resource, selects the Azure container, generates an opaque UUID object name, validates a 10 MB server-side size limit and allowlisted media type, uploads, and records identifier-only audit evidence. If the later database insert fails, the browser can delete only that newly uploaded object using a signed 15-minute cleanup token bound to the actor and exact object.
 
+Application document creation and replacement now use this boundary directly. Binary files are no longer serialized through Server Actions, whose default request limit caused uploads above 1 MB to fail before application code ran. The follow-up Server Action accepts only signed path metadata, verifies it against the current actor and application, and writes document metadata plus audit evidence transactionally. Failed commits remove the verified new objects; successful replacement removes the superseded object after the new reference commits.
+
 The old provider-named `src/lib/supabase/storage.ts` helper was removed. Shared bucket names, upload contracts, signed-URL requests, Azure server operations, authorization, and cleanup-token logic now live under `src/lib/storage/`.
 
 ## Access rules
@@ -32,10 +34,13 @@ The stale caregiver license component previously uploaded a license file and ins
 - TypeScript passes.
 - Source scans find no caller-supplied upload bucket/path, no direct Supabase Storage SDK call, and no import of the removed Supabase-named storage helper.
 - Standard ESLint remains blocked by the repository's existing ESLint 9 flat-config mismatch.
+- Focused application-upload regressions verify the 10 MB shared limit, bounded metadata schemas, and that all application create/replace callers upload through the storage API instead of sending `File` objects to Server Actions.
 
 ## Remaining gates
 
 Before UAT can accept PHI-bearing documents, verify all Azure containers except the explicit public-logo container are private, App Service managed identity has only required blob permissions, authorized upload/download/cleanup work for each role, cross-agency requests fail, and storage audit rows are written. Enable and validate malware scanning/quarantine before accepting PHI-bearing uploads. Existing source objects still require a separately controlled copy/reconciliation step; this change does not copy data.
+
+After deploying the 2026-10-07 application-upload change, test synthetic PDF and DOCX files below, near, and above 10 MB from an application and a program step. Confirm successful rows, signed downloads, replacement cleanup, expected validation messages, and identifier-only audit details.
 
 Supabase storage variables and packages must remain until the remaining direct Supabase database callers are removed and the final no-Supabase build passes.
 

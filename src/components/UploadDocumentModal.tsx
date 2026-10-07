@@ -1,10 +1,29 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import Modal from './Modal'
-import { Upload, X, FileText } from 'lucide-react'
-import Button from '@/components/ui/PrimaryButton'
+import { useEffect, useRef, useState } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { FileText, Upload, X } from 'lucide-react'
+import { useForm } from 'react-hook-form'
 import { uploadApplicationDocumentsAction } from '@/app/actions/application-documents'
+import Button from '@/components/ui/PrimaryButton'
+import { showSuccessToast, showValidationToast } from '@/lib/form-validation-toast'
+import {
+  APPLICATION_DOCUMENT_MAX_BYTES,
+  applicationDocumentFormSchema,
+  type ApplicationDocumentFormData,
+} from '@/lib/schemas/application-documents'
+import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import type { StoredFileUpload } from '@/lib/storage/contracts'
+import Modal from './Modal'
+
+const ALLOWED_DOCUMENT_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+])
+const STANDARD_DOCUMENT_TYPES = ['license', 'certificate', 'insurance', 'contract', 'policy', 'other']
+const MAX_FILES = 20
+
+type SelectedFile = { id: string; file: File; name: string }
 
 interface UploadDocumentModalProps {
   isOpen: boolean
@@ -16,6 +35,13 @@ interface UploadDocumentModalProps {
   defaultDocumentName?: string
   defaultDocumentType?: string
   autoApprove?: boolean
+}
+
+function validateFile(file: File): string | null {
+  if (file.size < 1) return 'Empty files cannot be uploaded'
+  if (file.size > APPLICATION_DOCUMENT_MAX_BYTES) return 'Each file must be 10 MB or smaller'
+  if (!ALLOWED_DOCUMENT_TYPES.has(file.type.toLowerCase())) return 'Only PDF and DOCX files are supported'
+  return null
 }
 
 export default function UploadDocumentModal({
@@ -30,130 +56,175 @@ export default function UploadDocumentModal({
   autoApprove = false,
 }: UploadDocumentModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [selectedFiles, setSelectedFiles] = useState<Array<{ id: string; file: File; name: string }>>([])
-  const [documentName, setDocumentName] = useState('')
-  const [documentType, setDocumentType] = useState('')
-  const [description, setDescription] = useState('')
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [isUploading, setIsUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
 
-  // Pre-fill when opening for a specific license requirement document
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+    setError,
+    setValue,
+  } = useForm<ApplicationDocumentFormData>({
+    resolver: zodResolver(applicationDocumentFormSchema),
+    mode: 'onBlur',
+    defaultValues: {
+      documentName: '',
+      documentType: '',
+      description: '',
+    },
+  })
+
   useEffect(() => {
     if (isOpen) {
-      if (defaultDocumentName) setDocumentName(defaultDocumentName)
-      if (defaultDocumentType) setDocumentType(defaultDocumentType)
-    }
-  }, [isOpen, defaultDocumentName, defaultDocumentType])
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (files && files.length > 0) {
-      const newFiles: Array<{ id: string; file: File; name: string }> = Array.from(files).map((f, i) => ({
-        id: `${Date.now()}-${i}`,
-        file: f,
-        name: f.name
-      }))
-      setSelectedFiles(prev => {
-        // append new files
-        const merged = [...prev, ...newFiles]
-        // auto-fill documentName if empty and only one file selected total
-        if (!documentName && merged.length === 1) {
-          setDocumentName(merged[0].name)
-        }
-        return merged
+      reset({
+        documentName: defaultDocumentName ?? '',
+        documentType: defaultDocumentType ?? '',
+        description: '',
       })
-    }
-  }
-
-  const handleRemoveFile = (id?: string) => {
-    if (!id) {
       setSelectedFiles([])
-    } else {
-      setSelectedFiles(prev => prev.filter(p => p.id !== id))
+      setFileError(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+  }, [defaultDocumentName, defaultDocumentType, isOpen, reset])
+
+  const addFiles = (files: File[]) => {
+    if (!files.length) return
+    if (selectedFiles.length + files.length > MAX_FILES) {
+      setFileError(`You can upload up to ${MAX_FILES} files at a time`)
+      return
+    }
+
+    const invalid = files.map(validateFile).find(Boolean)
+    if (invalid) {
+      setFileError(invalid)
+      return
+    }
+
+    const newFiles = files.map((file, index) => ({
+      id: `${Date.now()}-${index}-${file.name}`,
+      file,
+      name: file.name,
+    }))
+    const merged = [...selectedFiles, ...newFiles]
+    setSelectedFiles(merged)
+    setFileError(null)
+    if (merged.length >= 1 && !defaultDocumentName) {
+      setValue('documentName', merged[0].name, { shouldValidate: true })
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (selectedFiles.length === 0 || !documentName) {
-      setError('Please select at least one file and enter a document name')
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    addFiles(Array.from(event.target.files ?? []))
+    event.target.value = ''
+  }
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    if (!isUploading) addFiles(Array.from(event.dataTransfer.files ?? []))
+  }
+
+  const handleRemoveFile = (id: string) => {
+    setSelectedFiles(previous => previous.filter(item => item.id !== id))
+    setFileError(null)
+  }
+
+  const onSubmit = async (data: ApplicationDocumentFormData) => {
+    if (!selectedFiles.length) {
+      setFileError('Select at least one file')
+      return
+    }
+    if (selectedFiles.length > 1 && selectedFiles.some(file => !file.name.trim())) {
+      setFileError('Enter a document name for every selected file')
       return
     }
 
     setIsUploading(true)
-    setError(null)
+    const uploaded: StoredFileUpload[] = []
 
     try {
-      const formData = new FormData()
-      for (const fileItem of selectedFiles) formData.append('file', fileItem.file)
-      if (documentType) formData.set('document_type', documentType)
-      if (description.trim()) formData.set('description', description.trim())
+      const uploadResults = await Promise.allSettled(
+        selectedFiles.map(file => uploadStoredFile(file.file, 'application-document', applicationId))
+      )
+      uploadResults.forEach(result => {
+        if (result.status === 'fulfilled') uploaded.push(result.value)
+      })
+      const failedUpload = uploadResults.find(result => result.status === 'rejected')
+      if (failedUpload) {
+        await Promise.all(uploaded.map(cleanupStoredFile))
+        throw failedUpload.reason
+      }
 
-      const result = await uploadApplicationDocumentsAction(applicationId, formData, {
+      const result = await uploadApplicationDocumentsAction({
+        applicationId,
+        uploads: uploaded.map((upload, index) => ({
+          ...upload,
+          documentName: selectedFiles.length === 1 ? data.documentName : selectedFiles[index].name.trim(),
+        })),
+        documentType: data.documentType || null,
+        description: data.description.trim() || null,
         status: autoApprove ? 'approved' : 'draft',
         licenseRequirementDocumentId: licenseRequirementDocumentId ?? null,
         applicationPlaybookItemId: applicationPlaybookItemId ?? null,
       })
 
-      if (result.error) {
-        setError(result.error)
+      if (!result.success) {
+        if (result.cleanupRequired !== false) await Promise.all(uploaded.map(cleanupStoredFile))
+        uploaded.length = 0
+        Object.entries(result.fieldErrors ?? {}).forEach(([field, messages]) => {
+          if (field === 'documentType' || field === 'description') {
+            setError(field, { message: messages[0] })
+          } else if (field.startsWith('uploads.')) {
+            setFileError(messages[0])
+          }
+        })
+        showValidationToast({ error: result.error })
         return
       }
 
+      reset()
       setSelectedFiles([])
-      setDocumentName('')
-      setDocumentType('')
-      setDescription('')
-      if (fileInputRef.current) fileInputRef.current.value = ''
-
+      showSuccessToast('Document uploaded successfully')
       onClose()
       onSuccess?.()
-    } catch (err: any) {
-      setError(err.message || 'Failed to upload document. Please try again.')
+    } catch (error: unknown) {
+      if (uploaded.length) await Promise.all(uploaded.map(cleanupStoredFile))
+      showValidationToast({
+        error: error instanceof Error ? error.message : 'Failed to upload document. Please try again.',
+      })
     } finally {
       setIsUploading(false)
     }
   }
 
   const handleClose = () => {
-    if (!isUploading) {
-      setSelectedFiles([])
-      setDocumentName('')
-      setDocumentType('')
-      setDescription('')
-      setError(null)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-      onClose()
-    }
+    if (isUploading) return
+    reset()
+    setSelectedFiles([])
+    setFileError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    onClose()
   }
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Upload Document" size="md">
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-            {error}
-          </div>
-        )}
-
-        {/* File Upload */}
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
+          <label className="mb-2 block text-sm font-semibold text-gray-700">
             Select File <span className="text-red-500">*</span>
           </label>
           {selectedFiles.length === 0 ? (
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
+              onDragOver={event => event.preventDefault()}
+              onDrop={handleDrop}
+              className="cursor-pointer rounded-xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:border-blue-500 hover:bg-blue-50"
             >
-              <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-600 font-medium mb-1">Click to upload or drag and drop</p>
-              <p className="text-sm text-gray-500">PDF, DOCX (Max 10MB)</p>
+              <Upload className="mx-auto mb-4 h-12 w-12 text-gray-400" />
+              <p className="mb-1 font-medium text-gray-600">Click to upload or drag and drop</p>
+              <p className="text-sm text-gray-500">PDF, DOCX (Max 10 MB each)</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -166,63 +237,90 @@ export default function UploadDocumentModal({
             </div>
           ) : (
             <div className="space-y-2">
-              {selectedFiles.map((f) => (
-                <div key={f.id} className="border border-gray-300 rounded-xl p-3 bg-gray-50 flex items-center gap-3">
-                  <FileText className="w-8 h-8 text-blue-600" />
-                  <div className="flex-1 min-w-0">
+              {selectedFiles.map(file => (
+                <div key={file.id} className="flex items-center gap-3 rounded-xl border border-gray-300 bg-gray-50 p-3">
+                  <FileText className="h-8 w-8 text-blue-600" />
+                  <div className="min-w-0 flex-1">
                     <input
                       type="text"
-                      value={f.name}
-                      onChange={(e) => setSelectedFiles(prev => prev.map(p => p.id === f.id ? { ...p, name: e.target.value } : p))}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
-                      disabled={isUploading}
+                      value={file.name}
+                      onChange={event => setSelectedFiles(previous => previous.map(item => (
+                        item.id === file.id ? { ...item, name: event.target.value } : item
+                      )))}
+                      aria-label="Uploaded document name"
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2"
+                      disabled={isUploading || selectedFiles.length === 1}
+                      maxLength={255}
                     />
-                    <p className="text-sm text-gray-500 mt-1">{(f.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                    <p className="mt-1 text-sm text-gray-500">{(file.file.size / 1024 / 1024).toFixed(2)} MB</p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleRemoveFile(f.id)}
+                    onClick={() => handleRemoveFile(file.id)}
                     disabled={isUploading}
-                    className="p-2 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+                    className="rounded-lg p-2 transition-colors hover:bg-gray-200 disabled:opacity-50"
+                    aria-label={`Remove ${file.name}`}
                   >
-                    <X className="w-5 h-5 text-gray-500" />
+                    <X className="h-5 w-5 text-gray-500" />
                   </button>
                 </div>
               ))}
+              {selectedFiles.length < MAX_FILES && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                >
+                  Add another file
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleFileSelect}
+                className="hidden"
+                accept=".pdf,.docx"
+                disabled={isUploading}
+                multiple
+              />
             </div>
           )}
+          {fileError && <p className="mt-1 text-sm text-red-600">{fileError}</p>}
         </div>
 
-        {/* Document Name */}
         <div>
-          <label htmlFor="documentName" className="block text-sm font-semibold text-gray-700 mb-2">
+          <label htmlFor="documentName" className="mb-2 block text-sm font-semibold text-gray-700">
             Document Name <span className="text-red-500">*</span>
           </label>
           <input
             id="documentName"
             type="text"
-            value={documentName}
-            onChange={(e) => setDocumentName(e.target.value)}
+            {...register('documentName')}
             placeholder="e.g., Business License, Insurance Certificate"
-            className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+            className="block w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
             disabled={isUploading}
-            required
           />
+          {errors.documentName && <p className="mt-1 text-sm text-red-600">{errors.documentName.message}</p>}
+          {selectedFiles.length > 1 && (
+            <p className="mt-1 text-xs text-gray-500">Each file name above will be used as its document name.</p>
+          )}
         </div>
 
-        {/* Document Type */}
         <div>
-          <label htmlFor="documentType" className="block text-sm font-semibold text-gray-700 mb-2">
+          <label htmlFor="documentType" className="mb-2 block text-sm font-semibold text-gray-700">
             Document Type (Optional)
           </label>
           <select
             id="documentType"
-            value={documentType}
-            onChange={(e) => setDocumentType(e.target.value)}
-            className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white"
+            {...register('documentType')}
+            className="block w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
             disabled={isUploading}
           >
             <option value="">Select document type</option>
+            {defaultDocumentType && !STANDARD_DOCUMENT_TYPES.includes(defaultDocumentType) && (
+              <option value={defaultDocumentType}>{defaultDocumentType}</option>
+            )}
             <option value="license">License</option>
             <option value="certificate">Certificate</option>
             <option value="insurance">Insurance</option>
@@ -230,26 +328,25 @@ export default function UploadDocumentModal({
             <option value="policy">Policy</option>
             <option value="other">Other</option>
           </select>
+          {errors.documentType && <p className="mt-1 text-sm text-red-600">{errors.documentType.message}</p>}
         </div>
 
-        {/* Description */}
         <div>
-          <label htmlFor="description" className="block text-sm font-semibold text-gray-700 mb-2">
+          <label htmlFor="description" className="mb-2 block text-sm font-semibold text-gray-700">
             Description (Optional)
           </label>
           <textarea
             id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            {...register('description')}
             placeholder="Add a description for this document..."
             rows={3}
-            className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
+            className="block w-full resize-none rounded-xl border border-gray-300 px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
             disabled={isUploading}
           />
+          {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>}
         </div>
 
-        {/* Form Actions */}
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+        <div className="flex items-center justify-end gap-3 border-t border-gray-200 pt-4">
           <Button variant="secondary" type="button" onClick={handleClose} disabled={isUploading}>
             Cancel
           </Button>
@@ -257,7 +354,7 @@ export default function UploadDocumentModal({
             variant="primary"
             type="submit"
             icon={Upload}
-            disabled={isUploading || selectedFiles.length === 0 || !documentName}
+            disabled={isUploading || selectedFiles.length === 0}
             loading={isUploading}
           >
             Upload Documents
@@ -267,4 +364,3 @@ export default function UploadDocumentModal({
     </Modal>
   )
 }
-

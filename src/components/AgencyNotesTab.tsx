@@ -66,6 +66,7 @@ export default function AgencyNotesTab({ agencyId, leadIds, leadNameMap }: Agenc
       note_type: n.note_type,
       created_at: n.created_at,
       source: 'agency' as const,
+      author: Array.isArray(n.author) ? (n.author[0] ?? null) : n.author,
     }))
 
     const leadNotes: Note[] = (leadRes.data ?? []).map((n: any) => ({

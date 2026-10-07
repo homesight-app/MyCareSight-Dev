@@ -530,15 +530,32 @@ export async function upsertAgencyConfiguration(
   }
 }
 
+type AgencyNoteRow = {
+  id: string
+  agency_id: string
+  author_id: string
+  content: string
+  note_type: string
+  created_at: Date | string
+  author_full_name: string | null
+}
+
 export async function getAgencyNotes(agencyId: string) {
   try {
-    const rows = await sql`
-      SELECT id, agency_id, author_id, content, note_type, created_at
-      FROM agency_notes
-      WHERE agency_id = ${agencyId}
-      ORDER BY created_at DESC
+    const rows = await sql<AgencyNoteRow[]>`
+      SELECT
+        note.id, note.agency_id, note.author_id, note.content, note.note_type, note.created_at,
+        profile.full_name AS author_full_name
+      FROM agency_notes note
+      LEFT JOIN user_profiles profile ON profile.id = note.author_id
+      WHERE note.agency_id = ${agencyId}
+      ORDER BY note.created_at DESC
     `
-    return { data: rows as unknown as any[], error: null }
+    const data = rows.map(row => ({
+      ...row,
+      author: row.author_full_name ? { full_name: row.author_full_name } : null,
+    }))
+    return { data, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }

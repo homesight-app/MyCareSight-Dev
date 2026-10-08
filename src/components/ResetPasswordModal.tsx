@@ -12,6 +12,7 @@ interface ResetPasswordModalProps {
   userName: string
   userEmail: string
   userId: string
+  agencyId?: string
 }
 
 export default function ResetPasswordModal({
@@ -19,7 +20,8 @@ export default function ResetPasswordModal({
   onClose,
   userName,
   userEmail,
-  userId
+  userId,
+  agencyId,
 }: ResetPasswordModalProps) {
   const [setPasswordModalOpen, setSetPasswordModalOpen] = useState(false)
 
@@ -41,7 +43,7 @@ export default function ResetPasswordModal({
     <Modal isOpen={isOpen} onClose={handleClose} title="Reset Password" size="md">
       <div className="space-y-6">
         <p className="text-sm text-gray-600">
-          Send a password reset link to this user&apos;s email address.
+          Set a new login password for this user.
         </p>
 
         {/* User Information */}
@@ -58,7 +60,7 @@ export default function ResetPasswordModal({
 
         {/* Explanation */}
         <p className="text-sm text-gray-600">
-          Click &quot;Send Reset Link&quot; to set a new password for this user. The password will be updated and sent to the user&apos;s email address.
+          The new password takes effect immediately. Give it to the user through an approved secure channel.
         </p>
 
         {/* Action Buttons */}
@@ -79,6 +81,7 @@ export default function ResetPasswordModal({
         userName={userName}
         userEmail={userEmail}
         userId={userId}
+        agencyId={agencyId}
       />
     </Modal>
   )

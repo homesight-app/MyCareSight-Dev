@@ -120,13 +120,14 @@ function FieldInput({ label, value, onChange, placeholder, required, type = 'tex
 // Contains: edit profile fields + Change Password via ResetPasswordModal.
 
 function UserSettingsModal({
-  isOpen, onClose, userId, name, email, children, onSave, saving, saveError,
+  isOpen, onClose, userId, name, email, agencyId, children, onSave, saving, saveError,
 }: {
   isOpen: boolean
   onClose: () => void
   userId: string | null
   name: string
   email: string
+  agencyId: string
   children: React.ReactNode   // edit fields
   onSave: () => void
   saving: boolean
@@ -192,6 +193,7 @@ function UserSettingsModal({
           userName={name}
           userEmail={email}
           userId={userId}
+          agencyId={agencyId}
         />
       )}
     </>
@@ -490,6 +492,7 @@ function AdminsSection({ agencyId, admins, available, onRefresh }: {
         userId={settingsAdmin?.user_id ?? null}
         name={settingsAdmin?.contact_name ?? ''}
         email={settingsAdmin?.contact_email ?? ''}
+        agencyId={agencyId}
         onSave={handleSaveEdit}
         saving={savingEdit}
         saveError={editError}
@@ -674,6 +677,7 @@ function CoordinatorsSection({ agencyId, coordinators, onRefresh }: {
         userId={settingsCoord?.user_id ?? null}
         name={settingsCoord ? `${settingsCoord.first_name} ${settingsCoord.last_name}` : ''}
         email={settingsCoord?.email ?? ''}
+        agencyId={agencyId}
         onSave={handleSaveEdit}
         saving={savingEdit}
         saveError={editError}
@@ -895,6 +899,7 @@ function CaregiversSection({ agencyId, caregivers, onRefresh }: {
         userId={settingsCg?.user_id ?? null}
         name={settingsCg ? `${settingsCg.first_name} ${settingsCg.last_name}` : ''}
         email={settingsCg?.email ?? ''}
+        agencyId={agencyId}
         onSave={handleSaveEdit}
         saving={savingEdit}
         saveError={editError}

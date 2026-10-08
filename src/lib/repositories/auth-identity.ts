@@ -101,6 +101,17 @@ async function recordRateEvent(
   `
 }
 
+export async function clearLoginAccountFailures(email: string): Promise<void> {
+  const normalizedEmail = normalizeEmail(email)
+  const subjectHash = authFingerprint(`login_account:${normalizedEmail}`)
+  await sql`
+    DELETE FROM auth_rate_limit_events
+    WHERE scope = 'login_account'
+      AND subject_hash = ${subjectHash}
+      AND succeeded = false
+  `
+}
+
 export async function authenticateCredentials(input: {
   email: string
   password: string

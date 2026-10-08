@@ -6,8 +6,11 @@ import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
 import { hashPassword } from '@/lib/auth/password'
+import { clearLoginAccountFailures } from '@/lib/repositories/auth-identity'
+import { setUserPasswordSchema, type SetUserPasswordFormData } from '@/lib/schemas/user'
+import { zodErrorToFieldErrors } from '@/lib/validation'
 import { sendInvitationEmail } from '@/lib/email'
-import sql from '@/db'
+import sql, { withUserContext } from '@/db'
 
 const createUserAccountSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -239,24 +242,145 @@ export async function updateUserProfileAction(
   return { error: null, data: { success: true } }
 }
 
-export async function setUserPassword(userId: string, newPassword: string) {
+type SetUserPasswordResult =
+  | { success: true; message: string }
+  | { success: false; error: string; fieldErrors?: Record<string, string[]> }
+
+export async function setUserPassword(
+  userId: string,
+  input: SetUserPasswordFormData,
+  agencyId?: string
+): Promise<SetUserPasswordResult> {
   const session = await getSession()
-  if (!session || session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
+  if (!session) return { success: false, error: 'Forbidden' }
 
-  const [userProfile] = await sql<{ email: string }[]>`SELECT email FROM user_profiles WHERE id = ${userId} LIMIT 1`
-  if (!userProfile) return { error: 'User not found', data: null }
+  const actorRole = session.profile?.role ?? ''
+  const isPlatformAdmin = actorRole === 'admin'
+  const isAgencyManager = actorRole === 'company_owner' || actorRole === 'care_coordinator'
+  const agencyIdResult = agencyId ? z.string().uuid().safeParse(agencyId) : null
+  const authorizedAgencyId = agencyIdResult?.success ? agencyIdResult.data : null
 
-  const passwordHash = await hashPassword(newPassword)
-  try {
-    await sql`UPDATE user_profiles SET password_hash = ${passwordHash}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Failed to set password', data: null }
+  if (!isPlatformAdmin) {
+    const managesAgency = isAgencyManager && authorizedAgencyId && session.agencyRoles?.some(membership =>
+      membership.agency_id === authorizedAgencyId
+      && (membership.role === 'company_owner' || membership.role === 'care_coordinator')
+      && membership.status === 'active'
+    )
+    if (!managesAgency) return { success: false, error: 'Forbidden' }
   }
 
-  revalidatePath('/pages/admin/users')
-  return {
-    error: null,
-    data: { success: true, message: `Password has been set for ${userProfile.email}.` },
+  const idResult = z.string().uuid().safeParse(userId)
+  if (!idResult.success) return { success: false, error: 'User not found' }
+
+  const parsed = setUserPasswordSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: 'Check the highlighted fields.',
+      fieldErrors: zodErrorToFieldErrors(parsed.error),
+    }
+  }
+
+  try {
+    const passwordHash = await hashPassword(parsed.data.password)
+    return await withUserContext(
+      session.user.id,
+      actorRole,
+      isPlatformAdmin ? null : authorizedAgencyId,
+      async () => {
+      type PasswordTarget = {
+        id: string
+        email: string
+        role: string
+        agency_id: string | null
+        is_active: boolean
+      }
+      const [userProfile] = isPlatformAdmin
+        ? await sql<PasswordTarget[]>`
+            SELECT id, email, role, agency_id, is_active
+            FROM user_profiles
+            WHERE id = ${idResult.data}
+            LIMIT 1
+            FOR UPDATE
+          `
+        : await sql<PasswordTarget[]>`
+            SELECT id, email, role, agency_id, is_active
+            FROM user_profiles
+            WHERE id = ${idResult.data}
+              AND agency_id = ${authorizedAgencyId}
+              AND role IN ('company_owner', 'care_coordinator', 'staff_member')
+            LIMIT 1
+            FOR UPDATE
+          `
+      if (!userProfile) return { success: false, error: 'User not found' }
+      if (!userProfile.is_active) {
+        return { success: false, error: 'Activate this account before setting a login password.' }
+      }
+
+      const [emailState] = await sql<{ profile_count: number }[]>`
+        SELECT count(*)::int AS profile_count
+        FROM user_profiles
+        WHERE lower(email) = lower(${userProfile.email})
+      `
+      if ((emailState?.profile_count ?? 0) !== 1) {
+        return {
+          success: false,
+          error: 'This email is assigned to multiple accounts. Resolve the duplicate accounts before setting a password.',
+        }
+      }
+
+      if (['company_owner', 'care_coordinator', 'staff_member'].includes(userProfile.role)) {
+        const [membership] = await sql<{ allows_login: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1
+            FROM user_agency_roles
+            WHERE user_id = ${userProfile.id}
+              AND agency_id = ${userProfile.agency_id}
+              AND role = ${userProfile.role}
+              AND status = 'active'
+          ) AS allows_login
+        `
+        if (!membership?.allows_login) {
+          return {
+            success: false,
+            error: 'This account does not have an active matching agency membership. Correct its role and agency access before setting a password.',
+          }
+        }
+      }
+
+      await sql`
+        UPDATE user_profiles
+        SET password_hash = ${passwordHash},
+            invite_token = NULL,
+            invite_token_expires_at = NULL,
+            updated_at = now()
+        WHERE id = ${userProfile.id}
+      `
+      await sql`
+        UPDATE password_reset_tokens
+        SET used_at = now()
+        WHERE user_id = ${userProfile.id}
+          AND used_at IS NULL
+      `
+      await clearLoginAccountFailures(userProfile.email)
+      await sql`
+        INSERT INTO audit_log (
+          agency_id, table_name, record_id, action, performed_by_user_id, details
+        ) VALUES (
+          ${userProfile.agency_id}, 'user_profiles', ${userProfile.id},
+          'PASSWORD_RESET', ${session.user.id}, '{"method":"administrator"}'::jsonb
+        )
+      `
+
+      revalidatePath('/pages/admin/users')
+      revalidatePath('/pages/agency/user-management')
+      return {
+        success: true,
+        message: 'Password updated. The user can sign in immediately with the new password.',
+      }
+    })
+  } catch {
+    return { success: false, error: 'Failed to set password. Please try again.' }
   }
 }
 

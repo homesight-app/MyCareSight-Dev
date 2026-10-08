@@ -1,10 +1,16 @@
 'use client'
 
 import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import Modal from './Modal'
 import { Lock, Eye, EyeOff } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { setUserPassword } from '@/app/actions/users'
+import {
+  setUserPasswordSchema,
+  type SetUserPasswordFormData,
+} from '@/lib/schemas/user'
 
 interface SetPasswordModalProps {
   isOpen: boolean
@@ -12,6 +18,7 @@ interface SetPasswordModalProps {
   userName: string
   userEmail: string
   userId: string
+  agencyId?: string
 }
 
 export default function SetPasswordModal({
@@ -19,50 +26,52 @@ export default function SetPasswordModal({
   onClose,
   userName,
   userEmail,
-  userId
+  userId,
+  agencyId,
 }: SetPasswordModalProps) {
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError: setFieldError,
+    formState: { errors },
+  } = useForm<SetUserPasswordFormData>({
+    resolver: zodResolver(setUserPasswordSchema),
+    mode: 'onBlur',
+    defaultValues: { password: '', confirmPassword: '' },
+  })
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const onSubmit = async (data: SetUserPasswordFormData) => {
     setError(null)
-
-    // Validation
-    if (!password || password.length < 6) {
-      setError('Password must be at least 6 characters long')
-      return
-    }
-
-    if (password !== confirmPassword) {
-      setError('Passwords do not match')
-      return
-    }
-
     setIsLoading(true)
 
     try {
-      const result = await setUserPassword(userId, password)
-      
-      if (result.error) {
+      const result = await setUserPassword(userId, data, agencyId)
+
+      if (!result.success) {
+        if (result.fieldErrors) {
+          for (const [field, messages] of Object.entries(result.fieldErrors)) {
+            if (field === 'password' || field === 'confirmPassword') {
+              setFieldError(field, { message: messages[0] })
+            }
+          }
+        }
         setError(result.error)
       } else {
         setSuccess(true)
-        // Close modal after 3 seconds
         setTimeout(() => {
           onClose()
-          setPassword('')
-          setConfirmPassword('')
+          reset()
           setSuccess(false)
         }, 3000)
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to set password. Please try again.')
+    } catch {
+      setError('Failed to set password. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -70,8 +79,7 @@ export default function SetPasswordModal({
 
   const handleClose = () => {
     if (!isLoading) {
-      setPassword('')
-      setConfirmPassword('')
+      reset()
       setError(null)
       setSuccess(false)
       onClose()
@@ -80,9 +88,9 @@ export default function SetPasswordModal({
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Set Password" size="md">
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
         <p className="text-sm text-gray-600">
-          Enter a new password for {userName}. This password will be set and sent to the user&apos;s email address.
+          Enter a new password for {userName}. It takes effect immediately after you save it.
         </p>
 
         {/* Password Field */}
@@ -97,12 +105,10 @@ export default function SetPasswordModal({
             <input
               id="password"
               type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              {...register('password')}
               placeholder="Enter new password"
               className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-              minLength={6}
+              disabled={isLoading}
             />
             <button
               type="button"
@@ -116,6 +122,9 @@ export default function SetPasswordModal({
               )}
             </button>
           </div>
+          {errors.password && (
+            <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
+          )}
         </div>
 
         {/* Confirm Password Field */}
@@ -130,12 +139,10 @@ export default function SetPasswordModal({
             <input
               id="confirmPassword"
               type={showConfirmPassword ? 'text' : 'password'}
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              {...register('confirmPassword')}
               placeholder="Confirm new password"
               className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-              minLength={6}
+              disabled={isLoading}
             />
             <button
               type="button"
@@ -149,6 +156,9 @@ export default function SetPasswordModal({
               )}
             </button>
           </div>
+          {errors.confirmPassword && (
+            <p className="mt-1 text-sm text-red-600">{errors.confirmPassword.message}</p>
+          )}
         </div>
 
         {/* Error Message */}
@@ -161,7 +171,7 @@ export default function SetPasswordModal({
         {/* Success Message */}
         {success && (
           <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
-            Password has been set successfully and sent to {userEmail}
+            Password updated for {userEmail}. The user can sign in immediately.
           </div>
         )}
 

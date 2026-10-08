@@ -95,13 +95,14 @@ function AddPanel({ children, onSave, onCancel, submitting, error }: {
 }
 
 function UserSettingsModal({
-  isOpen, onClose, userId, name, email, children, onSave, saving, saveError,
+  isOpen, onClose, userId, name, email, agencyId, children, onSave, saving, saveError,
 }: {
   isOpen: boolean
   onClose: () => void
   userId: string | null
   name: string
   email: string
+  agencyId: string
   children: React.ReactNode
   onSave: () => void
   saving: boolean
@@ -155,6 +156,7 @@ function UserSettingsModal({
           userName={name}
           userEmail={email}
           userId={userId}
+          agencyId={agencyId}
         />
       )}
     </>
@@ -474,6 +476,7 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
         userId={settingsCg?.user_id ?? null}
         name={settingsCg ? `${settingsCg.first_name} ${settingsCg.last_name}` : ''}
         email={settingsCg?.email ?? ''}
+        agencyId={agencyId}
         onSave={handleSaveEdit}
         saving={savingEdit}
         saveError={editError}

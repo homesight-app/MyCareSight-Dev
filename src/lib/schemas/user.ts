@@ -3,6 +3,18 @@ import { emailZodField } from '@/lib/validation'
 
 export const AGENCY_ROLES = ['company_owner', 'staff_member', 'care_coordinator']
 
+export const setUserPasswordSchema = z.object({
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(256, 'Password must be no more than 256 characters'),
+  confirmPassword: z.string().min(1, 'Please confirm the password'),
+}).refine(data => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ['confirmPassword'],
+})
+
+export type SetUserPasswordFormData = z.infer<typeof setUserPasswordSchema>
+
 export const addUserSchema = z.object({
   full_name: z.string().min(1, 'Full name is required').min(2, 'Full name must be at least 2 characters'),
   email: emailZodField,

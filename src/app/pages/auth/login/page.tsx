@@ -159,16 +159,7 @@ function LoginPageContent() {
 
       {/* Content */}
       <div className="relative z-10 w-full max-w-6xl mx-auto">
-        {/* Back Button */}
-        <div className="mb-6">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-white/90 hover:text-white transition-colors font-medium backdrop-blur-sm bg-white/10 px-4 py-2 rounded-lg hover:bg-white/20"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Home</span>
-          </Link>
-        </div>
+
 
         <div className="grid lg:grid-cols-2 gap-8 items-center">
           {/* Left Side - Branding */}

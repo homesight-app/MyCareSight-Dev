@@ -717,6 +717,7 @@ function EditPersonModal({ isOpen, onClose, agencyId, person, onSuccess }: EditP
           userName={person.fullName}
           userEmail={person.email ?? ''}
           userId={person.userProfileId}
+          agencyId={agencyId}
         />
       )}
     </>

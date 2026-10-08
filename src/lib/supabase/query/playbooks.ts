@@ -1,4 +1,5 @@
 import sql from '@/db'
+import { normalizeDatabaseRows } from '@/lib/database-date-contract'
 
 export interface PlaybookItem {
   id: string
@@ -281,10 +282,18 @@ export interface ApplicationRuleCheck {
 
 const APP_PLAYBOOK_ITEM_SELECT = 'id, application_id, playbook_item_id, item_order, item_type, name, description, instructions, document_type, phase, assignment, requirement_type, status, due_date, notes, updated_by, approved_at, approved_by, source_application_step_id, source_application_document_id, source_license_requirement_document_id, created_at, updated_at'
 
+const APPLICATION_PLAYBOOK_ITEM_TEMPORAL_CONTRACT = {
+  dates: ['due_date'] as const,
+  timestamps: ['approved_at', 'created_at', 'updated_at'] as const,
+}
+
 export async function getApplicationPlaybookItems(applicationId: string) {
   try {
     const rows = await sql`SELECT id, application_id, playbook_item_id, item_order, item_type, name, description, instructions, document_type, phase, assignment, requirement_type, status, due_date, notes, updated_by, approved_at, approved_by, source_application_step_id, source_application_document_id, source_license_requirement_document_id, created_at, updated_at FROM application_playbook_items WHERE application_id = ${applicationId} ORDER BY item_order ASC`
-    return { data: rows as unknown as ApplicationPlaybookItem[], error: null }
+    return {
+      data: normalizeDatabaseRows(rows, APPLICATION_PLAYBOOK_ITEM_TEMPORAL_CONTRACT) as unknown as ApplicationPlaybookItem[],
+      error: null,
+    }
   } catch (err) {
     return { data: null, error: err as Error }
   }

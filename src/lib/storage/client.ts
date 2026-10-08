@@ -156,11 +156,3 @@ export async function getSignedUrl(
     return null
   }
 }
-
-/**
- * Return the plain blob URL for a container with public Blob access (agency-public).
- * All other containers require getSignedUrl() instead.
- */
-export function getPublicUrl(bucket: string, path: string): string {
-  return `${accountUrl}/${bucket}/${path}`
-}

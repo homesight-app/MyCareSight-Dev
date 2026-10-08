@@ -3,6 +3,9 @@ import {
   databaseDate,
   databaseTimestamp,
   normalizeDatabaseRow,
+  normalizeDatabaseResultValue,
+  POSTGRES_DATE_OID,
+  POSTGRES_TIMESTAMP_OIDS,
 } from '@/lib/database-date-contract'
 
 describe('database date contract', () => {
@@ -39,5 +42,25 @@ describe('database date contract', () => {
   it('fails closed for invalid date values', () => {
     expect(() => databaseDate(new Date(Number.NaN))).toThrow('invalid date')
     expect(() => databaseDate('October 1, 2026')).toThrow('invalid calendar date')
+  })
+
+  it('normalizes PostgreSQL dates and timestamps at the driver boundary', () => {
+    expect(normalizeDatabaseResultValue(
+      new Date('2026-10-08T00:00:00.000Z'),
+      { type: POSTGRES_DATE_OID }
+    )).toBe('2026-10-08')
+
+    const timestamp = new Date('2026-10-08T14:30:00.000Z')
+    expect(normalizeDatabaseResultValue(timestamp, { type: POSTGRES_TIMESTAMP_OIDS[1] }))
+      .toBe('2026-10-08T14:30:00.000Z')
+    expect(normalizeDatabaseResultValue(null, { type: POSTGRES_DATE_OID })).toBeNull()
+    expect(normalizeDatabaseResultValue(7, { type: 23 })).toBe(7)
+  })
+
+  it('fails closed when PostgreSQL DATE decoding produces an unexpected value', () => {
+    expect(() => normalizeDatabaseResultValue(42, { type: POSTGRES_DATE_OID }))
+      .toThrow('invalid calendar date value')
+    expect(() => normalizeDatabaseResultValue(42, { type: POSTGRES_TIMESTAMP_OIDS[0] }))
+      .toThrow('invalid timestamp value')
   })
 })

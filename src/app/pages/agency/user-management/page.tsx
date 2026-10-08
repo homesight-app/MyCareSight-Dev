@@ -7,6 +7,7 @@ import StaffManagementClient from '@/components/StaffManagementClient'
 import FeatureGate from '@/components/FeatureGate'
 import AgencyPeopleTab from '@/components/AgencyPeopleTab'
 import AgencyUserManagementTabBar from '@/components/AgencyUserManagementTabBar'
+import { normalizeCaregiverDirectoryStatus } from '@/lib/caregiver-directory-filters'
 
 const PAGE_SIZE = 50
 
@@ -35,7 +36,7 @@ export default async function UserManagementPage({
     const page = Math.max(0, parseInt(params.page ?? '0') || 0)
     const search = params.q ?? ''
     const roleFilter = params.role ?? 'all'
-    const statusFilter = params.status ?? 'all'
+    const statusFilter = normalizeCaregiverDirectoryStatus(params.status)
 
     const [staffResult, statsResult] = await Promise.all([
       q.getStaffMembersByAgencyIdPaginated(agencyId, { page, pageSize: PAGE_SIZE, search, status: statusFilter, role: roleFilter }),

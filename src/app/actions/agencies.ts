@@ -6,7 +6,7 @@ import sql from '@/db'
 import { getSession } from '@/lib/auth'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import { STORAGE_BUCKET } from '@/lib/storage'
-import { uploadFile, removeFiles, getPublicUrl } from '@/lib/storage/client'
+import { uploadFile, removeFiles } from '@/lib/storage/client'
 import {
   CACHE_TAG_AGENCIES_FOR_BILLING,
   CACHE_TAG_AGENCIES_ID_NAME,
@@ -544,16 +544,29 @@ export async function deleteAgencyDocumentAction(agencyId: string, docId: string
 
 // ─── Agency Branding ─────────────────────────────────────────────────────────
 
-function agencyBrandingPublicUrl(path: string | null | undefined): string | null {
+function agencyBrandingUrl(path: string | null | undefined, variant: 'full' | 'icon'): string | null {
   if (!path) return null
-  return getPublicUrl(STORAGE_BUCKET.AGENCY_PUBLIC, path)
+  return `/api/storage/branding-logo?variant=${variant}`
+}
+
+async function canAccessAgencyBranding(agencyId: string, write: boolean): Promise<boolean> {
+  const session = await getSession()
+  if (!session) return false
+  const profile = session.profile as { role?: string | null; agency_id?: string | null } | null
+  if (profile?.role === 'admin') return true
+  if (profile?.agency_id !== agencyId) return false
+  if (write) return profile.role === 'company_owner' || profile.role === 'care_coordinator'
+  return profile.role === 'company_owner' || profile.role === 'care_coordinator' || profile.role === 'staff_member'
 }
 
 export async function getAgencyBrandingAction(agencyId: string) {
+  if (!(await canAccessAgencyBranding(agencyId, false))) {
+    return { logoUrl: null, logoIconUrl: null, primaryColor: null, sidebarColor: null }
+  }
   const { data } = await q.getAgencyBranding(agencyId)
   return {
-    logoUrl: agencyBrandingPublicUrl(data?.logo_path),
-    logoIconUrl: agencyBrandingPublicUrl(data?.logo_icon_path),
+    logoUrl: agencyBrandingUrl(data?.logo_path, 'full'),
+    logoIconUrl: agencyBrandingUrl(data?.logo_icon_path, 'icon'),
     primaryColor: data?.primary_color ?? null,
     sidebarColor: data?.sidebar_color ?? null,
   }
@@ -563,6 +576,9 @@ export async function updateAgencyBrandingAction(
   agencyId: string,
   payload: { primaryColor: string; sidebarColor: string }
 ): Promise<{ success: boolean; error: string | null }> {
+  if (!(await canAccessAgencyBranding(agencyId, true))) {
+    return { success: false, error: 'Unauthorized' }
+  }
   const { error } = await q.updateAgencyBrandingColors(agencyId, {
     primary_color: payload.primaryColor,
     sidebar_color: payload.sidebarColor,
@@ -581,6 +597,7 @@ export async function uploadAgencyLogoAction(
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return { url: null, error: 'Unauthorized' }
+  if (!(await canAccessAgencyBranding(agencyId, true))) return { url: null, error: 'Unauthorized' }
 
   const file = formData.get('file') as File | null
   if (!file || file.size === 0) return { url: null, error: 'No file provided' }
@@ -607,13 +624,15 @@ export async function uploadAgencyLogoAction(
   revalidatePath('/pages/agency', 'layout')
   revalidatePath('/pages/caregiver', 'layout')
 
-  return { url: agencyBrandingPublicUrl(path), error: null }
+  const brandingUrl = agencyBrandingUrl(path, variant)
+  return { url: brandingUrl ? `${brandingUrl}&v=${Date.now()}` : null, error: null }
 }
 
 export async function resetAgencyBrandingAction(agencyId: string): Promise<{ success: boolean; error: string | null }> {
   const session = await getSession()
   const user = session ? { id: session.user.id } : null
   if (!user) return { success: false, error: 'Unauthorized' }
+  if (!(await canAccessAgencyBranding(agencyId, true))) return { success: false, error: 'Unauthorized' }
 
   const { data: existing } = await q.getAgencyBranding(agencyId)
   const pathsToRemove = [existing?.logo_path, existing?.logo_icon_path].filter(Boolean) as string[]

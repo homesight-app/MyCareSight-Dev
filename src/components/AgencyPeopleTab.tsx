@@ -132,7 +132,9 @@ function buildPeopleRows(
       credential: 'company_owner',
       adminRecordId: a.id,
       coordinatorRecordId: null,
-      status: a.is_active === false ? 'inactive' : 'active',
+      status: a.is_active === null
+        ? ((a.status as PersonRow['status']) ?? 'active')
+        : a.is_active ? 'active' : 'inactive',
     })
   }
 
@@ -153,7 +155,9 @@ function buildPeopleRows(
       credential: 'care_coordinator',
       adminRecordId: null,
       coordinatorRecordId: c.id,
-      status: c.is_active === false ? 'inactive' : 'active',
+      status: c.is_active === null
+        ? ((c.status as PersonRow['status']) ?? 'active')
+        : c.is_active ? 'active' : 'inactive',
     })
   }
 
@@ -775,6 +779,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
   const [rows, setRows]         = useState<PersonRow[]>([])
   const [loading, setLoading]   = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
 
   const [roleFilter, setRoleFilter]           = useState('')
@@ -805,16 +810,28 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
 
   const handleToggle = async (row: PersonRow) => {
     if (!row.credential) return
+    setMutationError(null)
     const next = row.status === 'active' ? 'inactive' : 'active'
     setRows((prev) => prev.map((r) => r.rowKey === row.rowKey ? { ...r, status: next } : r))
     setTogglingId(row.rowKey)
-    if (row.adminRecordId) {
-      await updateAgencyAdminStatus(agencyId, row.adminRecordId, next)
-    } else if (row.coordinatorRecordId) {
-      await updateCareCoordinatorStatus(agencyId, row.coordinatorRecordId, next)
+    try {
+      let result: { error: string | null }
+      if (row.adminRecordId) {
+        result = await updateAgencyAdminStatus(agencyId, row.adminRecordId, next)
+      } else if (row.coordinatorRecordId) {
+        result = await updateCareCoordinatorStatus(agencyId, row.coordinatorRecordId, next)
+      } else {
+        result = { error: 'Account record not found.' }
+      }
+      if (!result.error) return
+      setRows((prev) => prev.map((r) => r.rowKey === row.rowKey ? { ...r, status: row.status } : r))
+      setMutationError(result.error)
+    } catch {
+      setRows((prev) => prev.map((r) => r.rowKey === row.rowKey ? { ...r, status: row.status } : r))
+      setMutationError('Unable to update account status.')
+    } finally {
+      setTogglingId(null)
     }
-    setTogglingId(null)
-    fetchData()
   }
 
   const sortFn = useCallback(
@@ -873,6 +890,11 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
 
   return (
     <div className="space-y-4">
+      {mutationError && (
+        <div role="alert" className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+          {mutationError}
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">

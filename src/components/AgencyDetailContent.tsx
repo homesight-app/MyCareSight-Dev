@@ -39,8 +39,9 @@ import { assignPlanToAgency } from '@/app/actions/feature-plans'
 import { AGENCY_FEATURES } from '@/lib/constants/feature-keys'
 import { fetchLeadDocumentsAction, fetchLeadNotesAction } from '@/app/actions/leads'
 import { LEAD_STAGES } from '@/lib/constants/lead-configs'
+import { calculateLeadFinancialSummary } from '@/lib/lead-financial-summary'
 import CreateLicenseModal from './CreateLicenseModal'
-import CertificationDetailModal from './CertificationDetailModal'
+import CertificationDetailModal, { type CertificationCategoryOption } from './CertificationDetailModal'
 import AgencyAdminsSection from './AgencyAdminsSection'
 import AgencyOnboardingLinkPanel from './AgencyOnboardingLinkPanel'
 import AgencyPeopleTab from './AgencyPeopleTab'
@@ -187,6 +188,7 @@ interface AgencyLead {
   source: string | null
   price: number | null
   retainer_amount: number | null
+  retainer_paid_date: string | null
   installment_amount: number | null
   signed_date: string | null
   converted_at: string | null
@@ -231,6 +233,7 @@ export interface FeaturePlanSummary {
 interface AgencyDetailContentProps {
   agency: Agency & { plan_id?: string | null }
   licenses: License[]
+  certificationCategoryOptions: CertificationCategoryOption[]
   programs?: Program[]
   agencyAdmins: AgencyAdmin[]
   availableAdmins: AgencyAdmin[]
@@ -360,6 +363,7 @@ export default function AgencyDetailContent({
   featurePlans = [],
   integrationCredentials = [],
   canManageIntegrations = false,
+  certificationCategoryOptions,
 }: AgencyDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1440,11 +1444,7 @@ export default function AgencyDetailContent({
       {/* Leads tab */}
       {activeTab === 'leads' && (() => {
         const stageColorMap = Object.fromEntries(LEAD_STAGES.map(s => [s.key, s.color]))
-        const totalDeals = agencyLeads.length
-        const totalValue = agencyLeads.reduce((sum, l) => sum + (l.price ?? 0), 0)
-        const signedLeads = agencyLeads.filter(l => l.stage === 'signed' || l.converted_at)
-        const signedValue = signedLeads.reduce((sum, l) => sum + (l.price ?? 0), 0)
-        const retainerCollected = agencyLeads.reduce((sum, l) => sum + (l.retainer_amount ?? 0), 0)
+        const { totalDeals, totalValue, signedValue, retainerCollected } = calculateLeadFinancialSummary(agencyLeads)
 
         const fmtCurrency = (n: number) =>
           new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -1696,6 +1696,7 @@ export default function AgencyDetailContent({
             license={cert}
             agencyId={agency.id}
             backPath={backPath}
+            categoryOptions={certificationCategoryOptions}
             canEdit={canEdit}
             onClose={() => setSelectedCertId(null)}
           />
@@ -1708,6 +1709,7 @@ export default function AgencyDetailContent({
         onSuccess={() => setAddLicenseOpen(false)}
         agencyId={agency.id}
         agencyName={agency.name}
+        categoryOptions={certificationCategoryOptions}
         availablePrograms={programs.map(p => ({ id: p.id, application_name: p.application_name, status: p.status }))}
       />
     </div>

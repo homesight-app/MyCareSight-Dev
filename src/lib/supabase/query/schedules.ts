@@ -1,4 +1,5 @@
 import sql from '@/db'
+import { normalizeDatabaseRows } from '@/lib/database-date-contract'
 
 /** Status transitions from wall-clock: DB trigger on write + pg_cron `sync_scheduled_visit_statuses` (migration 076), not each read. */
 
@@ -152,6 +153,11 @@ type ScheduledVisitDbRowWithTasks = ScheduledVisitDbRow & {
   visit_series?: VisitSeriesNested | VisitSeriesNested[] | null
 }
 
+const SCHEDULE_TEMPORAL_CONTRACT = {
+  dates: ['visit_date', 'scheduled_end_date'] as const,
+  timestamps: ['created_at', 'updated_at'] as const,
+}
+
 type VisitSeriesNested = {
   repeat_frequency: string | null
   days_of_week: number[] | null
@@ -227,7 +233,11 @@ function adlCodesFromNestedTasks(tasks: ScheduledVisitTaskNested[] | null | unde
 /** Maps DB visit rows (with optional inline `scheduled_visit_tasks`) to {@link ScheduleRow}. */
 function mapVisitsToScheduleRows(visits: ScheduledVisitDbRowWithTasks[]): ScheduleRow[] {
   if (visits.length === 0) return []
-  return visits.map((v) => toScheduleRow(v, adlCodesFromNestedTasks(v.scheduled_visit_tasks)))
+  const normalized = normalizeDatabaseRows(
+    visits as unknown as Record<string, unknown>[],
+    SCHEDULE_TEMPORAL_CONTRACT
+  ) as unknown as ScheduledVisitDbRowWithTasks[]
+  return normalized.map((v) => toScheduleRow(v, adlCodesFromNestedTasks(v.scheduled_visit_tasks)))
 }
 
 // ---------------------------------------------------------------------------

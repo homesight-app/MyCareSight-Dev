@@ -4,6 +4,7 @@ import * as q from '@/lib/supabase/query'
 import { normalizeAgencyAdminIds } from '@/lib/agency-admin-ids'
 import AgencyDetailContent from '@/components/AgencyDetailContent'
 import type { FeaturePlanSummary } from '@/components/AgencyDetailContent'
+import { getConfigurationValues } from '@/app/actions/configuration-values'
 
 export default async function ExpertAgencyDetailPage({
   params,
@@ -21,7 +22,7 @@ export default async function ExpertAgencyDetailPage({
 
   const adminIds = normalizeAgencyAdminIds(agency.agency_admin_ids as string[] | string | null)
 
-  const [{ data: agencyAdmins }, { data: licenses }, { data: availableAdmins }, { data: programs }, { data: rawFeaturePlans }] = await Promise.all([
+  const [{ data: agencyAdmins }, { data: licenses }, { data: availableAdmins }, { data: programs }, { data: rawFeaturePlans }, { data: certificationCategories }] = await Promise.all([
     adminIds.length > 0
       ? q.getAgencyAdminsByIds(adminIds)
       : Promise.resolve({ data: [] }),
@@ -29,6 +30,7 @@ export default async function ExpertAgencyDetailPage({
     q.getUnassignedAgencyAdmins(),
     q.getApplicationsWithProgramsByAgencyId(id),
     q.getFeaturePlans(),
+    getConfigurationValues('PLAYBOOK_CATEGORY'),
   ])
 
   const featurePlans: FeaturePlanSummary[] = (rawFeaturePlans ?? []).map(p => ({
@@ -41,6 +43,7 @@ export default async function ExpertAgencyDetailPage({
     <AgencyDetailContent
       agency={agency}
       licenses={(licenses ?? []) as unknown as Parameters<typeof AgencyDetailContent>[0]['licenses']}
+      certificationCategoryOptions={(certificationCategories ?? []).filter(category => category.is_active).map(category => ({ id: category.id, name: category.name }))}
       agencyAdmins={agencyAdmins ?? []}
       availableAdmins={availableAdmins ?? []}
       backPath="/pages/expert/agencies"

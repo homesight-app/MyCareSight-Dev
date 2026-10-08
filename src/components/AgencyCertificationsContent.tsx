@@ -2,25 +2,13 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { FileText, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
-import { type CertLicense } from './CertificationDetailModal'
+import { type CertLicense, type CertificationCategoryOption } from './CertificationDetailModal'
 import CertificationDetailModal from './CertificationDetailModal'
 import TablePagination from '@/components/ui/TablePagination'
 import { formatDateShort } from '@/lib/format-date'
 import SearchInput from '@/components/ui/SearchInput'
 import StatusBadge from '@/components/ui/StatusBadge'
 import Tabs from '@/components/ui/Tabs'
-
-const CERT_CATEGORIES: { value: string; label: string }[] = [
-  { value: 'all',           label: 'All' },
-  { value: 'state_license', label: 'State License' },
-  { value: 'medicare',      label: 'Medicare' },
-  { value: 'medicaid',      label: 'Medicaid' },
-  { value: 'accreditation', label: 'Accreditation' },
-  { value: 'bond',          label: 'Bond' },
-  { value: 'insurance',     label: 'Insurance' },
-  { value: 'other',         label: 'Other' },
-]
-
 
 function isExpiringSoon(expiryDate?: string | null) {
   if (!expiryDate) return false
@@ -38,9 +26,10 @@ function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
 interface AgencyCertificationsContentProps {
   certifications: CertLicense[]
   agencyId: string
+  categoryOptions: CertificationCategoryOption[]
 }
 
-export default function AgencyCertificationsContent({ certifications, agencyId }: AgencyCertificationsContentProps) {
+export default function AgencyCertificationsContent({ certifications, agencyId, categoryOptions }: AgencyCertificationsContentProps) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expiring' | 'expired'>('all')
   const [catFilter, setCatFilter] = useState<string>('all')
@@ -64,7 +53,7 @@ export default function AgencyCertificationsContent({ certifications, agencyId }
         if (statusFilter === 'active'   && !(l.status === 'active' && !isExpiringSoon(l.expiry_date))) return false
         if (statusFilter === 'expiring' && !(l.status === 'active' && isExpiringSoon(l.expiry_date)))  return false
         if (statusFilter === 'expired'  && l.status !== 'expired') return false
-        if (catFilter !== 'all' && (l.certification_category ?? 'state_license') !== catFilter) return false
+        if (catFilter !== 'all' && l.category_id !== catFilter) return false
         if (term && !l.license_name.toLowerCase().includes(term) &&
             !(l.license_number ?? '').toLowerCase().includes(term) &&
             !(l.state ?? '').toLowerCase().includes(term)) return false
@@ -129,7 +118,7 @@ export default function AgencyCertificationsContent({ certifications, agencyId }
         <div className="px-6 py-3 border-b border-gray-100">
           <Tabs
             variant="pill"
-            items={CERT_CATEGORIES.map(cat => ({ key: cat.value, label: cat.label }))}
+            items={[{ key: 'all', label: 'All' }, ...categoryOptions.map(category => ({ key: category.id, label: category.name }))]}
             active={catFilter}
             onChange={(key) => setCatFilter(key)}
           />
@@ -224,6 +213,7 @@ export default function AgencyCertificationsContent({ certifications, agencyId }
           license={selectedCert}
           agencyId={agencyId}
           backPath="/pages/agency/certifications"
+          categoryOptions={categoryOptions}
           canEdit={true}
           onClose={() => setSelectedCertId(null)}
         />

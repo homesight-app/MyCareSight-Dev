@@ -5,6 +5,7 @@ import { readExpertProgramPlaybookId } from '@/lib/repositories/platform-applica
 import * as q from '@/lib/supabase/query'
 import ExpertProgramView from '@/components/ExpertProgramView'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
+import { getConfigurationValues } from '@/app/actions/configuration-values'
 
 export default async function ExpertProgramDetailPage({
   params,
@@ -31,13 +32,15 @@ export default async function ExpertProgramDetailPage({
     close_reason: string | null
     completed_at: string | null
     complete_reason: string | null
+    category_id: string | null
   }
   const app = application as unknown as AppRow
 
   // Resolve agency name
-  const { data: agencyData } = app.agency_id
-    ? await q.getAgencyNameById(app.agency_id)
-    : { data: null }
+  const [{ data: agencyData }, { data: certificationCategories }] = await Promise.all([
+    app.agency_id ? q.getAgencyNameById(app.agency_id) : Promise.resolve({ data: null }),
+    getConfigurationValues('PLAYBOOK_CATEGORY'),
+  ])
 
   // Derive playbookId from items (for templates tab)
   const typedItems = (items ?? []) as ApplicationPlaybookItem[]
@@ -67,6 +70,10 @@ export default async function ExpertProgramDetailPage({
         status={app.status}
         agencyId={app.agency_id}
         agencyName={agencyData?.name ?? null}
+        categoryId={app.category_id}
+        certificationCategoryOptions={(certificationCategories ?? [])
+          .filter(category => category.is_active)
+          .map(category => ({ id: category.id, name: category.name }))}
         playbookId={playbookId}
         initialItems={typedItems}
         closedAt={app.closed_at}

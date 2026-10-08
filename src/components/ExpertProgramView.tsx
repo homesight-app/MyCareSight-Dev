@@ -24,6 +24,7 @@ import ProgramItemDetailModal from './ProgramItemDetailModal'
 import AddProgramItemModal from './AddProgramItemModal'
 import InternalNotesPanel from './InternalNotesPanel'
 import CreateLicenseModal from './CreateLicenseModal'
+import type { LicenseCategoryOption } from './CreateLicenseModal'
 import Modal from './Modal'
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
@@ -70,6 +71,8 @@ interface Props {
   agencyName: string | null
   categoryName?: string | null
   subcategoryName?: string | null
+  categoryId?: string | null
+  certificationCategoryOptions?: LicenseCategoryOption[]
   playbookId: string | null
   initialItems: ApplicationPlaybookItem[]
   isAdmin?: boolean
@@ -88,6 +91,8 @@ export default function ExpertProgramView({
   agencyName,
   categoryName,
   subcategoryName,
+  categoryId,
+  certificationCategoryOptions = [],
   playbookId,
   initialItems,
   isAdmin = false,
@@ -1065,6 +1070,8 @@ export default function ExpertProgramView({
           agencyId={agencyId}
           lockedProgramId={applicationId}
           defaultLicenseName={displayName}
+          defaultCategoryId={categoryId}
+          categoryOptions={certificationCategoryOptions}
         />
       )}
 

@@ -30,6 +30,11 @@ interface AvailableProgram {
   status: string
 }
 
+export interface LicenseCategoryOption {
+  id: string
+  name: string
+}
+
 interface CreateLicenseModalProps {
   isOpen: boolean
   onClose: () => void
@@ -39,6 +44,8 @@ interface CreateLicenseModalProps {
   availablePrograms?: AvailableProgram[]
   lockedProgramId?: string
   defaultLicenseName?: string
+  defaultCategoryId?: string | null
+  categoryOptions?: LicenseCategoryOption[]
   licenseToEdit?: {
     id: string
     license_name: string
@@ -47,6 +54,7 @@ interface CreateLicenseModalProps {
     activated_date?: string | null
     expiry_date?: string | null
     renewal_due_date?: string | null
+    category_id?: string | null
   }
 }
 
@@ -66,6 +74,8 @@ export default function CreateLicenseModal({
   availablePrograms = [],
   lockedProgramId,
   defaultLicenseName,
+  defaultCategoryId,
+  categoryOptions = [],
   licenseToEdit,
 }: CreateLicenseModalProps) {
   const isEditMode = !!licenseToEdit
@@ -82,12 +92,14 @@ export default function CreateLicenseModal({
     handleSubmit,
     formState: { errors },
     reset,
+    setError,
   } = useForm<CreateLicenseFormData>({
     resolver: zodResolver(licenseSchema),
     defaultValues: {
       license_name: licenseToEdit?.license_name ?? defaultLicenseName ?? '',
       license_number: licenseToEdit?.license_number ?? '',
       state: licenseToEdit?.state ?? '',
+      category_id: licenseToEdit?.category_id ?? defaultCategoryId ?? '',
       expiry_date: licenseToEdit?.expiry_date?.split('T')[0] ?? '',
       activated_date: licenseToEdit?.activated_date?.split('T')[0] ?? '',
       renewal_due_date: licenseToEdit?.renewal_due_date?.split('T')[0] ?? '',
@@ -150,6 +162,7 @@ export default function CreateLicenseModal({
           activated_date: data.activated_date || null,
           expiry_date: data.expiry_date,
           renewal_due_date: data.renewal_due_date || null,
+          category_id: data.category_id || null,
         })
         if (updateError) throw updateError
 
@@ -194,20 +207,33 @@ export default function CreateLicenseModal({
           activated_date: data.activated_date,
           expiry_date: data.expiry_date,
           renewal_due_date: data.renewal_due_date || undefined,
+          category_id: data.category_id || undefined,
           issuing_body: data.issuing_body || undefined,
           documents: uploadedDocs.length > 0 ? uploadedDocs : undefined,
         }
 
         if (lockedProgramId) {
-          const { error: certErr } = await createCertificationAndLink(agencyId, lockedProgramId, certPayload)
+          const { error: certErr, fieldErrors } = await createCertificationAndLink(agencyId, lockedProgramId, certPayload)
           if (certErr) {
             await removeUploadedLicenseFilesAction(uploadedDocs.map(d => d.url))
+            if (fieldErrors) {
+              for (const [field, messages] of Object.entries(fieldErrors)) {
+                setError(field as keyof CreateLicenseFormData, { message: messages[0] })
+              }
+              return
+            }
             throw new Error(certErr)
           }
         } else {
           const result = await createLicenseForAgency({ agencyId, ...certPayload })
           if (result.error) {
             await removeUploadedLicenseFilesAction(uploadedDocs.map(d => d.url))
+            if (result.fieldErrors) {
+              for (const [field, messages] of Object.entries(result.fieldErrors)) {
+                setError(field as keyof CreateLicenseFormData, { message: messages[0] })
+              }
+              return
+            }
             throw new Error(result.error)
           }
           if (result.data?.id && linkedProgramId) {
@@ -239,6 +265,7 @@ export default function CreateLicenseModal({
         expiry_date: data.expiry_date,
         activated_date: data.activated_date || null,
         renewal_due_date: data.renewal_due_date || null,
+        category_id: data.category_id || null,
       })
       if (error) throw error
       if (!newLicense?.id) throw new Error('License was created but no ID returned')
@@ -291,7 +318,7 @@ export default function CreateLicenseModal({
           {errors.license_name && <p className="mt-1 text-sm text-red-600">{errors.license_name.message}</p>}
         </div>
 
-        {/* State */}
+        {/* State + Category */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="state" className="block text-sm font-semibold text-gray-700 mb-1">
@@ -307,6 +334,24 @@ export default function CreateLicenseModal({
             </select>
             {errors.state && <p className="mt-1 text-sm text-red-600">{errors.state.message}</p>}
           </div>
+          {categoryOptions.length > 0 && (
+            <div>
+              <label htmlFor="category_id" className="block text-sm font-semibold text-gray-700 mb-1">
+                Category <span className="text-xs font-normal text-gray-500">(optional)</span>
+              </label>
+              <select
+                id="category_id"
+                {...register('category_id')}
+                className="block w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+              >
+                <option value="">Select category</option>
+                {categoryOptions.map(category => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
+              {errors.category_id && <p className="mt-1 text-sm text-red-600">{errors.category_id.message}</p>}
+            </div>
+          )}
         </div>
 
         {/* License Number + Issuing Body */}

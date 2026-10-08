@@ -177,7 +177,7 @@ export async function getAgencyCertificationsWithHistory(agencyId: string) {
       SELECT
         l.id, l.agency_id, l.company_owner_id, l.license_name, l.license_number, l.state, l.status,
         l.activated_date, l.first_issued_date, l.expiry_date, l.renewal_due_date,
-        l.issuing_body, l.previous_version_id, l.created_at, l.updated_at,
+        l.issuing_body, l.previous_version_id, l.category_id, l.subcategory_id, l.created_at, l.updated_at,
         json_build_object('id', cat.id, 'name', cat.name) AS category,
         json_build_object('id', sub.id, 'name', sub.name) AS subcategory,
         COALESCE(json_agg(

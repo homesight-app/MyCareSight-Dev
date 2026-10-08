@@ -2,6 +2,11 @@ import sql from '@/db'
 import { patientFullName } from '@/lib/patient-name'
 import { hoursFromScheduleWithDates } from '@/lib/payroll-calculations'
 import { withAgencyManagerFinancialRead } from '@/lib/repositories/visit-financial-reads'
+import {
+  normalizeTimeBillingVisitRow,
+  type RawTimeBillingVisitRow,
+  type TimeBillingVisitRow,
+} from '@/lib/time-billing-date-contract'
 
 export type TimeBillingStatus = 'pending' | 'approved' | 'voided'
 
@@ -52,24 +57,12 @@ export async function fetchTimeBillingRows(
 async function fetchScopedTimeBillingRows(
   opts: { startDate?: string; endDate?: string; agencyId: string }
 ): Promise<{ rows: TimeBillingRow[]; error?: string }> {
-  type VisitRow = {
-    id: string
-    patient_id: string
-    caregiver_member_id: string | null
-    visit_date: string
-    scheduled_start_time: string | null
-    scheduled_end_time: string | null
-    scheduled_end_date: string | null
-    service_type: string | null
-    mileage_miles: number | null
-  }
-
-  let visitList: VisitRow[]
+  let visitList: TimeBillingVisitRow[]
   try {
     const startFilter = opts?.startDate ? sql`AND visit_date >= ${opts.startDate}` : sql``
     const endFilter = opts?.endDate ? sql`AND visit_date <= ${opts.endDate}` : sql``
     const agencyFilter = opts?.agencyId ? sql`AND agency_id = ${opts.agencyId}` : sql``
-    visitList = await sql<VisitRow[]>`
+    const rawVisitList = await sql<RawTimeBillingVisitRow[]>`
       SELECT id, patient_id, caregiver_member_id, visit_date, scheduled_start_time,
              scheduled_end_time, scheduled_end_date, service_type, mileage_miles
       FROM scheduled_visits
@@ -79,6 +72,7 @@ async function fetchScopedTimeBillingRows(
       ${endFilter}
       ORDER BY visit_date DESC
     `
+    visitList = rawVisitList.map(normalizeTimeBillingVisitRow)
   } catch (err) {
     return { rows: [], error: err instanceof Error ? err.message : 'Failed to load visits' }
   }

@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -32,6 +34,7 @@ import { uploadLicenseDocumentAction } from '@/app/actions/license-documents'
 import Modal from './Modal'
 import { US_STATES } from '@/lib/constants'
 import { formatDate, formatDateShort } from '@/lib/format-date'
+import { certificationDetailsSchema, type CertificationDetailsInput } from '@/lib/schemas/certification-details'
 
 // ── Shared types (mirror what AgencyDetailContent passes down) ──────────────
 
@@ -66,11 +69,19 @@ export interface CertLicense {
   expiry_date?: string | null
   renewal_due_date?: string | null
   issuing_body?: string | null
-  certification_category?: string | null
+  category_id?: string | null
+  subcategory_id?: string | null
+  category?: { id: string | null; name: string | null } | null
+  subcategory?: { id: string | null; name: string | null } | null
   previous_version_id?: string | null
   created_at: string
   license_documents?: LicenseDocument[] | null
   certification_applications?: LinkedApplication[] | null
+}
+
+export interface CertificationCategoryOption {
+  id: string
+  name: string
 }
 
 type Tab = 'overview' | 'history'
@@ -103,16 +114,17 @@ function CertInfoSection({
   agencyId,
   canEdit,
   router,
+  categoryOptions,
 }: {
   license: CertLicense
   agencyId: string
   canEdit: boolean
   router: ReturnType<typeof useRouter>
+  categoryOptions: CertificationCategoryOption[]
 }) {
   const [isEditing, setIsEditing] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [form, setForm] = useState({
+  const formDefaults = (): CertificationDetailsInput => ({
     license_name: license.license_name,
     state: license.state ?? '',
     license_number: license.license_number ?? '',
@@ -120,58 +132,65 @@ function CertInfoSection({
     expiry_date: license.expiry_date?.split('T')[0] ?? '',
     renewal_due_date: license.renewal_due_date?.split('T')[0] ?? '',
     issuing_body: license.issuing_body ?? '',
-    certification_category: license.certification_category ?? '',
-    status: license.status,
+    category_id: license.category_id ?? license.category?.id ?? '',
+    status: (['active', 'expired', 'pending'].includes(license.status) ? license.status : 'pending') as CertificationDetailsInput['status'],
+  })
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<CertificationDetailsInput>({
+    resolver: zodResolver(certificationDetailsSchema),
+    mode: 'onBlur',
+    defaultValues: formDefaults(),
   })
 
   // Re-sync form when license prop changes, but only if not mid-edit
   useEffect(() => {
-    if (!isEditing) {
-      setForm({
-        license_name: license.license_name,
-        state: license.state ?? '',
-        license_number: license.license_number ?? '',
-        activated_date: license.activated_date?.split('T')[0] ?? '',
-        expiry_date: license.expiry_date?.split('T')[0] ?? '',
-        renewal_due_date: license.renewal_due_date?.split('T')[0] ?? '',
-        issuing_body: license.issuing_body ?? '',
-        certification_category: license.certification_category ?? '',
-        status: license.status,
-      })
-    }
-  }, [license, isEditing])
+    if (!isEditing) reset(formDefaults())
+  // formDefaults is derived from the current license; reset is stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [license, isEditing, reset])
 
-  const handleSave = async () => {
-    setIsSaving(true)
+  const handleSave = async (data: CertificationDetailsInput) => {
     setSaveError(null)
-    const { error } = await updateCertificationDetails(license.id, agencyId, {
-      license_name: form.license_name,
-      state: form.state || null,
-      license_number: form.license_number || null,
-      activated_date: form.activated_date || null,
-      expiry_date: form.expiry_date || null,
-      renewal_due_date: form.renewal_due_date || null,
-      issuing_body: form.issuing_body || null,
-      certification_category: form.certification_category || null,
-      status: form.status,
-    })
-    if (error) {
-      setSaveError(error)
+    const result = await updateCertificationDetails(license.id, agencyId, data)
+    if (!result.success) {
+      for (const [fieldName, messages] of Object.entries(result.fieldErrors ?? {})) {
+        const message = messages[0]
+        if (message) setError(fieldName as keyof CertificationDetailsInput, { type: 'server', message })
+      }
+      setSaveError(result.error ?? 'Unable to save the certification.')
     } else {
       setIsEditing(false)
       router.refresh()
     }
-    setIsSaving(false)
   }
 
-  const field = (label: string, value: string, field: keyof typeof form, type: 'text' | 'date' | 'select' | 'status' | 'category' = 'text') => (
+  const cancelEditing = () => {
+    reset(formDefaults())
+    setSaveError(null)
+    setIsEditing(false)
+  }
+
+  const field = (
+    label: string,
+    value: string,
+    fieldName: keyof CertificationDetailsInput,
+    type: 'text' | 'date' | 'select' | 'status' | 'category' = 'text',
+    required = false
+  ) => (
     <div>
-      <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</label>
+      <label htmlFor={`certification-${fieldName}`} className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+        {label}{required && <span className="text-red-500"> *</span>}
+      </label>
       {isEditing ? (
         type === 'select' ? (
           <select
-            value={form[field]}
-            onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+            id={`certification-${fieldName}`}
+            {...register(fieldName)}
             className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
           >
             <option value="">Federal / N/A</option>
@@ -179,8 +198,8 @@ function CertInfoSection({
           </select>
         ) : type === 'status' ? (
           <select
-            value={form[field]}
-            onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+            id={`certification-${fieldName}`}
+            {...register(fieldName)}
             className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
           >
             <option value="active">Active</option>
@@ -189,42 +208,37 @@ function CertInfoSection({
           </select>
         ) : type === 'category' ? (
           <select
-            value={form[field]}
-            onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+            id={`certification-${fieldName}`}
+            {...register(fieldName)}
             className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
           >
             <option value="">Select category</option>
-            <option value="state_license">State License</option>
-            <option value="medicare">Medicare</option>
-            <option value="medicaid">Medicaid</option>
-            <option value="accreditation">Accreditation</option>
-            <option value="bond">Bond</option>
-            <option value="insurance">Insurance</option>
-            <option value="other">Other</option>
+            {categoryOptions.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
           </select>
         ) : (
           <input
+            id={`certification-${fieldName}`}
             type={type}
-            value={form[field]}
-            onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+            {...register(fieldName)}
             className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           />
         )
       ) : (
         <p className="text-sm text-gray-900 capitalize">{value || '—'}</p>
       )}
+      {isEditing && errors[fieldName]?.message && <p className="mt-1 text-xs text-red-600">{errors[fieldName]?.message}</p>}
     </div>
   )
 
   return (
-    <div className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(handleSave)} className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[license.status] ?? 'bg-gray-100 text-gray-600'}`}>
             {license.status}
           </span>
-          {license.certification_category && (
-            <span className="text-xs text-gray-400 capitalize">{license.certification_category.replace(/_/g, ' ')}</span>
+          {license.category?.name && (
+            <span className="text-xs text-gray-400">{license.category.name}</span>
           )}
         </div>
         {canEdit && !isEditing && (
@@ -234,8 +248,8 @@ function CertInfoSection({
         )}
         {isEditing && (
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" type="button" onClick={() => setIsEditing(false)} disabled={isSaving}>Cancel</Button>
-            <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={isSaving} loading={isSaving} icon={Save}>Save</Button>
+            <Button variant="secondary" size="sm" type="button" onClick={cancelEditing} disabled={isSubmitting}>Cancel</Button>
+            <Button variant="primary" size="sm" type="submit" disabled={isSubmitting} loading={isSubmitting} icon={Save}>Save</Button>
           </div>
         )}
       </div>
@@ -243,17 +257,17 @@ function CertInfoSection({
       {saveError && <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">{saveError}</p>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {field('Certification Name', license.license_name, 'license_name')}
+        {field('Certification Name', license.license_name, 'license_name', 'text', true)}
         {field('Cert / License #', license.license_number ?? '', 'license_number')}
         {field('State', license.state ?? '', 'state', 'select')}
         {field('Status', license.status, 'status', 'status')}
-        {field('Category', license.certification_category ? license.certification_category.replace(/_/g, ' ') : '', 'certification_category', 'category')}
+        {field('Category', license.category?.name ?? '', 'category_id', 'category')}
         {field('Issuing Body', license.issuing_body ?? '', 'issuing_body')}
         {field('Issued Date', formatDateShort(license.activated_date), 'activated_date', 'date')}
-        {field('Expiry Date', formatDateShort(license.expiry_date), 'expiry_date', 'date')}
+        {field('Expiry Date', formatDateShort(license.expiry_date), 'expiry_date', 'date', true)}
         {field('Renewal Due', formatDateShort(license.renewal_due_date), 'renewal_due_date', 'date')}
       </div>
-    </div>
+    </form>
   )
 }
 
@@ -693,6 +707,7 @@ interface CertificationDetailModalProps {
   license: CertLicense
   agencyId: string
   backPath: string
+  categoryOptions: CertificationCategoryOption[]
   canEdit?: boolean
   onClose: () => void
 }
@@ -701,6 +716,7 @@ export default function CertificationDetailModal({
   license,
   agencyId,
   backPath,
+  categoryOptions,
   canEdit = false,
   onClose,
 }: CertificationDetailModalProps) {
@@ -724,13 +740,13 @@ export default function CertificationDetailModal({
       isOpen={true}
       onClose={onClose}
       title={license.license_name}
-      subtitle={[license.certification_category?.replace(/_/g, ' '), license.state].filter(Boolean).join(' · ') || undefined}
+      subtitle={[license.category?.name, license.state].filter(Boolean).join(' · ') || undefined}
       size="xl"
       headerAccessory={tabPills}
     >
       {activeTab === 'overview' ? (
         <div className="space-y-6">
-          <CertInfoSection license={license} agencyId={agencyId} canEdit={canEdit} router={router} />
+          <CertInfoSection license={license} agencyId={agencyId} canEdit={canEdit} router={router} categoryOptions={categoryOptions} />
           <div className="border-t border-gray-200 pt-6">
             <DocumentsSection license={license} agencyId={agencyId} canEdit={canEdit} router={router} />
           </div>

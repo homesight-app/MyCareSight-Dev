@@ -2,14 +2,31 @@
 
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
-import sql from '@/db'
+import sql, { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 import { removeFiles } from '@/lib/storage/client'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
+import { certificationDetailsSchema, type CertificationDetailsInput } from '@/lib/schemas/certification-details'
+import { licenseSchema } from '@/lib/schemas/license'
+import { zodErrorToFieldErrors } from '@/lib/validation'
 
 function assertCanManageCert(role: string | null | undefined): string | null {
   const allowed = ['admin', 'expert', 'company_owner', 'care_coordinator']
   return allowed.includes(role ?? '') ? null : 'Forbidden'
+}
+
+async function isActiveCertificationCategory(categoryId: string): Promise<boolean> {
+  const [category] = await sql<{ id: string }[]>`
+    SELECT value.id
+    FROM public.configuration_values value
+    JOIN public.configuration_types type ON type.id = value.type_id
+    WHERE value.id = ${categoryId}::uuid
+      AND type.code = 'PLAYBOOK_CATEGORY'
+      AND value.parent_id IS NULL
+      AND value.is_active = true
+    LIMIT 1
+  `
+  return Boolean(category)
 }
 
 /**
@@ -42,25 +59,46 @@ export type CreateLicenseForAgencyInput = {
  * Sets agency_id and leaves company_owner_id null (agency-owned, not user-owned).
  * Optionally attaches a license document record (file must be uploaded to storage by the caller first).
  */
-export async function createLicenseForAgency(input: CreateLicenseForAgencyInput) {
+export async function createLicenseForAgency(input: CreateLicenseForAgencyInput): Promise<{
+  error: string | null
+  data: { id: string | undefined } | null
+  fieldErrors?: Record<string, string[]>
+}> {
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', data: null }
   const role = session.profile?.role
   if (role !== 'admin' && role !== 'expert') return { error: 'Forbidden', data: null }
 
+  const parsed = licenseSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      error: 'Check the highlighted fields.',
+      fieldErrors: zodErrorToFieldErrors(parsed.error),
+      data: null,
+    }
+  }
+
+  if (parsed.data.category_id && !await isActiveCertificationCategory(parsed.data.category_id)) {
+    return {
+      error: 'Select a valid category.',
+      fieldErrors: { category_id: ['Select a valid category'] },
+      data: null,
+    }
+  }
+
   const { data: newLicense, error } = await q.insertLicenseReturning({
     agency_id: input.agencyId,
     company_owner_id: null,
-    license_name: input.license_name,
-    license_number: input.license_number || null,
-    state: input.state || null,
+    license_name: parsed.data.license_name,
+    license_number: parsed.data.license_number || null,
+    state: parsed.data.state || null,
     status: 'active',
-    activated_date: input.activated_date,
-    expiry_date: input.expiry_date,
-    renewal_due_date: input.renewal_due_date || null,
-    category_id: input.category_id || null,
+    activated_date: parsed.data.activated_date,
+    expiry_date: parsed.data.expiry_date,
+    renewal_due_date: parsed.data.renewal_due_date || null,
+    category_id: parsed.data.category_id || null,
     subcategory_id: input.subcategory_id || null,
-    issuing_body: input.issuing_body || null,
+    issuing_body: parsed.data.issuing_body || null,
   })
 
   if (error) return { error: error.message, data: null }
@@ -112,7 +150,7 @@ export async function createCertificationAndLink(
   agencyId: string,
   applicationId: string,
   certData: Omit<CreateLicenseForAgencyInput, 'agencyId'>
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; fieldErrors?: Record<string, string[]> }> {
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
   const role = session.profile?.role
@@ -133,8 +171,8 @@ export async function createCertificationAndLink(
     }
   }
 
-  const { error: createErr, data: newCert } = await createLicenseForAgency({ ...enrichedCertData, agencyId })
-  if (createErr || !newCert?.id) return { error: createErr ?? 'Failed to create certification' }
+  const { error: createErr, data: newCert, fieldErrors } = await createLicenseForAgency({ ...enrichedCertData, agencyId })
+  if (createErr || !newCert?.id) return { error: createErr ?? 'Failed to create certification', fieldErrors }
 
   const { error: linkErr } = await q.insertCertificationApplication({
     certification_id: newCert.id,
@@ -240,32 +278,63 @@ export async function unlinkProgramFromCertification(
 export async function updateCertificationDetails(
   certificationId: string,
   agencyId: string,
-  data: Partial<{
-    license_name: string
-    license_number: string | null
-    state: string | null
-    activated_date: string | null
-    expiry_date: string | null
-    renewal_due_date: string | null
-    issuing_body: string | null
-    certification_category: string | null
-    status: string
-  }>
-): Promise<{ error: string | null }> {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
-  const roleErr = assertCanManageCert(session.profile?.role)
-  if (roleErr) return { error: roleErr }
+  input: CertificationDetailsInput
+): Promise<{ success: boolean; error?: string; fieldErrors?: Record<string, string[]> }> {
+  const { error: authError, session } = await requirePlatformStaffOrAgencyRole(agencyId)
+  if (authError || !session) return { success: false, error: authError ?? 'Forbidden' }
 
-  const { error } = await q.updateLicenseById(certificationId, {
-    ...data,
-    updated_at: new Date().toISOString(),
-  })
-  if (error) return { error: error.message }
+  const parsed = certificationDetailsSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false, error: 'Check the highlighted fields.', fieldErrors: zodErrorToFieldErrors(parsed.error) }
+  }
+
+  const role = session.profile?.role ?? ''
+
+  try {
+    await withUserContext(session.user.id, role, agencyId, async () => {
+      if (parsed.data.category_id && !await isActiveCertificationCategory(parsed.data.category_id)) {
+        throw new Error('INVALID_CATEGORY')
+      }
+
+      const [updated] = await sql<{ id: string }[]>`
+        UPDATE public.licenses
+        SET license_name = ${parsed.data.license_name},
+            license_number = ${parsed.data.license_number || null},
+            state = ${parsed.data.state || null},
+            status = ${parsed.data.status},
+            category_id = ${parsed.data.category_id || null}::uuid,
+            issuing_body = ${parsed.data.issuing_body || null},
+            activated_date = ${parsed.data.activated_date || null}::date,
+            expiry_date = ${parsed.data.expiry_date}::date,
+            renewal_due_date = ${parsed.data.renewal_due_date || null}::date,
+            updated_at = NOW()
+        WHERE id = ${certificationId}::uuid
+          AND agency_id = ${agencyId}::uuid
+        RETURNING id
+      `
+      if (!updated) throw new Error('CERTIFICATION_NOT_FOUND')
+
+      await sql`
+        INSERT INTO public.audit_log
+          (agency_id, table_name, record_id, action, performed_by_user_id, details)
+        VALUES
+          (${agencyId}::uuid, 'licenses', ${certificationId}::uuid, 'UPDATE', ${session.user.id}::uuid,
+           ${JSON.stringify({ operation: 'update_certification_details' })}::jsonb)
+      `
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_CATEGORY') {
+      return { success: false, error: 'Check the highlighted fields.', fieldErrors: { category_id: ['Select a valid category'] } }
+    }
+    if (error instanceof Error && error.message === 'CERTIFICATION_NOT_FOUND') {
+      return { success: false, error: 'Certification not found.' }
+    }
+    return { success: false, error: 'Unable to save the certification.' }
+  }
 
   revalidateCertificationPages(agencyId)
   revalidatePath('/pages/agency/certifications')
-  return { error: null }
+  return { success: true }
 }
 
 /** Delete a license document record and its storage file. */

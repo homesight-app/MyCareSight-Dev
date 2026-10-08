@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Users,
   CheckCircle2,
@@ -12,7 +12,7 @@ import {
   Phone,
   Medal,
 } from 'lucide-react'
-import * as q from '@/app/actions/query-bridge'
+import { updateCaregiverStatus } from '@/app/actions/agency-users'
 import AddStaffMemberModal from './AddStaffMemberModal'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import TablePagination from '@/components/ui/TablePagination'
@@ -95,6 +95,7 @@ export default function StaffManagementClient({
   initialStatus = 'all',
 }: StaffManagementClientProps) {
   const router = useRouter()
+  const currentSearchParams = useSearchParams()
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null)
   const [isViewProfileOpen, setIsViewProfileOpen] = useState(false)
@@ -119,13 +120,20 @@ export default function StaffManagementClient({
     setLocalStaffList(staffWithExpiringLicenses)
   }, [staffWithExpiringLicenses])
 
+  useEffect(() => {
+    setSelectedRole(initialRole)
+    setSelectedStatus(initialStatus)
+    setStaffTab(initialStatus === 'inactive' ? 'inactive' : 'active')
+  }, [initialRole, initialStatus])
+
   const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
   const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
   const displayTo   = Math.min((page + 1) * pageSize, totalCount)
 
   const pushParams = useCallback(
     (overrides: { page?: number; q?: string; role?: string; status?: string }) => {
-      const p = new URLSearchParams()
+      const p = new URLSearchParams(currentSearchParams.toString())
+      for (const key of ['page', 'q', 'role', 'status']) p.delete(key)
       const newPage   = overrides.page ?? 0
       const newSearch = overrides.q      !== undefined ? overrides.q      : searchQuery
       const newRole   = overrides.role   !== undefined ? overrides.role   : selectedRole
@@ -136,7 +144,7 @@ export default function StaffManagementClient({
       if (newStatus !== 'all')  p.set('status', newStatus)
       router.push(`?${p.toString()}`, { scroll: false })
     },
-    [router, searchQuery, selectedRole, selectedStatus]
+    [router, currentSearchParams, searchQuery, selectedRole, selectedStatus]
   )
 
   // Debounced search
@@ -178,9 +186,10 @@ export default function StaffManagementClient({
     if (current === nextStatus) return
     setStatusUpdatingId(staff.id)
     try {
-      const { error } = await q.updateStaffMember(staff.id, { status: nextStatus })
+      if (!agencyId) throw new Error('Agency scope is required')
+      const { error } = await updateCaregiverStatus(agencyId, staff.id, nextStatus)
       if (error) {
-        alert(`Could not update status: ${error.message}`)
+        alert(`Could not update status: ${error}`)
         return
       }
       setLocalStaffList((prev) => prev.filter((s) => s.id !== staff.id))

@@ -5,6 +5,7 @@ import { readAgencyCaregiverDashboardStats } from '@/lib/repositories/agency-car
 import * as q from '@/lib/supabase/query'
 import StaffManagementClient from '@/components/StaffManagementClient'
 import FeatureGate from '@/components/FeatureGate'
+import { normalizeCaregiverDirectoryStatus } from '@/lib/caregiver-directory-filters'
 
 const PAGE_SIZE = 50
 
@@ -27,7 +28,7 @@ export default async function StaffPage({
   const page         = Math.max(0, parseInt(params.page ?? '0') || 0)
   const search       = params.q ?? ''
   const roleFilter   = params.role ?? 'all'
-  const statusFilter = params.status ?? 'all'
+  const statusFilter = normalizeCaregiverDirectoryStatus(params.status)
 
   if (!agencyId) {
     return (
@@ -45,7 +46,7 @@ export default async function StaffPage({
         pageSize={PAGE_SIZE}
         initialSearch=""
         initialRole="all"
-        initialStatus="all"
+        initialStatus="active"
       />
     )
   }

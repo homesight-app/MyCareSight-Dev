@@ -6,8 +6,21 @@ const LEAD_TEMPORAL_CONTRACT = {
   timestamps: ['converted_at', 'created_at', 'updated_at'] as const,
 }
 
+const LEAD_NUMERIC_FIELDS = ['price', 'retainer_amount', 'installments', 'installment_amount'] as const
+
 function normalizeLeadRow<T extends Record<string, unknown>>(row: T): T {
-  return normalizeDatabaseRow(row, LEAD_TEMPORAL_CONTRACT)
+  const normalized = normalizeDatabaseRow(row, LEAD_TEMPORAL_CONTRACT)
+  const output = normalized as Record<string, unknown>
+
+  for (const field of LEAD_NUMERIC_FIELDS) {
+    const value = output[field]
+    if (value === null || value === undefined) continue
+    const numericValue = typeof value === 'number' ? value : Number(value)
+    if (!Number.isFinite(numericValue)) throw new TypeError(`Database returned an invalid lead ${field}`)
+    output[field] = numericValue
+  }
+
+  return normalized
 }
 
 export async function getLeads(
@@ -359,17 +372,14 @@ export async function getLeadsByAgency(agencyId: string) {
     const rows = await sql`
       SELECT
         id, contact_first_name, contact_last_name, company_name,
-        service_type, stage, source, price, retainer_amount,
+        service_type, stage, source, price, retainer_amount, retainer_paid_date,
         installment_amount, signed_date, converted_at, created_at
       FROM leads
       WHERE lead_type = 'agency'
         AND converted_agency_id = ${agencyId}
       ORDER BY created_at DESC
     `
-    return { data: normalizeDatabaseRows(rows, {
-      dates: ['signed_date'],
-      timestamps: ['converted_at', 'created_at'],
-    }) as unknown as any[], error: null }
+    return { data: rows.map(row => normalizeLeadRow(row)) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }

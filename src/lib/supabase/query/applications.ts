@@ -1,15 +1,35 @@
 import sql from '@/db'
+import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
 
 const APPLICATIONS_COLUMNS = 'id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id'
 const APPLICATION_STEPS_COLUMNS = 'id, application_id, step_name, step_order, is_completed, completed_at, completed_by, notes, created_at, updated_at, is_expert_step, created_by_expert_id, description, phase, instructions'
 const APPLICATION_DOCUMENTS_COLUMNS = 'id, application_id, document_name, document_url, document_type, status, created_at, description, expert_review_notes, license_requirement_document_id'
+
+const APPLICATION_TEMPORAL_CONTRACT = {
+  dates: [
+    'started_date',
+    'last_updated_date',
+    'submitted_date',
+    'issue_date',
+    'expiry_date',
+  ] as const,
+  timestamps: ['created_at', 'updated_at', 'closed_at', 'completed_at'] as const,
+}
+
+function normalizeApplicationRow(row: Record<string, unknown>): any {
+  return normalizeDatabaseRow(row, APPLICATION_TEMPORAL_CONTRACT)
+}
+
+function normalizeApplicationRows(rows: readonly Record<string, unknown>[]): any[] {
+  return normalizeDatabaseRows(rows, APPLICATION_TEMPORAL_CONTRACT)
+}
 
 /** Fetch application by id for close check (id, progress_percentage, status). */
 export async function getApplicationForClose(applicationId: string) {
   try {
     const rows = await sql`SELECT id, progress_percentage, status FROM applications WHERE id = ${applicationId}`
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeApplicationRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -20,7 +40,7 @@ export async function getApplicationLicenseTypeState(applicationId: string) {
   try {
     const rows = await sql`SELECT license_type_id, state, status FROM applications WHERE id = ${applicationId}`
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeApplicationRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -65,7 +85,7 @@ export async function insertApplication(
 ) {
   try {
     const rows = await sql`INSERT INTO applications ${sql(data as Record<string, unknown>, ...Object.keys(data) as any)} RETURNING *`
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeApplicationRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -109,7 +129,7 @@ export async function rpcCopyExpertStepsToApplication(
 export async function getApplicationDocumentsByApplicationId(applicationId: string) {
   try {
     const rows = await sql`SELECT id, application_id, document_name, document_url, document_type, status, created_at, description, expert_review_notes, license_requirement_document_id FROM application_documents WHERE application_id = ${applicationId} ORDER BY created_at DESC LIMIT 100`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -172,7 +192,7 @@ export async function getApplicationDocumentForUpdate(documentId: string, applic
 export async function getApplicationStepsByApplicationId(applicationId: string) {
   try {
     const rows = await sql`SELECT id, application_id, step_name, step_order, is_completed, completed_at, completed_by, notes, created_at, updated_at, is_expert_step, created_by_expert_id, description, phase, instructions FROM application_steps WHERE application_id = ${applicationId} ORDER BY step_order ASC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -182,7 +202,7 @@ export async function getApplicationStepsByApplicationId(applicationId: string) 
 export async function getExpertApplicationStepsByApplicationId(applicationId: string) {
   try {
     const rows = await sql`SELECT id, application_id, step_name, step_order, is_completed, completed_at, completed_by, notes, created_at, updated_at, is_expert_step, created_by_expert_id, description, phase, instructions FROM application_steps WHERE application_id = ${applicationId} AND is_expert_step = true ORDER BY step_order ASC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -192,7 +212,7 @@ export async function getExpertApplicationStepsByApplicationId(applicationId: st
 export async function getMaxExpertStepOrderForApplication(applicationId: string) {
   try {
     const rows = await sql`SELECT step_order FROM application_steps WHERE application_id = ${applicationId} AND is_expert_step = true ORDER BY step_order DESC LIMIT 1`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -300,7 +320,7 @@ export async function insertApplicationStepsRows(rows: Record<string, unknown>[]
 export async function getApplicationsListForDropdown(excludeApplicationId: string) {
   try {
     const rows = await sql`SELECT id, application_name, state FROM applications WHERE id != ${excludeApplicationId} ORDER BY created_at DESC LIMIT 100`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -390,7 +410,7 @@ export async function getApplicationByIdForOwnerOrExpert(
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE id = ${applicationId} AND (company_owner_id = ${userId} OR assigned_expert_id = ${userId})`
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeApplicationRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -410,7 +430,7 @@ export async function getApplicationIdsByCompanyOwnerId(companyOwnerId: string) 
 export async function getApplicationsByCompanyOwnerId(companyOwnerId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE company_owner_id = ${companyOwnerId} ORDER BY last_updated_date DESC LIMIT 500`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -449,7 +469,7 @@ export async function getApplicationsByStaffMemberIds(
   if (staffMemberIds.length === 0) return { data: [], error: null }
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE caregiver_member_id = ANY(${staffMemberIds as any}) AND caregiver_member_id IS NOT NULL AND status = 'approved'`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -462,7 +482,7 @@ export async function getApplicationsByStaffMemberIdsAll(
   if (staffMemberIds.length === 0) return { data: [], error: null }
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE caregiver_member_id = ANY(${staffMemberIds as any}) AND caregiver_member_id IS NOT NULL`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -482,7 +502,7 @@ export async function getApplicationIdsByAssignedExpertId(expertId: string) {
 export async function getApplicationsByAssignedExpertId(expertUserId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE assigned_expert_id = ${expertUserId} ORDER BY created_at DESC LIMIT 500`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -523,7 +543,7 @@ export async function getApplicationsByAssignedExpertIdPaginated(
     }
 
     return {
-      data: dataRows as unknown as any[],
+      data: normalizeApplicationRows(dataRows) as unknown as any[],
       count: Number(countRows[0]?.count ?? 0),
       error: null,
     }
@@ -539,7 +559,7 @@ export async function getApplicationsByAssignedExpertIdSelect(
 ) {
   try {
     const rows = await sql.unsafe(`SELECT ${select} FROM applications WHERE assigned_expert_id = $1 ORDER BY created_at DESC`, [expertUserId])
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -550,7 +570,7 @@ export async function getApplicationById(applicationId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE id = ${applicationId}`
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeApplicationRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -564,7 +584,7 @@ export async function getApplicationByIdAndStaffMemberId(
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE id = ${applicationId} AND caregiver_member_id = ${staffMemberId}`
     if (!rows.length) return { data: null, error: new Error('Not found') }
-    return { data: (rows as unknown as any[])[0], error: null }
+    return { data: normalizeApplicationRow(rows[0]), error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -574,7 +594,7 @@ export async function getApplicationByIdAndStaffMemberId(
 export async function getApplicationsByStatus(status: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE status = ${status} ORDER BY created_at DESC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -584,7 +604,7 @@ export async function getApplicationsByStatus(status: string) {
 export async function getApplicationsByAgencyId(agencyId: string) {
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE agency_id = ${agencyId} ORDER BY created_at DESC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -594,7 +614,7 @@ export async function getApplicationsByAgencyId(agencyId: string) {
 export async function getApplicationIdsByAgencyId(agencyId: string) {
   try {
     const rows = await sql`SELECT id FROM applications WHERE agency_id = ${agencyId}`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }
@@ -618,7 +638,7 @@ export async function getApplicationsByStatuses(statuses: string[]) {
   if (statuses.length === 0) return { data: [], error: null }
   try {
     const rows = await sql`SELECT id, company_owner_id, state, application_name, status, progress_percentage, started_date, last_updated_date, submitted_date, created_at, updated_at, license_type_id, assigned_expert_id, revision_reason, caregiver_member_id, license_number, issue_date, expiry_date, days_until_expiry, issuing_authority, agency_id, playbook_id, closed_by, closed_at, close_reason, completed_by, completed_at, complete_reason, category_id, subcategory_id FROM applications WHERE status = ANY(${statuses as any}) ORDER BY created_at DESC`
-    return { data: rows as unknown as any[], error: null }
+    return { data: normalizeApplicationRows(rows) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }

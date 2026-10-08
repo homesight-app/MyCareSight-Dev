@@ -6,6 +6,7 @@ import AgencyDetailContent from '@/components/AgencyDetailContent'
 import type { FeaturePlanSummary } from '@/components/AgencyDetailContent'
 import { listLeadIntegrationCredentials } from '@/lib/repositories/lead-integrations'
 import { websiteLeadIntegrationEnabled } from '@/lib/features/website-lead-integration'
+import { getConfigurationValues } from '@/app/actions/configuration-values'
 
 export default async function AdminAgencyDetailPage({
   params,
@@ -32,6 +33,7 @@ export default async function AdminAgencyDetailPage({
     { data: agencyLeads },
     { data: programs },
     { data: rawFeaturePlans },
+    { data: certificationCategories },
     integrationCredentials,
   ] = await Promise.all([
     adminIds.length > 0
@@ -44,6 +46,7 @@ export default async function AdminAgencyDetailPage({
     q.getLeadsByAgency(id),
     q.getApplicationsWithProgramsByAgencyId(id),
     q.getFeaturePlans(),
+    getConfigurationValues('PLAYBOOK_CATEGORY'),
     integrationEnabled ? listLeadIntegrationCredentials(id) : Promise.resolve([]),
   ])
 
@@ -62,6 +65,7 @@ export default async function AdminAgencyDetailPage({
       <AgencyDetailContent
         agency={agency}
         licenses={(licenses ?? []) as unknown as Parameters<typeof AgencyDetailContent>[0]['licenses']}
+        certificationCategoryOptions={(certificationCategories ?? []).filter(category => category.is_active).map(category => ({ id: category.id, name: category.name }))}
         agencyAdmins={agencyAdmins ?? []}
         availableAdmins={availableAdmins ?? []}
         backPath="/pages/admin/agencies"

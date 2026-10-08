@@ -5,13 +5,80 @@ import { revalidatePath } from 'next/cache'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 import { hashPassword } from '@/lib/auth/password'
 import { sendInvitationEmail } from '@/lib/email'
-import sql from '@/db'
+import sql, { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 
 function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
   revalidatePath(`/pages/expert/agencies/${agencyId}`)
   revalidatePath(`/pages/agency/people`)
+  revalidatePath('/pages/agency/user-management')
+}
+
+async function updateAgencyAccountStatus(input: {
+  agencyId: string
+  recordId: string
+  tableName: 'agency_admins' | 'care_coordinators' | 'caregiver_members'
+  targetUserId: string | null
+  expectedProfileRole: 'company_owner' | 'care_coordinator' | 'staff_member'
+  oldStatus: string | null
+  status: 'active' | 'inactive'
+  actor: { user: { id: string }; profile: { role?: string | null } }
+  updateRoleRecord: () => Promise<boolean>
+}): Promise<{ error: string | null }> {
+  if (input.status === 'inactive' && input.targetUserId === input.actor.user.id) {
+    return { error: 'You cannot deactivate your own account.' }
+  }
+
+  try {
+    await withUserContext(
+      input.actor.user.id,
+      input.actor.profile.role ?? '',
+      input.agencyId,
+      async () => {
+        if (!(await input.updateRoleRecord())) throw new Error('ACCOUNT_RECORD_NOT_FOUND')
+
+        if (input.targetUserId) {
+          const [profile] = await sql<{ id: string }[]>`
+            SELECT id
+            FROM public.user_profiles
+            WHERE id = ${input.targetUserId}::uuid
+              AND agency_id = ${input.agencyId}::uuid
+              AND role = ${input.expectedProfileRole}
+            FOR UPDATE
+          `
+          if (!profile) throw new Error('ACCOUNT_PROFILE_NOT_FOUND')
+
+          await sql`
+            UPDATE public.user_profiles
+            SET is_active = ${input.status === 'active'}, updated_at = NOW()
+            WHERE id = ${input.targetUserId}::uuid
+          `
+
+          if (input.status === 'inactive') {
+            await sql`
+              UPDATE public.auth_sessions
+              SET revoked_at = COALESCE(revoked_at, NOW()),
+                  revoke_reason = COALESCE(revoke_reason, 'account_deactivated')
+              WHERE user_id = ${input.targetUserId}::uuid AND revoked_at IS NULL
+            `
+          }
+        }
+
+        await sql`
+          INSERT INTO public.audit_log
+            (agency_id, table_name, record_id, action, performed_by_user_id, details)
+          VALUES
+            (${input.agencyId}::uuid, ${input.tableName}, ${input.recordId}::uuid, 'UPDATE_STATUS',
+             ${input.actor.user.id}::uuid,
+             ${JSON.stringify({ old_status: input.oldStatus, new_status: input.status, sessions_revoked: input.status === 'inactive' && Boolean(input.targetUserId) })}::jsonb)
+        `
+      }
+    )
+    return { error: null }
+  } catch {
+    return { error: 'Unable to update account status.' }
+  }
 }
 
 export async function getAgencyCaregiverDirectory(agencyId: string) {
@@ -199,25 +266,31 @@ export async function updateAgencyAdminStatus(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const [current] = await sql<{ status: string }[]>`
-    SELECT status FROM agency_admins WHERE id = ${adminId} AND agency_id = ${agencyId} LIMIT 1
+  const [current] = await sql<{ status: string; user_id: string | null }[]>`
+    SELECT status, user_id FROM agency_admins WHERE id = ${adminId} AND agency_id = ${agencyId} LIMIT 1
   `
+  if (!current) return { error: 'Agency administrator not found.' }
 
-  try {
-    await sql`UPDATE agency_admins SET status = ${status}, updated_at = ${new Date().toISOString()} WHERE id = ${adminId} AND agency_id = ${agencyId}`
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Failed to update status' }
-  }
-
-  await q.insertAuditLog({
-    agency_id: agencyId,
-    table_name: 'agency_admins',
-    record_id: adminId,
-    action: 'UPDATE_STATUS',
-    performed_by_user_id: session.user.id,
-    details: { old_status: current?.status ?? null, new_status: status },
+  const result = await updateAgencyAccountStatus({
+    agencyId,
+    recordId: adminId,
+    tableName: 'agency_admins',
+    targetUserId: current.user_id,
+    expectedProfileRole: 'company_owner',
+    oldStatus: current.status,
+    status,
+    actor: { user: { id: session.user.id }, profile: { role: session.profile?.role } },
+    updateRoleRecord: async () => {
+      const rows = await sql<{ id: string }[]>`
+        UPDATE public.agency_admins
+        SET status = ${status}, updated_at = NOW()
+        WHERE id = ${adminId}::uuid AND agency_id = ${agencyId}::uuid
+        RETURNING id
+      `
+      return rows.length === 1
+    },
   })
-
+  if (result.error) return result
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
 }
@@ -230,25 +303,31 @@ export async function updateCaregiverStatus(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const [current] = await sql<{ status: string }[]>`
-    SELECT status FROM caregiver_members WHERE id = ${caregiverId} AND agency_id = ${agencyId} LIMIT 1
+  const [current] = await sql<{ status: string; user_id: string | null }[]>`
+    SELECT status, user_id FROM caregiver_members WHERE id = ${caregiverId} AND agency_id = ${agencyId} LIMIT 1
   `
+  if (!current) return { error: 'Caregiver not found.' }
 
-  try {
-    await sql`UPDATE caregiver_members SET status = ${status}, updated_at = ${new Date().toISOString()} WHERE id = ${caregiverId} AND agency_id = ${agencyId}`
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Failed to update status' }
-  }
-
-  await q.insertAuditLog({
-    agency_id: agencyId,
-    table_name: 'caregiver_members',
-    record_id: caregiverId,
-    action: 'UPDATE_STATUS',
-    performed_by_user_id: session.user.id,
-    details: { old_status: current?.status ?? null, new_status: status },
+  const result = await updateAgencyAccountStatus({
+    agencyId,
+    recordId: caregiverId,
+    tableName: 'caregiver_members',
+    targetUserId: current.user_id,
+    expectedProfileRole: 'staff_member',
+    oldStatus: current.status,
+    status,
+    actor: { user: { id: session.user.id }, profile: { role: session.profile?.role } },
+    updateRoleRecord: async () => {
+      const rows = await sql<{ id: string }[]>`
+        UPDATE public.caregiver_members
+        SET status = ${status}, updated_at = NOW()
+        WHERE id = ${caregiverId}::uuid AND agency_id = ${agencyId}::uuid
+        RETURNING id
+      `
+      return rows.length === 1
+    },
   })
-
+  if (result.error) return result
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
 }
@@ -261,25 +340,31 @@ export async function updateCareCoordinatorStatus(
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const [current] = await sql<{ status: string }[]>`
-    SELECT status FROM care_coordinators WHERE id = ${coordinatorId} AND agency_id = ${agencyId} LIMIT 1
+  const [current] = await sql<{ status: string; user_id: string | null }[]>`
+    SELECT status, user_id FROM care_coordinators WHERE id = ${coordinatorId} AND agency_id = ${agencyId} LIMIT 1
   `
+  if (!current) return { error: 'Care coordinator not found.' }
 
-  try {
-    await sql`UPDATE care_coordinators SET status = ${status}, updated_at = ${new Date().toISOString()} WHERE id = ${coordinatorId} AND agency_id = ${agencyId}`
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Failed to update status' }
-  }
-
-  await q.insertAuditLog({
-    agency_id: agencyId,
-    table_name: 'care_coordinators',
-    record_id: coordinatorId,
-    action: 'UPDATE_STATUS',
-    performed_by_user_id: session.user.id,
-    details: { old_status: current?.status ?? null, new_status: status },
+  const result = await updateAgencyAccountStatus({
+    agencyId,
+    recordId: coordinatorId,
+    tableName: 'care_coordinators',
+    targetUserId: current.user_id,
+    expectedProfileRole: 'care_coordinator',
+    oldStatus: current.status,
+    status,
+    actor: { user: { id: session.user.id }, profile: { role: session.profile?.role } },
+    updateRoleRecord: async () => {
+      const rows = await sql<{ id: string }[]>`
+        UPDATE public.care_coordinators
+        SET status = ${status}, updated_at = NOW()
+        WHERE id = ${coordinatorId}::uuid AND agency_id = ${agencyId}::uuid
+        RETURNING id
+      `
+      return rows.length === 1
+    },
   })
-
+  if (result.error) return result
   revalidateAgencyDetailPages(agencyId)
   return { error: null }
 }

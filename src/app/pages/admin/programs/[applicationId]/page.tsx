@@ -6,6 +6,7 @@ import { readAdminProgramReferences } from '@/lib/repositories/platform-applicat
 import * as q from '@/lib/supabase/query'
 import ExpertProgramView from '@/components/ExpertProgramView'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
+import { getConfigurationValues } from '@/app/actions/configuration-values'
 
 export default async function AdminProgramDetailPage({
   params,
@@ -39,13 +40,14 @@ export default async function AdminProgramDetailPage({
 
   const typedItems = (items ?? []) as ApplicationPlaybookItem[]
   const firstWithPlaybookItem = typedItems.find(i => i.playbook_item_id)
-  const [{ data: agencyData }, referencesResult] = await Promise.all([
+  const [{ data: agencyData }, referencesResult, { data: certificationCategories }] = await Promise.all([
     app.agency_id ? q.getAgencyNameById(app.agency_id) : Promise.resolve({ data: null }),
     readAdminProgramReferences({
       categoryId: app.category_id,
       subcategoryId: app.subcategory_id,
       playbookItemId: firstWithPlaybookItem?.playbook_item_id ?? null,
     }),
+    getConfigurationValues('PLAYBOOK_CATEGORY'),
   ])
   const references = referencesResult.data ?? { categoryName: null, subcategoryName: null, playbookId: null }
 
@@ -75,6 +77,10 @@ export default async function AdminProgramDetailPage({
           agencyName={agencyData?.name ?? null}
           categoryName={references.categoryName}
           subcategoryName={references.subcategoryName}
+          categoryId={app.category_id}
+          certificationCategoryOptions={(certificationCategories ?? [])
+            .filter(category => category.is_active)
+            .map(category => ({ id: category.id, name: category.name }))}
           playbookId={references.playbookId}
           initialItems={typedItems}
           isAdmin

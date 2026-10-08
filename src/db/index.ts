@@ -2,6 +2,7 @@ import 'server-only'
 import postgres from 'postgres'
 import { AsyncLocalStorage } from 'async_hooks'
 import { measureDatabaseTransaction } from '@/lib/observability/performance'
+import { normalizeDatabaseResultValue } from '@/lib/database-date-contract'
 
 const _sql = postgres(process.env.DATABASE_URL!, {
   ssl: 'require',
@@ -9,6 +10,11 @@ const _sql = postgres(process.env.DATABASE_URL!, {
   idle_timeout: 30,
   connect_timeout: 30,
   prepare: false, // required for Neon pooler
+  transform: {
+    value: {
+      from: normalizeDatabaseResultValue,
+    },
+  },
 })
 
 const _store = new AsyncLocalStorage<any>()

@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { ChevronLeft, LogOut, type LucideIcon } from 'lucide-react'
 import { signOut } from '@/app/actions/auth'
@@ -24,9 +23,14 @@ interface AppSidebarProps {
   onMobileClose: () => void
   /** Extra content inserted above the logout button (e.g. application progress widget) */
   extraContent?: React.ReactNode
+  /** Retained for a future custom-branding phase; the sidebar currently uses bundled branding. */
   logoSrc?: string
+  /** Retained for a future custom-branding phase; the sidebar currently uses bundled branding. */
   logoIconSrc?: string
 }
+
+const DEFAULT_LOGO_SRC = '/MyCareSight-Logo Bleu.png'
+const DEFAULT_LOGO_ICON_SRC = '/MyCareSight-Icon Bleu.png'
 
 export default function AppSidebar({
   menuItems,
@@ -36,10 +40,9 @@ export default function AppSidebar({
   mobileOpen,
   onMobileClose,
   extraContent,
-  logoSrc = '/MyCareSight-Logo Bleu.png',
-  logoIconSrc = '/MyCareSight-Icon Bleu.png',
 }: AppSidebarProps) {
   const pathname = usePathname()
+  const displayedLogoSrc = collapsed ? DEFAULT_LOGO_ICON_SRC : DEFAULT_LOGO_SRC
 
   return (
     <>
@@ -64,14 +67,13 @@ export default function AppSidebar({
         style={{ backgroundColor: 'var(--sidebar-bg, #0F172A)' }}
       >
         {/* Logo area */}
-        <div className={`h-[90px] flex-shrink-0 border-b border-slate-700/50 flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'}`}>
-          <div className={`relative transition-all duration-300 ${collapsed ? 'w-10 h-10' : 'w-full h-[148px]'}`}>
-            <Image
-              src={collapsed ? logoIconSrc : logoSrc}
+        <div className={`h-[90px] flex-shrink-0 overflow-hidden border-b border-slate-700/50 flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'}`}>
+          <div className={`relative transition-all duration-300 ${collapsed ? 'w-10 h-10' : 'w-full h-16'}`}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={displayedLogoSrc}
               alt="MyCareSight"
-              fill
-              className="object-contain object-center"
-              priority
+              className={`absolute inset-0 h-full w-full object-center ${collapsed ? 'object-contain' : 'object-cover'}`}
             />
           </div>
         </div>

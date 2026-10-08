@@ -86,7 +86,7 @@ export const AGENCY_LEAD_CONTEXT: LeadContext = {
   listPath: '/pages/agency/leads',
   detailPath: '/pages/agency/leads',
   serviceTypes: PATIENT_SERVICE_TYPES,
-  conversionLabel: 'Convert to Patient',
+  conversionLabel: 'Convert to Client',
   conversionAction: 'patient',
   billingVisible: false,
   canAssign: false,

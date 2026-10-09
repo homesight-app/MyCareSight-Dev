@@ -124,122 +124,116 @@ export async function updateUserProfileAction(
     return { error: 'You cannot change your own role.', data: null }
   }
 
-  const now = new Date().toISOString()
-
-  const [current] = await sql<{ id: string; full_name: string | null; email: string; role: string; agency_id: string | null }[]>`
-    SELECT id, full_name, email, role, agency_id FROM user_profiles WHERE id = ${userId} LIMIT 1
-  `
-  if (!current) return { error: 'User not found', data: null }
-
-  const newEmail = payload.email ? payload.email.toLowerCase().trim() : current.email
-  const newFullName = payload.fullName !== undefined ? payload.fullName : current.full_name
-  const newRole = payload.role ?? current.role
-
-  const resolvedAgencyId = AGENCY_SCOPED_ROLES.has(newRole)
-    ? (payload.agencyId !== undefined ? payload.agencyId : current.agency_id)
-    : null
-
-  if (newEmail !== current.email) {
-    const [emailExists] = await sql<{ id: string }[]>`
-      SELECT id FROM user_profiles WHERE email = ${newEmail} AND id != ${userId} LIMIT 1
-    `
-    if (emailExists) return { error: 'A user with this email already exists.', data: null }
-  }
-
-  const updates: Record<string, unknown> = { updated_at: now }
-  const changes: { field: string; old: string | null; new: string | null }[] = []
-
-  if (newFullName !== current.full_name) {
-    updates.full_name = newFullName
-    changes.push({ field: 'full_name', old: current.full_name, new: newFullName })
-  }
-  if (newEmail !== current.email) {
-    updates.email = newEmail
-    updates.invite_token = null
-    updates.invite_token_expires_at = null
-    changes.push({ field: 'email', old: current.email, new: newEmail })
-  }
-  if (newRole !== current.role) {
-    updates.role = newRole
-    changes.push({ field: 'role', old: current.role, new: newRole })
-  }
-  if (resolvedAgencyId !== current.agency_id) {
-    updates.agency_id = resolvedAgencyId
-    changes.push({ field: 'agency_id', old: current.agency_id, new: resolvedAgencyId })
-  }
-
-  if (changes.length === 0) return { error: null, data: { success: true } }
-
   try {
-    await sql`UPDATE user_profiles SET ${sql(updates)} WHERE id = ${userId}`
+    const result = await withUserContext(session.user.id, 'admin', null, async () => {
+      const now = new Date().toISOString()
+      const [current] = await sql<{
+        id: string
+        full_name: string | null
+        email: string
+        role: string
+        agency_id: string | null
+      }[]>`
+        SELECT id, full_name, email, role, agency_id
+        FROM user_profiles
+        WHERE id = ${userId}
+        LIMIT 1
+        FOR UPDATE
+      `
+      if (!current) return { error: 'User not found', data: null }
+
+      const newEmail = payload.email ? payload.email.toLowerCase().trim() : current.email
+      const newFullName = payload.fullName !== undefined ? payload.fullName : current.full_name
+      const newRole = payload.role ?? current.role
+      const resolvedAgencyId = AGENCY_SCOPED_ROLES.has(newRole)
+        ? (payload.agencyId !== undefined ? payload.agencyId : current.agency_id)
+        : null
+
+      if (newEmail !== current.email) {
+        const [emailExists] = await sql<{ id: string }[]>`
+          SELECT id FROM user_profiles WHERE lower(email) = lower(${newEmail}) AND id != ${userId} LIMIT 1
+        `
+        if (emailExists) return { error: 'A user with this email already exists.', data: null }
+      }
+
+      const updates: Record<string, unknown> = { updated_at: now }
+      const changes: { field: string; old: string | null; new: string | null }[] = []
+
+      if (newFullName !== current.full_name) {
+        updates.full_name = newFullName
+        changes.push({ field: 'full_name', old: current.full_name, new: newFullName })
+      }
+      if (newEmail !== current.email) {
+        updates.email = newEmail
+        updates.invite_token = null
+        updates.invite_token_expires_at = null
+        changes.push({ field: 'email', old: current.email, new: newEmail })
+      }
+      if (newRole !== current.role) {
+        updates.role = newRole
+        changes.push({ field: 'role', old: current.role, new: newRole })
+      }
+      if (resolvedAgencyId !== current.agency_id) {
+        updates.agency_id = resolvedAgencyId
+        changes.push({ field: 'agency_id', old: current.agency_id, new: resolvedAgencyId })
+      }
+
+      if (changes.length === 0) return { error: null, data: { success: true } }
+
+      let agencyDisplayName: string | null = null
+      if (newRole === 'company_owner' && resolvedAgencyId) {
+        const [agencyRow] = await sql<{ name: string }[]>`
+          SELECT name FROM agencies WHERE id = ${resolvedAgencyId} LIMIT 1
+        `
+        agencyDisplayName = agencyRow?.name ?? null
+      }
+
+      await sql`UPDATE user_profiles SET ${sql(updates)} WHERE id = ${userId}`
+
+      const needsRoleTableSync = changes.some(change =>
+        ['full_name', 'email', 'role', 'agency_id'].includes(change.field)
+      )
+      if (needsRoleTableSync) {
+        await syncUserDomainRoleRow({
+          userId,
+          fullName: newFullName ?? '',
+          email: newEmail,
+          role: newRole,
+          agencyId: resolvedAgencyId,
+          agencyDisplayName,
+          updatedAt: now,
+        })
+      }
+
+      const roleChange = changes.find(change => change.field === 'role')
+      const agencyChange = changes.find(change => change.field === 'agency_id')
+      const { error: auditErr } = await q.insertAuditLog({
+        table_name: 'user_profiles',
+        record_id: userId,
+        action: 'UPDATE',
+        performed_by_user_id: session.user.id,
+        agency_id: resolvedAgencyId,
+        details: {
+          changed_fields: changes.map(change => change.field),
+          ...(roleChange ? { old_role: roleChange.old, new_role: roleChange.new } : {}),
+          ...(agencyChange ? { agency_changed: true } : {}),
+        },
+      })
+      if (auditErr) throw auditErr
+
+      return { error: null, data: { success: true } }
+    })
+
+    if (result.error) return result
+
+    revalidatePath('/pages/admin/users')
+    revalidatePath('/pages/agency/profile')
+    revalidatePath('/pages/caregiver/profile')
+    revalidatePath('/pages/expert/profile')
+    return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to update user', data: null }
   }
-
-  const { first_name, last_name } = parseFullName(newFullName ?? '')
-  const needsRoleTableSync = changes.some(
-    c => c.field === 'full_name' || c.field === 'email' || c.field === 'agency_id'
-  )
-
-  let agencyDisplayName: string | null = null
-  if (newRole === 'company_owner' && resolvedAgencyId) {
-    const [agencyRow] = await sql<{ name: string }[]>`SELECT name FROM agencies WHERE id = ${resolvedAgencyId} LIMIT 1`
-    agencyDisplayName = agencyRow?.name ?? null
-  }
-
-  if (needsRoleTableSync) {
-    if (newRole === 'company_owner') {
-      await sql`UPDATE agency_admins SET ${sql({
-        contact_name: newFullName,
-        contact_email: newEmail,
-        agency_id: resolvedAgencyId,
-        ...(agencyDisplayName ? { company_name: agencyDisplayName } : {}),
-        updated_at: now,
-      })} WHERE user_id = ${userId}`
-    } else if (newRole === 'care_coordinator') {
-      await sql`UPDATE care_coordinators SET ${sql({ first_name, last_name, email: newEmail, agency_id: resolvedAgencyId, updated_at: now })} WHERE user_id = ${userId}`
-    } else if (newRole === 'staff_member') {
-      await sql`UPDATE caregiver_members SET ${sql({ first_name, last_name, email: newEmail, agency_id: resolvedAgencyId, updated_at: now })} WHERE user_id = ${userId}`
-    } else if (newRole === 'expert') {
-      await sql`UPDATE licensing_experts SET ${sql({ first_name, last_name, email: newEmail, updated_at: now })} WHERE user_id = ${userId}`
-    }
-  }
-
-  if (changes.some(c => c.field === 'role')) {
-    if (newRole === 'company_owner' || newRole === 'staff_member' || newRole === 'expert') {
-      await ensureRoleTableRow(userId, newFullName ?? '', newEmail, newRole as CreateUserRole)
-      if (newRole === 'company_owner' && agencyDisplayName) {
-        await sql`UPDATE agency_admins SET company_name = ${agencyDisplayName}, agency_id = ${resolvedAgencyId}, updated_at = ${now} WHERE user_id = ${userId}`
-      }
-    } else if (newRole === 'care_coordinator' && resolvedAgencyId) {
-      const [existingCoord] = await sql<{ id: string }[]>`SELECT id FROM care_coordinators WHERE user_id = ${userId} LIMIT 1`
-      if (!existingCoord) {
-        await q.insertCareCoordinator({
-          user_id: userId,
-          agency_id: resolvedAgencyId,
-          first_name,
-          last_name,
-          email: newEmail,
-          status: 'active',
-        })
-      }
-    }
-  }
-
-  const { error: auditErr } = await q.insertAuditLog({
-    table_name: 'user_profiles',
-    record_id: userId,
-    action: 'UPDATE',
-    performed_by_user_id: session.user.id,
-    details: { changes, affected_user_email: current.email },
-  })
-  if (auditErr) console.error('[updateUserProfileAction] Audit log failed:', auditErr.message)
-
-  revalidatePath('/pages/admin/users')
-  revalidatePath('/pages/agency/profile')
-  revalidatePath('/pages/caregiver/profile')
-  revalidatePath('/pages/expert/profile')
-  return { error: null, data: { success: true } }
 }
 
 type SetUserPasswordResult =
@@ -419,6 +413,137 @@ function parseFullName(fullName: string): { first_name: string; last_name: strin
   return {
     first_name: trimmed.slice(0, space),
     last_name: trimmed.slice(space + 1).trim() || 'Unknown',
+  }
+}
+
+async function syncUserDomainRoleRow(input: {
+  userId: string
+  fullName: string
+  email: string
+  role: string
+  agencyId: string | null
+  agencyDisplayName: string | null
+  updatedAt: string
+}) {
+  const { first_name, last_name } = parseFullName(input.fullName)
+
+  if (input.role === 'company_owner') {
+    const updated = await sql<{ id: string }[]>`
+      UPDATE agency_admins
+      SET ${sql({
+        contact_name: input.fullName,
+        contact_email: input.email,
+        agency_id: input.agencyId,
+        ...(input.agencyDisplayName ? { company_name: input.agencyDisplayName } : {}),
+        updated_at: input.updatedAt,
+      })}
+      WHERE user_id = ${input.userId}
+      RETURNING id
+    `
+    if (updated.length === 0) {
+      await sql`
+        INSERT INTO agency_admins ${sql({
+          user_id: input.userId,
+          company_owner_id: input.userId,
+          agency_id: input.agencyId,
+          company_name: input.agencyDisplayName,
+          contact_name: input.fullName || input.email,
+          contact_email: input.email,
+          status: 'pending',
+          updated_at: input.updatedAt,
+        })}
+      `
+    }
+    return
+  }
+
+  if (input.role === 'care_coordinator') {
+    if (!input.agencyId) throw new Error('Agency is required for care coordinator role.')
+    const updated = await sql<{ id: string }[]>`
+      UPDATE care_coordinators
+      SET ${sql({
+        first_name,
+        last_name,
+        email: input.email,
+        agency_id: input.agencyId,
+        updated_at: input.updatedAt,
+      })}
+      WHERE user_id = ${input.userId}
+      RETURNING id
+    `
+    if (updated.length === 0) {
+      await sql`
+        INSERT INTO care_coordinators ${sql({
+          user_id: input.userId,
+          agency_id: input.agencyId,
+          first_name,
+          last_name,
+          email: input.email,
+          status: 'active',
+          updated_at: input.updatedAt,
+        })}
+      `
+    }
+    return
+  }
+
+  if (input.role === 'staff_member') {
+    const updated = await sql<{ id: string }[]>`
+      UPDATE caregiver_members
+      SET ${sql({
+        first_name,
+        last_name,
+        email: input.email,
+        agency_id: input.agencyId,
+        updated_at: input.updatedAt,
+      })}
+      WHERE user_id = ${input.userId}
+      RETURNING id
+    `
+    if (updated.length === 0) {
+      await sql`
+        INSERT INTO caregiver_members ${sql({
+          user_id: input.userId,
+          company_owner_id: null,
+          agency_id: input.agencyId,
+          first_name,
+          last_name,
+          email: input.email,
+          role: 'Caregiver',
+          status: 'active',
+          updated_at: input.updatedAt,
+        })}
+      `
+    }
+    return
+  }
+
+  if (input.role === 'expert') {
+    const updated = await sql<{ id: string }[]>`
+      UPDATE licensing_experts
+      SET ${sql({
+        first_name,
+        last_name,
+        email: input.email,
+        updated_at: input.updatedAt,
+      })}
+      WHERE user_id = ${input.userId}
+      RETURNING id
+    `
+    if (updated.length === 0) {
+      await sql`
+        INSERT INTO licensing_experts ${sql({
+          user_id: input.userId,
+          user_profile_id: input.userId,
+          first_name,
+          last_name,
+          email: input.email,
+          role: 'Licensing Specialist',
+          status: 'active',
+          updated_at: input.updatedAt,
+        })}
+      `
+    }
   }
 }
 

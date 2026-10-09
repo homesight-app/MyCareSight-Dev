@@ -219,3 +219,7 @@ infrastructure is prepared. Azure what-if, resource deployment, secret reference
 reminder delivery, and live UAT acceptance remain pending.
 
 Validation: all 203 tests across 25 suites pass. The final storage/dependency focused run passes 11 tests, TypeScript passes, `git diff --check` passes, the compatible focused ESLint run has zero errors (two existing hook warnings), and the Next.js production build completes. The standard `npm run lint` entry point remains blocked before linting by the repository's pre-existing ESLint 9 flat-config mismatch.
+
+## Agency-role synchronization repair (prepared 2026-10-09)
+
+Read-only Development inspection confirmed that the historical `user_agency_roles` source triggers and integrity constraints were absent from Neon. Migration 019 restores owner-only constraints and synchronization, backfills only profile-compatible memberships, blocks direct runtime membership writes, and supplies read-only verification. The matching administrator profile update now commits identity, domain-role, and audit changes atomically. Apply and verify 019 with direct owner connections on Development and UAT before deploying and retesting synthetic password reset/login. See [agency-role synchronization repair](uat-user-agency-role-sync.md). Production remains unchanged and out of scope.

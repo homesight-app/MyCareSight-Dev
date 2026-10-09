@@ -55,6 +55,21 @@ export const recurringScheduleUpdateSchema = z.object({
   patch: scheduleUpdateSchema,
 }).strict()
 
+export const scheduleReplacementSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('single'),
+    replaceVisitIds: z.array(uuid).max(500),
+    visits: z.array(scheduleCreateSchema).min(1).max(500),
+  }).strict(),
+  z.object({
+    kind: z.literal('recurring'),
+    replaceVisitIds: z.array(uuid).max(500),
+    visit: recurringScheduleCreateSchema,
+  }).strict(),
+])
+
 export const scheduleIdSchema = uuid
 export const scheduleDateRangeSchema = z.object({ startDate: date, endDate: date })
   .refine(value => value.endDate >= value.startDate, { path:['endDate'], message:'End date cannot precede start date' })
+
+export type ScheduleReplacementInput = z.input<typeof scheduleReplacementSchema>

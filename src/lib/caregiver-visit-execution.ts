@@ -4,6 +4,7 @@ import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { patientFullName } from '@/lib/patient-name'
+import { extractVisitTaskToken, isUuidToken, visitTaskSlotKey } from '@/lib/visit-task-codes'
 
 export type CaregiverExecutionTaskDTO = {
   id: string
@@ -73,24 +74,6 @@ function formatDurationLabel(start: string | null, end: string | null): string {
   const diffMin = Math.max(0, Math.round((b.getTime() - a.getTime()) / 60000))
   if (!diffMin) return ''
   return `(${diffMin} min)`
-}
-
-function extractTaskToken(raw: string): string {
-  const v = String(raw || '').trim()
-  if (!v) return ''
-  const parts = v.split('::')
-  return (parts.length > 1 ? parts[1] : parts[0]).trim()
-}
-
-function slotKeyFromLegacy(raw: string): string {
-  const v = String(raw || '').trim()
-  if (!v) return ''
-  const parts = v.split('::')
-  return parts.length > 1 ? parts[0].trim().toLowerCase() : ''
-}
-
-function isUuidLike(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 }
 
 function serviceTypeTag(serviceType: string | null | undefined): string {
@@ -187,8 +170,8 @@ async function resolveUuidTaskNames(rawTasks: FlatTaskRow[]): Promise<Map<string
   const uuidTokens = Array.from(
     new Set(
       rawTasks
-        .map((t) => extractTaskToken(t.legacy_task_code ?? ''))
-        .filter((token) => token && isUuidLike(token))
+        .map((t) => extractVisitTaskToken(t.legacy_task_code ?? ''))
+        .filter(isUuidToken)
     )
   )
   const taskNameById = new Map<string, string>()
@@ -243,7 +226,7 @@ export async function fetchCaregiverPastVisitSummary(
 
     const tasks: CaregiverPastVisitSummaryTaskDTO[] = rawTasks.map((t) => {
       const legacy = t.legacy_task_code ?? ''
-      const token = extractTaskToken(legacy)
+      const token = extractVisitTaskToken(legacy)
       const fromCatalog = t.task_catalog_name?.trim()
       const fromMap = token ? taskNameById.get(token) : undefined
       const name = (fromCatalog && fromCatalog.length > 0 ? fromCatalog : fromMap) || token || 'Task'
@@ -337,8 +320,8 @@ export async function fetchCaregiverVisitExecutionDetail(
 
     const tasks: CaregiverExecutionTaskDTO[] = rawTasks.map((t) => {
       const legacy = t.legacy_task_code ?? ''
-      const token = extractTaskToken(legacy)
-      const asNeeded = slotKeyFromLegacy(legacy) === 'as_needed'
+      const token = extractVisitTaskToken(legacy)
+      const asNeeded = visitTaskSlotKey(legacy) === 'as_needed'
       const fromCatalog = t.task_catalog_name?.trim()
       const fromMap = token ? taskNameById.get(token) : undefined
       const name = (fromCatalog && fromCatalog.length > 0 ? fromCatalog : fromMap) || token || 'Task'

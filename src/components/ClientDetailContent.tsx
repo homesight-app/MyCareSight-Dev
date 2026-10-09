@@ -1086,20 +1086,20 @@ export default function ClientDetailContent({ client, allClients, representative
   const handleClientChange = (clientId: string) => {
     if (clientId === client.id) return
     setIsClientSwitching(true)
-    router.push(`/pages/agency/clients/${clientId}`)
+    router.push(`/pages/agency/clients/${clientId}?tab=${activeTab}`)
   }
 
   const handlePrevious = () => {
     if (previousClient && previousClient.id !== client.id) {
       setIsClientSwitching(true)
-      router.push(`/pages/agency/clients/${previousClient.id}`)
+      router.push(`/pages/agency/clients/${previousClient.id}?tab=${activeTab}`)
     }
   }
 
   const handleNext = () => {
     if (nextClient && nextClient.id !== client.id) {
       setIsClientSwitching(true)
-      router.push(`/pages/agency/clients/${nextClient.id}`)
+      router.push(`/pages/agency/clients/${nextClient.id}?tab=${activeTab}`)
     }
   }
 
@@ -3006,16 +3006,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setIsSavingVisit(true)
     try {
       const idsToReplace = Array.from(overlappingIds)
-      for (const rid of idsToReplace) {
-        const { error: delErr } = await q.deleteSchedule(rid)
-        if (delErr) {
-          setVisitError(
-            delErr.message ??
-              'Could not remove the existing visit before replacing. Check permissions or try again.'
-          )
-          return
-        }
-      }
       const basePayload = {
         patient_id: localClient.id,
         start_time: startTime,
@@ -3062,23 +3052,30 @@ export default function ClientDetailContent({ client, allClients, representative
         const repeatStart = visitForm.repeatStart || datesToInsert[0]
         /** Empty = open-ended (refill fills rolling 21-day window). Set = series stops at that date. */
         const repeatEndForSeries = visitForm.repeatEnd?.trim() ? visitForm.repeatEnd : null
-        const { error } = await q.insertRecurringSchedulesFromSeries({
-          ...basePayload,
-          dates: datesToInsert,
-          repeat_start: repeatStart,
-          repeat_end: repeatEndForSeries,
+        const { error } = await q.replaceSchedules({
+          kind: 'recurring',
+          replaceVisitIds: idsToReplace,
+          visit: {
+            ...basePayload,
+            dates: datesToInsert,
+            repeat_start: repeatStart,
+            repeat_end: repeatEndForSeries,
+          },
         })
         if (error) {
           setVisitError(error.message ?? 'Failed to add recurring visit.')
           return
         }
       } else {
-        for (const dateStr of datesToInsert) {
-          const { error } = await q.insertSchedule({ ...basePayload, date: dateStr })
-          if (error) {
-            setVisitError(error.message ?? 'Failed to add visit.')
-            return
-          }
+        const { end_day_offset: _endDayOffset, ...singleVisitBase } = basePayload
+        const { error } = await q.replaceSchedules({
+          kind: 'single',
+          replaceVisitIds: idsToReplace,
+          visits: datesToInsert.map((dateStr) => ({ ...singleVisitBase, date: dateStr })),
+        })
+        if (error) {
+          setVisitError(error.message ?? 'Failed to add visit.')
+          return
         }
       }
       if (maxDate >= scheduleWeekStartStr && minDate <= scheduleWeekEndStr) {
@@ -3967,6 +3964,7 @@ export default function ClientDetailContent({ client, allClients, representative
                   onClick={() => {
                     if (isLocked) { setUpgradeOpen(true); return }
                     setActiveTab(tab.id)
+                    router.replace(`/pages/agency/clients/${localClient.id}?tab=${tab.id}`, { scroll: false })
                   }}
                   className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
                     isLocked

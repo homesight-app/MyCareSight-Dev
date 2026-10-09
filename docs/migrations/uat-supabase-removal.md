@@ -13,6 +13,7 @@ Local branch: codex/uat-supabase-removal. Baseline commit: 0eab0d1.
 - The earlier Neon project `steep-sky-59385366` remains historical migration evidence and the current local-development source until a separately scoped development migration is approved.
 - Target storage: Azure Blob Storage. The application-owned authorization boundary is prepared locally; the UAT account, private containers, managed identity, malware scanning, and role workflows still require live verification.
 - Production stays on Supabase and Vercel. Its migration plan is explicitly deferred.
+- UAT changes that may affect a later production data import are classified in the [future production port impact register](future-production-port-impact-register.md). That register is tracking evidence only and is not a production migration authorization or cutover plan.
 - UAT code and infrastructure have been deployed and accepted as recorded in this document and the compliance log. Production remains unchanged; no production data was copied or modified.
 - Use only synthetic/non-PHI data for UAT. Source schema inspection is read-only; no source records are to be copied for this verification.
 - Azure's slot named Production is the default slot of the UAT app, not the production platform.

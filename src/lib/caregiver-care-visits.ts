@@ -1,11 +1,14 @@
 import sql from '@/db'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { patientFullName } from '@/lib/patient-name'
+import { visitStatusFromScheduleRow } from '@/lib/visit-status'
+import { decodeVisitTaskCodes, extractVisitTaskToken, isUuidToken } from '@/lib/visit-task-codes'
 import {
   type CaregiverVisitStatus,
   type CaregiverVisitCardDTO,
   type CaregiverCareVisitsDTO,
   MY_CARE_VISITS_TAB_STORAGE_KEY,
+  caregiverVisitDisclosure,
   isVisitPastForCaregiverMyVisits,
 } from '@/lib/caregiver-care-visits-shared'
 
@@ -78,40 +81,14 @@ function formatDurationLabel(start: string | null, end: string | null): string {
   return `(${diffMin} min)`
 }
 
-function extractTaskToken(raw: string): string {
-  const v = String(raw || '').trim()
-  if (!v) return ''
-  const parts = v.split('::')
-  return (parts.length > 1 ? parts[1] : parts[0]).trim()
-}
-
-function isUuidLike(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
-}
-
-function decodeAdlCodes(codes: string[] | null | undefined, taskNameById?: Map<string, string>): string[] {
-  if (!Array.isArray(codes)) return []
-  return codes
-    .map((code) => {
-      const v = String(code ?? '').trim()
-      if (!v) return ''
-      const parts = v.split('::')
-      const token = (parts.length > 1 ? parts[1] : parts[0]).trim()
-      if (!token) return ''
-      const mapped = taskNameById?.get(token)
-      return (mapped && mapped.trim()) || token
-    })
-    .filter(Boolean)
-}
-
 async function buildTaskNameByIdForSchedules(schedules: ScheduleRow[]): Promise<Map<string, string>> {
   const taskNameById = new Map<string, string>()
   const taskIdTokens = Array.from(
     new Set(
       schedules
         .flatMap((s) => s.adl_codes ?? [])
-        .map((raw) => extractTaskToken(raw))
-        .filter((token) => token && isUuidLike(token))
+        .map((raw) => extractVisitTaskToken(raw))
+        .filter(isUuidToken)
     )
   )
   if (taskIdTokens.length === 0) return taskNameById
@@ -133,13 +110,10 @@ async function buildTaskNameByIdForSchedules(schedules: ScheduleRow[]): Promise<
 }
 
 function getStatus(row: ScheduleRow): CaregiverVisitStatus {
-  const status = String(row.status ?? '').toLowerCase().trim()
-  if (status === 'completed') return 'completed'
-  if (status === 'missed') return 'missed'
-  if (status === 'in_progress' || status === 'in progress') return 'in_progress'
+  const status = visitStatusFromScheduleRow(row)
   if (status === 'unassigned') return 'open'
   if (status === 'scheduled') return 'assigned'
-  return row.caregiver_id ? 'assigned' : 'open'
+  return status
 }
 
 function isTodayDate(date: string): boolean {
@@ -162,10 +136,12 @@ export async function fetchCaregiverCareVisitsData(
   }
 
   const candidateRows = allRows
-  const patientIds = Array.from(new Set(candidateRows.map((v) => v.patient_id)))
+  const ownedRows = candidateRows.filter((row) => row.caregiver_id === caregiverMemberId)
+  const patientIds = Array.from(new Set(ownedRows.map((v) => v.patient_id)))
   const scheduleIds = candidateRows.map((v) => v.id)
+  const ownedScheduleIds = ownedRows.map((v) => v.id)
 
-  const taskNameById = await buildTaskNameByIdForSchedules(candidateRows)
+  const taskNameById = await buildTaskNameByIdForSchedules(ownedRows)
 
   type TaskAggRow = { scheduled_visit_id: string; completed_at: string | null }
   type VteRow = {
@@ -190,27 +166,27 @@ export async function fetchCaregiverCareVisitsData(
             AND schedule_id = ANY(${scheduleIds}::uuid[])
         `
       : Promise.resolve([] as RequestRow[]),
-    scheduleIds.length
+    ownedScheduleIds.length
       ? sql<UnassignmentRequestRow[]>`
           SELECT id, schedule_id, status
           FROM schedule_unassignment_requests
           WHERE caregiver_member_id = ${caregiverMemberId}
             AND status = 'pending'
-            AND schedule_id = ANY(${scheduleIds}::uuid[])
+            AND schedule_id = ANY(${ownedScheduleIds}::uuid[])
         `
       : Promise.resolve([] as UnassignmentRequestRow[]),
-    scheduleIds.length
+    ownedScheduleIds.length
       ? sql<TaskAggRow[]>`
           SELECT scheduled_visit_id, completed_at
           FROM scheduled_visit_tasks
-          WHERE scheduled_visit_id = ANY(${scheduleIds}::uuid[])
+          WHERE scheduled_visit_id = ANY(${ownedScheduleIds}::uuid[])
         `
       : Promise.resolve([] as TaskAggRow[]),
-    scheduleIds.length
+    ownedScheduleIds.length
       ? sql<VteRow[]>`
           SELECT scheduled_visit_id, caregiver_notes, clock_in_time, clock_out_time
           FROM visit_time_entries
-          WHERE scheduled_visit_id = ANY(${scheduleIds}::uuid[])
+          WHERE scheduled_visit_id = ANY(${ownedScheduleIds}::uuid[])
         `
       : Promise.resolve([] as VteRow[]),
   ])
@@ -254,16 +230,24 @@ export async function fetchCaregiverCareVisitsData(
 
   const visits = candidateRows
     .map((row) => {
+      const isMine = row.caregiver_id === caregiverMemberId
       const patient = patientById.get(row.patient_id)
       const locationShort = [patient?.city?.trim(), patient?.state?.trim()].filter(Boolean).join(', ') || '-'
       const pending = pendingRequestBySchedule.get(row.id)
-      const adlTasks = decodeAdlCodes(row.adl_codes, taskNameById)
+      const adlTasks = decodeVisitTaskCodes(row.adl_codes, taskNameById)
       const fromDb = taskCountByVisit.get(row.id)
       const adlTasksTotal = fromDb && fromDb.total > 0 ? fromDb.total : adlTasks.length
       const adlTasksCompleted = fromDb && fromDb.total > 0 ? fromDb.completed : 0
       const schedNotes = row.notes?.trim() ? row.notes.trim() : null
       const cgNotes = caregiverNotesByVisit.get(row.id) ?? null
-      const hasVisitNote = !!(cgNotes || schedNotes)
+      const hasVisitNote = isMine && !!(cgNotes || schedNotes)
+      const disclosed = caregiverVisitDisclosure(isMine, {
+        clientName: patient ? patientFullName(patient as { first_name: string; last_name: string }) : 'Client',
+        locationLine: patient?.street_address?.trim() || '-',
+        locationShort,
+        adlTasks,
+        notes: row.notes,
+      })
       return {
         id: row.id,
         date: row.date,
@@ -272,17 +256,17 @@ export async function fetchCaregiverCareVisitsData(
         timeLabel: formatTimeLabel(row.start_time, row.end_time),
         timeRangeDisplay: formatTimeRangeAmPm(row.start_time, row.end_time),
         durationLabel: formatDurationLabel(row.start_time, row.end_time),
-        clientName: patient ? patientFullName(patient as { first_name: string; last_name: string }) : 'Client',
+        clientName: disclosed.clientName,
         serviceName: (row.type ?? '').trim() || 'Personal Care',
-        locationLine: patient?.street_address?.trim() || '-',
-        locationShort,
+        locationLine: disclosed.locationLine,
+        locationShort: disclosed.locationShort,
         status: activeClockInVisitIds.has(row.id) ? 'in_progress' : getStatus(row),
-        adlTasks,
-        adlTasksCompleted,
-        adlTasksTotal,
+        adlTasks: disclosed.adlTasks,
+        adlTasksCompleted: isMine ? adlTasksCompleted : 0,
+        adlTasksTotal: isMine ? adlTasksTotal : 0,
         hasVisitNote,
-        notes: row.notes,
-        isMine: row.caregiver_id === caregiverMemberId,
+        notes: disclosed.notes,
+        isMine,
         hasMyPendingRequest: !!pending,
         hasPendingUnassignmentRequest: pendingUnassignmentBySchedule.has(row.id),
         myPendingUnassignmentRequestId: pendingUnassignmentBySchedule.get(row.id) ?? null,

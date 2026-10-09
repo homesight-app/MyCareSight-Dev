@@ -8,7 +8,7 @@
 
     "dev": "next dev",
 
-    "build": "NODE_OPTIONS=--use-system-ca next build",
+    "build": "node --use-system-ca node_modules/next/dist/bin/next build",
 
     "start": "next start",
 
@@ -129,6 +129,8 @@
   },
 
   "devDependencies": {
+
+    "@eslint/eslintrc": "^3.3.1",
 
     "@electric-sql/pglite": "^0.5.8",
 

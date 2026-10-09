@@ -4,7 +4,6 @@ import path from 'path'
 // Load test-specific env vars from .env.playwright (gitignored)
 // In CI these come from GitHub Actions secrets instead
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   require('dotenv').config({ path: path.resolve(__dirname, '.env.playwright'), override: false })
 } catch {
   // dotenv not available — env vars must come from the shell (CI)

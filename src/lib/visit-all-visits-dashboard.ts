@@ -4,8 +4,11 @@ import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { patientFullName } from '@/lib/patient-name'
 import { managerGetSchedulesByAgencyAndRange } from '@/lib/repositories/manager-scheduling'
+import { visitStatusFromScheduleRow, visitStatusLabel, type VisitStatus } from '@/lib/visit-status'
+import { decodeVisitTaskCodes, extractVisitTaskToken, isUuidToken } from '@/lib/visit-task-codes'
+import { normalizeUsZipForLookup } from '@/lib/us-postal-code'
 
-export type VisitStatus = 'completed' | 'missed' | 'cancelled' | 'on_hold' | 'in_progress' | 'scheduled' | 'unassigned'
+export type { VisitStatus } from '@/lib/visit-status'
 
 export type ReassignCandidateDTO = {
   id: string
@@ -66,14 +69,6 @@ type StaffRow = {
   job_title?: string | null
 }
 
-function normalizeUsZipForLookup(zip: unknown): string | null {
-  if (zip === null || zip === undefined) return null
-  const s = String(zip).trim()
-  if (!s) return null
-  const digits = s.replace(/\D/g, '').slice(0, 5)
-  return digits.length === 5 ? digits : null
-}
-
 function formatScheduleDate(isoDate: string): string {
   const d = new Date(`${isoDate}T12:00:00`)
   return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
@@ -109,55 +104,6 @@ function patientLocationLabel(patient: PatientRow): string {
   if (patient.state) return String(patient.state)
   if (patient.street_address) return String(patient.street_address).split(',')[0]?.trim() || '-'
   return '-'
-}
-
-function decodeAdlCodes(
-  codes: string[] | null | undefined,
-  taskNameById?: Map<string, string>
-): string[] {
-  if (!Array.isArray(codes)) return []
-  return codes
-    .map((code) => {
-      const v = String(code || '').trim()
-      if (!v) return ''
-      const parts = v.split('::')
-      const token = (parts.length > 1 ? parts[1] : parts[0]).trim()
-      if (!token) return ''
-      const mapped = taskNameById?.get(token)
-      return (mapped && mapped.trim()) || token
-    })
-    .filter(Boolean)
-}
-
-function extractTaskToken(raw: string): string {
-  const v = String(raw || '').trim()
-  if (!v) return ''
-  const parts = v.split('::')
-  return (parts.length > 1 ? parts[1] : parts[0]).trim()
-}
-
-function isUuidLike(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
-}
-
-function deriveVisitStatus(s: ScheduleRow): VisitStatus {
-  const raw = (s.status ?? '').toLowerCase().trim()
-  if (raw === 'completed') return 'completed'
-  if (raw === 'missed') return 'missed'
-  if (raw === 'cancelled') return 'cancelled'
-  if (raw === 'on_hold') return 'on_hold'
-  if (raw === 'in_progress' || raw === 'in progress') return 'in_progress'
-  if (raw === 'unassigned') return 'unassigned'
-  if (raw === 'scheduled') return 'scheduled'
-  if (!s.caregiver_id) return 'unassigned'
-  return 'scheduled'
-}
-
-function statusLabel(v: VisitStatus): string {
-  if (v === 'in_progress') return 'In Progress'
-  if (v === 'unassigned') return 'Unassigned'
-  if (v === 'on_hold') return 'On Hold'
-  return v.charAt(0).toUpperCase() + v.slice(1)
 }
 
 function typeLabel(s: ScheduleRow): string {
@@ -221,8 +167,8 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
     new Set(
       schedules
         .flatMap((s) => s.adl_codes ?? [])
-        .map((raw) => extractTaskToken(raw))
-        .filter((token) => token && isUuidLike(token))
+        .map((raw) => extractVisitTaskToken(raw))
+        .filter(isUuidToken)
     )
   )
   const taskNameById = new Map<string, string>()
@@ -246,7 +192,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
     const patient = patientById.get(s.patient_id)
     const currentCaregiver = s.caregiver_id ? staffById.get(s.caregiver_id) : undefined
     const requiredSkills = requirementsByPatient.get(s.patient_id) ?? []
-    const status = deriveVisitStatus(s)
+    const status = visitStatusFromScheduleRow(s)
     return {
       id: s.id,
       date: s.date,
@@ -254,14 +200,14 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
       timeLabel: formatTimeRange(s.start_time, s.end_time),
       visitTitle: visitTitleFromSchedule(s),
       status,
-      statusLabel: statusLabel(status),
+      statusLabel: visitStatusLabel(status),
       typeLabel: typeLabel(s),
       clientId: s.patient_id,
       clientName: patient ? patientFullName(patient as { first_name: string; last_name: string }) : 'Client',
       locationLabel: patient ? patientLocationLabel(patient) : '-',
       caregiverId: s.caregiver_id,
       caregiverName: currentCaregiver ? [currentCaregiver.first_name, currentCaregiver.last_name].filter(Boolean).join(' ') : null,
-      adlTasks: decodeAdlCodes(s.adl_codes, taskNameById),
+      adlTasks: decodeVisitTaskCodes(s.adl_codes, taskNameById),
       notes: s.notes,
       statusReason: s.status_reason ?? null,
       clientRequiredSkills: requiredSkills,

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { managerUpdateSchedule } from '@/lib/repositories/manager-scheduling'
+import { isAgencyManagerRole } from '@/lib/role-capabilities'
 
 const COORDINATOR_PATH = '/pages/agency/care-visits'
 const CAREGIVER_PATH = '/pages/caregiver/my-care-visits'
@@ -63,8 +64,6 @@ async function logScheduleAudit(
   })
   if (error) console.error('[schedule-assignments] Audit log failed. action=%s recordId=%s err=%s', action, recordId, error.message)
 }
-
-const MANAGE_ROLES = new Set(['agency_admin', 'company_owner', 'care_coordinator'])
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -202,7 +201,7 @@ export async function markScheduleMissedAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
+  if (!isAgencyManagerRole(session.profile?.role)) return { error: 'You do not have permission to perform this action.' }
   const trimmedReason = reason?.trim() || null
   const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: 'missed',
@@ -222,7 +221,7 @@ export async function markScheduleCancelledAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
+  if (!isAgencyManagerRole(session.profile?.role)) return { error: 'You do not have permission to perform this action.' }
   const trimmedReason = reason.trim() || null
   const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: 'cancelled',
@@ -242,7 +241,7 @@ export async function markScheduleOnHoldAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
+  if (!isAgencyManagerRole(session.profile?.role)) return { error: 'You do not have permission to perform this action.' }
   const trimmedReason = reason.trim() || null
   const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: 'on_hold',
@@ -261,7 +260,7 @@ export async function reinstateScheduleAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
-  if (!MANAGE_ROLES.has(session.profile?.role ?? '')) return { error: 'You do not have permission to perform this action.' }
+  if (!isAgencyManagerRole(session.profile?.role)) return { error: 'You do not have permission to perform this action.' }
   const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: null,
     status_reason: null,

@@ -3,6 +3,8 @@ import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import { managerGetSchedulesByIds } from '@/lib/repositories/manager-scheduling'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
+import { decodeVisitTaskCodes, extractVisitTaskToken, isUuidToken } from '@/lib/visit-task-codes'
+import { normalizeUsZipForLookup } from '@/lib/us-postal-code'
 import type {
   ScheduleAssignmentRequestRow,
   ScheduleUnassignmentRequestRow,
@@ -59,14 +61,6 @@ export type ResolvedAssignmentRowDTO = {
   reason?: string
 }
 
-function normalizeUsZipForLookup(zip: unknown): string | null {
-  if (zip === null || zip === undefined) return null
-  const s = String(zip).trim()
-  if (!s) return null
-  const digits = s.replace(/\D/g, '').slice(0, 5)
-  return digits.length === 5 ? digits : null
-}
-
 function formatScheduleDate(isoDate: string): string {
   const d = new Date(`${isoDate}T12:00:00`)
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
@@ -110,39 +104,13 @@ function staffCityLabel(zip: unknown): string {
 }
 
 function visitTitleFromSchedule(s: ScheduleRow, taskNameById?: Map<string, string>): string {
-  const tasks = decodeAdlCodes(s.adl_codes, taskNameById)
+  const tasks = decodeVisitTaskCodes(s.adl_codes, taskNameById)
   if (tasks.length > 0) return tasks.join(', ')
   const t = (s.type ?? '').trim()
   if (t) return t
   const d = (s.description ?? '').trim()
   if (d) return d.length > 80 ? `${d.slice(0, 77)}…` : d
   return 'Care visit'
-}
-
-function decodeAdlCodes(codes: string[] | null | undefined, taskNameById?: Map<string, string>): string[] {
-  if (!Array.isArray(codes)) return []
-  return codes
-    .map((code) => {
-      const v = String(code || '').trim()
-      if (!v) return ''
-      const parts = v.split('::')
-      const token = (parts.length > 1 ? parts[1] : parts[0]).trim()
-      if (!token) return ''
-      const mapped = taskNameById?.get(token)
-      return (mapped && mapped.trim()) || token
-    })
-    .filter(Boolean)
-}
-
-function extractTaskToken(raw: string): string {
-  const v = String(raw || '').trim()
-  if (!v) return ''
-  const parts = v.split('::')
-  return (parts.length > 1 ? parts[1] : parts[0]).trim()
-}
-
-function isUuidLike(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 }
 
 function sanitizeUuidList(ids: unknown[]): string[] {
@@ -335,8 +303,8 @@ export async function fetchVisitAssignmentDashboardData(agencyId: string | null)
     new Set(
       schedules
         .flatMap((s) => s.adl_codes ?? [])
-        .map((raw) => extractTaskToken(raw))
-        .filter((token) => token && isUuidLike(token))
+        .map((raw) => extractVisitTaskToken(raw))
+        .filter(isUuidToken)
     )
   )
   const taskNameById = new Map<string, string>()

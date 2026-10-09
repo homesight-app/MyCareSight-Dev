@@ -34,6 +34,12 @@ export const financialReportRangeSchema = z.object({
   dateTo: dateOnly,
 }).strict().refine(value => value.dateFrom <= value.dateTo, {
   path: ['dateTo'], message: 'End date must be on or after start date',
+}).refine(value => {
+  const start = Date.parse(`${value.dateFrom}T00:00:00Z`)
+  const end = Date.parse(`${value.dateTo}T00:00:00Z`)
+  return Number.isFinite(start) && Number.isFinite(end) && end - start <= 366 * 86_400_000
+}, {
+  path: ['dateTo'], message: 'Reports are limited to 366 days',
 })
 
 export type BillRateBatchInput = z.input<typeof billRateBatchSchema>

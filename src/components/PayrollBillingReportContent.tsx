@@ -129,13 +129,11 @@ export default function PayrollBillingReportContent({
     const totalBill = filtered.reduce((s, r) => s + r.billAmount, 0)
     const caregiverIds = new Set(filtered.map((r) => r.caregiverId).filter(Boolean))
     const clientIds = new Set(filtered.map((r) => r.clientId))
-    const pendingVisitCount = filtered.filter((r) => r.billingState === 'pending').length
     return {
       totalHours,
       totalPay,
       totalBill,
       visitCount: filtered.length,
-      pendingVisitCount,
       caregiverCount: caregiverIds.size,
       clientCount: clientIds.size,
     }
@@ -265,8 +263,7 @@ export default function PayrollBillingReportContent({
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Payroll &amp; Billing Report</h1>
         <p className="text-gray-600 mt-1">
-          Hours breakdown per caregiver and client with pay and bill amounts. Includes approved visits and pending Time
-          &amp; Billing rows (not yet approved).
+          Approved caregiver payroll and client billing, using the rates effective on each visit date.
         </p>
       </div>
 
@@ -280,10 +277,7 @@ export default function PayrollBillingReportContent({
               <div className="text-2xl font-bold text-gray-900">{summary.totalHours.toFixed(2)}</div>
               <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Hours</div>
               <div className="text-sm text-gray-600 mt-0.5">
-                {summary.visitCount} visits
-                {summary.pendingVisitCount > 0
-                  ? ` (${summary.pendingVisitCount} pending)`
-                  : ''}
+                {summary.visitCount} approved visits
               </div>
             </div>
           </div>
@@ -387,7 +381,7 @@ export default function PayrollBillingReportContent({
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Payroll &amp; Billing Detail</h2>
               <p className="text-sm text-gray-500">
-                Approved and pending visits — {formatRangeLabel(dateFrom, dateTo)}
+                Approved visits — {formatRangeLabel(dateFrom, dateTo)}
               </p>
             </div>
             <Button
@@ -471,7 +465,7 @@ export default function PayrollBillingReportContent({
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={20} className="px-3 py-10 text-center text-gray-500">
-                      No approved or pending visits in this date range.
+                      No approved visits in this date range.
                     </td>
                   </tr>
                 ) : null}
@@ -684,7 +678,7 @@ export default function PayrollBillingReportContent({
           <div className="border-t border-gray-100 p-4">
             <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-800">
               <span className="font-semibold">System Rules:</span> Billing totals use the service contract rate
-              effective on each visit date. Pending and approved visits are included; voided visits are excluded.
+              effective on each visit date. Only approved visits are included; pending and voided visits are excluded.
             </div>
           </div>
         </div>

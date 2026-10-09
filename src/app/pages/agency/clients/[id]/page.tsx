@@ -3,13 +3,18 @@ import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 import ClientDetailContent from '@/components/ClientDetailContent'
-import { getCachedAgencyClientDetailBundle } from '@/lib/server-cache/agency-client-detail-bundle'
+import {
+  getCachedAgencyClientDetailBundle,
+  normalizeAgencyClientDetailTab,
+} from '@/lib/server-cache/agency-client-detail-bundle'
 import { getAgencyAllowedFeatures } from '@/lib/feature-access'
 
 export default async function ClientDetailPage({
-  params
+  params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ tab?: string }>
 }) {
   const session = await getSession()
 
@@ -18,12 +23,13 @@ export default async function ClientDetailPage({
   }
 
   const { id } = await params
+  const activeTab = normalizeAgencyClientDetailTab((await searchParams).tab)
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   const role = session!.profile?.role ?? ''
 
   const [bundle, addresses] = await withUserContext(session!.user.id, role, agencyId, () =>
     Promise.all([
-      getCachedAgencyClientDetailBundle(id, session!.user.id),
+      getCachedAgencyClientDetailBundle(id, session!.user.id, activeTab),
       q.getPatientAddresses(id),
     ])
   )
@@ -40,6 +46,7 @@ export default async function ClientDetailPage({
 
   return (
     <ClientDetailContent
+      key={`${id}:${activeTab}`}
       client={bundle.client}
       allClients={bundle.allClients || []}
       representatives={bundle.representativesList}

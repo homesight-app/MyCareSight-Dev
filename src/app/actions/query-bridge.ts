@@ -4,8 +4,7 @@ import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
 import * as managerSchedules from '@/lib/repositories/manager-scheduling'
-
-const AGENCY_MANAGE_ROLES = new Set(['admin', 'expert', 'agency_admin', 'company_owner', 'care_coordinator'])
+import { PLATFORM_OR_AGENCY_MANAGER_ROLES } from '@/lib/role-capabilities'
 
 export type {
   PatientAdlDayScheduleUpsert,
@@ -23,7 +22,7 @@ export type { PatientLeadDetails } from '@/lib/supabase/query/leads'
 // with the { data: null, error: Error | null } shape all query functions return.
 // The top-level catch handles infra failures (DB connection lost, set_config error)
 // that the query functions' own try-catch cannot see.
-async function ctx<T>(fn: () => Promise<T>, opts?: { allowedRoles?: Set<string> }): Promise<T> {
+async function ctx<T>(fn: () => Promise<T>, opts?: { allowedRoles?: ReadonlySet<string> }): Promise<T> {
   const session = await getSession()
   if (!session) return { data: null, error: 'Unauthorized' } as any
   if (opts?.allowedRoles && !opts.allowedRoles.has(session.profile.role ?? '')) {
@@ -331,11 +330,11 @@ export async function updateLicenseById(...args: Parameters<typeof q.updateLicen
 // ---------------------------------------------------------------------------
 
 export async function deleteAdl(...args: Parameters<typeof q.deleteAdl>) {
-  return ctx(() => q.deleteAdl(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.deleteAdl(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function deleteIncident(...args: Parameters<typeof q.deleteIncident>) {
-  return ctx(() => q.deleteIncident(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.deleteIncident(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function deletePatientContractedHours(...args: Parameters<typeof q.deletePatientContractedHours>) {
@@ -347,7 +346,7 @@ export async function deletePatientServiceContract(...args: Parameters<typeof q.
 }
 
 export async function deleteRepresentative(...args: Parameters<typeof q.deleteRepresentative>) {
-  return ctx(() => q.deleteRepresentative(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.deleteRepresentative(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function deleteSchedule(...args: Parameters<typeof q.deleteSchedule>) {
@@ -355,7 +354,7 @@ export async function deleteSchedule(...args: Parameters<typeof q.deleteSchedule
 }
 
 export async function deleteSkilledTaskPlanRowsBatch(...args: Parameters<typeof q.deleteSkilledTaskPlanRowsBatch>) {
-  return ctx(() => q.deleteSkilledTaskPlanRowsBatch(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.deleteSkilledTaskPlanRowsBatch(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function getAdlsByPatientId(...args: Parameters<typeof q.getAdlsByPatientId>) {
@@ -415,19 +414,19 @@ export async function getTaskCatalogSkilledTasks(...args: Parameters<typeof q.ge
 }
 
 export async function insertAdls(...args: Parameters<typeof q.insertAdls>) {
-  return ctx(() => q.insertAdls(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.insertAdls(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function insertIncident(...args: Parameters<typeof q.insertIncident>) {
-  return ctx(() => q.insertIncident(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.insertIncident(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function insertPatient(...args: Parameters<typeof q.insertPatient>) {
-  return ctx(() => q.insertPatient(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.insertPatient(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function insertPatientAddress(...args: Parameters<typeof q.insertPatientAddress>) {
-  return ctx(() => q.insertPatientAddress(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.insertPatientAddress(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function insertPatientContractedHours(...args: Parameters<typeof q.insertPatientContractedHours>) {
@@ -443,31 +442,35 @@ export async function insertRecurringSchedulesFromSeries(...args: Parameters<typ
 }
 
 export async function insertRepresentative(...args: Parameters<typeof q.insertRepresentative>) {
-  return ctx(() => q.insertRepresentative(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.insertRepresentative(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function insertSchedule(...args: Parameters<typeof q.insertSchedule>) {
   return managerSchedules.managerInsertSchedule(...args)
 }
 
+export async function replaceSchedules(...args: Parameters<typeof managerSchedules.managerReplaceSchedules>) {
+  return managerSchedules.managerReplaceSchedules(...args)
+}
+
 export async function updateIncident(...args: Parameters<typeof q.updateIncident>) {
-  return ctx(() => q.updateIncident(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.updateIncident(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function updatePatient(...args: Parameters<typeof q.updatePatient>) {
-  return ctx(() => q.updatePatient(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.updatePatient(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function updatePatientAdlDaySchedule(...args: Parameters<typeof q.updatePatientAdlDaySchedule>) {
-  return ctx(() => q.updatePatientAdlDaySchedule(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.updatePatientAdlDaySchedule(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function updatePatientLoginAccess(...args: Parameters<typeof q.updatePatientLoginAccess>) {
-  return ctx(() => q.updatePatientLoginAccess(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.updatePatientLoginAccess(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function updatePatientMedical(...args: Parameters<typeof q.updatePatientMedical>) {
-  return ctx(() => q.updatePatientMedical(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.updatePatientMedical(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function updatePatientServiceContractDetails(...args: Parameters<typeof q.updatePatientServiceContractDetails>) {
@@ -479,11 +482,11 @@ export async function updatePatientServiceContractStatus(...args: Parameters<typ
 }
 
 export async function updatePatientSkilledTaskDayScheduleNote(...args: Parameters<typeof q.updatePatientSkilledTaskDayScheduleNote>) {
-  return ctx(() => q.updatePatientSkilledTaskDayScheduleNote(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.updatePatientSkilledTaskDayScheduleNote(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function updatePatientStatus(...args: Parameters<typeof q.updatePatientStatus>) {
-  return ctx(() => q.updatePatientStatus(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.updatePatientStatus(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function updateRecurringSchedulesByScope(...args: Parameters<typeof q.updateRecurringSchedulesByScope>) {
@@ -491,7 +494,7 @@ export async function updateRecurringSchedulesByScope(...args: Parameters<typeof
 }
 
 export async function updateRepresentative(...args: Parameters<typeof q.updateRepresentative>) {
-  return ctx(() => q.updateRepresentative(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.updateRepresentative(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function updateSchedule(...args: Parameters<typeof q.updateSchedule>) {
@@ -499,11 +502,11 @@ export async function updateSchedule(...args: Parameters<typeof q.updateSchedule
 }
 
 export async function upsertPatientAdlDaySchedulesBatch(...args: Parameters<typeof q.upsertPatientAdlDaySchedulesBatch>) {
-  return ctx(() => q.upsertPatientAdlDaySchedulesBatch(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.upsertPatientAdlDaySchedulesBatch(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 export async function upsertPatientSkilledTaskDaySchedulesBatch(...args: Parameters<typeof q.upsertPatientSkilledTaskDaySchedulesBatch>) {
-  return ctx(() => q.upsertPatientSkilledTaskDaySchedulesBatch(...args), { allowedRoles: AGENCY_MANAGE_ROLES })
+  return ctx(() => q.upsertPatientSkilledTaskDaySchedulesBatch(...args), { allowedRoles: PLATFORM_OR_AGENCY_MANAGER_ROLES })
 }
 
 // ---------------------------------------------------------------------------

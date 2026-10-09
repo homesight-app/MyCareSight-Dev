@@ -115,3 +115,45 @@ export function getWeekKey(caregiverId: string, visitDate: string, weekStart: nu
   weekStartDate.setDate(d.getDate() - daysBack)
   return `${caregiverId}__${weekStartDate.toISOString().slice(0, 10)}`
 }
+
+function shiftDateOnly(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const value = new Date(Date.UTC(year!, month! - 1, day!))
+  value.setUTCDate(value.getUTCDate() + days)
+  return value.toISOString().slice(0, 10)
+}
+
+/** Expands a requested report interval to complete work weeks for correct OT allocation. */
+export function expandToCompleteWorkWeeks(
+  dateFrom: string,
+  dateTo: string,
+  weekStart: number,
+): { dateFrom: string; dateTo: string } {
+  const normalizedWeekStart = Number.isInteger(weekStart) && weekStart >= 0 && weekStart <= 6 ? weekStart : 0
+  const from = new Date(`${dateFrom}T12:00:00Z`)
+  const to = new Date(`${dateTo}T12:00:00Z`)
+  const daysBefore = (from.getUTCDay() - normalizedWeekStart + 7) % 7
+  const daysAfter = 6 - ((to.getUTCDay() - normalizedWeekStart + 7) % 7)
+  return {
+    dateFrom: shiftDateOnly(dateFrom, -daysBefore),
+    dateTo: shiftDateOnly(dateTo, daysAfter),
+  }
+}
+
+export type PayrollBillingState = 'approved' | 'pending' | 'voided'
+
+/** A financial void is authoritative even if an older approval row remains. */
+export function resolvePayrollBillingState(
+  financialStatus: string | null | undefined,
+  approvalStatus: string | null | undefined,
+): PayrollBillingState {
+  const financial = String(financialStatus ?? '').toLowerCase().trim()
+  const approval = String(approvalStatus ?? '').toLowerCase().trim()
+  if (financial === 'voided') return 'voided'
+  if (financial === 'approved' || approval === 'approved') return 'approved'
+  return 'pending'
+}
+
+export function isPayrollBillingReportable(state: PayrollBillingState): boolean {
+  return state === 'approved'
+}

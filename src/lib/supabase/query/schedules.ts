@@ -1,7 +1,7 @@
 import sql from '@/db'
 import { normalizeDatabaseRows } from '@/lib/database-date-contract'
 
-/** Status transitions from wall-clock: DB trigger on write + pg_cron `sync_scheduled_visit_statuses` (migration 076), not each read. */
+/** Assignment lifecycle is normalized by the DB trigger/job; execution states change only through explicit visit actions. */
 
 /** Default inclusive `visit_date` window for cross-tenant / bulk scheduled-visit reads (memory & timeout safety). */
 const DEFAULT_VISIT_BULK_LOOKBACK_DAYS = 730
@@ -447,6 +447,52 @@ export async function getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(
       WHERE sv.agency_id = ${agencyId}
         AND sv.visit_date >= ${startDate}
         AND sv.visit_date <= ${endDate}
+      GROUP BY sv.id, pa.id
+      ORDER BY sv.visit_date ASC, sv.scheduled_start_time ASC
+    `
+    return { data: mapVisitsToScheduleRows(rows as unknown as ScheduledVisitDbRowWithTasks[]), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
+/**
+ * Bounded caregiver workload feed. It reserves capacity for the caregiver's
+ * own history/upcoming work and separately caps future unassigned opportunities.
+ */
+export async function getCaregiverVisibleSchedulesForRange(
+  agencyId: string,
+  caregiverMemberId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ data: ScheduleRow[] | null; error: Error | null }> {
+  try {
+    const rows = await sql`
+      WITH selected_ids AS (
+        (SELECT id
+         FROM scheduled_visits
+         WHERE agency_id=${agencyId}::uuid
+           AND caregiver_member_id=${caregiverMemberId}::uuid
+           AND visit_date BETWEEN ${startDate} AND ${endDate}
+         ORDER BY CASE WHEN visit_date >= CURRENT_DATE THEN 0 ELSE 1 END,
+           CASE WHEN visit_date >= CURRENT_DATE THEN visit_date END ASC,
+           CASE WHEN visit_date < CURRENT_DATE THEN visit_date END DESC
+         LIMIT 300)
+        UNION ALL
+        (SELECT id
+         FROM scheduled_visits
+         WHERE agency_id=${agencyId}::uuid
+           AND caregiver_member_id IS NULL
+           AND status IN ('scheduled','unassigned')
+           AND visit_date BETWEEN GREATEST(${startDate}::date,CURRENT_DATE) AND ${endDate}::date
+         ORDER BY visit_date ASC, scheduled_start_time ASC
+         LIMIT 200)
+      )
+      SELECT ${visitColsWithTasks}
+      FROM scheduled_visits sv
+      JOIN selected_ids selected ON selected.id=sv.id
+      LEFT JOIN patient_addresses pa ON pa.id = sv.patient_address_id
+      LEFT JOIN scheduled_visit_tasks svt ON svt.scheduled_visit_id = sv.id
       GROUP BY sv.id, pa.id
       ORDER BY sv.visit_date ASC, sv.scheduled_start_time ASC
     `

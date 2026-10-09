@@ -159,18 +159,14 @@ export function CaregiverAssignmentList({
             <div className="px-4 py-6 text-center text-sm text-gray-500">No caregivers found.</div>
           ) : (
             sorted.map((o, idx) => (
-              <div
+              <button
                 key={o.id}
-                role="button"
-                tabIndex={0}
+                type="button"
+                disabled={disabled || o.availability !== 'available'}
                 onClick={() => onSelect(o.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    onSelect(o.id)
-                  }
-                }}
-                className={`w-full px-4 py-2 border-b border-gray-50 hover:bg-gray-50 text-left cursor-pointer ${
+                className={`w-full px-4 py-2 border-b border-gray-50 text-left ${
+                  o.availability === 'available' ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-60'
+                } ${
                   selectedId === o.id ? 'bg-blue-50/60' : 'bg-white'
                 }`}
               >
@@ -225,7 +221,7 @@ export function CaregiverAssignmentList({
                     </div>
                   </div>
                 </div>
-              </div>
+              </button>
             ))
           )}
         </div>
@@ -302,7 +298,7 @@ export function CaregiverAssignmentList({
               <Button
                 variant="primary"
                 type="button"
-                disabled={disabled}
+                disabled={disabled || o.availability !== 'available'}
                 onClick={() => onSelect(o.id)}
               >
                 {o.isCurrent ? 'Keep' : 'Assign'}

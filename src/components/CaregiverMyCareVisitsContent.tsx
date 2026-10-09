@@ -30,12 +30,12 @@ import { getCaregiverPastVisitSummaryAction } from '@/app/actions/caregiver-visi
 import {
   cancelScheduleAssignmentRequestAction,
   cancelScheduleUnassignmentRequestAction,
-  markScheduleMissedAction,
   requestScheduleAssignmentAction,
   submitScheduleUnassignmentRequestAction,
 } from '@/app/actions/schedule-assignment-requests'
 import type { CaregiverPastVisitSummaryDTO } from '@/lib/caregiver-visit-execution'
 import {
+  canCaregiverActOnVisit,
   isVisitPastForCaregiverMyVisits,
   MY_CARE_VISITS_TAB_STORAGE_KEY,
   type CaregiverVisitCardDTO,
@@ -106,9 +106,18 @@ function formatCalendarWeekRangeLabel(weekStart: Date): string {
 function statusBadgeClass(status: CaregiverVisitCardDTO['status']): string {
   if (status === 'completed') return 'bg-emerald-50 text-emerald-700'
   if (status === 'missed') return 'bg-orange-50 text-orange-700'
+  if (status === 'cancelled') return 'bg-rose-50 text-rose-700'
+  if (status === 'voided') return 'bg-slate-100 text-slate-700'
+  if (status === 'on_hold') return 'bg-yellow-50 text-yellow-700'
   if (status === 'in_progress') return 'bg-blue-50 text-blue-700'
   if (status === 'open') return 'bg-sky-50 text-sky-700'
   return 'bg-green-50 text-green-700'
+}
+
+function statusLabel(status: CaregiverVisitCardDTO['status']): string {
+  if (status === 'in_progress') return 'In Progress'
+  if (status === 'on_hold') return 'On Hold'
+  return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
 export default function CaregiverMyCareVisitsContent({
@@ -436,7 +445,7 @@ export default function CaregiverMyCareVisitsContent({
       router.push(`/pages/caregiver/my-care-visits/${visit.id}`)
       return
     }
-    if (visit.isMine && visit.status !== 'completed' && visit.status !== 'missed') {
+    if (visit.isMine && canCaregiverActOnVisit(visit.status)) {
       openUnassignModal(visit)
       return
     }
@@ -453,25 +462,6 @@ export default function CaregiverMyCareVisitsContent({
           ? inProgressMineVisits
           : pastMineVisits
       : schedulingList
-
-  const doMarkMissed = (visitId: string) => {
-    if (!window.confirm('Mark this visit as missed?')) return
-    setError(null)
-    const key = `missed:${visitId}`
-    setPendingActionKey(key)
-    void (async () => {
-      try {
-        const res = await markScheduleMissedAction(visitId)
-        if (res.error) {
-          setError(res.error)
-          return
-        }
-        router.refresh()
-      } finally {
-        setPendingActionKey(null)
-      }
-    })()
-  }
 
   const showSchedulingCalendar = mainTab === 'scheduling' && schedulingView === 'calendar'
   const showUpcomingCalendar = mainTab === 'my_visits' && myVisitsTab === 'upcoming' && myVisitsUpcomingView === 'calendar'
@@ -993,7 +983,7 @@ export default function CaregiverMyCareVisitsContent({
                   <div className="max-h-52 space-y-1 overflow-y-auto">
                     {items.map((visit) => {
                       const openClickable = visit.status === 'open'
-                      const mineClickable = visit.isMine && visit.status !== 'completed' && visit.status !== 'missed'
+                      const mineClickable = visit.isMine && canCaregiverActOnVisit(visit.status)
                       const clickable = openClickable || mineClickable
                       return (
                         <button
@@ -1180,7 +1170,11 @@ export default function CaregiverMyCareVisitsContent({
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="text-xl font-semibold text-gray-900">{visit.clientName}</div>
                     {mainTab === 'my_visits' && myVisitsTab === 'upcoming' ? (
-                      visit.hasPendingUnassignmentRequest ? (
+                      visit.status === 'on_hold' ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-yellow-200 bg-yellow-50 px-2 py-1 text-xs text-yellow-800">
+                          <Clock3 className="h-3.5 w-3.5" aria-hidden /> On Hold
+                        </span>
+                      ) : visit.hasPendingUnassignmentRequest ? (
                         <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
                           <Clock3 className="h-3.5 w-3.5" aria-hidden /> Request Pending
                         </span>
@@ -1234,9 +1228,7 @@ export default function CaregiverMyCareVisitsContent({
                 <div className="flex gap-2 lg:flex-col lg:items-end">
                   {mainTab === 'my_visits' && myVisitsTab === 'upcoming' ? (
                     <div className="flex w-full flex-col gap-2 sm:w-auto lg:min-w-[11rem]">
-                      {visit.status !== 'completed' &&
-                      visit.status !== 'missed' &&
-                      !visit.hasPendingUnassignmentRequest ? (
+                      {visit.status === 'assigned' && !visit.hasPendingUnassignmentRequest ? (
                         <Button
                           variant="primary"
                           type="button"
@@ -1248,27 +1240,13 @@ export default function CaregiverMyCareVisitsContent({
                           Start Visit
                         </Button>
                       ) : null}
-                      {visit.status !== 'completed' &&
-                      visit.status !== 'missed' &&
-                      !visit.hasPendingUnassignmentRequest ? (
-                        <button
-                          type="button"
-                          onClick={() => doMarkMissed(visit.id)}
-                          disabled={pendingActionKey === `missed:${visit.id}`}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg border border-orange-300 bg-white px-3 py-2 text-sm font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-60"
-                        >
-                          <CircleX className="h-4 w-4" aria-hidden />
-                          Mark Missed
-                        </button>
-                      ) : null}
-                      {!visit.hasPendingUnassignmentRequest ? (
+                      {visit.status === 'assigned' && !visit.hasPendingUnassignmentRequest ? (
                         <button
                           type="button"
                           onClick={() => openUnassignModal(visit)}
                           disabled={
                             pendingActionKey === `unassign:${visit.id}` ||
-                            visit.status === 'completed' ||
-                            visit.status === 'missed'
+                            !canCaregiverActOnVisit(visit.status)
                           }
                           className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
                         >
@@ -1299,7 +1277,7 @@ export default function CaregiverMyCareVisitsContent({
                     <div className="flex flex-col items-end gap-2 sm:min-w-[11rem]">
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         <span className={`inline-flex items-center rounded-full border px-2 py-1 text-xs font-medium ${statusBadgeClass(visit.status)}`}>
-                          {visit.status === 'in_progress' ? 'In Progress' : visit.status === 'open' ? 'Open' : visit.status.replace('_', ' ')}
+                          {statusLabel(visit.status)}
                         </span>
                         {visit.hasMyPendingRequest || visit.hasPendingUnassignmentRequest ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
@@ -1339,14 +1317,13 @@ export default function CaregiverMyCareVisitsContent({
                             Cancel Request
                           </button>
                         ) : null}
-                        {visit.isMine && !visit.hasPendingUnassignmentRequest ? (
+                        {visit.isMine && canCaregiverActOnVisit(visit.status) && !visit.hasPendingUnassignmentRequest ? (
                           <button
                             type="button"
                             onClick={() => openUnassignModal(visit)}
                             disabled={
                               pendingActionKey === `unassign:${visit.id}` ||
-                              visit.status === 'completed' ||
-                              visit.status === 'missed'
+                              !canCaregiverActOnVisit(visit.status)
                             }
                             className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
                           >

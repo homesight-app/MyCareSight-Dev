@@ -5,6 +5,9 @@ import {
   calcAmount,
   serviceTypeLabelFn,
   getWeekKey,
+  expandToCompleteWorkWeeks,
+  isPayrollBillingReportable,
+  resolvePayrollBillingState,
 } from '@/lib/payroll-calculations'
 
 describe('round2', () => {
@@ -137,5 +140,34 @@ describe('getWeekKey', () => {
     expect(key1).not.toBe(key2)
     expect(key1).toContain('cg-A')
     expect(key2).toContain('cg-B')
+  })
+})
+
+describe('payroll report boundaries and financial state', () => {
+  it('expands a midweek request to complete Sunday-start work weeks', () => {
+    expect(expandToCompleteWorkWeeks('2026-05-13', '2026-05-14', 0)).toEqual({
+      dateFrom: '2026-05-10',
+      dateTo: '2026-05-16',
+    })
+  })
+
+  it('uses the configured work-week start', () => {
+    expect(expandToCompleteWorkWeeks('2026-05-13', '2026-05-14', 1)).toEqual({
+      dateFrom: '2026-05-11',
+      dateTo: '2026-05-17',
+    })
+  })
+
+  it('treats a financial void as authoritative over an older approval', () => {
+    expect(resolvePayrollBillingState('voided', 'approved')).toBe('voided')
+    expect(isPayrollBillingReportable('voided')).toBe(false)
+  })
+
+  it('reports only approved financial rows', () => {
+    expect(resolvePayrollBillingState('approved', null)).toBe('approved')
+    expect(resolvePayrollBillingState(null, 'approved')).toBe('approved')
+    expect(resolvePayrollBillingState('pending', null)).toBe('pending')
+    expect(isPayrollBillingReportable('approved')).toBe(true)
+    expect(isPayrollBillingReportable('pending')).toBe(false)
   })
 })

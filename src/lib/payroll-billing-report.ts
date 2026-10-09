@@ -15,6 +15,9 @@ import {
   hoursFromScheduleWithDates,
   splitHoursByWeek,
   calcAmount,
+  expandToCompleteWorkWeeks,
+  isPayrollBillingReportable,
+  resolvePayrollBillingState,
   serviceTypeLabelFn,
 } from '@/lib/payroll-calculations'
 import { patientFullName } from '@/lib/patient-name'
@@ -124,6 +127,9 @@ export async function fetchPayrollBillingReportRows(
     // agency config is optional — proceed with defaults
   }
 
+  const weekStart = config.work_week_start ?? 0
+  const expandedRange = expandToCompleteWorkWeeks(dateFrom, dateTo, weekStart)
+
   let visitList: VisitRow[]
   try {
     visitList = await sql<VisitRow[]>`
@@ -131,8 +137,8 @@ export async function fetchPayrollBillingReportRows(
              scheduled_end_time, scheduled_end_date, service_type, visit_type, mileage_miles
       FROM scheduled_visits
       WHERE status = 'completed'
-        AND visit_date >= ${dateFrom}
-        AND visit_date <= ${dateTo}
+        AND visit_date >= ${expandedRange.dateFrom}
+        AND visit_date <= ${expandedRange.dateTo}
         AND agency_id = ${agencyId}::uuid
       ORDER BY visit_date ASC, scheduled_start_time ASC
     `
@@ -242,7 +248,6 @@ export async function fetchPayrollBillingReportRows(
     if (h.date && h.rate_multiplier) holidayRateByDate.set(h.date, h.rate_multiplier)
   }
 
-  const weekStart = config.work_week_start ?? 0
   const otThreshold = config.overtime_threshold_weekly ?? 40
   const otMultiplier = config.overtime_rate_multiplier ?? 1.5
   const weekendMultiplier = config.weekend_rate_multiplier ?? null
@@ -252,10 +257,12 @@ export async function fetchPayrollBillingReportRows(
 
   const rows: PayrollBillingDetailRow[] = visitList
     .filter((sv) => financialByVisitId.has(String(sv.id)) || approvalByVisitId.has(String(sv.id)))
-    .map((sv) => {
+    .flatMap((sv): PayrollBillingDetailRow[] => {
       const visitDate = sv.visit_date ?? ''
       const financial = financialByVisitId.get(sv.id)
       const approval = approvalByVisitId.get(sv.id)
+      const billingState = resolvePayrollBillingState(financial?.status, approval?.approval_status)
+      if (billingState === 'voided') return []
       const serviceType = ((financial?.service_type ?? sv.service_type) === 'skilled' ? 'skilled' : 'non_skilled') as 'non_skilled' | 'skilled'
       const caregiverId = sv.caregiver_member_id ?? ''
       const scheduleHours = hoursFromScheduleWithDates(
@@ -271,11 +278,6 @@ export async function fetchPayrollBillingReportRows(
       const aah = financial?.approved_actual_hours != null ? Number(financial.approved_actual_hours) : NaN
       const aa2 = approval?.approved_actual_hours != null ? Number(approval.approved_actual_hours) : NaN
       const fallbackActual = Number.isFinite(aah) ? round2(aah) : Number.isFinite(aa2) ? round2(aa2) : scheduleHours > 0 ? round2(scheduleHours) : fallbackBillable
-
-      const fs = String(financial?.status ?? '').toLowerCase()
-      const as_ = String(approval?.approval_status ?? '').toLowerCase()
-      const billingState: 'approved' | 'pending' | 'voided' =
-        as_ === 'approved' || fs === 'approved' ? 'approved' : fs === 'voided' ? 'voided' : 'pending'
 
       const pay = caregiverId && visitDate ? resolvePayRateForVisit(caregiverId, serviceType, visitDate, caregiverPayRows) : null
       const contract = sv.patient_id && visitDate ? pickContract(sv.patient_id, serviceType, visitDate) : null
@@ -358,7 +360,11 @@ export async function fetchPayrollBillingReportRows(
       const payAmount = round2(regPay + otPay + holidayPay + weekendPay + mileagePayAmount)
       const billAmount = round2(hoursBillAmount + mileageBillAmount)
 
-      return {
+      // Complete-week rows participate in OT allocation, but only approved rows
+      // inside the user's requested dates are payable/billable report output.
+      if (!isPayrollBillingReportable(billingState) || visitDate < dateFrom || visitDate > dateTo) return []
+
+      return [{
         id: sv.id,
         clientId: sv.patient_id ?? '',
         caregiverId,
@@ -386,7 +392,7 @@ export async function fetchPayrollBillingReportRows(
         mileageBillAmount,
         billAmount,
         billingState,
-      }
+      }]
     })
 
   return { rows }

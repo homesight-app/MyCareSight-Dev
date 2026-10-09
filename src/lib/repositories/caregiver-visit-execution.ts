@@ -8,6 +8,11 @@ import {
   caregiverTaskCompletionSchema,
   caregiverVisitNotesSchema,
 } from '@/lib/schemas/caregiver-visit-execution'
+import {
+  canCaregiverEditVisitExecution,
+  canCaregiverStartVisit,
+  visitStatusFromScheduleRow,
+} from '@/lib/visit-status'
 
 export type ActiveCaregiverActor = {
   id: string
@@ -27,6 +32,10 @@ type Visit = {
 
 export type CaregiverVisitMutationResult = { ok?: true; error?: string }
 class AccessError extends Error {}
+
+function visitLifecycleStatus(visit: Visit) {
+  return visitStatusFromScheduleRow({ status: visit.status, caregiver_id: visit.caregiver_member_id })
+}
 
 function publicError(error: unknown, fallback: string): string {
   return error instanceof AccessError ? error.message : fallback
@@ -129,8 +138,8 @@ export async function clockInCaregiverVisit(input: unknown): Promise<CaregiverVi
     const userId = await sessionUserId()
     await withActiveCaregiver(userId, async actor => {
       const visit = await assignedVisit(actor, parsed.data.visitId)
-      if (['completed', 'missed'].includes(visit.status.toLowerCase())) {
-        throw new AccessError('This visit is already completed or missed.')
+      if (!canCaregiverStartVisit(visitLifecycleStatus(visit))) {
+        throw new AccessError('This visit cannot be started in its current status.')
       }
       const [existing] = await sql<{id:string;clock_in_time:string|null}[]>`
         SELECT id,clock_in_time FROM public.visit_time_entries
@@ -174,6 +183,7 @@ export async function clockOutCaregiverVisit(input: unknown): Promise<CaregiverV
     const userId = await sessionUserId()
     await withActiveCaregiver(userId, async actor => {
       const visit = await assignedVisit(actor, parsed.data.visitId)
+      const visitStatus = visitLifecycleStatus(visit)
       const [entry] = await sql<{id:string;clock_in_time:string|null;clock_out_time:string|null}[]>`
         SELECT id,clock_in_time,clock_out_time FROM public.visit_time_entries
         WHERE scheduled_visit_id=${visit.id}::uuid FOR UPDATE`
@@ -183,6 +193,9 @@ export async function clockOutCaregiverVisit(input: unknown): Promise<CaregiverV
           operation:'clock_out_retry',scheduled_visit_id:visit.id,
         })
         return
+      }
+      if (!canCaregiverEditVisitExecution(visitStatus)) {
+        throw new AccessError('This visit cannot be completed in its current status.')
       }
       const changed = await sql<{id:string}[]>`
         UPDATE public.visit_time_entries SET
@@ -215,6 +228,9 @@ export async function setCaregiverVisitTaskCompleted(input: unknown): Promise<Ca
     const userId = await sessionUserId()
     await withActiveCaregiver(userId, async actor => {
       const visit = await assignedVisit(actor, parsed.data.visitId)
+      if (!canCaregiverEditVisitExecution(visitLifecycleStatus(visit))) {
+        throw new AccessError('Tasks can only be updated while a visit is in progress.')
+      }
       const changed = await sql<{id:string}[]>`
         UPDATE public.scheduled_visit_tasks SET
           completed_at=CASE WHEN ${parsed.data.completed} THEN now() ELSE NULL END,
@@ -241,6 +257,9 @@ export async function saveCaregiverVisitNotes(input: unknown): Promise<Caregiver
     const userId = await sessionUserId()
     await withActiveCaregiver(userId, async actor => {
       const visit = await assignedVisit(actor, parsed.data.visitId)
+      if (!canCaregiverEditVisitExecution(visitLifecycleStatus(visit))) {
+        throw new AccessError('Notes can only be updated while a visit is in progress.')
+      }
       const [changed] = await sql<{id:string}[]>`
         UPDATE public.visit_time_entries SET caregiver_notes=${parsed.data.notes || null},updated_at=now()
         WHERE scheduled_visit_id=${visit.id}::uuid

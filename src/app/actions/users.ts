@@ -91,17 +91,103 @@ export async function toggleUserStatus(userId: string, isActive: boolean) {
   if (!session) return { error: 'Not authenticated', data: null }
   if (session.profile?.role !== 'admin') return { error: 'Forbidden', data: null }
 
+  const parsedUserId = z.string().uuid().safeParse(userId)
+  if (!parsedUserId.success) return { error: 'User not found', data: null }
+  if (!isActive && session.user.id === parsedUserId.data) {
+    return { error: 'You cannot deactivate your own account.', data: null }
+  }
+
   try {
-    const { error } = await q.updateUserProfileById(userId, {
-      is_active: isActive,
-      updated_at: new Date().toISOString(),
+    const result = await withUserContext(session.user.id, 'admin', null, async () => {
+      const [profile] = await sql<{
+        id: string
+        role: string
+        agency_id: string | null
+        is_active: boolean
+      }[]>`
+        SELECT id, role, agency_id, is_active
+        FROM public.user_profiles
+        WHERE id = ${parsedUserId.data}::uuid
+        FOR UPDATE
+      `
+      if (!profile) return { error: 'User not found', data: null }
+
+      const membershipStatus = isActive ? 'active' : 'inactive'
+      if (AGENCY_SCOPED_ROLES.has(profile.role)) {
+        if (!profile.agency_id) {
+          return { error: 'Assign this user to an agency before activating the account.', data: null }
+        }
+
+        let roleRows: { id: string }[] = []
+        if (profile.role === 'company_owner') {
+          roleRows = await sql<{ id: string }[]>`
+            UPDATE public.agency_admins
+            SET status = ${membershipStatus}, updated_at = now()
+            WHERE user_id = ${profile.id}::uuid AND agency_id = ${profile.agency_id}::uuid
+            RETURNING id
+          `
+        } else if (profile.role === 'care_coordinator') {
+          roleRows = await sql<{ id: string }[]>`
+            UPDATE public.care_coordinators
+            SET status = ${membershipStatus}, updated_at = now()
+            WHERE user_id = ${profile.id}::uuid AND agency_id = ${profile.agency_id}::uuid
+            RETURNING id
+          `
+        } else {
+          roleRows = await sql<{ id: string }[]>`
+            UPDATE public.caregiver_members
+            SET status = ${membershipStatus}, updated_at = now()
+            WHERE user_id = ${profile.id}::uuid AND agency_id = ${profile.agency_id}::uuid
+            RETURNING id
+          `
+        }
+        if (roleRows.length === 0) {
+          return {
+            error: 'This account is missing its matching agency role record. Correct its role and agency before activating it.',
+            data: null,
+          }
+        }
+      }
+
+      await sql`
+        UPDATE public.user_profiles
+        SET is_active = ${isActive}, updated_at = now()
+        WHERE id = ${profile.id}::uuid
+      `
+      if (!isActive) {
+        await sql`
+          UPDATE public.auth_sessions
+          SET revoked_at = COALESCE(revoked_at, now()),
+              revoke_reason = COALESCE(revoke_reason, 'account_deactivated')
+          WHERE user_id = ${profile.id}::uuid AND revoked_at IS NULL
+        `
+      }
+      await sql`
+        INSERT INTO public.audit_log (
+          agency_id, table_name, record_id, action, performed_by_user_id, details
+        ) VALUES (
+          ${profile.agency_id}::uuid,
+          'user_profiles',
+          ${profile.id}::uuid,
+          'UPDATE_STATUS',
+          ${session.user.id}::uuid,
+          ${JSON.stringify({
+            old_profile_active: profile.is_active,
+            new_profile_active: isActive,
+            matching_membership_status: AGENCY_SCOPED_ROLES.has(profile.role) ? membershipStatus : null,
+            sessions_revoked: !isActive,
+          })}::jsonb
+        )
+      `
+      return { error: null, data: { success: true } }
     })
-    if (error) return { error: error.message, data: null }
+    if (result.error) return result
 
     revalidatePath('/pages/admin/users')
-    return { error: null, data: { success: true } }
-  } catch (err: unknown) {
-    return { error: err instanceof Error ? err.message : 'Failed to update user status', data: null }
+    revalidatePath('/pages/agency/user-management')
+    return result
+  } catch {
+    return { error: 'Failed to update user status', data: null }
   }
 }
 
@@ -324,20 +410,23 @@ export async function setUserPassword(
       }
 
       if (['company_owner', 'care_coordinator', 'staff_member'].includes(userProfile.role)) {
-        const [membership] = await sql<{ allows_login: boolean }[]>`
-          SELECT EXISTS (
-            SELECT 1
-            FROM user_agency_roles
-            WHERE user_id = ${userProfile.id}
-              AND agency_id = ${userProfile.agency_id}
-              AND role = ${userProfile.role}
-              AND status = 'active'
-          ) AS allows_login
+        const [membership] = await sql<{ status: string }[]>`
+          SELECT status
+          FROM public.user_agency_roles
+          WHERE user_id = ${userProfile.id}
+            AND agency_id = ${userProfile.agency_id}
+            AND role = ${userProfile.role}
+          ORDER BY updated_at DESC
+          LIMIT 1
         `
-        if (!membership?.allows_login) {
+        if (membership?.status !== 'active') {
+          const membershipState = membership?.status
+          const message = membershipState === 'pending' || membershipState === 'invited'
+            ? `This agency membership is ${membershipState}. Activate the account before setting its password.`
+            : 'This account does not have an active matching agency membership. Correct its role and agency access before setting a password.'
           return {
             success: false,
-            error: 'This account does not have an active matching agency membership. Correct its role and agency access before setting a password.',
+            error: message,
           }
         }
       }
@@ -424,8 +513,30 @@ async function syncUserDomainRoleRow(input: {
   agencyId: string | null
   agencyDisplayName: string | null
   updatedAt: string
+  status?: 'active' | 'inactive' | 'pending'
 }) {
   const { first_name, last_name } = parseFullName(input.fullName)
+
+  // Preserve historical domain records for references, but prevent an old role
+  // row from continuing to represent current access after a profile role change.
+  if (input.role !== 'company_owner') {
+    await sql`
+      UPDATE public.agency_admins SET status = 'inactive', updated_at = ${input.updatedAt}
+      WHERE user_id = ${input.userId}::uuid AND status <> 'inactive'
+    `
+  }
+  if (input.role !== 'care_coordinator') {
+    await sql`
+      UPDATE public.care_coordinators SET status = 'inactive', updated_at = ${input.updatedAt}
+      WHERE user_id = ${input.userId}::uuid AND status <> 'inactive'
+    `
+  }
+  if (input.role !== 'staff_member') {
+    await sql`
+      UPDATE public.caregiver_members SET status = 'inactive', updated_at = ${input.updatedAt}
+      WHERE user_id = ${input.userId}::uuid AND status <> 'inactive'
+    `
+  }
 
   if (input.role === 'company_owner') {
     const updated = await sql<{ id: string }[]>`
@@ -435,6 +546,7 @@ async function syncUserDomainRoleRow(input: {
         contact_email: input.email,
         agency_id: input.agencyId,
         ...(input.agencyDisplayName ? { company_name: input.agencyDisplayName } : {}),
+        ...(input.status ? { status: input.status } : {}),
         updated_at: input.updatedAt,
       })}
       WHERE user_id = ${input.userId}
@@ -449,7 +561,7 @@ async function syncUserDomainRoleRow(input: {
           company_name: input.agencyDisplayName,
           contact_name: input.fullName || input.email,
           contact_email: input.email,
-          status: 'pending',
+          status: input.status ?? 'pending',
           updated_at: input.updatedAt,
         })}
       `
@@ -466,6 +578,7 @@ async function syncUserDomainRoleRow(input: {
         last_name,
         email: input.email,
         agency_id: input.agencyId,
+        ...(input.status ? { status: input.status } : {}),
         updated_at: input.updatedAt,
       })}
       WHERE user_id = ${input.userId}
@@ -479,7 +592,7 @@ async function syncUserDomainRoleRow(input: {
           first_name,
           last_name,
           email: input.email,
-          status: 'active',
+          status: input.status ?? 'active',
           updated_at: input.updatedAt,
         })}
       `
@@ -495,6 +608,7 @@ async function syncUserDomainRoleRow(input: {
         last_name,
         email: input.email,
         agency_id: input.agencyId,
+        ...(input.status ? { status: input.status } : {}),
         updated_at: input.updatedAt,
       })}
       WHERE user_id = ${input.userId}
@@ -510,7 +624,7 @@ async function syncUserDomainRoleRow(input: {
           last_name,
           email: input.email,
           role: 'Caregiver',
-          status: 'active',
+          status: input.status ?? 'active',
           updated_at: input.updatedAt,
         })}
       `
@@ -547,51 +661,6 @@ async function syncUserDomainRoleRow(input: {
   }
 }
 
-async function ensureRoleTableRow(
-  userId: string,
-  fullName: string,
-  normalizedEmail: string,
-  role: CreateUserRole
-) {
-  const { first_name: firstName, last_name: lastName } = parseFullName(fullName)
-  if (role === 'company_owner') {
-    const { data: existing } = await q.getClientByCompanyOwnerId(userId)
-    if (!existing) {
-      await q.insertClient({
-        user_id: userId,
-        contact_name: fullName || normalizedEmail,
-        contact_email: normalizedEmail,
-        status: 'pending',
-      })
-    }
-  } else if (role === 'staff_member') {
-    const { data: existing } = await q.getStaffMemberByUserId(userId)
-    if (!existing) {
-      await q.insertStaffMember({
-        user_id: userId,
-        company_owner_id: null,
-        first_name: firstName,
-        last_name: lastName,
-        email: normalizedEmail,
-        role: 'Caregiver',
-        status: 'active',
-      })
-    }
-  } else if (role === 'expert') {
-    const { data: existing } = await q.getLicensingExpertIdByUserId(userId)
-    if (!existing) {
-      await q.insertLicensingExpert({
-        user_id: userId,
-        first_name: firstName,
-        last_name: lastName,
-        email: normalizedEmail,
-        role: 'Licensing Specialist',
-        status: 'active',
-      })
-    }
-  }
-}
-
 export async function createUserAccount(
   email: string,
   password: string,
@@ -599,6 +668,10 @@ export async function createUserAccount(
   role: CreateUserRole,
   agencyId?: string | null
 ) {
+  const session = await getSession()
+  if (!session || session.profile?.role !== 'admin') {
+    return { error: 'Forbidden', data: null }
+  }
   const inputParsed = createUserAccountSchema.safeParse({ email, password, fullName, role, agencyId })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
 
@@ -618,10 +691,24 @@ export async function createUserAccount(
     if (existingProfile) {
       const passwordHash = await hashPassword(password)
       await sql`
-        UPDATE user_profiles SET password_hash = ${passwordHash}, role = ${role}, agency_id = ${agencyId ?? null}, updated_at = ${new Date().toISOString()}
+        UPDATE user_profiles
+        SET password_hash = ${passwordHash}, role = ${role}, agency_id = ${agencyId ?? null},
+            is_active = true, updated_at = ${new Date().toISOString()}
         WHERE id = ${existingProfile.id}
       `
-      await ensureRoleTableRow(existingProfile.id, fullNameTrimmed, normalizedEmail, role)
+      const [agency] = agencyId
+        ? await sql<{ name: string }[]>`SELECT name FROM public.agencies WHERE id = ${agencyId}::uuid LIMIT 1`
+        : []
+      await syncUserDomainRoleRow({
+        userId: existingProfile.id,
+        fullName: fullNameTrimmed,
+        email: normalizedEmail,
+        role,
+        agencyId: agencyId ?? null,
+        agencyDisplayName: agency?.name ?? null,
+        updatedAt: new Date().toISOString(),
+        status: AGENCY_SCOPED_ROLES.has(role) && agencyId ? 'active' : undefined,
+      })
       await sendInvitationEmail(normalizedEmail, fullNameTrimmed, password)
       revalidatePath('/pages/admin/users')
       return {
@@ -655,7 +742,7 @@ export async function createUserAccount(
           company_owner_id: userId,
           contact_name: fullNameTrimmed || normalizedEmail,
           contact_email: normalizedEmail,
-          status: 'pending',
+          status: agencyId ? 'active' : 'pending',
           agency_id: agencyId ?? null,
         })} RETURNING id
       `
@@ -735,6 +822,10 @@ export async function createAgencyAdminAccount(
   workLocation: string,
   status: 'active' | 'inactive' | 'pending' = 'active'
 ) {
+  const session = await getSession()
+  if (!session || session.profile?.role !== 'admin') {
+    return { error: 'Forbidden', data: null }
+  }
   const inputParsed = createAgencyAdminSchema.safeParse({ firstName, lastName, contactEmail, contactPhone, jobTitle, department, workLocation, status })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
 
@@ -817,6 +908,10 @@ export async function createStaffUserAccount(
   lastName: string,
   agencyName?: string
 ) {
+  const session = await getSession()
+  if (!session || session.profile?.role !== 'admin') {
+    return { error: 'Forbidden', data: null }
+  }
   const inputParsed = createStaffSchema.safeParse({ email, firstName, lastName, agencyName })
   if (!inputParsed.success) return { error: inputParsed.error.issues[0]?.message ?? 'Invalid input', data: null }
 

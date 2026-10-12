@@ -65,9 +65,8 @@ export async function getPeopleForAgency(agencyId: string): Promise<PeopleData> 
   const err = staffRes.error || adminsRes.error || coordsRes.error
   if (err) return { keyStaff: [], admins: [], coordinators: [], error: err.message }
 
-  // Collect all user_ids (admins, coordinators, and linked key staff) and fetch is_active
-  // in one query. user_profiles.is_active is the single source of truth — role table status
-  // columns are no longer used for active/inactive state.
+  // Login requires both an active profile and an active exact agency-role row.
+  // Fetch profile state once; the people table combines it with each role-row status.
   const userIds = [
     ...(adminsRes.data ?? []).map(a => a.user_id).filter(Boolean) as string[],
     ...(coordsRes.data ?? []).map(c => c.user_id).filter(Boolean) as string[],

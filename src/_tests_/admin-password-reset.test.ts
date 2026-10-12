@@ -4,7 +4,7 @@ import sql, { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import { hashPassword } from '@/lib/auth/password'
 import { clearLoginAccountFailures } from '@/lib/repositories/auth-identity'
-import { setUserPassword } from '@/app/actions/users'
+import { createUserAccount, setUserPassword, toggleUserStatus } from '@/app/actions/users'
 
 jest.mock('server-only', () => ({}), { virtual: true })
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
@@ -82,7 +82,7 @@ test('rejects an account whose agency membership does not allow login', async ()
       is_active: true,
     }])
     .mockResolvedValueOnce([{ profile_count: 1 }])
-    .mockResolvedValueOnce([{ allows_login: false }])
+    .mockResolvedValueOnce([])
 
   await expect(setUserPassword(TARGET_ID, {
     password: 'synthetic-password',
@@ -94,6 +94,27 @@ test('rejects an account whose agency membership does not allow login', async ()
 
   expect(clearLoginAccountFailures).not.toHaveBeenCalled()
   expect(mockSql).toHaveBeenCalledTimes(3)
+})
+
+test('explains that a pending agency membership must be activated first', async () => {
+  mockSql
+    .mockResolvedValueOnce([{
+      id: TARGET_ID,
+      email: SYNTHETIC_EMAIL,
+      role: 'company_owner',
+      agency_id: AGENCY_ID,
+      is_active: true,
+    }])
+    .mockResolvedValueOnce([{ profile_count: 1 }])
+    .mockResolvedValueOnce([{ status: 'pending' }])
+
+  await expect(setUserPassword(TARGET_ID, {
+    password: 'synthetic-password',
+    confirmPassword: 'synthetic-password',
+  })).resolves.toEqual({
+    success: false,
+    error: 'This agency membership is pending. Activate the account before setting its password.',
+  })
 })
 
 test('allows an active agency manager to reset a user only through the agency-scoped query', async () => {
@@ -111,7 +132,7 @@ test('allows an active agency manager to reset a user only through the agency-sc
       is_active: true,
     }])
     .mockResolvedValueOnce([{ profile_count: 1 }])
-    .mockResolvedValueOnce([{ allows_login: true }])
+    .mockResolvedValueOnce([{ status: 'active' }])
     .mockResolvedValueOnce([])
     .mockResolvedValueOnce([])
     .mockResolvedValueOnce([])
@@ -175,6 +196,30 @@ test('rejects a platform expert even if a stale agency membership is present', a
   expect(mockSql).not.toHaveBeenCalled()
 })
 
+test('activation updates the exact agency role and profile in one transaction', async () => {
+  mockSql
+    .mockResolvedValueOnce([{
+      id: TARGET_ID,
+      role: 'company_owner',
+      agency_id: AGENCY_ID,
+      is_active: true,
+    }])
+    .mockResolvedValueOnce([{ id: '50000000-0000-4000-8000-000000000004' }])
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([])
+
+  await expect(toggleUserStatus(TARGET_ID, true)).resolves.toEqual({
+    error: null,
+    data: { success: true },
+  })
+
+  expect(withUserContext).toHaveBeenCalledWith(ACTOR_ID, 'admin', null, expect.any(Function))
+  const statements = mockSql.mock.calls.map(call => (call[0] as TemplateStringsArray).join(' '))
+  expect(statements.some(text => text.includes('UPDATE public.agency_admins') && text.includes('status ='))).toBe(true)
+  expect(statements.some(text => text.includes('UPDATE public.user_profiles') && text.includes('is_active'))).toBe(true)
+  expect(statements.some(text => text.includes("'UPDATE_STATUS'"))).toBe(true)
+})
+
 test('rejects a password that does not meet the shared policy before database access', async () => {
   await expect(setUserPassword(TARGET_ID, {
     password: 'short',
@@ -186,6 +231,20 @@ test('rejects a password that does not meet the shared policy before database ac
 
   expect(hashPassword).not.toHaveBeenCalled()
   expect(withUserContext).not.toHaveBeenCalled()
+  expect(mockSql).not.toHaveBeenCalled()
+})
+
+test('rejects privileged account creation outside a platform-admin session', async () => {
+  jest.mocked(getSession).mockResolvedValueOnce(null)
+
+  await expect(createUserAccount(
+    'synthetic-new-admin@example.invalid',
+    'synthetic-password',
+    'Synthetic Admin',
+    'admin'
+  )).resolves.toEqual({ error: 'Forbidden', data: null })
+
+  expect(hashPassword).not.toHaveBeenCalled()
   expect(mockSql).not.toHaveBeenCalled()
 })
 

@@ -8,7 +8,13 @@ export default async function UsersPage() {
   const { user } = await requireAdmin()
 
   const { data: userProfilesRaw } = await q.getUserProfilesOrderedByCreatedAt()
-  type UserProfileRow = { id: string; role: string | null; [key: string]: unknown }
+  type UserProfileRow = {
+    id: string
+    role: string | null
+    login_enabled?: boolean
+    membership_status?: string | null
+    [key: string]: unknown
+  }
   const profilesList = (userProfilesRaw ?? []) as UserProfileRow[]
 
   type AgencyRow = { id: string; name: string | null }
@@ -87,8 +93,8 @@ export default async function UsersPage() {
 
   // Get user counts
   const totalUsers = userProfiles?.length || 0
-  const activeUsers = userProfiles?.filter(u => u.role !== 'admin' || true).length || 0
-  const disabledUsers = 0
+  const activeUsers = userProfiles.filter(u => u.login_enabled !== false).length
+  const disabledUsers = userProfiles.filter(u => u.login_enabled === false).length
   const companies = new Set(userProfiles?.map(u => (u as { company_name?: string | null }).company_name).filter(Boolean)).size
 
   const { data: clients } = await q.getAllClientsOrdered()

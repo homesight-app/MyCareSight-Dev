@@ -409,7 +409,35 @@ export async function getUserProfilesOrdered() {
 /** Get all user profiles ordered by created_at desc. */
 export async function getUserProfilesOrderedByCreatedAt() {
   try {
-    const rows = await sql`SELECT ${sql.unsafe(USER_PROFILE_COLS)} FROM user_profiles ORDER BY created_at DESC`
+    const rows = await sql`
+      SELECT ${sql.unsafe(USER_PROFILE_COLS)},
+        CASE
+          WHEN user_profiles.role IN ('company_owner', 'care_coordinator', 'staff_member') THEN
+            user_profiles.is_active AND EXISTS (
+              SELECT 1
+              FROM public.user_agency_roles membership
+              WHERE membership.user_id = user_profiles.id
+                AND membership.agency_id = user_profiles.agency_id
+                AND membership.role = user_profiles.role
+                AND membership.status = 'active'
+            )
+          ELSE user_profiles.is_active
+        END AS login_enabled,
+        CASE
+          WHEN user_profiles.role IN ('company_owner', 'care_coordinator', 'staff_member') THEN (
+            SELECT membership.status
+            FROM public.user_agency_roles membership
+            WHERE membership.user_id = user_profiles.id
+              AND membership.agency_id = user_profiles.agency_id
+              AND membership.role = user_profiles.role
+            ORDER BY membership.updated_at DESC
+            LIMIT 1
+          )
+          ELSE NULL
+        END AS membership_status
+      FROM public.user_profiles
+      ORDER BY user_profiles.created_at DESC
+    `
     return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }

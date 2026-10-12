@@ -90,6 +90,7 @@ function buildPeopleRows(
     const admin = s.user_profile_id ? adminByUserId.get(s.user_profile_id) : undefined
     const coord = s.user_profile_id ? coordByUserId.get(s.user_profile_id) : undefined
     const credential = admin ? 'company_owner' : coord ? 'care_coordinator' : null
+    const credentialStatus = admin?.status ?? coord?.status ?? null
     if (s.user_profile_id) linkedUserIds.add(s.user_profile_id)
     const { firstName, lastName } = splitName(s.full_legal_name)
     // Prefer the array; fall back to single role for rows not yet backfilled
@@ -109,8 +110,9 @@ function buildPeopleRows(
       credential,
       adminRecordId: admin?.id ?? null,
       coordinatorRecordId: coord?.id ?? null,
-      // Prefer user_profiles.is_active when a login account exists; fall back to ks status for pure contacts
-      status: (s.user_profile_id && s.is_active === false) ? 'inactive' : ((s.status as PersonRow['status']) ?? 'active'),
+      status: credential
+        ? (s.is_active === true && credentialStatus === 'active' ? 'active' : 'inactive')
+        : ((s.status as PersonRow['status']) ?? 'active'),
     }
   })
 
@@ -134,7 +136,7 @@ function buildPeopleRows(
       coordinatorRecordId: null,
       status: a.is_active === null
         ? ((a.status as PersonRow['status']) ?? 'active')
-        : a.is_active ? 'active' : 'inactive',
+        : a.is_active && a.status === 'active' ? 'active' : 'inactive',
     })
   }
 
@@ -157,7 +159,7 @@ function buildPeopleRows(
       coordinatorRecordId: c.id,
       status: c.is_active === null
         ? ((c.status as PersonRow['status']) ?? 'active')
-        : c.is_active ? 'active' : 'inactive',
+        : c.is_active && c.status === 'active' ? 'active' : 'inactive',
     })
   }
 

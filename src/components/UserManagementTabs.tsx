@@ -299,7 +299,9 @@ export default function UserManagementTabs({
     setUserStatuses(prev => {
       const statuses: Record<string, boolean> = { ...prev }
       userProfiles.forEach(profile => {
-        statuses[profile.id] = profile.is_active !== false
+        statuses[profile.id] = typeof profile.login_enabled === 'boolean'
+          ? profile.login_enabled
+          : profile.is_active !== false
       })
       return statuses
     })

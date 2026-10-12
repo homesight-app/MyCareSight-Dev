@@ -34,6 +34,12 @@ type UnassignmentRequestRow = {
   status: 'pending' | 'approved' | 'declined'
 }
 
+type ShiftOfferRecipientRow = {
+  offer_id: string
+  scheduled_visit_id: string
+  status: 'notified' | 'interested' | 'not_interested'
+}
+
 function formatDateLabel(isoDate: string): string {
   const d = new Date(`${isoDate}T12:00:00`)
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
@@ -151,7 +157,7 @@ export async function fetchCaregiverCareVisitsData(
     clock_out_time: string | null
   }
 
-  const [patientsRows, requestRows, unassignReqRows, taskAggRows, vteRows] = await Promise.all([
+  const [patientsRows, requestRows, offerRecipientRows, unassignReqRows, taskAggRows, vteRows] = await Promise.all([
     patientIds.length
       ? sql<PatientRow[]>`
           SELECT id, first_name, last_name, city, state, street_address
@@ -166,6 +172,19 @@ export async function fetchCaregiverCareVisitsData(
             AND schedule_id = ANY(${scheduleIds}::uuid[])
         `
       : Promise.resolve([] as RequestRow[]),
+    scheduleIds.length
+      ? sql<ShiftOfferRecipientRow[]>`
+          SELECT recipient.offer_id, offer.scheduled_visit_id, recipient.status
+          FROM public.visit_shift_offer_recipients recipient
+          JOIN public.visit_shift_offers offer ON offer.id = recipient.offer_id
+          WHERE recipient.caregiver_member_id = ${caregiverMemberId}::uuid
+            AND recipient.agency_id = ${caregiverAgencyId}::uuid
+            AND offer.scheduled_visit_id = ANY(${scheduleIds}::uuid[])
+            AND offer.status = 'open'
+            AND offer.expires_at > now()
+            AND recipient.status IN ('notified', 'interested', 'not_interested')
+        `
+      : Promise.resolve([] as ShiftOfferRecipientRow[]),
     ownedScheduleIds.length
       ? sql<UnassignmentRequestRow[]>`
           SELECT id, schedule_id, status
@@ -193,6 +212,7 @@ export async function fetchCaregiverCareVisitsData(
 
   const patientById = new Map(patientsRows.map((p) => [p.id, p]))
   const pendingRequestBySchedule = new Map<string, { id: string; note: string | null }>()
+  const offerBySchedule = new Map<string, ShiftOfferRecipientRow>()
   const pendingUnassignmentBySchedule = new Map<string, string>()
   for (const r of requestRows) {
     if (r.status === 'pending') {
@@ -201,6 +221,9 @@ export async function fetchCaregiverCareVisitsData(
         note: r.caregiver_note?.trim() ? r.caregiver_note.trim() : null,
       })
     }
+  }
+  for (const recipient of offerRecipientRows) {
+    offerBySchedule.set(recipient.scheduled_visit_id, recipient)
   }
   for (const r of unassignReqRows) {
     if (r.status === 'pending') pendingUnassignmentBySchedule.set(r.schedule_id, r.id)
@@ -234,6 +257,7 @@ export async function fetchCaregiverCareVisitsData(
       const patient = patientById.get(row.patient_id)
       const locationShort = [patient?.city?.trim(), patient?.state?.trim()].filter(Boolean).join(', ') || '-'
       const pending = pendingRequestBySchedule.get(row.id)
+      const shiftOffer = offerBySchedule.get(row.id)
       const adlTasks = decodeVisitTaskCodes(row.adl_codes, taskNameById)
       const fromDb = taskCountByVisit.get(row.id)
       const adlTasksTotal = fromDb && fromDb.total > 0 ? fromDb.total : adlTasks.length
@@ -272,6 +296,8 @@ export async function fetchCaregiverCareVisitsData(
         myPendingUnassignmentRequestId: pendingUnassignmentBySchedule.get(row.id) ?? null,
         myPendingRequestId: pending?.id ?? null,
         myRequestNote: pending?.note ?? null,
+        shiftOfferId: shiftOffer?.offer_id ?? null,
+        shiftOfferResponse: shiftOffer?.status ?? null,
         hasClockOut: clockedOutVisitIds.has(row.id),
       } satisfies CaregiverVisitCardDTO
     })

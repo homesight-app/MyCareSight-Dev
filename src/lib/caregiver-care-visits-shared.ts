@@ -34,6 +34,8 @@ export type CaregiverVisitCardDTO = {
   myPendingUnassignmentRequestId: string | null
   myPendingRequestId: string | null
   myRequestNote: string | null
+  shiftOfferId: string | null
+  shiftOfferResponse: 'notified' | 'interested' | 'not_interested' | null
   hasClockOut: boolean
 }
 

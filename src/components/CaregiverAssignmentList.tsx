@@ -10,12 +10,15 @@ interface Props {
   options: CaregiverMatchOption[]
   requiredSkills: string[]
   selectedId?: string | null
+  selectedIds?: string[]
   onSelect: (id: string) => void
   /** Passed to the external profile link (picker variant only). */
   clientId?: string
   isLoading?: boolean
   disabled?: boolean
   variant?: 'picker' | 'modal'
+  selectionMode?: 'single' | 'multiple'
+  emptyMessage?: string
 }
 
 function AvailabilityPill({ status }: { status: CaregiverAvailabilityStatus }) {
@@ -121,11 +124,14 @@ export function CaregiverAssignmentList({
   options,
   requiredSkills,
   selectedId,
+  selectedIds = [],
   onSelect,
   clientId,
   isLoading,
   disabled,
   variant = 'modal',
+  selectionMode = 'single',
+  emptyMessage = 'No caregivers found.',
 }: Props) {
   const [sort, setSort] = useState<'availability' | 'proximity'>('availability')
   const [filter, setFilter] = useState<'all' | 'available' | 'booked' | 'blocked'>('all')
@@ -156,7 +162,7 @@ export function CaregiverAssignmentList({
         <SortFilterHeader sort={sort} setSort={setSort} filter={filter} setFilter={setFilter} />
         <div className="max-h-[240px] overflow-y-auto overflow-x-hidden">
           {sorted.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-gray-500">No caregivers found.</div>
+            <div className="px-4 py-6 text-center text-sm text-gray-500">{emptyMessage}</div>
           ) : (
             sorted.map((o, idx) => (
               <button
@@ -251,13 +257,15 @@ export function CaregiverAssignmentList({
       <SortFilterHeader sort={sort} setSort={setSort} filter={filter} setFilter={setFilter} />
       <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
         {sorted.length === 0 && (
-          <div className="py-6 text-center text-sm text-gray-500">No caregivers found.</div>
+          <div className="py-6 text-center text-sm text-gray-500">{emptyMessage}</div>
         )}
-        {sorted.map((o, idx) => (
+        {sorted.map((o, idx) => {
+          const isSelected = selectionMode === 'multiple' ? selectedIds.includes(o.id) : selectedId === o.id
+          return (
           <div
             key={o.id}
             className={`rounded-xl border p-3 ${
-              o.isCurrent ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-white'
+              isSelected || o.isCurrent ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-white'
             }`}
           >
             <div className="flex items-start justify-between gap-3">
@@ -296,16 +304,18 @@ export function CaregiverAssignmentList({
                 )}
               </div>
               <Button
-                variant="primary"
+                variant={isSelected && selectionMode === 'multiple' ? 'secondary' : 'primary'}
                 type="button"
                 disabled={disabled || o.availability !== 'available'}
                 onClick={() => onSelect(o.id)}
               >
-                {o.isCurrent ? 'Keep' : 'Assign'}
+                {selectionMode === 'multiple'
+                  ? isSelected ? 'Remove' : 'Select'
+                  : o.isCurrent ? 'Keep' : 'Assign'}
               </Button>
             </div>
           </div>
-        ))}
+        )})}
       </div>
     </div>
   )

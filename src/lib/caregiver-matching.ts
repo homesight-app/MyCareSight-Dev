@@ -82,10 +82,16 @@ function parseMinutes(t: string | null | undefined): number | null {
 }
 
 /** Proximity score on a 40-mile linear scale: 100% at 0 mi, 0% at 40+ mi. Never returns null. */
-function proximityPercent(distanceMiles: number): number {
+export function proximityPercentFromMiles(distanceMiles: number): number {
   if (!Number.isFinite(distanceMiles) || distanceMiles >= 40) return 0
   if (distanceMiles <= 0) return 100
   return Math.max(0, Math.round(100 * (1 - distanceMiles / 40)))
+}
+
+export function eligibleCaregiverCandidates(candidates: CaregiverMatchOption[]): CaregiverMatchOption[] {
+  return candidates.filter(
+    candidate => candidate.availability === 'available' && candidate.skillMatchPercent === 100
+  )
 }
 
 function slotCoversVisit(
@@ -179,7 +185,7 @@ export function computeCaregiverMatches(params: ComputeParams): CaregiverMatchOp
       ? booked ? 'booked' : 'available'
       : 'blocked'
 
-    const proxPct = proximityPercent(distanceMiles)
+    const proxPct = proximityPercentFromMiles(distanceMiles)
     const overallPct = Math.round((skillMatchPct + proxPct) / 2)
 
     return {

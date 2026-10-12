@@ -41,6 +41,12 @@ export type AllVisitCardDTO = {
   statusReason: string | null
   clientRequiredSkills: string[]
   reassignCandidates: ReassignCandidateDTO[]
+  shiftOffer: {
+    id: string
+    notifiedCount: number
+    interestedCount: number
+    declinedCount: number
+  } | null
 }
 
 export type AllVisitsDashboardDTO = {
@@ -145,12 +151,32 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
   if (schedules.length === 0) return { allVisits: [], allClients, allCaregivers }
 
   const patientIds = Array.from(new Set(schedules.map((s) => s.patient_id)))
-  const [patientsData, reqResult] = await Promise.all([
+  const visitIds = schedules.map(schedule => schedule.id)
+  const [patientsData, reqResult, offerRows] = await Promise.all([
     sql<PatientRow[]>`
       SELECT id, first_name, last_name, zip_code, state, city, street_address
       FROM patients WHERE id = ANY(${patientIds}::uuid[])
     `,
     q.getCaregiverRequirementsByPatientIds(patientIds),
+    sql<{
+      id: string
+      scheduled_visit_id: string
+      notified_count: number
+      interested_count: number
+      declined_count: number
+    }[]>`
+      SELECT offer.id, offer.scheduled_visit_id,
+        count(recipient.id)::integer AS notified_count,
+        count(recipient.id) FILTER (WHERE recipient.status = 'interested')::integer AS interested_count,
+        count(recipient.id) FILTER (WHERE recipient.status = 'not_interested')::integer AS declined_count
+      FROM public.visit_shift_offers offer
+      LEFT JOIN public.visit_shift_offer_recipients recipient ON recipient.offer_id = offer.id
+      WHERE offer.agency_id = ${agencyId}::uuid
+        AND offer.scheduled_visit_id = ANY(${visitIds}::uuid[])
+        AND offer.status = 'open'
+        AND offer.expires_at > now()
+      GROUP BY offer.id, offer.scheduled_visit_id
+    `,
   ])
 
   const patientById = new Map(patientsData.map((p) => [p.id, p]))
@@ -162,6 +188,12 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
     const pr = row as { patient_id?: string; skill_codes?: string[] }
     if (pr.patient_id && Array.isArray(pr.skill_codes)) requirementsByPatient.set(pr.patient_id, pr.skill_codes)
   }
+  const offerByVisit = new Map(offerRows.map(row => [row.scheduled_visit_id, {
+    id: row.id,
+    notifiedCount: Number(row.notified_count),
+    interestedCount: Number(row.interested_count),
+    declinedCount: Number(row.declined_count),
+  }]))
 
   const taskIdTokens = Array.from(
     new Set(
@@ -212,6 +244,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
       statusReason: s.status_reason ?? null,
       clientRequiredSkills: requiredSkills,
       reassignCandidates: [],
+      shiftOffer: offerByVisit.get(s.id) ?? null,
     }
   })
 

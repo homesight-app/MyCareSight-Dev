@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Bell,
+  BellRing,
   CalendarDays,
   CheckCircle2,
   Clock,
@@ -35,6 +36,8 @@ import {
 import { getCaregiverCandidatesForVisitAction } from '@/app/actions/visit-candidates'
 import type { CaregiverMatchOption } from '@/lib/caregiver-matching'
 import { CaregiverAssignmentList } from '@/components/CaregiverAssignmentList'
+import VisitShiftOfferModal from '@/components/VisitShiftOfferModal'
+import { toast } from 'sonner'
 import type {
   AssignmentRequestCardDTO,
   AssignmentVisitCardDTO,
@@ -196,11 +199,14 @@ export default function VisitManagementContent({
   } | null>(null)
   const [detailVisit, setDetailVisit] = useState<AllVisitCardDTO | null>(null)
   const [reassignVisit, setReassignVisit] = useState<AllVisitCardDTO | null>(null)
+  const [advertiseVisit, setAdvertiseVisit] = useState<AllVisitCardDTO | null>(null)
   const [missVisit, setMissVisit] = useState<AllVisitCardDTO | null>(null)
   const [cancelVisit, setCancelVisit] = useState<AllVisitCardDTO | null>(null)
   const [holdVisit, setHoldVisit] = useState<AllVisitCardDTO | null>(null)
   const [candidates, setCandidates] = useState<CaregiverMatchOption[]>([])
   const [loadingCandidates, setLoadingCandidates] = useState(false)
+  const [advertiseCandidates, setAdvertiseCandidates] = useState<CaregiverMatchOption[]>([])
+  const [loadingAdvertiseCandidates, setLoadingAdvertiseCandidates] = useState(false)
   const [missReason, setMissReason] = useState('')
   const [cancelReason, setCancelReason] = useState('')
   const [holdReason, setHoldReason] = useState('')
@@ -374,6 +380,16 @@ export default function VisitManagementContent({
     setReassignVisit(null)
     setCandidates([])
     void runAction(`assign:${visit.id}`, () => assignCaregiverToScheduleAction(visit.id, caregiverId))
+  }
+  const openAdvertiseModal = async (visit: AllVisitCardDTO) => {
+    setActionError(null)
+    setAdvertiseVisit(visit)
+    setAdvertiseCandidates([])
+    setLoadingAdvertiseCandidates(true)
+    const result = await getCaregiverCandidatesForVisitAction(visit.id)
+    if (result.error) setActionError(result.error)
+    setAdvertiseCandidates(result.data ?? [])
+    setLoadingAdvertiseCandidates(false)
   }
   const handleMiss = () => {
     if (!missVisit) return
@@ -608,6 +624,12 @@ export default function VisitManagementContent({
                             <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${visit.caregiverName ? 'border-blue-200 text-blue-700' : 'border-red-200 text-red-700'}`}>
                               {visit.caregiverName ?? 'No caregiver assigned'}
                             </span>
+                            {visit.shiftOffer ? (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-700">
+                                <BellRing className="h-3.5 w-3.5" aria-hidden />
+                                {visit.shiftOffer.notifiedCount} notified · {visit.shiftOffer.interestedCount} interested · {visit.shiftOffer.declinedCount} declined
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                         <div className="flex lg:flex-col gap-2 lg:w-[130px]">
@@ -632,6 +654,16 @@ export default function VisitManagementContent({
                               >
                                 {visit.caregiverId ? 'Reassign' : 'Assign'}
                               </Button>
+                              {!visit.caregiverId ? (
+                                <Button
+                                  variant="secondary"
+                                  type="button"
+                                  icon={BellRing}
+                                  onClick={() => void openAdvertiseModal(visit)}
+                                >
+                                  Advertise
+                                </Button>
+                              ) : null}
                               {visit.caregiverId ? (
                                 <button
                                   type="button"
@@ -999,6 +1031,11 @@ export default function VisitManagementContent({
             {detailVisit.status !== 'completed' && detailVisit.status !== 'missed' && !isPastVisitDate(detailVisit.date) ? (
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setMissVisit(detailVisit)} className="rounded-lg border border-orange-200 text-orange-700 px-3 py-2 text-sm font-medium hover:bg-orange-50">Mark Missed</button>
+                {!detailVisit.caregiverId ? (
+                  <Button variant="secondary" type="button" icon={BellRing} onClick={() => void openAdvertiseModal(detailVisit)}>
+                    Advertise Shift
+                  </Button>
+                ) : null}
                 <Button variant="primary" type="button" onClick={() => void openReassignModal(detailVisit)}>{detailVisit.caregiverId ? 'Reassign Caregiver' : 'Assign Caregiver'}</Button>
               </div>
             ) : null}
@@ -1015,6 +1052,23 @@ export default function VisitManagementContent({
           </div>
         ) : null}
       </Modal>
+
+      <VisitShiftOfferModal
+        visit={advertiseVisit}
+        candidates={advertiseCandidates}
+        isLoadingCandidates={loadingAdvertiseCandidates}
+        onClose={() => {
+          if (loadingAdvertiseCandidates) return
+          setAdvertiseVisit(null)
+          setAdvertiseCandidates([])
+        }}
+        onPublished={message => {
+          setAdvertiseVisit(null)
+          setAdvertiseCandidates([])
+          toast.success(message)
+          router.refresh()
+        }}
+      />
 
       <Modal isOpen={!!reassignVisit} onClose={() => { setReassignVisit(null); setCandidates([]) }} title="Assign Caregiver" size="lg">
         {reassignVisit ? (

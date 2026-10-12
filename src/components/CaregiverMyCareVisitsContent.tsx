@@ -25,7 +25,7 @@ import {
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import SearchInput from '@/components/ui/SearchInput'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { getCaregiverPastVisitSummaryAction } from '@/app/actions/caregiver-visit-execution'
 import {
   cancelScheduleAssignmentRequestAction,
@@ -33,6 +33,7 @@ import {
   requestScheduleAssignmentAction,
   submitScheduleUnassignmentRequestAction,
 } from '@/app/actions/schedule-assignment-requests'
+import { respondToVisitShiftOfferAction } from '@/app/actions/visit-shift-offers'
 import type { CaregiverPastVisitSummaryDTO } from '@/lib/caregiver-visit-execution'
 import {
   canCaregiverActOnVisit,
@@ -127,6 +128,8 @@ export default function CaregiverMyCareVisitsContent({
   todayCount,
 }: Props) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const handledOfferLinkRef = useRef<string | null>(null)
   const [mainTab, setMainTab] = useState<MainTab>('my_visits')
   const [myVisitsTab, setMyVisitsTab] = useState<MyVisitsTab>('upcoming')
   const [schedulingTab, setSchedulingTab] = useState<SchedulingTab>('all')
@@ -147,6 +150,18 @@ export default function CaregiverMyCareVisitsContent({
   const [requestModalVisit, setRequestModalVisit] = useState<CaregiverVisitCardDTO | null>(null)
   const [requestNoteDraft, setRequestNoteDraft] = useState('')
   const [unassignModalVisit, setUnassignModalVisit] = useState<CaregiverVisitCardDTO | null>(null)
+  useEffect(() => {
+    if (searchParams.get('tab') !== 'scheduling') return
+    setMainTab('scheduling')
+    setSchedulingTab('open')
+    const visitId = searchParams.get('visit')
+    if (!visitId || handledOfferLinkRef.current === visitId) return
+    const visit = visits.find(item => item.id === visitId && item.status === 'open')
+    if (!visit) return
+    handledOfferLinkRef.current = visitId
+    setRequestNoteDraft('')
+    setRequestModalVisit(visit)
+  }, [searchParams, visits])
   /** Sunday 00:00 of the week shown in Scheduling → Calendar. */
   useEffect(() => {
     if (!statsOpen) return
@@ -366,9 +381,37 @@ export default function CaregiverMyCareVisitsContent({
     const key = `request:${scheduleId}`
     setPendingActionKey(key)
     try {
-      const res = await requestScheduleAssignmentAction(scheduleId, note)
-      if (res.error) {
-        setError(res.error)
+      const result = requestModalVisit.shiftOfferId
+        ? await respondToVisitShiftOfferAction({
+            offerId: requestModalVisit.shiftOfferId,
+            response: 'interested',
+            caregiverNote: note,
+          })
+        : await requestScheduleAssignmentAction(scheduleId, note)
+      if ('success' in result ? !result.success : !!result.error) {
+        setError(result.error ?? 'Could not submit request.')
+        return
+      }
+      closeRequestModal()
+      router.refresh()
+    } finally {
+      setPendingActionKey(null)
+    }
+  }
+
+  const declineShiftOffer = async () => {
+    if (!requestModalVisit?.shiftOfferId) return
+    setError(null)
+    const key = `decline-offer:${requestModalVisit.shiftOfferId}`
+    setPendingActionKey(key)
+    try {
+      const result = await respondToVisitShiftOfferAction({
+        offerId: requestModalVisit.shiftOfferId,
+        response: 'not_interested',
+        caregiverNote: null,
+      })
+      if (!result.success) {
+        setError(result.error ?? 'Unable to decline this shift invitation.')
         return
       }
       closeRequestModal()
@@ -496,7 +539,9 @@ export default function CaregiverMyCareVisitsContent({
         subtitle={
           requestModalVisit?.hasMyPendingRequest
             ? 'Your assignment request is pending coordinator review. You will be notified of their decision.'
-            : 'Your request will be sent to the Care Coordinator for review. You will be notified of their decision.'
+            : requestModalVisit?.shiftOfferId
+              ? 'Your coordinator invited you to this PHI-protected open shift. Respond below.'
+              : 'Your request will be sent to the Care Coordinator for review. You will be notified of their decision.'
         }
       >
         {requestModalVisit ? (
@@ -618,6 +663,17 @@ export default function CaregiverMyCareVisitsContent({
                   >
                     Cancel
                   </Button>
+                  {requestModalVisit.shiftOfferId ? (
+                    <Button
+                      variant="secondary"
+                      type="button"
+                      onClick={() => void declineShiftOffer()}
+                      disabled={pendingActionKey === `decline-offer:${requestModalVisit.shiftOfferId}`}
+                      loading={pendingActionKey === `decline-offer:${requestModalVisit.shiftOfferId}`}
+                    >
+                      Not Interested
+                    </Button>
+                  ) : null}
                   <Button
                     variant="primary"
                     type="button"
@@ -1283,6 +1339,16 @@ export default function CaregiverMyCareVisitsContent({
                           <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
                             <Clock3 className="h-3.5 w-3.5" aria-hidden />
                             Request Pending
+                          </span>
+                        ) : null}
+                        {visit.shiftOfferResponse === 'notified' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-800">
+                            <Send className="h-3.5 w-3.5" aria-hidden /> Invited
+                          </span>
+                        ) : null}
+                        {visit.shiftOfferResponse === 'not_interested' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-medium text-gray-700">
+                            <CircleX className="h-3.5 w-3.5" aria-hidden /> Declined invitation
                           </span>
                         ) : null}
                       </div>

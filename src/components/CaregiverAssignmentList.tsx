@@ -6,6 +6,8 @@ import { Check, Clock, X, MapPin, Phone, SquareArrowOutUpRight, Loader2 } from '
 import type { CaregiverMatchOption, CaregiverAvailabilityStatus } from '@/lib/caregiver-matching'
 import Button from '@/components/ui/PrimaryButton'
 
+type CaregiverCandidateFilter = 'eligible' | 'all' | 'available' | 'booked' | 'blocked'
+
 interface Props {
   options: CaregiverMatchOption[]
   requiredSkills: string[]
@@ -20,6 +22,8 @@ interface Props {
   variant?: 'picker' | 'modal'
   selectionMode?: 'single' | 'multiple'
   emptyMessage?: string
+  /** Use `eligible` where availability and required skills are hard gates. */
+  defaultFilter?: CaregiverCandidateFilter
 }
 
 function AvailabilityPill({ status }: { status: CaregiverAvailabilityStatus }) {
@@ -64,12 +68,37 @@ function SortFilterHeader({
   setSort,
   filter,
   setFilter,
+  options,
+  showEligibleFilter,
 }: {
   sort: 'availability' | 'proximity'
   setSort: (v: 'availability' | 'proximity') => void
-  filter: 'all' | 'available' | 'booked' | 'blocked'
-  setFilter: (v: 'all' | 'available' | 'booked' | 'blocked') => void
+  filter: CaregiverCandidateFilter
+  setFilter: (v: CaregiverCandidateFilter) => void
+  options: CaregiverMatchOption[]
+  showEligibleFilter: boolean
 }) {
+  const counts = {
+    eligible: options.filter(option => option.availability === 'available' && option.skillMatchPercent === 100).length,
+    all: options.length,
+    available: options.filter(option => option.availability === 'available').length,
+    booked: options.filter(option => option.availability === 'booked').length,
+    blocked: options.filter(option => option.availability === 'blocked').length,
+  }
+  const filters = showEligibleFilter
+    ? [
+        { key: 'eligible', label: 'Eligible', dot: 'bg-green-500', text: 'text-green-700' },
+        { key: 'booked', label: 'Booked', dot: 'bg-amber-500', text: 'text-amber-700' },
+        { key: 'blocked', label: 'Not Available', dot: 'bg-red-500', text: 'text-red-700' },
+        { key: 'all', label: 'All', dot: 'bg-gray-400', text: 'text-gray-600' },
+      ] as const
+    : [
+        { key: 'all', label: 'All', dot: 'bg-gray-400', text: 'text-gray-600' },
+        { key: 'available', label: 'Available', dot: 'bg-green-500', text: 'text-green-700' },
+        { key: 'booked', label: 'Booked', dot: 'bg-amber-500', text: 'text-amber-700' },
+        { key: 'blocked', label: 'Not Available', dot: 'bg-red-500', text: 'text-red-700' },
+      ] as const
+
   return (
     <div className="px-4 py-2 border-b border-gray-100 bg-white">
       <div className="flex items-center justify-between gap-3">
@@ -98,14 +127,7 @@ function SortFilterHeader({
         </div>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
-        {(
-          [
-            { key: 'all', label: 'All', dot: 'bg-gray-400', text: 'text-gray-600' },
-            { key: 'available', label: 'Available', dot: 'bg-green-500', text: 'text-green-700' },
-            { key: 'booked', label: 'Booked', dot: 'bg-amber-500', text: 'text-amber-700' },
-            { key: 'blocked', label: 'Not Available', dot: 'bg-red-500', text: 'text-red-700' },
-          ] as const
-        ).map(({ key, label, dot, text }) => (
+        {filters.map(({ key, label, dot, text }) => (
           <button
             key={key}
             type="button"
@@ -113,7 +135,7 @@ function SortFilterHeader({
             className={`inline-flex items-center gap-1.5 border-0 bg-transparent p-0 ${text} ${filter === key ? 'font-semibold underline underline-offset-2' : ''}`}
           >
             <span className={`w-2 h-2 rounded-full ${dot}`} />
-            {label}
+            {label} ({counts[key]})
           </button>
         ))}
       </div>
@@ -134,11 +156,24 @@ export function CaregiverAssignmentList({
   variant = 'modal',
   selectionMode = 'single',
   emptyMessage = 'No caregivers found.',
+  defaultFilter = 'all',
 }: Props) {
   const [sort, setSort] = useState<'availability' | 'proximity'>('availability')
-  const [filter, setFilter] = useState<'all' | 'available' | 'booked' | 'blocked'>('all')
+  const [filter, setFilter] = useState<CaregiverCandidateFilter>(defaultFilter)
+  const showEligibleFilter = defaultFilter === 'eligible'
 
-  const filtered = options.filter((o) => filter === 'all' || o.availability === filter)
+  const filtered = options.filter((option) => {
+    if (filter === 'all') return true
+    if (filter === 'eligible') {
+      return option.availability === 'available' && option.skillMatchPercent === 100
+    }
+    return option.availability === filter
+  })
+  const filteredEmptyMessage = options.length === 0
+    ? emptyMessage
+    : filter === 'eligible'
+      ? 'No caregivers are currently available, conflict-free, and matched to every required skill.'
+      : 'No caregivers match this availability filter.'
   const sorted = [...filtered].sort((a, b) => {
     if (sort === 'availability') {
       const rank = (s: CaregiverAvailabilityStatus) => (s === 'available' ? 0 : s === 'booked' ? 1 : 2)
@@ -162,10 +197,17 @@ export function CaregiverAssignmentList({
   if (variant === 'picker') {
     return (
       <>
-        <SortFilterHeader sort={sort} setSort={setSort} filter={filter} setFilter={setFilter} />
+        <SortFilterHeader
+          sort={sort}
+          setSort={setSort}
+          filter={filter}
+          setFilter={setFilter}
+          options={options}
+          showEligibleFilter={showEligibleFilter}
+        />
         <div className="max-h-[240px] overflow-y-auto overflow-x-hidden">
           {sorted.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-gray-500">{emptyMessage}</div>
+            <div className="px-4 py-6 text-center text-sm text-gray-500">{filteredEmptyMessage}</div>
           ) : (
             sorted.map((o, idx) => (
               <button
@@ -271,10 +313,17 @@ export function CaregiverAssignmentList({
           </div>
         </div>
       )}
-      <SortFilterHeader sort={sort} setSort={setSort} filter={filter} setFilter={setFilter} />
+      <SortFilterHeader
+        sort={sort}
+        setSort={setSort}
+        filter={filter}
+        setFilter={setFilter}
+        options={options}
+        showEligibleFilter={showEligibleFilter}
+      />
       <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
         {sorted.length === 0 && (
-          <div className="py-6 text-center text-sm text-gray-500">{emptyMessage}</div>
+          <div className="py-6 text-center text-sm text-gray-500">{filteredEmptyMessage}</div>
         )}
         {sorted.map((o, idx) => {
           const isSelected = selectionMode === 'multiple' ? selectedIds.includes(o.id) : selectedId === o.id

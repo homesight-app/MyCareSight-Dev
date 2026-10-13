@@ -142,20 +142,26 @@ export default function VisitShiftOfferModal({
           {audienceMode === 'selected' ? (
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-semibold text-gray-900">Eligible caregivers</div>
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">Caregiver candidates</div>
+                  <div className="text-xs text-gray-500">
+                    Eligible caregivers are shown first. Use the filters to review booked, unavailable, or all active caregivers.
+                  </div>
+                </div>
                 <div className="text-xs text-gray-500">{selectedIds.length} selected</div>
               </div>
               <CaregiverAssignmentList
                 variant="modal"
                 selectionMode="multiple"
-                options={eligible}
+                options={candidates}
                 requiredSkills={visit.clientRequiredSkills}
                 preferredSkills={visit.clientPreferredSkills}
                 selectedIds={selectedIds}
                 selectedId={null}
                 isLoading={isLoadingCandidates}
                 disabled={form.formState.isSubmitting}
-                emptyMessage="No active, available caregivers match every required skill for this shift."
+                defaultFilter="eligible"
+                emptyMessage="No active caregivers with agency access were found."
                 onSelect={toggleCaregiver}
               />
               {form.formState.errors.caregiverIds?.message ? (

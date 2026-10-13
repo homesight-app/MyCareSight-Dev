@@ -2451,6 +2451,7 @@ export default function ClientDetailContent({ client, allClients, representative
           requiredSkills={caregiverRequirements ?? []}
           preferredSkills={preferredCaregiverSkills ?? []}
           selectedId={visitForm.caregiverId || null}
+          defaultFilter="eligible"
           clientId={localClient.id}
           onSelect={(id) => {
             setVisitForm(p => ({ ...p, caregiverId: id }))

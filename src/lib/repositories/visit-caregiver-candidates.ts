@@ -21,6 +21,7 @@ type CandidateVisit = {
 export type VisitCaregiverCandidateResult = {
   candidates: CaregiverMatchOption[]
   requiredSkills: string[]
+  preferredSkills: string[]
   visit: CandidateVisit
 }
 
@@ -106,6 +107,9 @@ export async function loadVisitCaregiverCandidatesForActor(
   const requiredSkills = Array.isArray(requirements.data?.skill_codes)
     ? requirements.data.skill_codes
     : []
+  const preferredSkills = Array.isArray(requirements.data?.preferred_skill_codes)
+    ? requirements.data.preferred_skill_codes
+    : []
 
   const candidates = computeCaregiverMatches({
     staff,
@@ -126,6 +130,7 @@ export async function loadVisitCaregiverCandidatesForActor(
       end_time: conflict.scheduled_end_time,
     })),
     requiredSkills,
+    preferredSkills,
     clientZip: patientRow[0]?.zip_code ?? null,
     visitDate: visit.visit_date,
     visitStart: visit.scheduled_start_time,
@@ -134,7 +139,7 @@ export async function loadVisitCaregiverCandidatesForActor(
     excludeConflictId: visitId,
   })
 
-  return { candidates, requiredSkills, visit }
+  return { candidates, requiredSkills, preferredSkills, visit }
 }
 
 export async function loadVisitCaregiverCandidates(

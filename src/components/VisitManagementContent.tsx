@@ -1078,6 +1078,7 @@ export default function VisitManagementContent({
               variant="modal"
               options={candidates}
               requiredSkills={reassignVisit.clientRequiredSkills}
+              preferredSkills={reassignVisit.clientPreferredSkills}
               selectedId={reassignVisit.caregiverId}
               isLoading={loadingCandidates}
               disabled={pendingActionKey === `assign:${reassignVisit.id}`}

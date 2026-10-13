@@ -150,6 +150,7 @@ export default function VisitShiftOfferModal({
                 selectionMode="multiple"
                 options={eligible}
                 requiredSkills={visit.clientRequiredSkills}
+                preferredSkills={visit.clientPreferredSkills}
                 selectedIds={selectedIds}
                 selectedId={null}
                 isLoading={isLoadingCandidates}

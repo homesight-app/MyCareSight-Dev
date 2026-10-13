@@ -89,6 +89,22 @@ async function assertAssignmentIntegrity(actor:{agencyId:string},visitIds:string
     LIMIT 1`
   if(outsideAvailability)throw new SchedulingError('The caregiver is not available for the full visit time.')
 
+  const [missingRequiredSkill]=await sql<{id:string}[]>`SELECT visit.id
+    FROM public.scheduled_visits visit
+    JOIN public.caregiver_members caregiver
+      ON caregiver.id=visit.caregiver_member_id AND caregiver.agency_id=visit.agency_id
+    LEFT JOIN public.patient_skill_requirements requirement
+      ON requirement.patient_id=visit.patient_id AND requirement.agency_id=visit.agency_id
+    WHERE visit.agency_id=${actor.agencyId}::uuid AND visit.id=ANY(${clean}::uuid[])
+      AND visit.caregiver_member_id IS NOT NULL
+      AND visit.status IN ('scheduled','in_progress','on_hold')
+      AND EXISTS (
+        SELECT 1 FROM unnest(COALESCE(requirement.skill_codes,'{}'::text[])) required_skill
+        WHERE NOT (required_skill=ANY(COALESCE(caregiver.skills,'{}'::text[])))
+      )
+    LIMIT 1`
+  if(missingRequiredSkill)throw new SchedulingError('The caregiver does not have every required client skill.')
+
   const [conflict]=await sql<{id:string;conflict_id:string}[]>`SELECT visit.id, other.id AS conflict_id
     FROM public.scheduled_visits visit
     JOIN public.scheduled_visits other

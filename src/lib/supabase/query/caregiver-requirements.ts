@@ -2,8 +2,10 @@ import sql from '@/db'
 
 export interface CaregiverRequirement {
   id: string
+  agency_id: string
   patient_id: string
   skill_codes: string[]
+  preferred_skill_codes: string[]
   created_at: string
   updated_at: string
 }
@@ -48,7 +50,8 @@ export async function getCaregiverRequirementsByPatientIds(
 /** Upsert skill requirements for a patient. */
 export async function upsertCaregiverRequirements(
   patientId: string,
-  skillCodes: string[]
+  skillCodes: string[],
+  preferredSkillCodes: string[]
 ): Promise<{ data: null; error: Error | { message: string } | null }> {
   try {
     const agencyId = await getPatientAgencyId(patientId)
@@ -58,11 +61,33 @@ export async function upsertCaregiverRequirements(
         error: { message: 'Patient has no agency_id; cannot save skill requirements.' },
       }
     }
+    const requestedSkills = Array.from(new Set([...skillCodes, ...preferredSkillCodes]))
+    const catalogRows = requestedSkills.length === 0
+      ? []
+      : await sql<{ name: string }[]>`
+          SELECT name
+          FROM public.credential_catalog
+          WHERE credential_type = 'skill' AND is_active = true
+            AND name = ANY(${requestedSkills}::text[])
+        `
+    const canonicalNames = new Set(catalogRows.map(row => row.name))
+    if (requestedSkills.some(skill => !canonicalNames.has(skill))) {
+      return { data: null, error: { message: 'One or more selected skills are no longer available.' } }
+    }
+
     await sql`
-      INSERT INTO patient_skill_requirements (patient_id, agency_id, skill_codes)
-      VALUES (${patientId}, ${agencyId}, ${skillCodes as unknown as string})
+      INSERT INTO patient_skill_requirements (
+        patient_id, agency_id, skill_codes, preferred_skill_codes
+      )
+      VALUES (
+        ${patientId}, ${agencyId}, ${skillCodes as unknown as string},
+        ${preferredSkillCodes as unknown as string}
+      )
       ON CONFLICT (patient_id)
-      DO UPDATE SET skill_codes = EXCLUDED.skill_codes, updated_at = NOW()
+      DO UPDATE SET
+        skill_codes = EXCLUDED.skill_codes,
+        preferred_skill_codes = EXCLUDED.preferred_skill_codes,
+        updated_at = NOW()
     `
     return { data: null, error: null }
   } catch (err) {

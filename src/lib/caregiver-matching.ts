@@ -10,10 +10,14 @@ export type CaregiverMatchOption = {
   availability: CaregiverAvailabilityStatus
   distanceMiles: number
   distanceLabel: string
+  /** Required-skill coverage. A value below 100 makes the caregiver ineligible. */
   skillMatchPercent: number
+  /** Preferred-skill coverage. This affects ranking but never eligibility. */
+  preferredSkillMatchPercent: number
   proximityPercent: number
   overallPercent: number
   matchedSkills: string[]
+  matchedPreferredSkills: string[]
   isCurrent: boolean
 }
 
@@ -53,6 +57,7 @@ export type ComputeParams = {
   slots: SlotInput[]
   conflicts: ConflictInput[]
   requiredSkills: string[]
+  preferredSkills?: string[]
   clientZip?: string | null
   visitDate?: string | null
   visitStart?: string | null
@@ -86,6 +91,18 @@ export function proximityPercentFromMiles(distanceMiles: number): number {
   if (!Number.isFinite(distanceMiles) || distanceMiles >= 40) return 0
   if (distanceMiles <= 0) return 100
   return Math.max(0, Math.round(100 * (1 - distanceMiles / 40)))
+}
+
+export function overallCaregiverMatchPercent(
+  requiredSkillPercent: number,
+  preferredSkillPercent: number,
+  proximityPercent: number,
+  hasPreferredSkills: boolean
+): number {
+  const skillPercent = hasPreferredSkills
+    ? (requiredSkillPercent * 2 + preferredSkillPercent) / 3
+    : requiredSkillPercent
+  return Math.round((skillPercent + proximityPercent) / 2)
 }
 
 export function eligibleCaregiverCandidates(candidates: CaregiverMatchOption[]): CaregiverMatchOption[] {
@@ -125,6 +142,7 @@ export function computeCaregiverMatches(params: ComputeParams): CaregiverMatchOp
     slots,
     conflicts,
     requiredSkills,
+    preferredSkills = [],
     clientZip: rawClientZip,
     visitDate,
     visitStart,
@@ -159,6 +177,13 @@ export function computeCaregiverMatches(params: ComputeParams): CaregiverMatchOp
       matchedSkills = requiredSkills.filter((sk) => caregiverSkills.includes(sk))
       skillMatchPct = Math.round((matchedSkills.length / requiredLen) * 100)
     }
+    const preferredLen = preferredSkills.length
+    const matchedPreferredSkills = preferredLen > 0
+      ? preferredSkills.filter((skill) => caregiverSkills.includes(skill))
+      : []
+    const preferredSkillMatchPercent = preferredLen > 0
+      ? Math.round((matchedPreferredSkills.length / preferredLen) * 100)
+      : 100
 
     let available = false
     let booked = false
@@ -186,7 +211,12 @@ export function computeCaregiverMatches(params: ComputeParams): CaregiverMatchOp
       : 'blocked'
 
     const proxPct = proximityPercentFromMiles(distanceMiles)
-    const overallPct = Math.round((skillMatchPct + proxPct) / 2)
+    const overallPct = overallCaregiverMatchPercent(
+      skillMatchPct,
+      preferredSkillMatchPercent,
+      proxPct,
+      preferredLen > 0
+    )
 
     return {
       id: s.id,
@@ -197,9 +227,11 @@ export function computeCaregiverMatches(params: ComputeParams): CaregiverMatchOp
       distanceMiles,
       distanceLabel: formatDistanceMiles(distanceMiles),
       skillMatchPercent: skillMatchPct,
+      preferredSkillMatchPercent,
       proximityPercent: proxPct,
       overallPercent: overallPct,
       matchedSkills,
+      matchedPreferredSkills,
       isCurrent: currentCaregiverId === s.id,
     }
   })
@@ -207,7 +239,8 @@ export function computeCaregiverMatches(params: ComputeParams): CaregiverMatchOp
   return options.sort((a, b) => {
     const byStatus = availabilityRank(a.availability) - availabilityRank(b.availability)
     if (byStatus !== 0) return byStatus
+    if (a.overallPercent !== b.overallPercent) return b.overallPercent - a.overallPercent
     if (a.distanceMiles !== b.distanceMiles) return a.distanceMiles - b.distanceMiles
-    return b.skillMatchPercent - a.skillMatchPercent
+    return a.name.localeCompare(b.name)
   })
 }

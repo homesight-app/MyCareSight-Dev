@@ -3,6 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { 
   ArrowLeft, 
@@ -23,7 +24,6 @@ import {
   Trash2,
   ExternalLink,
   Sparkles,
-  Save,
   Upload,
   Download,
   Search,
@@ -45,7 +45,6 @@ import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
 import { expandSeriesOccurrences } from '@/lib/recurrence-dates'
 import * as q from '@/app/actions/query-bridge'
 import type { PatientAddress } from '@/lib/supabase/query/patient-addresses'
-import { upsertPatientCaregiverRequirementsAction } from '@/app/actions/patients'
 import { uploadPatientDocumentsAction, deletePatientDocumentAction } from '@/app/actions/patient-documents'
 import { markScheduleMissedAction, markScheduleCancelledAction, markScheduleOnHoldAction, reinstateScheduleAction } from '@/app/actions/schedule-assignment-requests'
 import { addPatientAddressAction, updatePatientAddressAction, deletePatientAddressAction, setPrimaryPatientAddressAction } from '@/app/actions/patient-addresses'
@@ -79,6 +78,10 @@ const VISIT_TYPES = ['Routine', 'Medical', 'Therapy', 'Social', 'Other'] as cons
 
 /** Stable fallback when `skilledSchedules` prop is omitted — avoid `= []` default (new ref every render) clobbering local state in useEffect. */
 const EMPTY_SKILLED_SCHEDULES: PatientSkilledTaskDaySchedule[] = []
+const EditClientCaregiverSkillsModal = dynamic(
+  () => import('@/components/EditClientCaregiverSkillsModal'),
+  { ssr: false }
+)
 
 /** Safe filename for the browser download attribute (original name minus illegal characters). */
 function sanitizeDownloadFilename(name: string): string {
@@ -321,14 +324,10 @@ export default function ClientDetailContent({ client, allClients, representative
   const [isSavingAddress, setIsSavingAddress] = useState(false)
   const [addressError, setAddressError] = useState<string | null>(null)
   const [caregiverRequirements, setCaregiverRequirements] = useState<string[]>(initialCaregiverRequirements?.skill_codes ?? [])
+  const [preferredCaregiverSkills, setPreferredCaregiverSkills] = useState<string[]>(
+    initialCaregiverRequirements?.preferred_skill_codes ?? []
+  )
   const [caregiverReqsModalOpen, setCaregiverReqsModalOpen] = useState(false)
-  const [caregiverReqsSelection, setCaregiverReqsSelection] = useState<string[]>([])
-  const [caregiverReqsSearch, setCaregiverReqsSearch] = useState('')
-  const [caregiverReqsDropdownOpen, setCaregiverReqsDropdownOpen] = useState<string | null>(null)
-  /** Only the category row whose dropdown is open (toggle + panel + chips). */
-  const caregiverReqsOpenCategoryRef = useRef<HTMLDivElement>(null)
-  const [isSavingCaregiverReqs, setIsSavingCaregiverReqs] = useState(false)
-  const [caregiverReqsError, setCaregiverReqsError] = useState<string | null>(null)
   const [localIncidents, setLocalIncidents] = useState<PatientIncident[]>(initialIncidents ?? [])
   const [incidentModalOpen, setIncidentModalOpen] = useState(false)
   const [incidentForm, setIncidentForm] = useState({
@@ -409,6 +408,7 @@ export default function ClientDetailContent({ client, allClients, representative
   const [scheduleWeekStart, setScheduleWeekStart] = useState<Date>(() => getMonday(new Date()))
   const [weekSchedules, setWeekSchedules] = useState<ScheduleRow[]>([])
   const [caregiverSkillCatalog, setCaregiverSkillCatalog] = useState<{ type: string; name: string }[]>([])
+  const [caregiverSkillCatalogError, setCaregiverSkillCatalogError] = useState<string | null>(null)
   const [serviceContracts, setServiceContracts] = useState<PatientServiceContractRow[]>(initialServiceContracts ?? [])
   const [serviceContractsModalOpen, setServiceContractsModalOpen] = useState(false)
   const [isSavingServiceContract, setIsSavingServiceContract] = useState(false)
@@ -551,21 +551,6 @@ export default function ClientDetailContent({ client, allClients, representative
     return () => document.removeEventListener('mousedown', onMouseDown)
   }, [caregiverPickerOpen])
 
-  // Required caregiver skills modal: close dropdown when clicking outside that category (not whole scroll list).
-  useEffect(() => {
-    if (!caregiverReqsModalOpen || caregiverReqsDropdownOpen == null) return
-    const onMouseDown = (e: MouseEvent) => {
-      const t = e.target
-      if (!(t instanceof Node)) return
-      const root = caregiverReqsOpenCategoryRef.current
-      if (root && !root.contains(t)) {
-        setCaregiverReqsDropdownOpen(null)
-      }
-    }
-    document.addEventListener('mousedown', onMouseDown)
-    return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [caregiverReqsModalOpen, caregiverReqsDropdownOpen])
-
   // Sync local client when switching to a different client (by id)
   useEffect(() => {
     setLocalClient(client)
@@ -586,6 +571,7 @@ export default function ClientDetailContent({ client, allClients, representative
 
   useEffect(() => {
     setCaregiverRequirements(initialCaregiverRequirements?.skill_codes ?? [])
+    setPreferredCaregiverSkills(initialCaregiverRequirements?.preferred_skill_codes ?? [])
   }, [client.id, initialCaregiverRequirements])
 
   // Only reset from RSC props when the patient changes. Do not depend on `initialIncidents`:
@@ -631,8 +617,13 @@ export default function ClientDetailContent({ client, allClients, representative
     q.getTaskCatalogSkilledTasks().then(({ data }) => {
       if (data) setSkilledTaskLibrary(data)
     })
-    q.getCaregiverSkillCatalogFromTaskRequirements().then(({ data }) => {
-      if (data) setCaregiverSkillCatalog(data)
+    q.getCaregiverSkillCatalogFromTaskRequirements().then(({ data, error }) => {
+      if (data) {
+        setCaregiverSkillCatalog(data)
+        setCaregiverSkillCatalogError(null)
+      } else {
+        setCaregiverSkillCatalogError(error?.message ?? 'Unable to load the caregiver skill catalog.')
+      }
     })
   }, [])
 
@@ -1170,10 +1161,6 @@ export default function ClientDetailContent({ client, allClients, representative
   }
 
   const openCaregiverReqsModal = () => {
-    setCaregiverReqsSelection([...caregiverRequirements])
-    setCaregiverReqsSearch('')
-    setCaregiverReqsDropdownOpen(null)
-    setCaregiverReqsError(null)
     setCaregiverReqsModalOpen(true)
     void (async () => {
       try {
@@ -1185,59 +1172,24 @@ export default function ClientDetailContent({ client, allClients, representative
         const latest = Array.from(new Set(rawCodes.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0))).sort(
           (a, b) => a.localeCompare(b)
         )
+        const rawPreferred: unknown[] = Array.isArray(
+          (data as { preferred_skill_codes?: unknown[] } | null)?.preferred_skill_codes
+        )
+          ? ((data as { preferred_skill_codes?: unknown[] }).preferred_skill_codes ?? [])
+          : []
+        const latestPreferred = Array.from(new Set(
+          rawPreferred.filter((value: unknown): value is string => typeof value === 'string' && value.length > 0)
+        )).sort((a, b) => a.localeCompare(b))
         setCaregiverRequirements(latest)
-        setCaregiverReqsSelection(latest)
+        setPreferredCaregiverSkills(latestPreferred)
       } catch {
-        // Keep current local selection if refresh fails.
+        // Keep the current local values if the refresh fails.
       }
     })()
   }
 
   const closeCaregiverReqsModal = () => {
-    if (!isSavingCaregiverReqs) {
-      setCaregiverReqsModalOpen(false)
-      setCaregiverReqsDropdownOpen(null)
-      setCaregiverReqsError(null)
-    }
-  }
-
-  const toggleCaregiverSkill = (name: string) => {
-    setCaregiverReqsSelection((prev) =>
-      prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]
-    )
-  }
-
-  const setCategorySkillSelection = (skills: { type: string; name: string }[], shouldSelect: boolean) => {
-    const names = skills.map((s) => s.name)
-    setCaregiverReqsSelection((prev) => {
-      if (shouldSelect) return Array.from(new Set([...prev, ...names]))
-      const remove = new Set(names)
-      return prev.filter((name) => !remove.has(name))
-    })
-  }
-
-  const handleSaveCaregiverReqs = async () => {
-    setIsSavingCaregiverReqs(true)
-    setCaregiverReqsError(null)
-    try {
-      const normalized = Array.from(new Set(caregiverReqsSelection.filter(Boolean))).sort((a, b) => a.localeCompare(b))
-      const { error } = await upsertPatientCaregiverRequirementsAction(localClient.id, normalized)
-      if (error) {
-        setCaregiverReqsError(error)
-        return
-      }
-      setCaregiverRequirements(normalized)
-      setCaregiverReqsSelection(normalized)
-      setCaregiverReqsModalOpen(false)
-    } catch (err: unknown) {
-      if (typeof err === 'string' && err.trim()) {
-        setCaregiverReqsError(err)
-      } else {
-        setCaregiverReqsError(err instanceof Error ? err.message : 'Failed to save requirements.')
-      }
-    } finally {
-      setIsSavingCaregiverReqs(false)
-    }
+    setCaregiverReqsModalOpen(false)
   }
 
   const openReportIncidentModal = () => {
@@ -2449,6 +2401,7 @@ export default function ClientDetailContent({ client, allClients, representative
         end_time: v.end_time,
       })),
       requiredSkills: caregiverRequirements ?? [],
+      preferredSkills: preferredCaregiverSkills ?? [],
       clientZip,
       visitDate,
       visitStart: visitForm.startTime,
@@ -2459,6 +2412,7 @@ export default function ClientDetailContent({ client, allClients, representative
   }, [
     staffList,
     caregiverRequirements,
+    preferredCaregiverSkills,
     localClient.zip_code,
     visitForm.startTime,
     visitForm.endTime,
@@ -2494,6 +2448,7 @@ export default function ClientDetailContent({ client, allClients, representative
           variant="picker"
           options={caregiverMatchOptions}
           requiredSkills={caregiverRequirements ?? []}
+          preferredSkills={preferredCaregiverSkills ?? []}
           selectedId={visitForm.caregiverId || null}
           clientId={localClient.id}
           onSelect={(id) => {
@@ -3526,7 +3481,11 @@ export default function ClientDetailContent({ client, allClients, representative
     latestOverviewWeeklyByServiceType.non_skilled != null ||
     latestOverviewWeeklyByServiceType.skilled != null
 
-  const skillsByType = caregiverSkillCatalog.reduce<Record<string, { type: string; name: string }[]>>((acc, s) => {
+  const knownCaregiverSkillNames = new Set(caregiverSkillCatalog.map(skill => skill.name))
+  const savedUncataloguedSkills = [...caregiverRequirements, ...preferredCaregiverSkills]
+    .filter((name, index, values) => !knownCaregiverSkillNames.has(name) && values.indexOf(name) === index)
+    .map(name => ({ name, type: 'Other' }))
+  const skillsByType = [...caregiverSkillCatalog, ...savedUncataloguedSkills].reduce<Record<string, { type: string; name: string }[]>>((acc, s) => {
     if (!acc[s.type]) acc[s.type] = []
     acc[s.type].push(s)
     return acc
@@ -4676,9 +4635,9 @@ export default function ClientDetailContent({ client, allClients, representative
                       <Sparkles className="w-5 h-5 text-blue-600" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-gray-900">Required Caregiver Skills</h3>
+                      <h3 className="text-lg font-bold text-gray-900">Caregiver Skills</h3>
                       <p className="text-sm text-gray-500 mt-0.5">
-                        Skills a caregiver must have to be matched to {patientFullName(localClient)}.
+                        Required skills control eligibility; preferred skills improve the match ranking for {patientFullName(localClient)}.
                       </p>
                     </div>
                   </div>
@@ -4692,49 +4651,65 @@ export default function ClientDetailContent({ client, allClients, representative
                   </Button>
                 </div>
                 <div className="p-6">
-                  <div className={`border-2 border-dashed border-gray-200 rounded-lg min-h-[200px] flex flex-col py-12 px-4 ${caregiverRequirements.length > 0 ? 'items-start justify-start' : 'items-center justify-center'}`}>
-                    {caregiverRequirements.length > 0 ? (
-                      <div className="w-full space-y-4">
-                        {CAREGIVER_REQUIREMENTS_TYPE_ORDER.map((type) => {
-                          const skillsInType = caregiverRequirements.filter((code) => {
-                            const skill = caregiverSkillCatalog.find((s) => s.name === code)
-                            return skill?.type === type
-                          })
-                          if (skillsInType.length === 0) return null
-                          const color = categoryColors[type] ?? 'ring-gray-400 bg-gray-400 text-white'
-                          return (
-                            <div key={type}>
-                              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                                {type.toUpperCase()}
-                              </h4>
-                              <div className="flex flex-wrap gap-2">
-                                {skillsInType.map((code) => (
-                                  <span
-                                    key={code}
-                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ring-2 ${color}`}
-                                  >
-                                    {code}
-                                  </span>
-                                ))}
+                  <div className={`border-2 border-dashed border-gray-200 rounded-lg min-h-[200px] flex flex-col py-8 px-4 ${caregiverRequirements.length > 0 || preferredCaregiverSkills.length > 0 ? 'items-start justify-start' : 'items-center justify-center'}`}>
+                    {caregiverRequirements.length > 0 || preferredCaregiverSkills.length > 0 ? (
+                      <div className="grid w-full gap-6 lg:grid-cols-2">
+                        {([
+                          {
+                            key: 'required',
+                            title: 'Required',
+                            description: 'Every skill is needed for assignment eligibility.',
+                            values: caregiverRequirements,
+                          },
+                          {
+                            key: 'preferred',
+                            title: 'Preferred',
+                            description: 'These skills increase ranking without excluding caregivers.',
+                            values: preferredCaregiverSkills,
+                          },
+                        ] as const).map(group => (
+                          <section key={group.key} className="rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-sm font-semibold text-gray-900">{group.title} ({group.values.length})</h4>
+                            <p className="mb-3 text-xs text-gray-500">{group.description}</p>
+                            {group.values.length > 0 ? (
+                              <div className="space-y-3">
+                                {CAREGIVER_REQUIREMENTS_TYPE_ORDER.map(type => {
+                                  const skillsInType = group.values.filter(code =>
+                                    (skillsByType[type] ?? []).some(skill => skill.name === code)
+                                  )
+                                  if (skillsInType.length === 0) return null
+                                  const color = categoryColors[type] ?? 'ring-gray-400 bg-gray-400 text-white'
+                                  return (
+                                    <div key={`${group.key}-${type}`}>
+                                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{type}</div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {skillsInType.map(code => (
+                                          <span key={code} className={`inline-flex rounded-full px-3 py-1.5 text-sm font-medium ring-2 ${color}`}>
+                                            {code}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
                               </div>
-                            </div>
-                          )
-                        })}
-                        <p className="text-sm text-gray-500 pt-2">
-                          {caregiverRequirements.length} skill{caregiverRequirements.length !== 1 ? 's' : ''} required
-                        </p>
+                            ) : (
+                              <p className="text-sm text-gray-500">No {group.title.toLowerCase()} skills selected.</p>
+                            )}
+                          </section>
+                        ))}
                       </div>
                     ) : (
                       <>
                         <Sparkles className="w-12 h-12 text-gray-300 mb-3" />
-                        <p className="text-sm text-gray-500 mb-4">No caregiver skills required yet.</p>
+                        <p className="text-sm text-gray-500 mb-4">No caregiver skills configured yet.</p>
                         <Button
                           variant="primary"
                           type="button"
                           onClick={openCaregiverReqsModal}
                           icon={Plus}
                         >
-                          Add Requirements
+                          Add Skills
                         </Button>
                       </>
                     )}
@@ -6018,192 +5993,21 @@ export default function ClientDetailContent({ client, allClients, representative
         </div>
       </Modal>
 
-      {/* Caregiver Requirements Modal */}
-      <Modal
+      <EditClientCaregiverSkillsModal
         isOpen={caregiverReqsModalOpen}
+        patientId={localClient.id}
+        patientName={patientFullName(localClient)}
+        catalog={caregiverSkillCatalog}
+        catalogError={caregiverSkillCatalogError}
+        initialRequiredSkills={caregiverRequirements}
+        initialPreferredSkills={preferredCaregiverSkills}
         onClose={closeCaregiverReqsModal}
-        title="Required Caregiver Skills"
-        size="lg"
-      >
-        <div className="space-y-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-blue-50 rounded-lg shrink-0">
-              <Sparkles className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">
-                Required Caregiver Skills — {patientFullName(localClient)}
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Select all skills a caregiver must have to be assigned to this client.
-              </p>
-            </div>
-          </div>
-          {caregiverReqsError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-              {caregiverReqsError}
-            </div>
-          )}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              value={caregiverReqsSearch}
-              onChange={(e) => setCaregiverReqsSearch(e.target.value)}
-              placeholder="Search caregiver skills..."
-              className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              disabled={isSavingCaregiverReqs}
-            />
-          </div>
-          <div className="max-h-[60vh] overflow-y-auto space-y-6 pr-2">
-            {CAREGIVER_REQUIREMENTS_TYPE_ORDER.map((type) => {
-              const skills = (skillsByType[type] ?? []).filter((s) => {
-                const q = caregiverReqsSearch.trim().toLowerCase()
-                if (!q) return true
-                return s.name.toLowerCase().includes(q) || s.type.toLowerCase().includes(q)
-              })
-              if (!skills?.length) return null
-              const selectedCount = skills.filter((s) => caregiverReqsSelection.includes(s.name)).length
-              const allSelected = selectedCount > 0 && selectedCount === skills.length
-              return (
-                <div key={type}>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      {type.toUpperCase()}
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={() => setCategorySkillSelection(skills, !allSelected)}
-                      className="text-xs px-2 py-1 rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-                      disabled={isSavingCaregiverReqs}
-                    >
-                      {allSelected ? 'Clear All' : 'Select All'}
-                    </button>
-                  </div>
-                  <div ref={caregiverReqsDropdownOpen === type ? caregiverReqsOpenCategoryRef : undefined}>
-                    <div className="pl-2 space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => setCaregiverReqsDropdownOpen((prev) => (prev === type ? null : type))}
-                        className="w-full inline-flex items-center justify-between gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 hover:bg-gray-50"
-                        disabled={isSavingCaregiverReqs}
-                      >
-                        <span className="font-medium">
-                          {caregiverReqsSelection.filter((n) => skills.some((s) => s.name === n)).length > 0
-                            ? `Selected (${caregiverReqsSelection.filter((n) => skills.some((s) => s.name === n)).length})`
-                            : `Select skills in ${type}...`}
-                        </span>
-                        <span className="text-gray-400">{caregiverReqsDropdownOpen === type ? '▲' : '▼'}</span>
-                      </button>
-                      {caregiverReqsDropdownOpen === type && (
-                        <div className="mt-2 rounded-lg border border-gray-200 bg-white shadow-sm max-h-56 overflow-y-auto">
-                          {skills.map((s) => {
-                            const selected = caregiverReqsSelection.includes(s.name)
-                            const colorClass = categoryColors[type] ?? 'ring-gray-400 bg-gray-400 text-white'
-                            return (
-                              <div
-                                key={s.name}
-                                className={`px-3 py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-gray-50 ${
-                                  selected ? 'bg-gray-50' : ''
-                                }`}
-                                onClick={() => {
-                                  if (!selected) toggleCaregiverSkill(s.name)
-                                }}
-                                role="button"
-                                tabIndex={0}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    if (!selected) toggleCaregiverSkill(s.name)
-                                  }
-                                }}
-                              >
-                                <div className="min-w-0">
-                                  <div className="text-sm font-medium text-gray-900 truncate">{s.name}</div>
-                                </div>
-                                {selected ? (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      toggleCaregiverSkill(s.name)
-                                    }}
-                                    aria-label={`Remove ${s.name}`}
-                                    className={`inline-flex items-center justify-center rounded-full ${colorClass} p-1`}
-                                  >
-                                    <X className="h-3.5 w-3.5 text-white" />
-                                  </button>
-                                ) : (
-                                  <span className="w-7" />
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2 mt-3 pl-2">
-                      {skills
-                        .filter((s) => caregiverReqsSelection.includes(s.name))
-                        .map((s) => {
-                          const colorClass = categoryColors[type] ?? 'ring-gray-400 bg-gray-400 text-white'
-                          return (
-                            <button
-                              key={s.name}
-                              type="button"
-                              onClick={() => toggleCaregiverSkill(s.name)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full ring-2 ${colorClass}`}
-                            >
-                              <span className="w-3.5 h-3.5 rounded-full bg-white/20 flex items-center justify-center text-[10px]">
-                                <X className="h-3 w-3 text-white" />
-                              </span>
-                              {s.name}
-                            </button>
-                          )
-                        })}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-            {CAREGIVER_REQUIREMENTS_TYPE_ORDER.every((type) => {
-              const q = caregiverReqsSearch.trim().toLowerCase()
-              const skills = skillsByType[type] ?? []
-              return !skills.some((s) => !q || s.name.toLowerCase().includes(q) || s.type.toLowerCase().includes(q))
-            }) && (
-              <div className="py-8 text-center text-sm text-gray-500">
-                No caregiver skills match your search.
-              </div>
-            )}
-          </div>
-          <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-            <p className="text-sm text-gray-500">
-              {caregiverReqsSelection.length} skill{caregiverReqsSelection.length !== 1 ? 's' : ''} selected
-            </p>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="secondary"
-                type="button"
-                onClick={closeCaregiverReqsModal}
-                disabled={isSavingCaregiverReqs}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                type="button"
-                onClick={handleSaveCaregiverReqs}
-                disabled={isSavingCaregiverReqs}
-                loading={isSavingCaregiverReqs}
-                icon={Save}
-              >
-                Save Requirements
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-
+        onSaved={(requiredSkills, preferredSkills) => {
+          setCaregiverRequirements(requiredSkills)
+          setPreferredCaregiverSkills(preferredSkills)
+          setCaregiverReqsModalOpen(false)
+        }}
+      />
       {/* File Incident Report Modal */}
       <Modal
         isOpen={incidentModalOpen}

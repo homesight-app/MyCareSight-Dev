@@ -359,11 +359,14 @@ export async function fetchVisitAssignmentDashboardData(agencyId: string | null)
   const staffById = new Map(staffData.map((s) => [s.id, s]))
 
   const { data: reqRows } = await q.getCaregiverRequirementsByPatientIds(patientIds)
-  const requirementsByPatient = new Map<string, string[]>()
+  const requirementsByPatient = new Map<string, { required: string[]; preferred: string[] }>()
   for (const row of reqRows ?? []) {
-    const pr = row as { patient_id?: string; skill_codes?: string[] }
-    if (pr.patient_id && Array.isArray(pr.skill_codes)) {
-      requirementsByPatient.set(pr.patient_id, pr.skill_codes)
+    const pr = row as { patient_id?: string; skill_codes?: string[]; preferred_skill_codes?: string[] }
+    if (pr.patient_id) {
+      requirementsByPatient.set(pr.patient_id, {
+        required: Array.isArray(pr.skill_codes) ? pr.skill_codes : [],
+        preferred: Array.isArray(pr.preferred_skill_codes) ? pr.preferred_skill_codes : [],
+      })
     }
   }
 
@@ -390,8 +393,9 @@ export async function fetchVisitAssignmentDashboardData(agencyId: string | null)
     const proximity = proximityPercentFromMiles(distanceMiles) ?? 0
 
     const caregiverSkills = Array.isArray(staff.skills) ? staff.skills : []
-    const required = requirementsByPatient.get(patient.id) ?? []
-    const { percent: skillPct, matched } = skillMatchForStaff(required, caregiverSkills)
+    const requirements = requirementsByPatient.get(patient.id) ?? { required: [], preferred: [] }
+    const { percent: skillPct, matched } = skillMatchForStaff(requirements.required, caregiverSkills)
+    const { percent: preferredSkillPct } = skillMatchForStaff(requirements.preferred, caregiverSkills)
 
     const caregiverName = [staff.first_name, staff.last_name].filter(Boolean).join(' ') || 'Caregiver'
     const caregiverTitle =
@@ -408,7 +412,11 @@ export async function fetchVisitAssignmentDashboardData(agencyId: string | null)
       note: (row.caregiver_note ?? '').trim(),
       requestedAtLabel: formatRequestedAt(row.created_at),
       proximityPercent: proximity,
-      overallPercent: overallScorePercent(skillPct, proximity),
+      overallPercent: overallScorePercent(
+        skillPct,
+        proximity,
+        requirements.preferred.length > 0 ? preferredSkillPct : undefined
+      ),
     }
 
     const existing = bySchedule.get(sched.id)

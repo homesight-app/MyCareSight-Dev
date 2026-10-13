@@ -47,7 +47,8 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
   CREATE TABLE user_profiles(id uuid PRIMARY KEY,role text,agency_id uuid,is_active boolean);
   CREATE TABLE user_agency_roles(user_id uuid,agency_id uuid,role text,status text);
   CREATE TABLE patients(id uuid PRIMARY KEY,agency_id uuid);
-  CREATE TABLE caregiver_members(id uuid PRIMARY KEY,agency_id uuid,status text);
+  CREATE TABLE caregiver_members(id uuid PRIMARY KEY,agency_id uuid,status text,skills text[]);
+  CREATE TABLE patient_skill_requirements(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),agency_id uuid,patient_id uuid UNIQUE,skill_codes text[]);
   CREATE TABLE patient_service_contracts(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid);
   CREATE TABLE patient_addresses(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid);
   CREATE TABLE scheduled_visits(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid,visit_series_id uuid,status text,
@@ -79,7 +80,7 @@ test('current membership and patient ownership control create and audit',async()
 
 test('caregiver assignment rolls back when the visit overlaps an existing assignment',async()=>{
   await db.exec(`
-    INSERT INTO caregiver_members VALUES('${CAREGIVER}','${AGENCY}','active');
+    INSERT INTO caregiver_members(id,agency_id,status,skills) VALUES('${CAREGIVER}','${AGENCY}','active','{}');
     INSERT INTO caregiver_availability_slots(caregiver_member_id,agency_id,is_recurring,start_time,end_time,days_of_week,repeat_start)
       VALUES('${CAREGIVER}','${AGENCY}',true,'08:00','18:00',ARRAY[2],'2026-01-01');
     INSERT INTO scheduled_visits(id,agency_id,patient_id,status,caregiver_member_id,visit_date,scheduled_start_time,scheduled_end_time)
@@ -92,6 +93,26 @@ test('caregiver assignment rolls back when the visit overlaps an existing assign
   const result=await managerUpdateSchedule(VISIT,{caregiver_id:CAREGIVER})
   expect(result.error?.message).toMatch(/overlapping visit/i)
   expect((await db.query<{caregiver_member_id:string|null}>('SELECT caregiver_member_id FROM scheduled_visits WHERE id=$1',[VISIT])).rows[0].caregiver_member_id).toBeNull()
+})
+
+test('caregiver assignment rolls back when required client skills are missing',async()=>{
+  await db.exec(`
+    INSERT INTO caregiver_members(id,agency_id,status,skills)
+      VALUES('${CAREGIVER}','${AGENCY}','active',ARRAY['Meal Preparation']);
+    INSERT INTO patient_skill_requirements(agency_id,patient_id,skill_codes)
+      VALUES('${AGENCY}','${PATIENT}',ARRAY['Wound Care']);
+    INSERT INTO caregiver_availability_slots(caregiver_member_id,agency_id,is_recurring,start_time,end_time,days_of_week,repeat_start)
+      VALUES('${CAREGIVER}','${AGENCY}',true,'08:00','18:00',ARRAY[2],'2026-01-01');
+  `)
+  jest.mocked(scheduleQueries.updateSchedule).mockImplementation(async visitId=>{
+    await sql`UPDATE scheduled_visits SET caregiver_member_id=${CAREGIVER}::uuid WHERE id=${visitId}::uuid`
+    return {data:{id:visitId,status:'scheduled'} as never,error:null}
+  })
+  const result=await managerUpdateSchedule(VISIT,{caregiver_id:CAREGIVER})
+  expect(result.error?.message).toMatch(/required client skill/i)
+  expect((await db.query<{caregiver_member_id:string|null}>(
+    'SELECT caregiver_member_id FROM scheduled_visits WHERE id=$1',[VISIT]
+  )).rows[0].caregiver_member_id).toBeNull()
 })
 
 test('a recurring item error rolls back earlier changes',async()=>{

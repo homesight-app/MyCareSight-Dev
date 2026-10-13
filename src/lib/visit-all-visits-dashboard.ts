@@ -40,6 +40,7 @@ export type AllVisitCardDTO = {
   notes: string | null
   statusReason: string | null
   clientRequiredSkills: string[]
+  clientPreferredSkills: string[]
   reassignCandidates: ReassignCandidateDTO[]
   shiftOffer: {
     id: string
@@ -183,10 +184,13 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
   type MinStaffRow = { id: string; first_name?: string | null; last_name?: string | null }
   const staffById = new Map<string, MinStaffRow>(allStaffDataAll.map((s) => [s.id, s]))
 
-  const requirementsByPatient = new Map<string, string[]>()
+  const requirementsByPatient = new Map<string, { required: string[]; preferred: string[] }>()
   for (const row of reqResult.data ?? []) {
-    const pr = row as { patient_id?: string; skill_codes?: string[] }
-    if (pr.patient_id && Array.isArray(pr.skill_codes)) requirementsByPatient.set(pr.patient_id, pr.skill_codes)
+    const pr = row as { patient_id?: string; skill_codes?: string[]; preferred_skill_codes?: string[] }
+    if (pr.patient_id) requirementsByPatient.set(pr.patient_id, {
+      required: Array.isArray(pr.skill_codes) ? pr.skill_codes : [],
+      preferred: Array.isArray(pr.preferred_skill_codes) ? pr.preferred_skill_codes : [],
+    })
   }
   const offerByVisit = new Map(offerRows.map(row => [row.scheduled_visit_id, {
     id: row.id,
@@ -223,7 +227,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
   const allVisits: AllVisitCardDTO[] = schedules.map((s) => {
     const patient = patientById.get(s.patient_id)
     const currentCaregiver = s.caregiver_id ? staffById.get(s.caregiver_id) : undefined
-    const requiredSkills = requirementsByPatient.get(s.patient_id) ?? []
+    const skillRequirements = requirementsByPatient.get(s.patient_id) ?? { required: [], preferred: [] }
     const status = visitStatusFromScheduleRow(s)
     return {
       id: s.id,
@@ -242,7 +246,8 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
       adlTasks: decodeVisitTaskCodes(s.adl_codes, taskNameById),
       notes: s.notes,
       statusReason: s.status_reason ?? null,
-      clientRequiredSkills: requiredSkills,
+      clientRequiredSkills: skillRequirements.required,
+      clientPreferredSkills: skillRequirements.preferred,
       reassignCandidates: [],
       shiftOffer: offerByVisit.get(s.id) ?? null,
     }

@@ -9,6 +9,7 @@ import Button from '@/components/ui/PrimaryButton'
 interface Props {
   options: CaregiverMatchOption[]
   requiredSkills: string[]
+  preferredSkills?: string[]
   selectedId?: string | null
   selectedIds?: string[]
   onSelect: (id: string) => void
@@ -123,6 +124,7 @@ function SortFilterHeader({
 export function CaregiverAssignmentList({
   options,
   requiredSkills,
+  preferredSkills = [],
   selectedId,
   selectedIds = [],
   onSelect,
@@ -143,8 +145,9 @@ export function CaregiverAssignmentList({
       const byStatus = rank(a.availability) - rank(b.availability)
       if (byStatus !== 0) return byStatus
     }
-    if (a.distanceMiles !== b.distanceMiles) return a.distanceMiles - b.distanceMiles
-    return b.skillMatchPercent - a.skillMatchPercent
+    if (sort === 'proximity' && a.distanceMiles !== b.distanceMiles) return a.distanceMiles - b.distanceMiles
+    if (a.overallPercent !== b.overallPercent) return b.overallPercent - a.overallPercent
+    return a.distanceMiles - b.distanceMiles
   })
 
   if (isLoading) {
@@ -168,10 +171,12 @@ export function CaregiverAssignmentList({
               <button
                 key={o.id}
                 type="button"
-                disabled={disabled || o.availability !== 'available'}
+                disabled={disabled || o.availability !== 'available' || o.skillMatchPercent !== 100}
                 onClick={() => onSelect(o.id)}
                 className={`w-full px-4 py-2 border-b border-gray-50 text-left ${
-                  o.availability === 'available' ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-60'
+                  o.availability === 'available' && o.skillMatchPercent === 100
+                    ? 'cursor-pointer hover:bg-gray-50'
+                    : 'cursor-not-allowed opacity-60'
                 } ${
                   selectedId === o.id ? 'bg-blue-50/60' : 'bg-white'
                 }`}
@@ -254,6 +259,18 @@ export function CaregiverAssignmentList({
           </div>
         </div>
       )}
+      {preferredSkills.length > 0 && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+          <div className="text-xs font-semibold text-violet-700 mb-2">Client Preferred Skills</div>
+          <div className="flex flex-wrap gap-2">
+            {preferredSkills.map((skill) => (
+              <span key={skill} className="rounded-full bg-white border border-violet-200 text-violet-700 px-2 py-0.5 text-xs">
+                {skill}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <SortFilterHeader sort={sort} setSort={setSort} filter={filter} setFilter={setFilter} />
       <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
         {sorted.length === 0 && (
@@ -284,6 +301,9 @@ export function CaregiverAssignmentList({
                 <div className="max-w-sm mt-2 space-y-1">
                   <ProgressBar label="Overall Score" value={o.overallPercent} barClass="bg-blue-500" />
                   <ProgressBar label="Skill Match" value={o.skillMatchPercent} barClass="bg-violet-500" />
+                  {preferredSkills.length > 0 && (
+                    <ProgressBar label="Preferred Skills" value={o.preferredSkillMatchPercent} barClass="bg-fuchsia-500" />
+                  )}
                   <ProgressBar label="Proximity" value={o.proximityPercent} barClass="bg-emerald-500" />
                 </div>
                 <div className="mt-2 text-xs text-gray-600 flex items-center gap-1">
@@ -306,7 +326,7 @@ export function CaregiverAssignmentList({
               <Button
                 variant={isSelected && selectionMode === 'multiple' ? 'secondary' : 'primary'}
                 type="button"
-                disabled={disabled || o.availability !== 'available'}
+                disabled={disabled || o.availability !== 'available' || o.skillMatchPercent !== 100}
                 onClick={() => onSelect(o.id)}
               >
                 {selectionMode === 'multiple'

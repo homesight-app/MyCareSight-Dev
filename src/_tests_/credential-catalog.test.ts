@@ -88,6 +88,19 @@ test('actual RLS permits reference reads and preserves deduplication/category pr
   expect(results[0].rows[0]).toMatchObject({access_pass:true,runtime_write:false})
 })
 
+test('includes active skill catalog entries even when no task currently references them',async () => {
+  await mockDb.exec(`
+    INSERT INTO public.credential_catalog(code,name,credential_type,is_active,display_order)
+    VALUES
+      ('TEST_UNLINKED_SKILL','Synthetic unlinked skill','skill',true,50),
+      ('TEST_INACTIVE_SKILL','Synthetic inactive skill','skill',false,60)
+  `)
+  expect((await catalog()).data).toEqual([
+    {name:'Synthetic unlinked skill',type:'Other'},
+    {name:'Synthetic test skill',type:'Synthetic category'},
+  ])
+})
+
 test.each(['admin','expert'])('active platform %s can read without agency membership',async role => {
   await mockDb.query('UPDATE public.user_profiles SET role=$1',[role])
   await mockDb.exec('TRUNCATE public.user_agency_roles')

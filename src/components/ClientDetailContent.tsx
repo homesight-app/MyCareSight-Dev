@@ -52,6 +52,7 @@ import { getActiveBillingCodesAction } from '@/app/actions/billing'
 import type { PatientRepresentative } from '@/lib/supabase/query/patients-representatives'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import type { CaregiverRequirement } from '@/lib/supabase/query/caregiver-requirements'
+import type { PatientSkillSelection } from '@/lib/skill-catalog'
 import type { PatientIncident } from '@/lib/supabase/query/patient-incidents'
 import type { PatientAdl, PatientAdlDaySchedule } from '@/lib/supabase/query/patient-adls'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
@@ -327,6 +328,12 @@ export default function ClientDetailContent({ client, allClients, representative
   const [preferredCaregiverSkills, setPreferredCaregiverSkills] = useState<string[]>(
     initialCaregiverRequirements?.preferred_skill_codes ?? []
   )
+  const [requiredCaregiverSkillSelections, setRequiredCaregiverSkillSelections] = useState<PatientSkillSelection[]>(
+    initialCaregiverRequirements?.required_skills ?? []
+  )
+  const [preferredCaregiverSkillSelections, setPreferredCaregiverSkillSelections] = useState<PatientSkillSelection[]>(
+    initialCaregiverRequirements?.preferred_skills ?? []
+  )
   const [caregiverReqsModalOpen, setCaregiverReqsModalOpen] = useState(false)
   const [localIncidents, setLocalIncidents] = useState<PatientIncident[]>(initialIncidents ?? [])
   const [incidentModalOpen, setIncidentModalOpen] = useState(false)
@@ -407,8 +414,6 @@ export default function ClientDetailContent({ client, allClients, representative
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   const [scheduleWeekStart, setScheduleWeekStart] = useState<Date>(() => getMonday(new Date()))
   const [weekSchedules, setWeekSchedules] = useState<ScheduleRow[]>([])
-  const [caregiverSkillCatalog, setCaregiverSkillCatalog] = useState<{ type: string; name: string }[]>([])
-  const [caregiverSkillCatalogError, setCaregiverSkillCatalogError] = useState<string | null>(null)
   const [serviceContracts, setServiceContracts] = useState<PatientServiceContractRow[]>(initialServiceContracts ?? [])
   const [serviceContractsModalOpen, setServiceContractsModalOpen] = useState(false)
   const [isSavingServiceContract, setIsSavingServiceContract] = useState(false)
@@ -572,6 +577,8 @@ export default function ClientDetailContent({ client, allClients, representative
   useEffect(() => {
     setCaregiverRequirements(initialCaregiverRequirements?.skill_codes ?? [])
     setPreferredCaregiverSkills(initialCaregiverRequirements?.preferred_skill_codes ?? [])
+    setRequiredCaregiverSkillSelections(initialCaregiverRequirements?.required_skills ?? [])
+    setPreferredCaregiverSkillSelections(initialCaregiverRequirements?.preferred_skills ?? [])
   }, [client.id, initialCaregiverRequirements])
 
   // Only reset from RSC props when the patient changes. Do not depend on `initialIncidents`:
@@ -616,14 +623,6 @@ export default function ClientDetailContent({ client, allClients, representative
     })
     q.getTaskCatalogSkilledTasks().then(({ data }) => {
       if (data) setSkilledTaskLibrary(data)
-    })
-    q.getCaregiverSkillCatalogFromTaskRequirements().then(({ data, error }) => {
-      if (data) {
-        setCaregiverSkillCatalog(data)
-        setCaregiverSkillCatalogError(null)
-      } else {
-        setCaregiverSkillCatalogError(error?.message ?? 'Unable to load the caregiver skill catalog.')
-      }
     })
   }, [])
 
@@ -1182,6 +1181,8 @@ export default function ClientDetailContent({ client, allClients, representative
         )).sort((a, b) => a.localeCompare(b))
         setCaregiverRequirements(latest)
         setPreferredCaregiverSkills(latestPreferred)
+        setRequiredCaregiverSkillSelections(data?.required_skills ?? [])
+        setPreferredCaregiverSkillSelections(data?.preferred_skills ?? [])
       } catch {
         // Keep the current local values if the refresh fails.
       }
@@ -3481,34 +3482,6 @@ export default function ClientDetailContent({ client, allClients, representative
     latestOverviewWeeklyByServiceType.non_skilled != null ||
     latestOverviewWeeklyByServiceType.skilled != null
 
-  const knownCaregiverSkillNames = new Set(caregiverSkillCatalog.map(skill => skill.name))
-  const savedUncataloguedSkills = [...caregiverRequirements, ...preferredCaregiverSkills]
-    .filter((name, index, values) => !knownCaregiverSkillNames.has(name) && values.indexOf(name) === index)
-    .map(name => ({ name, type: 'Other' }))
-  const skillsByType = [...caregiverSkillCatalog, ...savedUncataloguedSkills].reduce<Record<string, { type: string; name: string }[]>>((acc, s) => {
-    if (!acc[s.type]) acc[s.type] = []
-    acc[s.type].push(s)
-    return acc
-  }, {})
-  const CAREGIVER_REQUIREMENTS_TYPE_ORDER = [
-    'Clinical Care',
-    'Specialty Conditions',
-    'Physical Support',
-    'Daily Living',
-    'Certifications',
-    'Language',
-    ...Object.keys(skillsByType).filter(
-      (t) =>
-        ![
-          'Clinical Care',
-          'Specialty Conditions',
-          'Physical Support',
-          'Daily Living',
-          'Certifications',
-          'Language',
-        ].includes(t)
-    ),
-  ]
   const categoryColors: Record<string, string> = {
     'Clinical Care': 'ring-red-500 bg-red-500 text-white',
     'Specialty Conditions': 'ring-blue-500 bg-blue-500 text-white',
@@ -4651,21 +4624,21 @@ export default function ClientDetailContent({ client, allClients, representative
                   </Button>
                 </div>
                 <div className="p-6">
-                  <div className={`border-2 border-dashed border-gray-200 rounded-lg min-h-[200px] flex flex-col py-8 px-4 ${caregiverRequirements.length > 0 || preferredCaregiverSkills.length > 0 ? 'items-start justify-start' : 'items-center justify-center'}`}>
-                    {caregiverRequirements.length > 0 || preferredCaregiverSkills.length > 0 ? (
+                  <div className={`border-2 border-dashed border-gray-200 rounded-lg min-h-[200px] flex flex-col py-8 px-4 ${requiredCaregiverSkillSelections.length > 0 || preferredCaregiverSkillSelections.length > 0 ? 'items-start justify-start' : 'items-center justify-center'}`}>
+                    {requiredCaregiverSkillSelections.length > 0 || preferredCaregiverSkillSelections.length > 0 ? (
                       <div className="grid w-full gap-6 lg:grid-cols-2">
                         {([
                           {
                             key: 'required',
                             title: 'Required',
                             description: 'Every skill is needed for assignment eligibility.',
-                            values: caregiverRequirements,
+                            values: requiredCaregiverSkillSelections,
                           },
                           {
                             key: 'preferred',
                             title: 'Preferred',
                             description: 'These skills increase ranking without excluding caregivers.',
-                            values: preferredCaregiverSkills,
+                            values: preferredCaregiverSkillSelections,
                           },
                         ] as const).map(group => (
                           <section key={group.key} className="rounded-lg border border-gray-200 p-4">
@@ -4673,19 +4646,17 @@ export default function ClientDetailContent({ client, allClients, representative
                             <p className="mb-3 text-xs text-gray-500">{group.description}</p>
                             {group.values.length > 0 ? (
                               <div className="space-y-3">
-                                {CAREGIVER_REQUIREMENTS_TYPE_ORDER.map(type => {
-                                  const skillsInType = group.values.filter(code =>
-                                    (skillsByType[type] ?? []).some(skill => skill.name === code)
-                                  )
+                                {Array.from(new Set(group.values.map(skill => skill.categoryName))).map(type => {
+                                  const skillsInType = group.values.filter(skill => skill.categoryName === type)
                                   if (skillsInType.length === 0) return null
                                   const color = categoryColors[type] ?? 'ring-gray-400 bg-gray-400 text-white'
                                   return (
                                     <div key={`${group.key}-${type}`}>
                                       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{type}</div>
                                       <div className="flex flex-wrap gap-2">
-                                        {skillsInType.map(code => (
-                                          <span key={code} className={`inline-flex rounded-full px-3 py-1.5 text-sm font-medium ring-2 ${color}`}>
-                                            {code}
+                                        {skillsInType.map(skill => (
+                                          <span key={skill.id} className={`inline-flex rounded-full px-3 py-1.5 text-sm font-medium ring-2 ${color}`}>
+                                            {skill.name}
                                           </span>
                                         ))}
                                       </div>
@@ -5997,14 +5968,14 @@ export default function ClientDetailContent({ client, allClients, representative
         isOpen={caregiverReqsModalOpen}
         patientId={localClient.id}
         patientName={patientFullName(localClient)}
-        catalog={caregiverSkillCatalog}
-        catalogError={caregiverSkillCatalogError}
-        initialRequiredSkills={caregiverRequirements}
-        initialPreferredSkills={preferredCaregiverSkills}
+        initialRequiredSkills={requiredCaregiverSkillSelections}
+        initialPreferredSkills={preferredCaregiverSkillSelections}
         onClose={closeCaregiverReqsModal}
         onSaved={(requiredSkills, preferredSkills) => {
-          setCaregiverRequirements(requiredSkills)
-          setPreferredCaregiverSkills(preferredSkills)
+          setRequiredCaregiverSkillSelections(requiredSkills)
+          setPreferredCaregiverSkillSelections(preferredSkills)
+          setCaregiverRequirements(requiredSkills.map(skill => skill.name))
+          setPreferredCaregiverSkills(preferredSkills.map(skill => skill.name))
           setCaregiverReqsModalOpen(false)
         }}
       />

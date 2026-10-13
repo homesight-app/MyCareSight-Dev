@@ -49,6 +49,9 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
   CREATE TABLE patients(id uuid PRIMARY KEY,agency_id uuid);
   CREATE TABLE caregiver_members(id uuid PRIMARY KEY,agency_id uuid,status text,skills text[]);
   CREATE TABLE patient_skill_requirements(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),agency_id uuid,patient_id uuid UNIQUE,skill_codes text[]);
+  CREATE TABLE credential_catalog(id uuid PRIMARY KEY,name text,is_active boolean);
+  CREATE TABLE caregiver_skill_assignments(caregiver_member_id uuid,agency_id uuid,credential_id uuid,verification_status text);
+  CREATE TABLE patient_skill_requirement_items(patient_id uuid,agency_id uuid,credential_id uuid,requirement_level text);
   CREATE TABLE patient_service_contracts(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid);
   CREATE TABLE patient_addresses(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid);
   CREATE TABLE scheduled_visits(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid,visit_series_id uuid,status text,
@@ -97,10 +100,13 @@ test('caregiver assignment rolls back when the visit overlaps an existing assign
 
 test('caregiver assignment rolls back when required client skills are missing',async()=>{
   await db.exec(`
+    INSERT INTO credential_catalog(id,name,is_active) VALUES('${id(40)}','Wound Care',true);
     INSERT INTO caregiver_members(id,agency_id,status,skills)
       VALUES('${CAREGIVER}','${AGENCY}','active',ARRAY['Meal Preparation']);
     INSERT INTO patient_skill_requirements(agency_id,patient_id,skill_codes)
       VALUES('${AGENCY}','${PATIENT}',ARRAY['Wound Care']);
+    INSERT INTO patient_skill_requirement_items(patient_id,agency_id,credential_id,requirement_level)
+      VALUES('${PATIENT}','${AGENCY}','${id(40)}','required');
     INSERT INTO caregiver_availability_slots(caregiver_member_id,agency_id,is_recurring,start_time,end_time,days_of_week,repeat_start)
       VALUES('${CAREGIVER}','${AGENCY}',true,'08:00','18:00',ARRAY[2],'2026-01-01');
   `)

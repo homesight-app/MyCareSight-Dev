@@ -58,7 +58,10 @@ export async function loadVisitCaregiverCandidatesForActor(
       phone: string | null
     }[]>`
       SELECT caregiver.id, caregiver.first_name, caregiver.last_name, caregiver.zip_code,
-        caregiver.skills, caregiver.role, caregiver.job_title, caregiver.phone
+        COALESCE(array_agg(skill_catalog.name ORDER BY skill_catalog.name)
+          FILTER (WHERE skill_assignment.verification_status = 'verified' AND skill_catalog.is_active),
+          '{}'::text[]) AS skills,
+        caregiver.role, caregiver.job_title, caregiver.phone
       FROM public.caregiver_members caregiver
       JOIN public.user_profiles profile
         ON profile.id = caregiver.user_id
@@ -70,8 +73,14 @@ export async function loadVisitCaregiverCandidatesForActor(
        AND membership.agency_id = caregiver.agency_id
        AND membership.role = 'staff_member'
        AND membership.status = 'active'
+      LEFT JOIN public.caregiver_skill_assignments skill_assignment
+        ON skill_assignment.caregiver_member_id = caregiver.id
+       AND skill_assignment.agency_id = caregiver.agency_id
+      LEFT JOIN public.credential_catalog skill_catalog
+        ON skill_catalog.id = skill_assignment.credential_id
       WHERE caregiver.agency_id = ${actor.agencyId}::uuid
         AND caregiver.status = 'active'
+      GROUP BY caregiver.id
       ORDER BY caregiver.first_name, caregiver.last_name, caregiver.id
     `,
   ])

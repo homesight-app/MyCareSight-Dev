@@ -8,7 +8,7 @@ import {
   publishVisitShiftOfferSchema,
   respondToVisitShiftOfferSchema,
 } from '@/lib/schemas/visit-shift-offers'
-import { patientCaregiverSkillsSchema } from '@/lib/schemas/patient-caregiver-skills'
+import { patientSkillIdRequirementsSchema } from '@/lib/schemas/skill-catalog'
 
 const VISIT_ID = '10000000-0000-4000-8000-000000000001'
 const CAREGIVER_ID = '20000000-0000-4000-8000-000000000001'
@@ -92,17 +92,19 @@ describe('shared caregiver eligibility and ranking rules', () => {
     expect(eligibleCaregiverCandidates([preferredMiss, preferredMatch])).toHaveLength(2)
   })
 
-  test('client skill input normalizes values and prevents required/preferred overlap', () => {
-    const normalized = patientCaregiverSkillsSchema.parse({
+  test('client skill input deduplicates IDs and prevents required/preferred overlap', () => {
+    const skillId = '20000000-0000-4000-8000-000000000010'
+    const preferredId = '20000000-0000-4000-8000-000000000011'
+    const normalized = patientSkillIdRequirementsSchema.parse({
       patientId: VISIT_ID,
-      requiredSkills: [' Wound Care ', 'Wound Care'],
-      preferredSkills: ['Spanish'],
+      requiredSkillIds: [skillId, skillId],
+      preferredSkillIds: [preferredId],
     })
-    expect(normalized.requiredSkills).toEqual(['Wound Care'])
-    expect(patientCaregiverSkillsSchema.safeParse({
+    expect(normalized.requiredSkillIds).toEqual([skillId])
+    expect(patientSkillIdRequirementsSchema.safeParse({
       patientId: VISIT_ID,
-      requiredSkills: ['Wound Care'],
-      preferredSkills: ['Wound Care'],
+      requiredSkillIds: [skillId],
+      preferredSkillIds: [skillId],
     }).success).toBe(false)
   })
 })

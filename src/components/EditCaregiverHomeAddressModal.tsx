@@ -1,11 +1,17 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
 import { MapPin, Save } from 'lucide-react'
-import Button from '@/components/ui/PrimaryButton'
-import * as q from '@/app/actions/query-bridge'
 import { useRouter } from 'next/navigation'
-import ModalWrapper from './Modal'
+import Button from '@/components/ui/PrimaryButton'
+import Modal from '@/components/Modal'
+import { updateCaregiverHomeAddressAction } from '@/app/actions/caregiver-profile'
+import {
+  caregiverHomeAddressSchema,
+  type CaregiverHomeAddressInput,
+} from '@/lib/schemas/caregiver-profile'
 
 interface Caregiver {
   id: string
@@ -16,7 +22,7 @@ interface Caregiver {
   zip_code?: string | null
 }
 
-interface EditCaregiverHomeAddressModalProps {
+interface Props {
   isOpen: boolean
   onClose: () => void
   caregiver: Caregiver
@@ -24,153 +30,95 @@ interface EditCaregiverHomeAddressModalProps {
 }
 
 const parseAddressParts = (address?: string | null) => {
-  const parts = (address ?? '')
-    .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean)
-
-  const street = parts[0] ?? ''
-  const city = parts.length >= 2 ? parts.slice(1).join(', ') : ''
-  return { street, city }
+  const parts = (address ?? '').split(',').map(part => part.trim()).filter(Boolean)
+  return { streetAddress: parts[0] ?? '', city: parts.length >= 2 ? parts.slice(1).join(', ') : '' }
 }
 
-export default function EditCaregiverHomeAddressModal({
-  isOpen,
-  onClose,
-  caregiver,
-  onSuccess,
-}: EditCaregiverHomeAddressModalProps) {
+export default function EditCaregiverHomeAddressModal({ isOpen, onClose, caregiver, onSuccess }: Props) {
   const router = useRouter()
-  const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
   const initial = useMemo(() => parseAddressParts(caregiver.address), [caregiver.address])
-
-  const [streetAddress, setStreetAddress] = useState(initial.street)
-  const [city, setCity] = useState(initial.city)
-  const [state, setStateValue] = useState(caregiver.state ?? '')
-  const [zipCode, setZipCode] = useState(caregiver.zip_code ?? '')
+  const [serverError, setServerError] = useState<string | null>(null)
+  const form = useForm<CaregiverHomeAddressInput>({
+    resolver: zodResolver(caregiverHomeAddressSchema),
+    mode: 'onBlur',
+    defaultValues: {
+      caregiverMemberId: caregiver.id,
+      streetAddress: initial.streetAddress,
+      city: initial.city,
+      state: caregiver.state ?? '',
+      zipCode: caregiver.zip_code ?? '',
+    },
+  })
 
   useEffect(() => {
     if (!isOpen) return
     const parts = parseAddressParts(caregiver.address)
-    setStreetAddress(parts.street)
-    setCity(parts.city)
-    setStateValue(caregiver.state ?? '')
-    setZipCode(caregiver.zip_code ?? '')
-    setError(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, caregiver.id])
+    form.reset({
+      caregiverMemberId: caregiver.id,
+      streetAddress: parts.streetAddress,
+      city: parts.city,
+      state: caregiver.state ?? '',
+      zipCode: caregiver.zip_code ?? '',
+    })
+    setServerError(null)
+  }, [caregiver.address, caregiver.id, caregiver.state, caregiver.zip_code, form, isOpen])
 
-  const handleClose = () => {
-    if (!isSaving) onClose()
-  }
-
-  const handleSave = async () => {
-    setIsSaving(true)
-    setError(null)
-    try {
-      const newAddress = [streetAddress.trim(), city.trim()].filter(Boolean).join(', ')
-      const { error: updateError } = await q.updateStaffMember(caregiver.id, {
-        address: newAddress,
-        state: state || null,
-        zip_code: zipCode || null,
-      })
-
-      if (updateError) throw updateError
-
-      router.refresh()
-      if (onSuccess) onSuccess()
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update home address.')
-    } finally {
-      setIsSaving(false)
+  const submit = form.handleSubmit(async values => {
+    setServerError(null)
+    const result = await updateCaregiverHomeAddressAction(values)
+    if (!result.success) {
+      for (const [field, messages] of Object.entries(result.fieldErrors ?? {})) {
+        if (field in values) form.setError(field as keyof CaregiverHomeAddressInput, { message: messages[0] })
+      }
+      setServerError(result.error ?? 'Unable to update home address.')
+      return
     }
-  }
+    router.refresh()
+    onSuccess?.()
+  })
+
+  const field = (name: 'streetAddress' | 'city' | 'state' | 'zipCode', label: string, props?: { placeholder?: string; inputMode?: 'numeric' }) => (
+    <label className="block text-sm font-semibold text-gray-700">
+      {label}
+      <input
+        {...form.register(name)}
+        {...props}
+        className="mt-2 block w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
+        disabled={form.formState.isSubmitting}
+      />
+      {form.formState.errors[name] ? <span className="mt-1 block text-xs font-normal text-red-600">{form.formState.errors[name]?.message}</span> : null}
+    </label>
+  )
 
   return (
-    <ModalWrapper
+    <Modal
       isOpen={isOpen}
-      onClose={handleClose}
-      title={`Home Address \u2014 ${caregiver.first_name} ${caregiver.last_name}`}
-      subtitle="The caregiver's distance matching uses zip code coordinates. Exact addresses are displayed for reference only."
+      onClose={onClose}
+      title={`Home Address — ${caregiver.first_name} ${caregiver.last_name}`}
+      subtitle="The caregiver's distance matching uses ZIP code coordinates. Exact addresses are displayed for reference only."
       size="lg"
+      closeOnEscape={!form.formState.isSubmitting}
+      closeOnBackdropClick={!form.formState.isSubmitting}
     >
-      <div className="space-y-5">
-        {error ? (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
-        ) : null}
-
+      <form noValidate onSubmit={submit} className="space-y-5">
+        {serverError ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{serverError}</div> : null}
         <div className="flex items-start gap-3">
-          <div className="p-2 bg-green-50 rounded-lg shrink-0">
-            <MapPin className="w-5 h-5 text-green-600" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">Update Address</h2>
-            <p className="text-sm text-gray-500 mt-1">Add or adjust city, state, and zip code.</p>
-          </div>
+          <div className="shrink-0 rounded-lg bg-green-50 p-2"><MapPin className="h-5 w-5 text-green-600" /></div>
+          <div><h2 className="text-lg font-bold text-gray-900">Update Address</h2><p className="mt-1 text-sm text-gray-500">Add or adjust city, state, and ZIP code.</p></div>
         </div>
-
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Street Address</label>
-            <input
-              type="text"
-              value={streetAddress}
-              onChange={(e) => setStreetAddress(e.target.value)}
-              className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-              disabled={isSaving}
-            />
+          {field('streetAddress', 'Street Address')}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {field('city', 'City')}
+            {field('state', 'State', { placeholder: 'TX' })}
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">City</label>
-              <input
-                type="text"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                disabled={isSaving}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">State</label>
-              <input
-                type="text"
-                value={state}
-                onChange={(e) => setStateValue(e.target.value)}
-                placeholder="TX"
-                className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                disabled={isSaving}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">ZIP Code</label>
-            <input
-              type="text"
-              value={zipCode}
-              onChange={(e) => setZipCode(e.target.value)}
-              inputMode="numeric"
-              className="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-              disabled={isSaving}
-            />
-          </div>
+          {field('zipCode', 'ZIP Code', { inputMode: 'numeric' })}
         </div>
-
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-          <Button variant="secondary" type="button" onClick={handleClose} disabled={isSaving}>
-            Cancel
-          </Button>
-          <Button variant="primary" type="button" onClick={handleSave} disabled={isSaving} loading={isSaving} icon={Save}>
-            Save Address
-          </Button>
+        <div className="flex justify-end gap-3 border-t border-gray-200 pt-4">
+          <Button variant="secondary" type="button" onClick={onClose} disabled={form.formState.isSubmitting}>Cancel</Button>
+          <Button variant="primary" type="submit" loading={form.formState.isSubmitting} icon={Save}>Save Address</Button>
         </div>
-      </div>
-    </ModalWrapper>
+      </form>
+    </Modal>
   )
 }
-

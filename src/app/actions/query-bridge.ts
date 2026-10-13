@@ -549,10 +549,6 @@ export async function updateLicensingExpertById(...args: Parameters<typeof q.upd
   return ctx(() => q.updateLicensingExpertById(...args))
 }
 
-export async function updateStaffMember(...args: Parameters<typeof q.updateStaffMember>) {
-  return ctx(() => q.updateStaffMember(...args))
-}
-
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------

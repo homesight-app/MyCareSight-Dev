@@ -40,19 +40,14 @@ export async function getCaregiverSkillCatalogFromTaskRequirements(): Promise<Re
         display_order: number
       }[]>`
         SELECT cc.name, cc.credential_type,
-          min(category.name) FILTER (WHERE category.name IS NOT NULL) AS category_name,
+          category.name AS category_name,
           cc.display_order
         FROM public.credential_catalog cc
-        LEFT JOIN public.task_required_credentials requirement
-          ON requirement.credential_id = cc.id
-        LEFT JOIN public.task_catalog task ON task.id = requirement.task_id
-        LEFT JOIN public.task_categories category ON category.id = task.category_id
+        LEFT JOIN public.configuration_values category ON category.id = cc.category_id
         WHERE cc.is_active = true AND cc.credential_type = 'skill'
-        GROUP BY cc.id, cc.name, cc.credential_type, cc.display_order
-        ORDER BY cc.display_order ASC, cc.name ASC
+        ORDER BY category.sort_order ASC NULLS LAST, cc.display_order ASC, cc.name ASC
       `
-      // Preserve skill-only display, trim labels, deduplicate by name, and prefer
-      // a named category over Other. Existing inactive-reference behavior is unchanged.
+      // Compatibility shape for existing read-only displays. Editors use stable IDs.
       const catalog = new Map<string, string>()
       for (const row of rows) {
         if (row.credential_type.trim().toLowerCase() !== 'skill') continue

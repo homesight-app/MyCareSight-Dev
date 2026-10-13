@@ -7,9 +7,9 @@ import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import {
-  patientCaregiverSkillsSchema,
-  type PatientCaregiverSkillsInput,
-} from '@/lib/schemas/patient-caregiver-skills'
+  patientSkillIdRequirementsSchema,
+  type PatientSkillIdRequirementsInput,
+} from '@/lib/schemas/skill-catalog'
 import { zodErrorToFieldErrors } from '@/lib/validation'
 
 function revalidateAgencyPatientDetailPath(patientId: string) {
@@ -58,21 +58,21 @@ export async function getAgencyPatientNamesAction(): Promise<
 }
 
 export async function upsertPatientCaregiverRequirementsAction(
-  input: PatientCaregiverSkillsInput
+  input: PatientSkillIdRequirementsInput
 ): Promise<{ success: boolean; error?: string; fieldErrors?: Record<string, string[]> }> {
   const session = await getSession()
   if (!session) return { success: false, error: 'You must be logged in to update caregiver requirements' }
 
-  const parsed = patientCaregiverSkillsSchema.safeParse(input)
+  const parsed = patientSkillIdRequirementsSchema.safeParse(input)
   if (!parsed.success) {
     return { success: false, fieldErrors: zodErrorToFieldErrors(parsed.error) }
   }
-  const { patientId, requiredSkills, preferredSkills } = parsed.data
+  const { patientId, requiredSkillIds, preferredSkillIds } = parsed.data
 
   try {
     return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
-      const { error } = await q.upsertCaregiverRequirements(patientId, requiredSkills, preferredSkills)
-      if (error) return { success: false, error: error.message ?? 'Failed to save caregiver requirements' }
+      const { error } = await q.upsertCaregiverRequirements(patientId, requiredSkillIds, preferredSkillIds)
+      if (error) throw new Error(error.message ?? 'Failed to save caregiver requirements')
 
       const { error: auditErr } = await q.insertAuditLog({
         table_name: 'patient_skill_requirements',
@@ -80,9 +80,9 @@ export async function upsertPatientCaregiverRequirementsAction(
         action: 'UPDATE',
         performed_by_user_id: session.user.id,
         details: {
-          fields: ['skill_codes', 'preferred_skill_codes'],
-          required_skill_count: requiredSkills.length,
-          preferred_skill_count: preferredSkills.length,
+          fields: ['patient_skill_requirement_items'],
+          required_skill_count: requiredSkillIds.length,
+          preferred_skill_count: preferredSkillIds.length,
         },
       })
       if (auditErr) throw new Error('Caregiver skill audit write failed')
@@ -90,8 +90,7 @@ export async function upsertPatientCaregiverRequirementsAction(
       revalidateAgencyPatientDetailPath(patientId)
       return { success: true }
     })
-  } catch (err) {
-    console.error('[patients/upsertCaregiverRequirements]', err)
+  } catch {
     return { success: false, error: 'Unable to save caregiver requirements.' }
   }
 }

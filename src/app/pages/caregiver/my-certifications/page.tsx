@@ -547,6 +547,7 @@ function MyCertificationsContent() {
             skills: caregiverSelf.skills,
           }}
           onSuccess={handleSkillsSaveSuccess}
+          verificationMode="self"
           subtitle="Choose the skills that describe your experience. They are used to match you with the right clients and open visits."
         />
       )}

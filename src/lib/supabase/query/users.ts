@@ -107,25 +107,6 @@ export async function insertStaffMemberReturning(data: Record<string, unknown>) 
   }
 }
 
-/**
- * Update staff member by id.
- * Treats an empty result as unknown as an error so callers still know the update did not apply.
- */
-export async function updateStaffMember(staffId: string, data: Record<string, unknown>) {
-  try {
-    const keys = Object.keys(data) as unknown as any[]
-    const rows = await sql`UPDATE caregiver_members SET ${sql(data, ...keys)} WHERE id = ${staffId} RETURNING id`
-    if (!rows[0]) {
-      throw new Error(
-        'No rows were updated. If you are saving your own skills, apply the database migration that allows caregivers to update their own caregiver_members row, or ask an agency admin to update your profile.'
-      )
-    }
-    return { data: rows[0] as any, error: null }
-  } catch (err) {
-    return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
-  }
-}
-
 /** Update user profile (full_name, role, updated_at). */
 export async function updateUserProfile(
   userId: string,
@@ -303,12 +284,21 @@ export async function getStaffMemberByIdWithAgencyOrCompanyOwner(
 /** Get staff members by agency_id (optional status filter), ordered by created_at desc. */
 export async function getStaffMembersByAgencyId(agencyId: string, options?: { status?: string }) {
   try {
-    const statusFrag = options?.status ? sql`AND status = ${options.status}` : sql``
+    const statusFrag = options?.status ? sql`AND caregiver.status = ${options.status}` : sql``
     const rows = await sql`
-      SELECT * FROM caregiver_members
-      WHERE agency_id = ${agencyId}
+      SELECT caregiver.*,
+        COALESCE(array_agg(catalog.name ORDER BY catalog.name)
+          FILTER (WHERE assignment.verification_status = 'verified' AND catalog.is_active),
+          '{}'::text[]) AS skills
+      FROM caregiver_members caregiver
+      LEFT JOIN public.caregiver_skill_assignments assignment
+        ON assignment.caregiver_member_id = caregiver.id
+       AND assignment.agency_id = caregiver.agency_id
+      LEFT JOIN public.credential_catalog catalog ON catalog.id = assignment.credential_id
+      WHERE caregiver.agency_id = ${agencyId}
       ${statusFrag}
-      ORDER BY created_at DESC
+      GROUP BY caregiver.id
+      ORDER BY caregiver.created_at DESC
       LIMIT 500
     `
     return { data: normalizeDatabaseRows(rows, PERSON_TEMPORAL_CONTRACT) as unknown as any[], error: null }

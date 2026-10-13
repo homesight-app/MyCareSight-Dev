@@ -62,7 +62,7 @@ async function loadAgencyClientDetailBundleUncached(
     requestedTab === 'representatives'
       ? dataOrThrow(q.getRepresentativesByPatientId(patientId), [])
       : Promise.resolve([]),
-    requestedTab === 'caregiver-requirements'
+    (requestedTab === 'caregiver-requirements' || requestedTab === 'schedule')
       ? dataOrThrow(q.getCaregiverRequirementsByPatientId(patientId), null)
       : Promise.resolve(null),
     requestedTab === 'incidents'

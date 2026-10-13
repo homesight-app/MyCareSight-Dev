@@ -15,7 +15,7 @@ export const CACHE_TAG_AGENCIES_ID_NAME = 'agencies-id-name'
 export const CACHE_TAG_AGENCIES_ORDERED = 'agencies-ordered'
 export const CACHE_TAG_AGENCIES_FOR_BILLING = 'agencies-for-billing'
 
-/** Caregiver skill catalog built from `task_required_credentials` */
+/** Searchable caregiver skill catalog */
 export const CACHE_TAG_CAREGIVER_SKILL_CATALOG = 'caregiver-skill-catalog'
 
 /** Active rows from `license_types` */

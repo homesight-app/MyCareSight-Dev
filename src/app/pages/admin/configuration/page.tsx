@@ -7,6 +7,7 @@ import ConfigLicenseSection from '@/components/ConfigLicenseSection'
 import ConfigurableListSection from '@/components/ConfigurableListSection'
 import SystemListsManagement from '@/components/SystemListsManagement'
 import ConfigBrandingSection from '@/components/ConfigBrandingSection'
+import SkillCatalogManagement from '@/components/SkillCatalogManagement'
 import { getCurrentPricing } from '@/app/actions/pricing'
 import { getCachedLicenseTypesForConfiguration } from '@/lib/server-cache/reference-lists'
 import { getConfigurationValues } from '@/app/actions/configuration-values'
@@ -24,6 +25,7 @@ const VALID_SECTIONS = [
   'certification-types',
   'staff-roles',
   'task-catalog',
+  'caregiver-skills',
   'playbook-categories',
   'branding',
 ] as const
@@ -119,6 +121,11 @@ async function ConfigurationSectionContent({ section }: { section: Section }) {
         initialNonSkilledTaskCategories={nonSkilledCatsResult.data ?? []}
       />
     )
+  }
+
+  if (section === 'caregiver-skills') {
+    const { data: categories } = await getConfigurationValues('CAREGIVER_SKILL_CATEGORY')
+    return <SkillCatalogManagement categories={(categories ?? []) as Parameters<typeof SkillCatalogManagement>[0]['categories']} />
   }
 
   if (section === 'playbook-categories') {

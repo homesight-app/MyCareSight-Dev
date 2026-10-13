@@ -726,7 +726,8 @@ CREATE TABLE IF NOT EXISTS patient_skill_requirements (
   legacy_caregiver_requirements_id UUID,
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-  CONSTRAINT pk_patient_skill_requirements PRIMARY KEY (id)
+  CONSTRAINT pk_patient_skill_requirements PRIMARY KEY (id),
+  CONSTRAINT patient_skill_requirements_patient_key UNIQUE (patient_id)
 );
 
 -- Table: schedule_assignment_requests

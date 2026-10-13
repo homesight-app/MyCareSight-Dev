@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Award, BookOpen, ClipboardList, DollarSign, Palette, Shield, Users } from 'lucide-react'
+import { Award, BookOpen, ClipboardList, DollarSign, Palette, Shield, Sparkles, Users } from 'lucide-react'
 
 const NAV_ITEMS = [
   {
@@ -31,6 +31,12 @@ const NAV_ITEMS = [
     label: 'Task Catalog',
     description: 'Skilled and non-skilled task definitions',
     icon: ClipboardList,
+  },
+  {
+    key: 'caregiver-skills',
+    label: 'Caregiver Skills',
+    description: 'Searchable skills used for matching',
+    icon: Sparkles,
   },
   {
     key: 'playbook-categories',

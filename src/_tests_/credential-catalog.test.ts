@@ -64,12 +64,23 @@ beforeEach(async () => {
     CREATE TABLE public.task_required_credentials(id uuid PRIMARY KEY,task_id uuid,credential_id uuid,created_at timestamptz);
     CREATE TABLE public.task_catalog(id uuid PRIMARY KEY,category_id uuid);
     CREATE TABLE public.task_categories(id uuid PRIMARY KEY,name text);
+    CREATE TABLE public.configuration_values(id uuid PRIMARY KEY,name text,sort_order integer);
   `)
   for (const table of ['agencies','caregiver_members','patients','scheduled_visits','billing_codes','patient_service_contracts']) {
     await mockDb.exec(`CREATE TABLE public.${table}(id uuid PRIMARY KEY)`)
   }
   await mockDb.exec(read('002-stage-missing-application-tables.sql'))
   await mockDb.exec(read('003-seed-synthetic-credentials.sql'))
+  await mockDb.exec(`
+    ALTER TABLE public.credential_catalog
+      ADD COLUMN category_id uuid,
+      ADD COLUMN scope text NOT NULL DEFAULT 'system',
+      ADD COLUMN agency_id uuid;
+    INSERT INTO public.configuration_values VALUES ('${id(10)}',' Synthetic category ',10);
+    UPDATE public.credential_catalog
+    SET category_id='${id(10)}'
+    WHERE code='TEST_SKILL';
+  `)
   await mockDb.query("INSERT INTO public.user_profiles VALUES ($1,'company_owner',true)",[ACTOR])
   await mockDb.query("INSERT INTO public.user_agency_roles VALUES ($1,$2,'company_owner','active')",[ACTOR,AGENCY])
   await mockDb.query("INSERT INTO public.task_categories VALUES ($1,' Synthetic category ')",[id(10)])
@@ -96,8 +107,8 @@ test('includes active skill catalog entries even when no task currently referenc
       ('TEST_INACTIVE_SKILL','Synthetic inactive skill','skill',false,60)
   `)
   expect((await catalog()).data).toEqual([
-    {name:'Synthetic unlinked skill',type:'Other'},
     {name:'Synthetic test skill',type:'Synthetic category'},
+    {name:'Synthetic unlinked skill',type:'Other'},
   ])
 })
 

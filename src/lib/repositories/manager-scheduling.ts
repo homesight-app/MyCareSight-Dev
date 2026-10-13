@@ -91,16 +91,24 @@ async function assertAssignmentIntegrity(actor:{agencyId:string},visitIds:string
 
   const [missingRequiredSkill]=await sql<{id:string}[]>`SELECT visit.id
     FROM public.scheduled_visits visit
-    JOIN public.caregiver_members caregiver
-      ON caregiver.id=visit.caregiver_member_id AND caregiver.agency_id=visit.agency_id
-    LEFT JOIN public.patient_skill_requirements requirement
-      ON requirement.patient_id=visit.patient_id AND requirement.agency_id=visit.agency_id
     WHERE visit.agency_id=${actor.agencyId}::uuid AND visit.id=ANY(${clean}::uuid[])
       AND visit.caregiver_member_id IS NOT NULL
       AND visit.status IN ('scheduled','in_progress','on_hold')
       AND EXISTS (
-        SELECT 1 FROM unnest(COALESCE(requirement.skill_codes,'{}'::text[])) required_skill
-        WHERE NOT (required_skill=ANY(COALESCE(caregiver.skills,'{}'::text[])))
+        SELECT 1
+        FROM public.patient_skill_requirement_items requirement
+        WHERE requirement.patient_id=visit.patient_id
+          AND requirement.agency_id=visit.agency_id
+          AND requirement.requirement_level='required'
+          AND NOT EXISTS (
+            SELECT 1 FROM public.caregiver_skill_assignments assignment
+            JOIN public.credential_catalog catalog ON catalog.id=assignment.credential_id
+            WHERE assignment.caregiver_member_id=visit.caregiver_member_id
+              AND assignment.agency_id=visit.agency_id
+              AND assignment.credential_id=requirement.credential_id
+              AND assignment.verification_status='verified'
+              AND catalog.is_active=true
+          )
       )
     LIMIT 1`
   if(missingRequiredSkill)throw new SchedulingError('The caregiver does not have every required client skill.')

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import sql from '@/db'
 import { requireCaregiverPayRates } from '@/lib/repositories/caregiver-pay-rates'
-import { withAgencyManagerFinancialRead } from '@/lib/repositories/visit-financial-reads'
+import { withCareOperationsManager } from '@/lib/repositories/visit-financial-reads'
 import { savePatientServiceContractBillRates } from '@/lib/repositories/financial-maintenance'
 import { appendCaregiverPayRateAction } from '@/app/actions/caregiver-pay-rates'
 import { fetchPayrollBillingReportRows, type PayrollBillingDetailRow } from '@/lib/payroll-billing-report'
@@ -24,7 +24,7 @@ export async function getPayrollBillingReportRowsAction(
   const parsed = financialReportRangeSchema.safeParse({ dateFrom, dateTo })
   if (!parsed.success) return { rows: [], error: parsed.error.issues[0]?.message ?? 'Invalid date range.' }
   try {
-    return await withAgencyManagerFinancialRead(async actor => {
+    return await withCareOperationsManager(async actor => {
       const result = await fetchPayrollBillingReportRows({ agencyId: actor.agencyId, ...parsed.data })
       if (result.error) return result
       await sql`INSERT INTO public.audit_log(agency_id,table_name,record_id,action,performed_by_user_id,details)
@@ -102,7 +102,7 @@ export async function getRateManagerDataAction(): Promise<{
   error?: string
 }> {
   try {
-    return await withAgencyManagerFinancialRead(async actor => {
+    return await withCareOperationsManager(async actor => {
       const result = await _getRateManagerData(actor.agencyId)
       if (result.error) return result
       await sql`INSERT INTO public.audit_log(agency_id,table_name,record_id,action,performed_by_user_id,details)

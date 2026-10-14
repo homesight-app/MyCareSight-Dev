@@ -2,10 +2,15 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { getTemplates } from '@/lib/supabase/query'
 import TemplatesContent from '@/components/TemplatesContent'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 export default async function AgencyTemplatesPage() {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
+  try { await requireAgencyCapability('homesights_services') } catch {
+    return <FeatureLockedPage capabilityKey="homesights_services" />
+  }
 
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null

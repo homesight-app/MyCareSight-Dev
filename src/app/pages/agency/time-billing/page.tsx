@@ -3,6 +3,8 @@ import { getSession } from '@/lib/auth'
 import TimeBillingContent from '@/components/TimeBillingContent'
 import FeatureGate from '@/components/FeatureGate'
 import { fetchTimeBillingRows } from '@/lib/time-billing-dashboard'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 export default async function TimeBillingPage({
   searchParams,
@@ -11,6 +13,11 @@ export default async function TimeBillingPage({
 }) {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
+  try {
+    await requireAgencyCapability('care_operations')
+  } catch {
+    return <FeatureLockedPage capabilityKey="care_operations" />
+  }
 
   const params = await searchParams
   const now = new Date()
@@ -25,7 +32,7 @@ export default async function TimeBillingPage({
   const agencyId=dashboard.agencyId ?? null
 
   return (
-    <FeatureGate feature="time_billing" agencyId={agencyId}>
+    <FeatureGate capability="care_operations" agencyId={agencyId}>
       <TimeBillingContent
         rows={dashboard.rows}
         loadError={dashboard.error}

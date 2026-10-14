@@ -6,6 +6,8 @@ import * as q from '@/lib/supabase/query'
 import StaffManagementClient from '@/components/StaffManagementClient'
 import FeatureGate from '@/components/FeatureGate'
 import { normalizeCaregiverDirectoryStatus } from '@/lib/caregiver-directory-filters'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 const PAGE_SIZE = 50
 
@@ -16,6 +18,11 @@ export default async function StaffPage({
 }) {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
+  try {
+    await requireAgencyCapability('caregiver_management')
+  } catch {
+    return <FeatureLockedPage capabilityKey="caregiver_management" />
+  }
 
   const { data: staffRolesData } = await q.getConfigurationValuesWithSubcategories('STAFF_ROLE')
 
@@ -122,7 +129,7 @@ export default async function StaffPage({
   })
 
   return (
-    <FeatureGate feature="caregivers" agencyId={agencyId}>
+    <FeatureGate capability="caregiver_management" agencyId={agencyId}>
       <StaffManagementClient
         staffMembers={staffMembers}
         licensesByStaff={licensesByStaff}

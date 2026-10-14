@@ -1,13 +1,13 @@
 import { Lock } from 'lucide-react'
-import { AGENCY_FEATURES } from '@/lib/constants/feature-keys'
+import { getCapability, type CapabilityKey } from '@/lib/constants/feature-keys'
 
 interface FeatureLockedPageProps {
-  featureKey: string
+  capabilityKey: CapabilityKey
 }
 
-export default function FeatureLockedPage({ featureKey }: FeatureLockedPageProps) {
-  const feature = AGENCY_FEATURES.find(f => f.key === featureKey)
-  const label = feature?.label ?? featureKey
+export default function FeatureLockedPage({ capabilityKey }: FeatureLockedPageProps) {
+  const capability = getCapability(capabilityKey)
+  const label = capability?.label ?? capabilityKey
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
@@ -16,7 +16,7 @@ export default function FeatureLockedPage({ featureKey }: FeatureLockedPageProps
       </div>
       <h1 className="text-2xl font-bold text-slate-900 mb-2">{label} is locked</h1>
       <p className="text-slate-500 max-w-md mb-8">
-        This feature is not included in your agency&apos;s current plan. Contact your account manager to upgrade and unlock access.
+        This capability is not included in your agency&apos;s current plan. Contact your account manager to upgrade and unlock access.
       </p>
       <a
         href="mailto:support@mycaresight.com"

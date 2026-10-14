@@ -3,7 +3,8 @@ import 'server-only'
 import { z } from 'zod'
 import sql, { withActorContext } from '@/db'
 import { getSession } from '@/lib/auth'
-import { withAgencyManagerFinancialRead } from '@/lib/repositories/visit-financial-reads'
+import { withCareOperationsManager } from '@/lib/repositories/visit-financial-reads'
+import { assertAgencyCapability } from '@/lib/feature-access'
 import { loadVisitCaregiverCandidatesForActor } from '@/lib/repositories/visit-caregiver-candidates'
 import { eligibleCaregiverCandidates } from '@/lib/caregiver-matching'
 import type {
@@ -109,7 +110,7 @@ export async function publishVisitShiftOffer(
   input: PublishVisitShiftOfferInput
 ): Promise<RepositoryResult<PublishedShiftOffer>> {
   try {
-    const data = await withAgencyManagerFinancialRead(async actor => {
+    const data = await withCareOperationsManager(async actor => {
       const [visit] = await sql<{
         id: string
         agency_id: string
@@ -276,6 +277,7 @@ export async function respondToVisitShiftOffer(
 ): Promise<RepositoryResult<ShiftOfferResponse>> {
   try {
     const data = await withActiveCaregiver(async actor => {
+      await assertAgencyCapability(actor.agencyId, 'care_operations')
       const [recipient] = await sql<{
         id: string
         offer_id: string

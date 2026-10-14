@@ -60,10 +60,18 @@ beforeEach(async () => {
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO mycaresight_app;
     CREATE TABLE user_profiles(id uuid PRIMARY KEY,role text,agency_id uuid,is_active boolean);
     CREATE TABLE user_agency_roles(user_id uuid,agency_id uuid,role text,status text);
+    CREATE TABLE feature_plans(id uuid PRIMARY KEY);
+    CREATE TABLE agencies(id uuid PRIMARY KEY,plan_id uuid);
+    CREATE TABLE capability_catalog(key text PRIMARY KEY,is_active boolean);
+    CREATE TABLE plan_capabilities(plan_id uuid,capability_key text);
     CREATE TABLE patient_service_contracts(id uuid PRIMARY KEY,agency_id uuid,bill_rate numeric,updated_at timestamptz DEFAULT now());
     CREATE TABLE scheduled_visits(id uuid PRIMARY KEY,agency_id uuid,mileage_miles numeric,updated_at timestamptz DEFAULT now());
     CREATE TABLE audit_log(id uuid DEFAULT gen_random_uuid(),agency_id uuid,table_name text,record_id uuid,
       action text,performed_by_user_id uuid,details jsonb);
+    INSERT INTO feature_plans VALUES('${id(50)}');
+    INSERT INTO agencies VALUES('${AGENCY}','${id(50)}');
+    INSERT INTO capability_catalog VALUES('care_operations',true);
+    INSERT INTO plan_capabilities VALUES('${id(50)}','care_operations');
   `)
   await db.query("INSERT INTO user_profiles VALUES($1,'company_owner',$2,true)",[USER,AGENCY])
   await db.query("INSERT INTO user_agency_roles VALUES($1,$2,'company_owner','active')",[USER,AGENCY])

@@ -36,7 +36,7 @@ import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
 import { assignPlanToAgency } from '@/app/actions/feature-plans'
-import { AGENCY_FEATURES } from '@/lib/constants/feature-keys'
+import { AGENCY_CAPABILITIES, type CapabilityKey } from '@/lib/constants/feature-keys'
 import { fetchLeadDocumentsAction, fetchLeadNotesAction } from '@/app/actions/leads'
 import { LEAD_STAGES } from '@/lib/constants/lead-configs'
 import { calculateLeadFinancialSummary } from '@/lib/lead-financial-summary'
@@ -227,7 +227,7 @@ interface FetchedNote {
 export interface FeaturePlanSummary {
   id: string
   name: string
-  plan_features: { feature_key: string }[]
+  plan_capabilities: { capability_key: CapabilityKey }[]
 }
 
 interface AgencyDetailContentProps {
@@ -1364,7 +1364,7 @@ export default function AgencyDetailContent({
                             disabled={!canEdit}
                             className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-600 disabled:bg-gray-50 disabled:text-gray-500"
                           >
-                            <option value="">No plan (all features)</option>
+                            <option value="">No plan (baseline access only)</option>
                             {featurePlans.map(p => (
                               <option key={p.id} value={p.id}>{p.name}</option>
                             ))}
@@ -1397,18 +1397,17 @@ export default function AgencyDetailContent({
                         if (!plan) {
                           return (
                             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                              <p className="text-sm font-medium text-green-800 mb-1">Unrestricted access</p>
-                              <p className="text-xs text-green-600">This agency has access to all features.</p>
+                              <p className="text-sm font-medium text-slate-800 mb-1">Baseline access only</p>
+                              <p className="text-xs text-slate-600">Assign a plan to enable business capabilities.</p>
                             </div>
                           )
                         }
-                        const enabledKeys = new Set(plan.plan_features.map(f => f.feature_key))
-                        const sectionFeatures = AGENCY_FEATURES.filter(f => f.parentKey === null)
+                        const enabledKeys = new Set(plan.plan_capabilities.map(item => item.capability_key))
                         return (
                           <div>
                             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Features in this plan</label>
                             <div className="space-y-1.5">
-                              {sectionFeatures.map(f => {
+                              {AGENCY_CAPABILITIES.map(f => {
                                 const enabled = enabledKeys.has(f.key)
                                 return (
                                   <div key={f.key} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm ${enabled ? 'bg-green-50 text-green-800' : 'bg-gray-50 text-gray-400'}`}>

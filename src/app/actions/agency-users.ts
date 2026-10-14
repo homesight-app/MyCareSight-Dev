@@ -7,12 +7,24 @@ import { hashPassword } from '@/lib/auth/password'
 import { sendInvitationEmail } from '@/lib/email'
 import sql, { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
+import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
 
 function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
   revalidatePath(`/pages/expert/agencies/${agencyId}`)
   revalidatePath(`/pages/agency/people`)
   revalidatePath('/pages/agency/user-management')
+}
+
+async function caregiverManagementError(
+  agencyId: string,
+  session: { profile: { role?: string | null } }
+): Promise<string | null> {
+  if (session.profile.role === 'admin' || session.profile.role === 'expert') return null
+  const allowed = await getAgencyAllowedCapabilities(agencyId)
+  return allowed.includes('caregiver_management')
+    ? null
+    : 'Caregiver Management is not included in your agency plan.'
 }
 
 async function updateAgencyAccountStatus(input: {
@@ -84,6 +96,8 @@ async function updateAgencyAccountStatus(input: {
 export async function getAgencyCaregiverDirectory(agencyId: string) {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { data: null, error: authErr ?? 'Forbidden' }
+  const capabilityError = await caregiverManagementError(agencyId, session)
+  if (capabilityError) return { data: null, error: capabilityError }
   try {
     const [active, inactive] = await Promise.all([
       sql`
@@ -115,6 +129,7 @@ export async function getAgencyUserDirectory(agencyId: string) {
   if (authErr || !session) return { data: null, error: authErr ?? 'Forbidden' }
   try {
     const canAssignExistingOwner = ['admin', 'expert'].includes(session.profile.role)
+    const canManageCaregivers = !(await caregiverManagementError(agencyId, session))
     const [admins, availableAdmins, coordinators, caregivers] = await Promise.all([
       sql`
         SELECT id, user_id, contact_name, contact_email, contact_phone, status
@@ -136,12 +151,12 @@ export async function getAgencyUserDirectory(agencyId: string) {
         WHERE agency_id = ${agencyId}::uuid
         ORDER BY first_name, last_name, id
       `,
-      sql`
+      canManageCaregivers ? sql`
         SELECT id, user_id, first_name, last_name, email, phone, role, job_title, status
         FROM public.caregiver_members
         WHERE agency_id = ${agencyId}::uuid
         ORDER BY first_name, last_name, id
-      `,
+      ` : Promise.resolve([]),
     ])
     await sql`
       INSERT INTO public.audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
@@ -302,6 +317,8 @@ export async function updateCaregiverStatus(
 ) {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+  const capabilityError = await caregiverManagementError(agencyId, session)
+  if (capabilityError) return { error: capabilityError }
 
   const [current] = await sql<{ status: string; user_id: string | null }[]>`
     SELECT status, user_id FROM caregiver_members WHERE id = ${caregiverId} AND agency_id = ${agencyId} LIMIT 1
@@ -377,6 +394,8 @@ export async function addCaregiverForAgency(
 ) {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+  const capabilityError = await caregiverManagementError(agencyId, session)
+  if (capabilityError) return { error: capabilityError }
 
   const result = await createUserForAgency(agencyId, 'staff_member', opts)
   if ('error' in result) return { error: result.error }
@@ -447,8 +466,10 @@ export async function updateCaregiverProfile(
   caregiverId: string,
   updates: { first_name: string; last_name: string; phone?: string; job_title?: string }
 ) {
-  const { error: authErr } = await requirePlatformStaffOrAgencyRole(agencyId)
-  if (authErr) return { error: authErr }
+  const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
+  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+  const capabilityError = await caregiverManagementError(agencyId, session)
+  if (capabilityError) return { error: capabilityError }
 
   const [cg] = await sql<{ user_id: string | null }[]>`
     SELECT user_id FROM caregiver_members WHERE id = ${caregiverId} AND agency_id = ${agencyId} LIMIT 1

@@ -20,6 +20,7 @@ import {
   searchVisibleSkills,
 } from '@/lib/repositories/skills'
 import { zodErrorToFieldErrors } from '@/lib/validation'
+import { assertAgencyCapability } from '@/lib/feature-access'
 
 type ActionResult<T = undefined> = {
   success: boolean
@@ -99,13 +100,13 @@ export async function getCaregiverSkillsAction(
           AND role = ${actor.role} AND status = 'active'
         LIMIT 1
       `
-      const manager = actor.role === 'admin' || (
-        actor.agency_id === target.agency_id
+      const agencyManager = actor.agency_id === target.agency_id
         && (actor.role === 'company_owner' || actor.role === 'care_coordinator')
         && Boolean(membership)
-      )
+      const manager = actor.role === 'admin' || agencyManager
       const self = target.user_id === actor.id && actor.role === 'staff_member' && Boolean(membership)
       if (!manager && !self) throw new Error('Forbidden')
+      if (agencyManager) await assertAgencyCapability(target.agency_id, 'caregiver_management')
       return getCaregiverSkillSelections(caregiverMemberId)
     })
     return { success: true, data }
@@ -134,13 +135,13 @@ export async function saveCaregiverSkillsAction(
           AND role = ${actor.role} AND status = 'active'
         LIMIT 1
       `
-      const manager = actor.role === 'admin' || (
-        actor.agency_id === target.agency_id
+      const agencyManager = actor.agency_id === target.agency_id
         && (actor.role === 'company_owner' || actor.role === 'care_coordinator')
         && Boolean(membership)
-      )
+      const manager = actor.role === 'admin' || agencyManager
       const self = target.user_id === actor.id && actor.role === 'staff_member' && Boolean(membership)
       if (!manager && !self) throw new Error('Forbidden')
+      if (agencyManager) await assertAgencyCapability(target.agency_id, 'caregiver_management')
 
       const skillIds = parsed.data.skillIds
       const visibleSkills = skillIds.length === 0 ? [] : await sql<{ id: string }[]>`

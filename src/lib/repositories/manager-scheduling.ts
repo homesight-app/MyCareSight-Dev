@@ -1,7 +1,7 @@
 import 'server-only'
 
 import sql from '@/db'
-import { withAgencyManagerFinancialRead } from '@/lib/repositories/visit-financial-reads'
+import { withCareOperationsManager } from '@/lib/repositories/visit-financial-reads'
 import * as schedules from '@/lib/supabase/query/schedules'
 import {
   recurringScheduleCreateSchema,
@@ -156,26 +156,26 @@ const ensure = <T extends {error:unknown;data?:unknown}>(result:T):T => {
 
 export async function managerGetSchedulesByPatient(patientId:string){
   if(!scheduleIdSchema.safeParse(patientId).success)return {data:null,error:new Error('Invalid patient.')}
-  try{return await withAgencyManagerFinancialRead(async actor=>{await requirePatient(actor,patientId)
+  try{return await withCareOperationsManager(async actor=>{await requirePatient(actor,patientId)
     const result=ensure(await schedules.getSchedulesByPatientId(patientId));await audit(actor,patientId,'READ','read_patient_schedules',result.data?.length??0);return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 export async function managerGetSchedulesByPatientAndRange(patientId:string,startDate:string,endDate:string){
   if(!scheduleIdSchema.safeParse(patientId).success||!scheduleDateRangeSchema.safeParse({startDate,endDate}).success)return {data:null,error:new Error('Invalid schedule range.')}
-  try{return await withAgencyManagerFinancialRead(async actor=>{await requirePatient(actor,patientId)
+  try{return await withCareOperationsManager(async actor=>{await requirePatient(actor,patientId)
     const result=ensure(await schedules.getSchedulesByPatientIdAndDateRange(patientId,startDate,endDate));await audit(actor,patientId,'READ','read_patient_schedule_range',result.data?.length??0);return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 export async function managerGetSchedulesByAgencyAndRange(agencyId:string,startDate:string,endDate:string){
   if(!scheduleIdSchema.safeParse(agencyId).success||!scheduleDateRangeSchema.safeParse({startDate,endDate}).success)return {data:null,error:new Error('Invalid schedule range.')}
-  try{return await withAgencyManagerFinancialRead(async actor=>{if(actor.agencyId!==agencyId)throw new SchedulingError('Forbidden')
+  try{return await withCareOperationsManager(async actor=>{if(actor.agencyId!==agencyId)throw new SchedulingError('Forbidden')
     const result=ensure(await schedules.getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(agencyId,startDate,endDate));await audit(actor,null,'READ','read_agency_schedule_range',result.data?.length??0);return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 export async function managerGetSchedulesByIds(ids:string[]){
   const clean=Array.from(new Set(ids));if(clean.some(id=>!scheduleIdSchema.safeParse(id).success))return {data:null,error:new Error('Invalid visit.')}
   if(clean.length===0)return {data:[],error:null}
-  try{return await withAgencyManagerFinancialRead(async actor=>{const owned=await sql<{id:string}[]>`SELECT id FROM public.scheduled_visits
+  try{return await withCareOperationsManager(async actor=>{const owned=await sql<{id:string}[]>`SELECT id FROM public.scheduled_visits
     WHERE id=ANY(${clean}::uuid[]) AND agency_id=${actor.agencyId}::uuid ORDER BY id`
     if(owned.length!==clean.length)throw new SchedulingError('One or more visits were not found in your agency.')
     const result=ensure(await schedules.getScheduledVisitsByIdsAsScheduleRows(clean));await audit(actor,null,'READ','read_schedules_by_id',result.data?.length??0);return result})
@@ -183,13 +183,13 @@ export async function managerGetSchedulesByIds(ids:string[]){
 }
 export async function managerInsertSchedule(input:Parameters<typeof schedules.insertSchedule>[0]){
   const parsed=scheduleCreateSchema.safeParse(input);if(!parsed.success)return {data:null,error:new Error(parsed.error.issues[0]?.message??'Invalid schedule.')}
-  try{return await withAgencyManagerFinancialRead(async actor=>{await requirePatient(actor,parsed.data.patient_id);await validateLinks(actor,parsed.data.patient_id,parsed.data)
+  try{return await withCareOperationsManager(async actor=>{await requirePatient(actor,parsed.data.patient_id);await validateLinks(actor,parsed.data.patient_id,parsed.data)
     const result=ensure(await schedules.insertSchedule(parsed.data));if(result.data?.id)await assertAssignmentIntegrity(actor,[result.data.id]);await audit(actor,result.data?.id??null,'INSERT','create_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 export async function managerInsertRecurringSchedules(input:Parameters<typeof schedules.insertRecurringSchedulesFromSeries>[0]){
   const parsed=recurringScheduleCreateSchema.safeParse(input);if(!parsed.success)return {data:null,error:new Error(parsed.error.issues[0]?.message??'Invalid recurring schedule.')}
-  try{return await withAgencyManagerFinancialRead(async actor=>{await requirePatient(actor,parsed.data.patient_id);await validateLinks(actor,parsed.data.patient_id,parsed.data)
+  try{return await withCareOperationsManager(async actor=>{await requirePatient(actor,parsed.data.patient_id);await validateLinks(actor,parsed.data.patient_id,parsed.data)
     const result=ensure(await schedules.insertRecurringSchedulesFromSeries(parsed.data));await assertAssignmentIntegrity(actor,(result.data??[]).map(row=>row.id));await audit(actor,null,'INSERT','create_recurring_schedules',result.data?.length??0);return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
@@ -197,7 +197,7 @@ export async function managerInsertRecurringSchedules(input:Parameters<typeof sc
 export async function managerReplaceSchedules(input:ScheduleReplacementInput){
   const parsed=scheduleReplacementSchema.safeParse(input)
   if(!parsed.success)return {data:null,error:new Error(parsed.error.issues[0]?.message??'Invalid replacement schedule.')}
-  try{return await withAgencyManagerFinancialRead(async actor=>{
+  try{return await withCareOperationsManager(async actor=>{
     const patientId=parsed.data.kind==='single'?parsed.data.visits[0]!.patient_id:parsed.data.visit.patient_id
     if(parsed.data.kind==='single'&&parsed.data.visits.some(visit=>visit.patient_id!==patientId)){
       throw new SchedulingError('All replacement visits must belong to the same client.')
@@ -231,13 +231,13 @@ export async function managerReplaceSchedules(input:ScheduleReplacementInput){
 export async function managerUpdateSchedule(id:string,input:Parameters<typeof schedules.updateSchedule>[1]){
   const parsedId=scheduleIdSchema.safeParse(id),parsed=scheduleUpdateSchema.safeParse(input)
   if(!parsedId.success||!parsed.success)return {data:null,error:new Error(parsed.success?'Invalid visit.':parsed.error.issues[0]?.message??'Invalid visit.')}
-  try{return await withAgencyManagerFinancialRead(async actor=>{const visit=await requireVisit(actor,id);await validateLinks(actor,visit.patient_id,{...parsed.data,caregiver_id:parsed.data.caregiver_id===undefined?visit.caregiver_member_id:parsed.data.caregiver_id})
+  try{return await withCareOperationsManager(async actor=>{const visit=await requireVisit(actor,id);await validateLinks(actor,visit.patient_id,{...parsed.data,caregiver_id:parsed.data.caregiver_id===undefined?visit.caregiver_member_id:parsed.data.caregiver_id})
     const result=ensure(await schedules.updateSchedule(id,parsed.data));await assertAssignmentIntegrity(actor,[id]);await audit(actor,id,'UPDATE','update_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 export async function managerUpdateRecurringSchedules(input:Parameters<typeof schedules.updateRecurringSchedulesByScope>[0]){
   const parsed=recurringScheduleUpdateSchema.safeParse(input);if(!parsed.success)return {updated_ids:[],error:{message:parsed.error.issues[0]?.message??'Invalid recurring update.'}}
-  try{return await withAgencyManagerFinancialRead(async actor=>{const seed=await requireVisit(actor,parsed.data.seed_schedule_id)
+  try{return await withCareOperationsManager(async actor=>{const seed=await requireVisit(actor,parsed.data.seed_schedule_id)
     if(seed.visit_series_id){await sql`SELECT id FROM public.scheduled_visits WHERE agency_id=${actor.agencyId}::uuid
       AND visit_series_id=${seed.visit_series_id}::uuid ORDER BY id FOR UPDATE`
       if(parsed.data.patch.caregiver_id===undefined){const caregivers=await sql<{caregiver_member_id:string}[]>`SELECT DISTINCT caregiver_member_id
@@ -250,7 +250,7 @@ export async function managerUpdateRecurringSchedules(input:Parameters<typeof sc
 }
 export async function managerDeleteSchedule(id:string){
   if(!scheduleIdSchema.safeParse(id).success)return {data:null,error:new Error('Invalid visit.')}
-  try{return await withAgencyManagerFinancialRead(async actor=>{await requireVisit(actor,id)
+  try{return await withCareOperationsManager(async actor=>{await requireVisit(actor,id)
     const result=ensure(await schedules.deleteSchedule(id));await audit(actor,id,'DELETE','delete_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }

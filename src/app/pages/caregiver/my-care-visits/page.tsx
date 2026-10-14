@@ -5,11 +5,16 @@ import CaregiverMyCareVisitsContent from '@/components/CaregiverMyCareVisitsCont
 import { fetchCaregiverCareVisitsData } from '@/lib/caregiver-care-visits'
 import { getCaregiverVisitDateRange } from '@/lib/caregiver-care-visits-shared'
 import { withAuditedActiveCaregiverRead } from '@/lib/repositories/caregiver-visit-execution'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 export default async function CaregiverMyCareVisitsPage() {
   const session = await getSession()
   if (!session?.user.id) {
     redirect('/pages/auth/login?error=Staff member record not found. Please contact your administrator.')
+  }
+  try { await requireAgencyCapability('care_operations') } catch {
+    return <FeatureLockedPage capabilityKey="care_operations" />
   }
   let data
   try {

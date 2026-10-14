@@ -8,7 +8,7 @@ import PageHeader from '@/components/ui/PageHeader'
 export default async function LeadPipelineReportPage() {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
-  assertAgencyReportsPageAccess(session!.profile)
+  await assertAgencyReportsPageAccess(session!.profile)
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency/reports')

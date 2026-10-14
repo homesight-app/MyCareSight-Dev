@@ -4,6 +4,8 @@ import { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 import ClientsContent from '@/components/ClientsContent'
 import FeatureGate from '@/components/FeatureGate'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 const PAGE_SIZE = 50
 
@@ -14,6 +16,11 @@ export default async function ClientsPage({
 }) {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
+  try {
+    await requireAgencyCapability('client_management')
+  } catch {
+    return <FeatureLockedPage capabilityKey="client_management" />
+  }
 
   const params = await searchParams
 
@@ -47,7 +54,7 @@ export default async function ClientsPage({
   } : undefined
 
   return (
-    <FeatureGate feature="clients" agencyId={agencyId}>
+    <FeatureGate capability="client_management" agencyId={agencyId}>
       <ClientsContent
         clients={clients}
         totalCount={totalCount}

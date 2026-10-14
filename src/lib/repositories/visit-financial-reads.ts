@@ -2,6 +2,7 @@ import 'server-only'
 import { z } from 'zod'
 import sql, { withActorContext } from '@/db'
 import { getSession } from '@/lib/auth'
+import { assertAgencyCapability } from '@/lib/feature-access'
 
 export type FinancialReadActor={id:string;role:'company_owner'|'care_coordinator';agencyId:string}
 class AccessError extends Error{}
@@ -22,8 +23,17 @@ export async function withAgencyManagerFinancialRead<T>(run:(actor:FinancialRead
   })
 }
 
+export async function withCareOperationsManager<T>(
+  run: (actor: FinancialReadActor) => Promise<T>
+): Promise<T> {
+  return withAgencyManagerFinancialRead(async actor => {
+    await assertAgencyCapability(actor.agencyId, 'care_operations')
+    return run(actor)
+  })
+}
+
 export async function readPendingTimeBillingCount():Promise<number>{
-  try{return await withAgencyManagerFinancialRead(async actor=>{
+  try{return await withCareOperationsManager(async actor=>{
     const [row]=await sql<{count:number}[]>`SELECT count(*)::integer count FROM visit_financials
       WHERE agency_id=${actor.agencyId}::uuid AND status='pending'`
     const count=Number(row?.count??0)

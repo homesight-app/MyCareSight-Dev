@@ -71,4 +71,37 @@ describe('AppSidebar grouped navigation', () => {
     expect(screen.getByRole('link', { name: 'My Services' })).toHaveAttribute('title', 'My Services')
     expect(screen.getByRole('button', { name: 'Client Management' })).toHaveAttribute('title', 'Client Management')
   })
+
+  test('keeps locked destinations inside their category and opens the plan prompt', () => {
+    pathname = '/pages/agency'
+    const onLockedItemClick = jest.fn()
+    render(
+      <AppSidebar
+        menuItems={[{ href: '/pages/agency', label: 'Home', icon: Home }]}
+        menuGroups={[{
+          ...groups[0],
+          items: groups[0].items.map(item => ({ ...item, locked: true })),
+        }]}
+        collapsed={false}
+        onCollapse={jest.fn()}
+        mobileOpen={false}
+        onMobileClose={jest.fn()}
+        onLockedItemClick={onLockedItemClick}
+      />
+    )
+
+    const group = screen.getByRole('button', {
+      name: 'Client Management, not included in your plan',
+    })
+    expect(group).toHaveAttribute('data-locked', 'true')
+    fireEvent.click(group)
+
+    const clients = screen.getByRole('button', {
+      name: 'Clients, not included in your plan',
+    })
+    expect(clients).toHaveAttribute('data-locked', 'true')
+    expect(screen.queryByRole('link', { name: 'Clients' })).not.toBeInTheDocument()
+    fireEvent.click(clients)
+    expect(onLockedItemClick).toHaveBeenCalledWith(expect.objectContaining({ label: 'Clients' }))
+  })
 })

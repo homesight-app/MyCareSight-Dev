@@ -3,6 +3,8 @@ import Link from 'next/link'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import ClientProgramView from '@/components/ClientProgramView'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 export default async function AgencyProgramDetailPage({
   params,
@@ -13,6 +15,9 @@ export default async function AgencyProgramDetailPage({
   if (!session) redirect('/pages/auth/login')
   const role = session.profile?.role
   if (role !== 'company_owner' && role !== 'care_coordinator') redirect('/pages/agency')
+  try { await requireAgencyCapability('homesights_services') } catch {
+    return <FeatureLockedPage capabilityKey="homesights_services" />
+  }
 
   const { applicationId } = await params
 

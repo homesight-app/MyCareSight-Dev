@@ -3,6 +3,7 @@ import 'server-only'
 import { z } from 'zod'
 import sql, { withActorContext } from '@/db'
 import { getSession } from '@/lib/auth'
+import { assertAgencyCapability } from '@/lib/feature-access'
 import {
   caregiverClockSchema,
   caregiverTaskCompletionSchema,
@@ -80,6 +81,7 @@ export async function withActiveCaregiver<T>(
     }
     await sql`SELECT set_config('app.current_user_role','staff_member',true),
       set_config('app.current_agency_id',${actor.agencyId},true)`
+    await assertAgencyCapability(actor.agencyId, 'care_operations')
     return run(actor)
   })
 }

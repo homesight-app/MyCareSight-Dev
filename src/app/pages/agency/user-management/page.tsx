@@ -8,6 +8,8 @@ import FeatureGate from '@/components/FeatureGate'
 import AgencyPeopleTab from '@/components/AgencyPeopleTab'
 import AgencyUserManagementTabBar from '@/components/AgencyUserManagementTabBar'
 import { normalizeCaregiverDirectoryStatus } from '@/lib/caregiver-directory-filters'
+import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 const PAGE_SIZE = 50
 
@@ -24,6 +26,18 @@ export default async function UserManagementPage({
 
   const agencyId = (session.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   if (!agencyId) redirect('/pages/agency')
+
+  if (tab === 'caregivers') {
+    const allowedCapabilities = await getAgencyAllowedCapabilities(agencyId)
+    if (!allowedCapabilities.includes('caregiver_management')) {
+      return (
+        <div className="p-2 space-y-1 mt-1">
+          <AgencyUserManagementTabBar />
+          <FeatureLockedPage capabilityKey="caregiver_management" />
+        </div>
+      )
+    }
+  }
 
   let caregiverContent: React.ReactNode = null
 
@@ -109,7 +123,7 @@ export default async function UserManagementPage({
     })
 
     caregiverContent = (
-      <FeatureGate feature="caregivers" agencyId={agencyId}>
+      <FeatureGate capability="caregiver_management" agencyId={agencyId}>
         <StaffManagementClient
           staffMembers={staffMembers}
           licensesByStaff={licensesByStaff}

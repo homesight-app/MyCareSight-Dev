@@ -1,21 +1,21 @@
-import { getAgencyAllowedFeatures } from '@/lib/feature-access'
+import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
 import FeatureLockedPage from './FeatureLockedPage'
+import type { CapabilityKey } from '@/lib/constants/feature-keys'
 
 interface FeatureGateProps {
-  feature: string
+  capability: CapabilityKey
   agencyId: string | null
   children: React.ReactNode
 }
 
 /**
  * Server component that blocks access to a page when the agency's plan
- * does not include the specified feature key.
- * null agencyId or no plan assigned = unrestricted (renders children).
+ * does not include the specified business capability.
  */
-export default async function FeatureGate({ feature, agencyId, children }: FeatureGateProps) {
-  const allowed = await getAgencyAllowedFeatures(agencyId)
-  if (allowed !== null && !allowed.includes(feature)) {
-    return <FeatureLockedPage featureKey={feature} />
+export default async function FeatureGate({ capability, agencyId, children }: FeatureGateProps) {
+  const allowed = await getAgencyAllowedCapabilities(agencyId)
+  if (!allowed.includes(capability)) {
+    return <FeatureLockedPage capabilityKey={capability} />
   }
   return <>{children}</>
 }

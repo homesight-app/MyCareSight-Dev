@@ -2,6 +2,8 @@
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import AgencyProgramsContent from '@/components/AgencyProgramsContent'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 const PAGE_SIZE = 50
 
@@ -14,6 +16,9 @@ export default async function AgencyProgramsPage({
   if (!session) redirect('/pages/auth/login')
   const role = session.profile?.role
   if (role !== 'company_owner' && role !== 'care_coordinator') redirect('/pages/agency')
+  try { await requireAgencyCapability('homesights_services') } catch {
+    return <FeatureLockedPage capabilityKey="homesights_services" />
+  }
 
   const params = await searchParams
   const page   = Math.max(0, parseInt(params.page ?? '0') || 0)

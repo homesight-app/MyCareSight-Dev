@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
 import AgencyReportCardLink, { type AgencyReportCardIconKey } from '@/components/reports/AgencyReportCardLink'
 import PageHeader from '@/components/ui/PageHeader'
+import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
 
 type ReportDef = {
   id: string
@@ -21,9 +22,10 @@ export default async function ReportsPage() {
     redirect('/pages/auth/login')
   }
 
-  assertAgencyReportsPageAccess(session!.profile)
+  await assertAgencyReportsPageAccess(session!.profile)
+  const allowedCapabilities = await getAgencyAllowedCapabilities(session.profile?.agency_id ?? null)
 
-  const reports: ReportDef[] = [
+  const allReports: ReportDef[] = [
     {
       id: 'payroll-billing',
       title: 'Payroll & Billing Report',
@@ -71,6 +73,9 @@ export default async function ReportsPage() {
       iconTextColor: 'text-indigo-600',
     },
   ]
+  const reports = allReports.filter(
+    report => report.id !== 'payroll-billing' || allowedCapabilities.includes('care_operations')
+  )
 
   return (
     <div className="space-y-6">

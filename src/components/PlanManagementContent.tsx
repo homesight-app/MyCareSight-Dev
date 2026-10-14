@@ -1,10 +1,14 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useEffect, useState, useTransition } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
 import { useRouter } from 'next/navigation'
-import { Plus, Pencil, Trash2, X, Layers } from 'lucide-react'
-import { AGENCY_FEATURES } from '@/lib/constants/feature-keys'
-import { createPlan, updatePlan, deletePlan } from '@/app/actions/feature-plans'
+import { Layers, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { AGENCY_CAPABILITIES, getCapability, type CapabilityKey } from '@/lib/constants/feature-keys'
+import { featurePlanInputSchema, type FeaturePlanInput } from '@/lib/schemas/feature-plans'
+import { createPlan, deletePlan, updatePlan } from '@/app/actions/feature-plans'
 import type { FeaturePlanRow } from '@/lib/supabase/query/feature-plans'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 
@@ -12,68 +16,42 @@ interface Props {
   plans: (FeaturePlanRow & { agency_count?: number })[]
 }
 
-const SECTION_KEYS = AGENCY_FEATURES.filter(f => f.parentKey === null)
-const SUB_KEYS = AGENCY_FEATURES.filter(f => f.parentKey !== null)
-
-function getSubKeysForParent(parentKey: string) {
-  return SUB_KEYS.filter(f => f.parentKey === parentKey)
-}
-
-function FeatureChecklist({
+function CapabilityChecklist({
   selected,
   onChange,
 }: {
-  selected: Set<string>
-  onChange: (next: Set<string>) => void
+  selected: CapabilityKey[]
+  onChange: (next: CapabilityKey[]) => void
 }) {
-  function toggle(key: string) {
-    const next = new Set(selected)
-    const feature = AGENCY_FEATURES.find(f => f.key === key)
-    if (next.has(key)) {
-      next.delete(key)
-      // Also uncheck all sub-features of this section key
-      for (const sub of SUB_KEYS) {
-        if (sub.parentKey === key) next.delete(sub.key)
-      }
-    } else {
-      next.add(key)
-      // Auto-check parent if this is a sub-feature
-      if (feature && (feature as { parentKey: string | null }).parentKey) {
-        next.add((feature as { parentKey: string }).parentKey)
-      }
-    }
-    onChange(next)
-  }
-
+  const selectedSet = new Set(selected)
   return (
-    <div className="space-y-1 max-h-72 overflow-y-auto border border-gray-200 rounded-lg p-3">
-      {SECTION_KEYS.map(section => {
-        const subs = getSubKeysForParent(section.key)
-        return (
-          <div key={section.key}>
-            <label className="flex items-center gap-2 py-1 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selected.has(section.key)}
-                onChange={() => toggle(section.key)}
-                className="rounded border-gray-300 text-slate-800 focus:ring-slate-600"
-              />
-              <span className="text-sm font-medium text-slate-800">{section.label}</span>
-            </label>
-            {subs.map(sub => (
-              <label key={sub.key} className="flex items-center gap-2 py-1 pl-6 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selected.has(sub.key)}
-                  onChange={() => toggle(sub.key)}
-                  className="rounded border-gray-300 text-slate-800 focus:ring-slate-600"
-                />
-                <span className="text-sm text-slate-600">{sub.label}</span>
-              </label>
-            ))}
-          </div>
-        )
-      })}
+    <div className="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3">
+      {AGENCY_CAPABILITIES.map(capability => (
+        <label
+          key={capability.key}
+          className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-100 p-3 hover:bg-slate-50"
+        >
+          <input
+            type="checkbox"
+            checked={selectedSet.has(capability.key)}
+            onChange={() => {
+              onChange(
+                selectedSet.has(capability.key)
+                  ? selected.filter(key => key !== capability.key)
+                  : [...selected, capability.key]
+              )
+            }}
+            className="mt-0.5 rounded border-gray-300 text-slate-800 focus:ring-slate-600"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-slate-800">{capability.label}</span>
+            <span className="mt-0.5 block text-xs text-slate-500">{capability.description}</span>
+            <span className="mt-1 block text-xs text-slate-600">
+              Includes: {capability.includes.join(', ')}
+            </span>
+          </span>
+        </label>
+      ))}
     </div>
   )
 }
@@ -88,97 +66,101 @@ function PlanModal({
   onSaved: () => void
 }) {
   const isEdit = !!plan
-  const [name, setName] = useState(plan?.name ?? '')
-  const [description, setDescription] = useState(plan?.description ?? '')
-  const [sortOrder, setSortOrder] = useState(plan?.sort_order ?? 0)
-  const [selected, setSelected] = useState<Set<string>>(
-    new Set((plan?.plan_features ?? []).map(f => f.feature_key))
-  )
-  const [error, setError] = useState<string | null>(null)
-  const [pending, startTransition] = useTransition()
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<FeaturePlanInput>({
+    resolver: zodResolver(featurePlanInputSchema),
+    mode: 'onBlur',
+    defaultValues: {
+      name: plan?.name ?? '',
+      description: plan?.description ?? null,
+      sortOrder: plan?.sort_order ?? 0,
+      capabilityKeys: (plan?.plan_capabilities ?? []).map(item => item.capability_key),
+    },
+  })
+  const selected = watch('capabilityKeys') ?? []
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!name.trim()) { setError('Plan name is required.'); return }
-    setError(null)
-    startTransition(async () => {
-      const keys = Array.from(selected)
-      const result = isEdit
-        ? await updatePlan(plan!.id, name, description || null, sortOrder, keys)
-        : await createPlan(name, description || null, sortOrder, keys)
-      if (result.error) { setError(result.error); return }
-      onClose()
-      onSaved()
-    })
-  }
+  const submit = handleSubmit(async values => {
+    const result = isEdit
+      ? await updatePlan({ ...values, planId: plan.id })
+      : await createPlan(values)
+
+    if (result.fieldErrors) {
+      for (const [field, messages] of Object.entries(result.fieldErrors)) {
+        setError(field as keyof FeaturePlanInput, { message: messages[0] })
+      }
+    }
+    if (!result.success) {
+      toast.error(result.error ?? 'Unable to save the plan.')
+      return
+    }
+    toast.success(isEdit ? 'Plan updated.' : 'Plan created.')
+    onClose()
+    onSaved()
+  })
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
-      <div className="relative bg-white rounded-xl shadow-xl w-full max-w-lg">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="relative w-full max-w-xl rounded-xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">{isEdit ? 'Edit Plan' : 'New Plan'}</h2>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X className="w-5 h-5" />
+          <button type="button" onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600">
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+        <form onSubmit={submit} noValidate className="space-y-4 px-6 py-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Plan Name *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Basic, Pro, Enterprise"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-600"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-            <input
-              type="text"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="Optional plan description"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-600"
-            />
-          </div>
-
-          {/* <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Sort Order</label>
-            <input
-              type="number"
-              value={sortOrder}
-              onChange={e => setSortOrder(Number(e.target.value))}
-              className="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-600"
-            />
-          </div> */}
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Features included ({selected.size})
+            <label htmlFor="plan-name" className="mb-1 block text-sm font-medium text-slate-700">
+              Plan Name <span className="text-red-600">*</span>
             </label>
-            <FeatureChecklist selected={selected} onChange={setSelected} />
+            <input
+              id="plan-name"
+              type="text"
+              {...register('name')}
+              placeholder="e.g. Basic, Pro, Enterprise"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-600"
+            />
+            {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name.message}</p>}
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div>
+            <label htmlFor="plan-description" className="mb-1 block text-sm font-medium text-slate-700">Description</label>
+            <input
+              id="plan-description"
+              type="text"
+              {...register('description', { setValueAs: value => value?.trim() || null })}
+              placeholder="Optional plan description"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-600"
+            />
+            {errors.description && <p className="mt-1 text-xs text-red-600">{errors.description.message}</p>}
+          </div>
+
+          <input type="hidden" {...register('sortOrder', { valueAsNumber: true })} />
+
+          <div>
+            <div className="mb-2 text-sm font-medium text-slate-700">
+              Capabilities included ({selected.length})
+            </div>
+            <CapabilityChecklist
+              selected={selected}
+              onChange={next => setValue('capabilityKeys', next, { shouldDirty: true, shouldValidate: true })}
+            />
+            {errors.capabilityKeys && <p className="mt-1 text-xs text-red-600">{errors.capabilityKeys.message}</p>}
+          </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
+            <button type="button" onClick={onClose} className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-gray-50">
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={pending}
-              className="px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-colors"
-            >
-              {pending ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Plan'}
+            <button type="submit" disabled={isSubmitting} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+              {isSubmitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Plan'}
             </button>
           </div>
         </form>
@@ -190,107 +172,84 @@ function PlanModal({
 export default function PlanManagementContent({ plans: initialPlans }: Props) {
   const router = useRouter()
   const [plans, setPlans] = useState(initialPlans)
-  useEffect(() => { setPlans(initialPlans) }, [initialPlans])
   const [modalOpen, setModalOpen] = useState(false)
   const [editingPlan, setEditingPlan] = useState<FeaturePlanRow | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FeaturePlanRow | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deletePending, startDeleteTransition] = useTransition()
 
-  function handleSaved() {
-    router.refresh()
-  }
-
-  function openCreate() {
-    setEditingPlan(null)
-    setModalOpen(true)
-  }
-
-  function openEdit(plan: FeaturePlanRow) {
-    setEditingPlan(plan)
-    setModalOpen(true)
-  }
+  useEffect(() => { setPlans(initialPlans) }, [initialPlans])
 
   function handleDeleteConfirm() {
     if (!deleteTarget) return
     setDeleteError(null)
     startDeleteTransition(async () => {
       const result = await deletePlan(deleteTarget.id)
-      if (result.error) { setDeleteError(result.error); return }
-      setPlans(prev => prev.filter(p => p.id !== deleteTarget.id))
+      if (!result.success) {
+        setDeleteError(result.error ?? 'Unable to delete the plan.')
+        return
+      }
+      setPlans(previous => previous.filter(plan => plan.id !== deleteTarget.id))
       setDeleteTarget(null)
+      toast.success('Plan deleted.')
     })
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Feature Plans</h1>
-          <p className="text-sm text-slate-500 mt-1">Define plan tiers and control which features each agency can access.</p>
+          <p className="mt-1 text-sm text-slate-500">Define plan tiers and grant stable business capabilities to agencies.</p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Plan
+        <button type="button" onClick={() => { setEditingPlan(null); setModalOpen(true) }} className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
+          <Plus className="h-4 w-4" /> New Plan
         </button>
       </div>
 
       {plans.length === 0 ? (
-        <div className="bg-white border border-gray-100 rounded-xl p-12 text-center">
-          <Layers className="w-10 h-10 text-slate-300 mx-auto mb-3" strokeWidth={1.5} />
-          <p className="text-slate-500 text-sm">No plans created yet. Create your first plan to start gating features.</p>
+        <div className="rounded-xl border border-gray-100 bg-white p-12 text-center">
+          <Layers className="mx-auto mb-3 h-10 w-10 text-slate-300" strokeWidth={1.5} />
+          <p className="text-sm text-slate-500">No plans created yet. Create a plan to grant agency capabilities.</p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 <th className="w-10 px-2" />
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Features</th>
-                <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Agencies</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Plan</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Capabilities</th>
+                <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">Agencies</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {plans.map(plan => {
-                const featureLabels = plan.plan_features
-                  .map(f => AGENCY_FEATURES.find(a => a.key === f.feature_key)?.label ?? f.feature_key)
+                const labels = plan.plan_capabilities.map(item => getCapability(item.capability_key)?.label ?? item.capability_key)
                 return (
-                  <tr key={plan.id} className="hover:bg-gray-50/50 transition-colors">
+                  <tr key={plan.id} className="hover:bg-gray-50/50">
                     <td className="w-10 px-2 py-3">
                       <RecordActionsMenu
                         label={`Actions for ${plan.name}`}
                         actions={[
-                          { label: 'Edit Plan', icon: Pencil, onClick: () => openEdit(plan) },
+                          { label: 'Edit Plan', icon: Pencil, onClick: () => { setEditingPlan(plan); setModalOpen(true) } },
                           { label: 'Delete Plan', icon: Trash2, onClick: () => { setDeleteTarget(plan); setDeleteError(null) }, destructive: true },
                         ]}
                       />
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-900">{plan.name}</div>
-                      {plan.description && <div className="text-xs text-slate-500 mt-0.5">{plan.description}</div>}
+                      {plan.description && <div className="mt-0.5 text-xs text-slate-500">{plan.description}</div>}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1 max-w-md">
-                        {featureLabels.length === 0 ? (
-                          <span className="text-slate-400 text-xs italic">No features</span>
-                        ) : (
-                          featureLabels.map(label => (
-                            <span key={label} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
-                              {label}
-                            </span>
-                          ))
-                        )}
+                      <div className="flex max-w-xl flex-wrap gap-1">
+                        {labels.length === 0 ? <span className="text-xs italic text-slate-400">Baseline access only</span> : labels.map(label => (
+                          <span key={label} className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">{label}</span>
+                        ))}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className={`font-medium ${(plan.agency_count ?? 0) > 0 ? 'text-slate-900' : 'text-slate-400'}`}>
-                        {plan.agency_count ?? 0}
-                      </span>
+                      <span className={`font-medium ${(plan.agency_count ?? 0) > 0 ? 'text-slate-900' : 'text-slate-400'}`}>{plan.agency_count ?? 0}</span>
                     </td>
                   </tr>
                 )
@@ -300,39 +259,18 @@ export default function PlanManagementContent({ plans: initialPlans }: Props) {
         </div>
       )}
 
-      {/* Create / Edit modal */}
-      {modalOpen && (
-        <PlanModal
-          plan={editingPlan}
-          onClose={() => setModalOpen(false)}
-          onSaved={handleSaved}
-        />
-      )}
+      {modalOpen && <PlanModal plan={editingPlan} onClose={() => setModalOpen(false)} onSaved={() => router.refresh()} />}
 
-      {/* Delete confirm */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/50" onClick={() => setDeleteTarget(null)} aria-hidden="true" />
-          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Delete &ldquo;{deleteTarget.name}&rdquo;?</h2>
-            <p className="text-sm text-slate-500 mb-4">
-              This will permanently remove the plan and all its feature assignments. This cannot be undone.
-            </p>
-            {deleteError && <p className="text-sm text-red-600 mb-3">{deleteError}</p>}
+          <div className="relative w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="mb-2 text-lg font-semibold text-slate-900">Delete &ldquo;{deleteTarget.name}&rdquo;?</h2>
+            <p className="mb-4 text-sm text-slate-500">This permanently removes the plan and its capability assignments.</p>
+            {deleteError && <p className="mb-3 text-sm text-red-600">{deleteError}</p>}
             <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteConfirm}
-                disabled={deletePending}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
-              >
+              <button type="button" onClick={() => setDeleteTarget(null)} className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-gray-50">Cancel</button>
+              <button type="button" onClick={handleDeleteConfirm} disabled={deletePending} className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
                 {deletePending ? 'Deleting…' : 'Delete Plan'}
               </button>
             </div>

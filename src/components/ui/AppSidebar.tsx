@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { ChevronDown, ChevronLeft, ChevronRight, LogOut, type LucideIcon } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Lock, LogOut, type LucideIcon } from 'lucide-react'
 import { signOut } from '@/app/actions/auth'
 
 export interface MenuItemDef {
@@ -13,6 +13,7 @@ export interface MenuItemDef {
   badge?: number
   title?: string
   subtitle?: string
+  locked?: boolean
 }
 
 export interface MenuGroupDef {
@@ -32,6 +33,7 @@ interface AppSidebarProps {
   onMobileClose: () => void
   /** Extra content inserted above the logout button (e.g. application progress widget) */
   extraContent?: React.ReactNode
+  onLockedItemClick?: (item: MenuItemDef) => void
   /** Retained for a future custom-branding phase; the sidebar currently uses bundled branding. */
   logoSrc?: string
   /** Retained for a future custom-branding phase; the sidebar currently uses bundled branding. */
@@ -50,15 +52,18 @@ export default function AppSidebar({
   mobileOpen,
   onMobileClose,
   extraContent,
+  onLockedItemClick,
 }: AppSidebarProps) {
   const pathname = usePathname()
   const displayedLogoSrc = collapsed ? DEFAULT_LOGO_ICON_SRC : DEFAULT_LOGO_SRC
   const itemIsActive = (item: MenuItemDef) =>
-    pathname === item.href ||
-    (pathname.startsWith(item.href + '/') &&
-      item.href !== '/pages/agency' &&
-      item.href !== '/pages/admin' &&
-      item.href !== '/pages/caregiver')
+    !item.locked && (
+      pathname === item.href ||
+      (pathname.startsWith(item.href + '/') &&
+        item.href !== '/pages/agency' &&
+        item.href !== '/pages/admin' &&
+        item.href !== '/pages/caregiver')
+    )
   const activeGroupId = menuGroups?.find(group => group.items.some(itemIsActive))?.id ?? null
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(activeGroupId ? [activeGroupId] : [])
@@ -85,12 +90,68 @@ export default function AppSidebar({
 
   const renderMenuItem = (
     item: MenuItemDef,
-    options?: { nested?: boolean; groupExpanded?: boolean }
+    options?: { nested?: boolean; groupExpanded?: boolean; groupLocked?: boolean }
   ) => {
     const isActive = itemIsActive(item)
     const Icon = item.icon
     const nested = options?.nested ?? false
     const groupExpanded = options?.groupExpanded ?? true
+    const showItemLock = item.locked && !options?.groupLocked
+    const className = `
+      flex w-full items-center gap-3 rounded-lg text-sm transition-all duration-200
+      ${nested && !collapsed ? 'ml-1 px-3 py-2' : 'px-3 py-2.5'}
+      ${item.locked
+        ? 'border-l-2 border-transparent pl-[10px] text-slate-500 hover:bg-white/5 hover:text-slate-300'
+        : isActive
+          ? 'border-l-2 border-brand bg-white/10 pl-[10px] font-semibold text-white'
+          : 'border-l-2 border-transparent pl-[10px] text-slate-400 hover:bg-white/5 hover:text-slate-200'
+      }
+    `
+    const content = (
+      <>
+        <div className="relative flex-shrink-0">
+          <Icon className={nested ? 'w-4 h-4' : 'w-5 h-5'} strokeWidth={2} />
+          {collapsed && !item.locked && item.badge != null && item.badge > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 text-slate-900 text-[9px] font-bold px-1 py-0 min-w-[14px] text-center leading-tight">
+              {item.badge}
+            </span>
+          )}
+          {collapsed && showItemLock && (
+            <Lock className="absolute -right-2 -top-2 h-3 w-3 text-slate-500" aria-hidden />
+          )}
+        </div>
+        {!collapsed && (
+          <div className="flex items-center justify-between min-w-0 w-full">
+            <span className="truncate">{item.label}</span>
+            {!item.locked && item.badge != null && item.badge > 0 && (
+              <span className="ml-2 rounded-full bg-amber-400/20 text-amber-300 text-xs font-semibold px-2 py-0.5 min-w-[1.25rem] text-center shrink-0">
+                {item.badge}
+              </span>
+            )}
+            {showItemLock && <Lock className="ml-2 h-3.5 w-3.5 shrink-0" aria-hidden />}
+          </div>
+        )}
+      </>
+    )
+    if (item.locked) {
+      return (
+        <button
+          key={item.href}
+          type="button"
+          onClick={() => {
+            onMobileClose()
+            onLockedItemClick?.(item)
+          }}
+          aria-label={`${item.label}, not included in your plan`}
+          title={`${item.label} — not included in your plan`}
+          data-locked="true"
+          tabIndex={groupExpanded ? undefined : -1}
+          className={className}
+        >
+          {content}
+        </button>
+      )
+    }
     return (
       <Link
         key={item.href}
@@ -100,33 +161,9 @@ export default function AppSidebar({
         aria-label={collapsed ? item.label : undefined}
         title={collapsed ? item.label : undefined}
         tabIndex={groupExpanded ? undefined : -1}
-        className={`
-          flex items-center gap-3 rounded-lg transition-all duration-200 text-sm
-          ${nested && !collapsed ? 'px-3 py-2 ml-1' : 'px-3 py-2.5'}
-          ${isActive
-            ? 'bg-white/10 text-white font-semibold border-l-2 border-brand pl-[10px]'
-            : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border-l-2 border-transparent pl-[10px]'
-          }
-        `}
+        className={className}
       >
-        <div className="relative flex-shrink-0">
-          <Icon className={nested ? 'w-4 h-4' : 'w-5 h-5'} strokeWidth={2} />
-          {collapsed && item.badge != null && item.badge > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 text-slate-900 text-[9px] font-bold px-1 py-0 min-w-[14px] text-center leading-tight">
-              {item.badge}
-            </span>
-          )}
-        </div>
-        {!collapsed && (
-          <div className="flex items-center justify-between min-w-0 w-full">
-            <span className="truncate">{item.label}</span>
-            {item.badge != null && item.badge > 0 && (
-              <span className="ml-2 rounded-full bg-amber-400/20 text-amber-300 text-xs font-semibold px-2 py-0.5 min-w-[1.25rem] text-center shrink-0">
-                {item.badge}
-              </span>
-            )}
-          </div>
-        )}
+        {content}
       </Link>
     )
   }
@@ -193,6 +230,7 @@ export default function AppSidebar({
               const GroupIcon = group.icon
               const isExpanded = expandedGroups.has(group.id)
               const containsActiveItem = group.id === activeGroupId
+              const isLocked = group.items.length > 0 && group.items.every(item => item.locked)
               const regionId = `sidebar-group-${group.id}`
               return (
                 <div key={group.id} className="pt-0.5">
@@ -201,21 +239,30 @@ export default function AppSidebar({
                     onClick={() => toggleGroup(group.id)}
                     aria-expanded={isExpanded}
                     aria-controls={regionId}
-                    aria-label={collapsed ? group.label : undefined}
-                    title={collapsed ? group.label : undefined}
-                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-200 ${
+                    aria-label={collapsed || isLocked
+                      ? `${group.label}${isLocked ? ', not included in your plan' : ''}`
+                      : undefined}
+                    title={collapsed ? `${group.label}${isLocked ? ' — not included in your plan' : ''}` : undefined}
+                    data-locked={isLocked ? 'true' : undefined}
+                    className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-200 ${
                       isExpanded || containsActiveItem
                         ? 'bg-white/[0.07] text-slate-100'
                         : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
                     }`}
                   >
                     <GroupIcon className="h-5 w-5 flex-shrink-0 text-slate-400" strokeWidth={2} />
+                    {collapsed && isLocked && (
+                      <Lock className="absolute right-1 top-1 h-3 w-3 text-slate-500" aria-hidden />
+                    )}
                     {!collapsed && (
                       <>
                         <span className="min-w-0 flex-1 truncate text-left font-medium">{group.label}</span>
-                        {isExpanded
-                          ? <ChevronDown className="h-4 w-4 flex-shrink-0" aria-hidden />
-                          : <ChevronRight className="h-4 w-4 flex-shrink-0" aria-hidden />}
+                        <span className="flex shrink-0 items-center gap-2">
+                          {isLocked && <Lock className="h-3.5 w-3.5 text-slate-500" aria-hidden />}
+                          {isExpanded
+                            ? <ChevronDown className="h-4 w-4" aria-hidden />
+                            : <ChevronRight className="h-4 w-4" aria-hidden />}
+                        </span>
                       </>
                     )}
                   </button>
@@ -231,6 +278,7 @@ export default function AppSidebar({
                         {group.items.map(item => renderMenuItem(item, {
                           nested: true,
                           groupExpanded: isExpanded,
+                          groupLocked: isLocked,
                         }))}
                       </div>
                     </div>

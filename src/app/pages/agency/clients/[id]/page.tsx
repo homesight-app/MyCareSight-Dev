@@ -7,7 +7,7 @@ import {
   getCachedAgencyClientDetailBundle,
   normalizeAgencyClientDetailTab,
 } from '@/lib/server-cache/agency-client-detail-bundle'
-import { getAgencyAllowedFeatures } from '@/lib/feature-access'
+import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
 
 export default async function ClientDetailPage({
   params,
@@ -26,6 +26,12 @@ export default async function ClientDetailPage({
   const activeTab = normalizeAgencyClientDetailTab((await searchParams).tab)
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
   const role = session!.profile?.role ?? ''
+  const allowedCapabilities = await getAgencyAllowedCapabilities(agencyId)
+  const canSchedule = allowedCapabilities.includes('care_operations')
+
+  if (activeTab === 'schedule' && !canSchedule) {
+    redirect(`/pages/agency/clients/${id}`)
+  }
 
   const [bundle, addresses] = await withUserContext(session!.user.id, role, agencyId, () =>
     Promise.all([
@@ -40,9 +46,6 @@ export default async function ClientDetailPage({
 
   const canManageNotes =
     role === 'company_owner' || role === 'care_coordinator'
-
-  const allowedFeatures = await getAgencyAllowedFeatures(agencyId)
-  const canSchedule = allowedFeatures === null || allowedFeatures.includes('clients_scheduling')
 
   return (
     <ClientDetailContent

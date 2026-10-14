@@ -6,6 +6,7 @@ import { readCaregiverPayRates } from '@/lib/repositories/caregiver-pay-rates'
 import { caregiverHomeAddressSchema, type CaregiverHomeAddressInput } from '@/lib/schemas/caregiver-profile'
 import { zodErrorToFieldErrors } from '@/lib/validation'
 import { revalidatePath } from 'next/cache'
+import { assertAgencyCapability } from '@/lib/feature-access'
 
 export type CaregiverPayRateHistoryRow = {
   id: string
@@ -64,6 +65,9 @@ export async function updateCaregiverHomeAddressAction(input: CaregiverHomeAddre
         && (actor.role === 'company_owner' || actor.role === 'care_coordinator')
         && hasActiveMembership
       if (!isPlatformAdmin && !isSelf && !isManager) throw new Error('Forbidden')
+      if (isManager) {
+        await assertAgencyCapability(member.agency_id, 'caregiver_management')
+      }
 
       const address = [parsed.data.streetAddress, parsed.data.city].filter(Boolean).join(', ')
       await sql`
@@ -127,6 +131,7 @@ export async function getCaregiverSchedulesAction(
   return withUserContext(session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null, async () => {
     const member = await resolveAuthorizedCaregiver(caregiverMemberId, session)
     if (!member?.agency_id) return { data: [], error: 'Caregiver not found or not authorized' }
+    await assertAgencyCapability(member.agency_id, 'care_operations')
 
     const upcomingRows = await sql<CaregiverScheduleRow[]>`
       SELECT id, patient_id, visit_date, scheduled_start_time, scheduled_end_time, service_type, status, is_recurring

@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import StaffLayout from '@/components/StaffLayout'
 import { getAgencyBrandingAction } from '@/app/actions/agencies'
 import { hexDarken, hexLighten } from '@/lib/color-utils'
+import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
 
 export default async function CaregiverRootLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession()
@@ -10,9 +11,12 @@ export default async function CaregiverRootLayout({ children }: { children: Reac
   if ((session.profile as { role?: string | null } | null)?.role !== 'staff_member') redirect('/pages/auth/login')
 
   const agencyId = (session.profile as { agency_id?: string | null } | null)?.agency_id ?? null
-  const branding = agencyId
-    ? await getAgencyBrandingAction(agencyId)
-    : { logoUrl: null, logoIconUrl: null, primaryColor: null, sidebarColor: null }
+  const [branding, allowedCapabilities] = await Promise.all([
+    agencyId
+      ? getAgencyBrandingAction(agencyId)
+      : Promise.resolve({ logoUrl: null, logoIconUrl: null, primaryColor: null, sidebarColor: null }),
+    getAgencyAllowedCapabilities(agencyId),
+  ])
 
   const cssVarParts: string[] = []
   if (branding.primaryColor) {
@@ -33,6 +37,7 @@ export default async function CaregiverRootLayout({ children }: { children: Reac
         profile={session.profile}
         logoSrc={branding.logoUrl ?? undefined}
         logoIconSrc={branding.logoIconUrl ?? undefined}
+        allowedCapabilities={allowedCapabilities}
       >
         {children}
       </StaffLayout>

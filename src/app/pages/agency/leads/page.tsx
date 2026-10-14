@@ -4,6 +4,8 @@ import * as q from '@/lib/supabase/query'
 import LeadsContent from '@/components/LeadsContent'
 import FeatureGate from '@/components/FeatureGate'
 import { AGENCY_LEAD_CONTEXT, type LeadContext } from '@/lib/constants/lead-configs'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 const PAGE_SIZE = 50
 
@@ -17,6 +19,11 @@ export default async function AgencyLeadsPage({
 }) {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
+  try {
+    await requireAgencyCapability('client_management')
+  } catch {
+    return <FeatureLockedPage capabilityKey="client_management" />
+  }
 
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? null
@@ -47,7 +54,7 @@ export default async function AgencyLeadsPage({
   const agencyStages = (agencyStagesResult.data ?? []) as import('@/lib/constants/lead-configs').AgencyLeadStage[]
 
   return (
-    <FeatureGate feature="leads" agencyId={agencyId}>
+    <FeatureGate capability="client_management" agencyId={agencyId}>
       <LeadsContent
         leads={leads}
         totalCount={leadsResult.count}

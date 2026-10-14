@@ -7,13 +7,14 @@ import type { FeaturePlanSummary } from '@/components/AgencyDetailContent'
 import { listLeadIntegrationCredentials } from '@/lib/repositories/lead-integrations'
 import { websiteLeadIntegrationEnabled } from '@/lib/features/website-lead-integration'
 import { getConfigurationValues } from '@/app/actions/configuration-values'
+import { withUserContext } from '@/db'
 
 export default async function AdminAgencyDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requireAdmin()
+  const adminSession = await requireAdmin()
   const { id } = await params
   const integrationEnabled = websiteLeadIntegrationEnabled()
 
@@ -32,7 +33,6 @@ export default async function AdminAgencyDetailPage({
     { data: keyStaff },
     { data: agencyLeads },
     { data: programs },
-    { data: rawFeaturePlans },
     { data: certificationCategories },
     integrationCredentials,
   ] = await Promise.all([
@@ -45,15 +45,21 @@ export default async function AdminAgencyDetailPage({
     q.getKeyStaffByAgencyId(id),
     q.getLeadsByAgency(id),
     q.getApplicationsWithProgramsByAgencyId(id),
-    q.getFeaturePlans(),
     getConfigurationValues('PLAYBOOK_CATEGORY'),
     integrationEnabled ? listLeadIntegrationCredentials(id) : Promise.resolve([]),
   ])
 
+  const { data: rawFeaturePlans } = await withUserContext(
+    adminSession.user.id,
+    'admin',
+    null,
+    () => q.getFeaturePlans()
+  )
+
   const featurePlans: FeaturePlanSummary[] = (rawFeaturePlans ?? []).map(p => ({
     id: p.id,
     name: p.name,
-    plan_features: p.plan_features,
+    plan_capabilities: p.plan_capabilities,
   }))
 
   const leadIds = (agencyLeads ?? []).map((l: { id: string }) => l.id)

@@ -6,6 +6,7 @@ import { getSession } from '@/lib/auth'
 import { resolvePayRateForVisit, type CaregiverPayRateRow } from '@/lib/caregiver-pay-rates'
 import { calcAmount, round2 } from '@/lib/payroll-calculations'
 import { timeBillingDecisionSchema, type TimeBillingDecisionInput } from '@/lib/schemas/time-billing'
+import { assertAgencyCapability } from '@/lib/feature-access'
 
 type Manager = { id:string; role:'company_owner'|'care_coordinator'; agencyId:string }
 type Visit = { id:string; agency_id:string; patient_id:string; caregiver_member_id:string|null; visit_date:string }
@@ -35,6 +36,7 @@ async function currentManager<T>(run:(actor:Manager)=>Promise<T>):Promise<T>{
     if(!row?.agency_id) throw new AccessError('An active agency management membership is required.')
     const actor={id:row.id,role:row.role as Manager['role'],agencyId:row.agency_id}
     await sql`SELECT set_config('app.current_user_role',${actor.role},true),set_config('app.current_agency_id',${actor.agencyId},true)`
+    await assertAgencyCapability(actor.agencyId, 'care_operations')
     return run(actor)
   })
 }

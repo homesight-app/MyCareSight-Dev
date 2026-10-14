@@ -3,6 +3,8 @@ import { getSession } from '@/lib/auth'
 import { assertAgencyReportsPageAccess } from '@/lib/agency-reports-access'
 import PayrollBillingReportContent from '@/components/PayrollBillingReportContent'
 import { getPayrollBillingReportRowsAction } from '@/app/actions/payroll-billing-report'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 function defaultDateRange(): { from: string; to: string } {
   const to = new Date()
@@ -18,7 +20,10 @@ export default async function PayrollBillingReportPage() {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
 
-  assertAgencyReportsPageAccess(session!.profile)
+  await assertAgencyReportsPageAccess(session!.profile)
+  try { await requireAgencyCapability('care_operations') } catch {
+    return <FeatureLockedPage capabilityKey="care_operations" />
+  }
 
   const { from, to } = defaultDateRange()
   const { rows, error } = await getPayrollBillingReportRowsAction(from, to)

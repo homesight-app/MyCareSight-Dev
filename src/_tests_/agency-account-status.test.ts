@@ -10,6 +10,7 @@ jest.mock('@/lib/email', () => ({ sendInvitationEmail: jest.fn() }))
 jest.mock('@/lib/auth/password', () => ({ hashPassword: jest.fn() }))
 jest.mock('@/lib/supabase/query', () => ({}))
 jest.mock('@/lib/permissions', () => ({ requirePlatformStaffOrAgencyRole: jest.fn() }))
+jest.mock('@/lib/feature-access', () => ({ getAgencyAllowedCapabilities: jest.fn() }))
 jest.mock('@/db', () => ({
   __esModule: true,
   default: jest.fn(),

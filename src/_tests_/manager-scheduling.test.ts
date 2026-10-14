@@ -46,6 +46,10 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO mycaresight_app;
   CREATE TABLE user_profiles(id uuid PRIMARY KEY,role text,agency_id uuid,is_active boolean);
   CREATE TABLE user_agency_roles(user_id uuid,agency_id uuid,role text,status text);
+  CREATE TABLE feature_plans(id uuid PRIMARY KEY);
+  CREATE TABLE agencies(id uuid PRIMARY KEY,plan_id uuid);
+  CREATE TABLE capability_catalog(key text PRIMARY KEY,is_active boolean);
+  CREATE TABLE plan_capabilities(plan_id uuid,capability_key text);
   CREATE TABLE patients(id uuid PRIMARY KEY,agency_id uuid);
   CREATE TABLE caregiver_members(id uuid PRIMARY KEY,agency_id uuid,status text,skills text[]);
   CREATE TABLE patient_skill_requirements(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),agency_id uuid,patient_id uuid UNIQUE,skill_codes text[]);
@@ -60,6 +64,10 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
     agency_id uuid,label text,is_recurring boolean,start_time time,end_time time,repeat_frequency text,
     days_of_week integer[],repeat_start date,repeat_end date,specific_date date);
   CREATE TABLE audit_log(agency_id uuid,table_name text,record_id uuid,action text,performed_by_user_id uuid,details jsonb);
+  INSERT INTO feature_plans VALUES('${id(50)}');
+  INSERT INTO agencies VALUES('${AGENCY}','${id(50)}');
+  INSERT INTO capability_catalog VALUES('care_operations',true);
+  INSERT INTO plan_capabilities VALUES('${id(50)}','care_operations');
   INSERT INTO user_profiles VALUES('${USER}','company_owner','${AGENCY}',true);
   INSERT INTO user_agency_roles VALUES('${USER}','${AGENCY}','company_owner','active');
   INSERT INTO patients VALUES('${PATIENT}','${AGENCY}'),('${FOREIGN_PATIENT}','${FOREIGN}');

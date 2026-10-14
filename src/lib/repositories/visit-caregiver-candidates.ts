@@ -4,7 +4,7 @@ import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import { computeCaregiverMatches, type CaregiverMatchOption } from '@/lib/caregiver-matching'
 import {
-  withAgencyManagerFinancialRead,
+  withCareOperationsManager,
   type FinancialReadActor,
 } from '@/lib/repositories/visit-financial-reads'
 
@@ -154,5 +154,5 @@ export async function loadVisitCaregiverCandidatesForActor(
 export async function loadVisitCaregiverCandidates(
   visitId: string
 ): Promise<VisitCaregiverCandidateResult> {
-  return withAgencyManagerFinancialRead(actor => loadVisitCaregiverCandidatesForActor(actor, visitId))
+  return withCareOperationsManager(actor => loadVisitCaregiverCandidatesForActor(actor, visitId))
 }

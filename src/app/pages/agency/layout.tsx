@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { getAgencyAllowedFeatures } from '@/lib/feature-access'
+import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
 import DashboardLayout from '@/components/DashboardLayout'
 import { getAgencyBrandingAction } from '@/app/actions/agencies'
 import { hexDarken, hexLighten } from '@/lib/color-utils'
@@ -13,8 +13,8 @@ export default async function AgencyRootLayout({ children }: { children: React.R
   if (role !== 'company_owner' && role !== 'care_coordinator') redirect('/pages/auth/login')
 
   const agencyId = (session.profile as { agency_id?: string | null } | null)?.agency_id ?? null
-  const [allowedFeatures, branding] = await Promise.all([
-    getAgencyAllowedFeatures(agencyId),
+  const [allowedCapabilities, branding] = await Promise.all([
+    getAgencyAllowedCapabilities(agencyId),
     agencyId ? getAgencyBrandingAction(agencyId) : Promise.resolve({ logoUrl: null, logoIconUrl: null, primaryColor: null, sidebarColor: null }),
   ])
 
@@ -35,7 +35,7 @@ export default async function AgencyRootLayout({ children }: { children: React.R
       <DashboardLayout
         user={{ id: session.user.id, email: session.user.email }}
         profile={session.profile}
-        allowedFeatures={allowedFeatures}
+        allowedCapabilities={allowedCapabilities}
         logoSrc={branding.logoUrl ?? undefined}
         logoIconSrc={branding.logoIconUrl ?? undefined}
       >

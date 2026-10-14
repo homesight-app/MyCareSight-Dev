@@ -6,6 +6,7 @@ import { Home, Award, CalendarDays, Calendar } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
 import AppSidebar from './ui/AppSidebar'
+import type { CapabilityKey } from '@/lib/constants/feature-keys'
 
 interface StaffLayoutProps {
   children: React.ReactNode
@@ -19,12 +20,18 @@ interface StaffLayoutProps {
   } | null
   logoSrc?: string
   logoIconSrc?: string
+  allowedCapabilities?: CapabilityKey[]
 }
 
-const MENU_ITEMS = [
+const MENU_ITEMS: Array<{
+  href: string
+  label: string
+  icon: typeof Home
+  capability?: CapabilityKey
+}> = [
   { href: '/pages/caregiver',                  label: 'Dashboard',               icon: Home },
-  { href: '/pages/caregiver/my-care-visits',   label: 'My Care Visits',          icon: CalendarDays },
-  { href: '/pages/caregiver/my-calendar',      label: 'My Calendar',             icon: Calendar },
+  { href: '/pages/caregiver/my-care-visits',   label: 'My Care Visits',          icon: CalendarDays, capability: 'care_operations' },
+  { href: '/pages/caregiver/my-calendar',      label: 'My Calendar',             icon: Calendar, capability: 'care_operations' },
   { href: '/pages/caregiver/my-certifications', label: 'My Skills & Certifications', icon: Award },
 ]
 
@@ -34,6 +41,7 @@ export default function StaffLayout({
   profile,
   logoSrc,
   logoIconSrc,
+  allowedCapabilities = [],
 }: StaffLayoutProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -63,7 +71,7 @@ export default function StaffLayout({
 
       <div className="flex pt-[90px]">
         <AppSidebar
-          menuItems={MENU_ITEMS}
+          menuItems={MENU_ITEMS.filter(item => !item.capability || allowedCapabilities.includes(item.capability))}
           collapsed={collapsed}
           onCollapse={setCollapsed}
           mobileOpen={mobileOpen}

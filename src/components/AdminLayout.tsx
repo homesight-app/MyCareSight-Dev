@@ -43,7 +43,7 @@ const MENU_ITEMS = [
   { href: '/pages/admin/templates',            label: 'Templates',           icon: FileStack, title: 'Templates' },
   { href: '/pages/admin/reports',              label: 'Reports',             icon: BarChart3, title: 'Reports',              subtitle: 'Pipeline and revenue analytics for your leads' },
   { href: '/pages/admin/users',                label: 'User Management',     icon: UserCog,   title: 'User Management',     subtitle: 'Manage users, clients, and licensing experts' },
-  { href: '/pages/admin/plans',               label: 'Feature Plans',       icon: Layers,    title: 'Feature Plans',        subtitle: 'Manage plan tiers and agency feature access' },
+  { href: '/pages/admin/plans',               label: 'Feature Plans',       icon: Layers,    title: 'Feature Plans',        subtitle: 'Manage plan tiers and agency capability access' },
   { href: '/pages/admin/configuration',        label: 'Configuration',       icon: Settings,  title: 'Configuration' },
 ]
 

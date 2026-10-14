@@ -1,7 +1,7 @@
 import sql from '@/db'
 import { patientFullName } from '@/lib/patient-name'
 import { hoursFromScheduleWithDates } from '@/lib/payroll-calculations'
-import { withAgencyManagerFinancialRead } from '@/lib/repositories/visit-financial-reads'
+import { withCareOperationsManager } from '@/lib/repositories/visit-financial-reads'
 import {
   normalizeTimeBillingVisitRow,
   type RawTimeBillingVisitRow,
@@ -43,7 +43,7 @@ export async function fetchTimeBillingRows(
   opts?: { startDate?: string; endDate?: string }
 ): Promise<{ rows: TimeBillingRow[]; error?: string; agencyId?: string }> {
   try{
-    return await withAgencyManagerFinancialRead(async actor=>{
+    return await withCareOperationsManager(async actor=>{
       const result=await fetchScopedTimeBillingRows({...opts,agencyId:actor.agencyId})
       if(result.error) throw new Error(result.error)
       await sql`INSERT INTO audit_log(agency_id,table_name,record_id,action,performed_by_user_id,details)

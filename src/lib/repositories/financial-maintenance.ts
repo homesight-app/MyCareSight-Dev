@@ -1,7 +1,7 @@
 import 'server-only'
 
 import sql from '@/db'
-import { withAgencyManagerFinancialRead } from '@/lib/repositories/visit-financial-reads'
+import { withCareOperationsManager } from '@/lib/repositories/visit-financial-reads'
 import {
   billRateBatchSchema,
   visitMileageSchema,
@@ -33,7 +33,7 @@ export async function savePatientServiceContractBillRates(
   if (!parsed.success) return { success: false, error: 'Check the bill-rate fields.', fieldErrors: fieldErrors(parsed.error.issues) }
 
   try {
-    await withAgencyManagerFinancialRead(async actor => {
+    await withCareOperationsManager(async actor => {
       const changes = [...parsed.data.rates].sort((a, b) => a.contractId.localeCompare(b.contractId))
       const ids = changes.map(change => change.contractId)
       const contracts = await sql<{ id: string; bill_rate: number | null }[]>`
@@ -68,7 +68,7 @@ export async function saveVisitMileage(input: VisitMileageInput): Promise<Financ
   if (!parsed.success) return { success: false, error: 'Check the mileage field.', fieldErrors: fieldErrors(parsed.error.issues) }
 
   try {
-    await withAgencyManagerFinancialRead(async actor => {
+    await withCareOperationsManager(async actor => {
       const [visit] = await sql<{ id: string; mileage_miles: number | null }[]>`
         SELECT id,mileage_miles FROM public.scheduled_visits
         WHERE id=${parsed.data.scheduledVisitId}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`

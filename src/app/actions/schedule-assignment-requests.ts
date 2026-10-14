@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { managerUpdateSchedule } from '@/lib/repositories/manager-scheduling'
 import { isAgencyManagerRole } from '@/lib/role-capabilities'
+import { requireAgencyCapability } from '@/lib/feature-access'
 
 const COORDINATOR_PATH = '/pages/agency/care-visits'
 const CAREGIVER_PATH = '/pages/caregiver/my-care-visits'
@@ -72,11 +73,22 @@ function isValidRequestId(id: string): boolean {
   return typeof id === 'string' && id.length > 0 && id !== 'null' && UUID_RE.test(id)
 }
 
+async function requireCareOperationsAccess(): Promise<string | null> {
+  try {
+    await requireAgencyCapability('care_operations')
+    return null
+  } catch {
+    return 'Care Operations is not included in your agency plan.'
+  }
+}
+
 export async function approveScheduleAssignmentRequestAction(
   requestId: string
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  const capabilityError = await requireCareOperationsAccess()
+  if (capabilityError) return { error: capabilityError }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
   const { data, error } = await q.approveScheduleAssignmentRequestRpc(requestId)
@@ -101,6 +113,8 @@ export async function declineScheduleAssignmentRequestAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  const capabilityError = await requireCareOperationsAccess()
+  if (capabilityError) return { error: capabilityError }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
   const { data, error } = await q.declineScheduleAssignmentRequestRpc(requestId, reason)
@@ -139,6 +153,8 @@ export async function requestScheduleAssignmentAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  const capabilityError = await requireCareOperationsAccess()
+  if (capabilityError) return { error: capabilityError }
 
   const note = caregiverNote?.trim() ? caregiverNote.trim() : ''
   const { data, error } = await q.submitScheduleAssignmentRequestRpc(scheduleId, note || null)
@@ -178,6 +194,8 @@ export async function cancelScheduleAssignmentRequestAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  const capabilityError = await requireCareOperationsAccess()
+  if (capabilityError) return { error: capabilityError }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
   const { error, data } = await q.cancelScheduleAssignmentRequestRpc(requestId)
@@ -306,6 +324,8 @@ export async function submitScheduleUnassignmentRequestAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  const capabilityError = await requireCareOperationsAccess()
+  if (capabilityError) return { error: capabilityError }
 
   const { data, error } = await q.submitScheduleUnassignmentRequestRpc(scheduleId)
 
@@ -329,6 +349,8 @@ export async function cancelScheduleUnassignmentRequestAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  const capabilityError = await requireCareOperationsAccess()
+  if (capabilityError) return { error: capabilityError }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
   const { data, error } = await q.cancelScheduleUnassignmentRequestRpc(requestId)
@@ -347,6 +369,8 @@ export async function approveScheduleUnassignmentRequestAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  const capabilityError = await requireCareOperationsAccess()
+  if (capabilityError) return { error: capabilityError }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
   const { data, error } = await q.approveScheduleUnassignmentRequestRpc(requestId)
@@ -371,6 +395,8 @@ export async function declineScheduleUnassignmentRequestAction(
 ): Promise<{ ok?: true; error?: string }> {
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
+  const capabilityError = await requireCareOperationsAccess()
+  if (capabilityError) return { error: capabilityError }
   if (!isValidRequestId(requestId)) return { error: 'Invalid request. Refresh the page and try again.' }
 
   const { data, error } = await q.declineScheduleUnassignmentRequestRpc(requestId, reason)

@@ -13,7 +13,7 @@ export default async function ExpiringCertificationsReportPage() {
     redirect('/pages/auth/login')
   }
 
-  assertAgencyReportsPageAccess(session!.profile)
+  await assertAgencyReportsPageAccess(session!.profile)
 
   // Get report data
   const result = await getExpiringCertificationsReport()

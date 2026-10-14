@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { savePayRateBatch, saveCaregiverProfile, type PayRateSaveResult } from '@/lib/repositories/caregiver-pay-rate-writes'
 import type { PayRateMutationInput, PayRateBatchInput } from '@/lib/schemas/caregiver-pay-rates'
 import type { CaregiverEditInput } from '@/lib/schemas/caregiver-edit'
+import { requireAgencyCapability } from '@/lib/feature-access'
 
 function refresh(result: PayRateSaveResult) {
   if (!result.success) return
@@ -17,18 +18,27 @@ function refresh(result: PayRateSaveResult) {
 }
 
 export async function saveCaregiverPayRatesAction(input: PayRateBatchInput) {
+  try { await requireAgencyCapability('care_operations') } catch {
+    return { success: false, error: 'Care Operations is not included in your agency plan.' }
+  }
   const result = await savePayRateBatch(input)
   refresh(result)
   return result
 }
 
 export async function appendCaregiverPayRateAction(input: PayRateMutationInput) {
+  try { await requireAgencyCapability('care_operations') } catch {
+    return { success: false, error: 'Care Operations is not included in your agency plan.' }
+  }
   const result = await savePayRateBatch({rates:[input]})
   refresh(result)
   return { ...result, ok: result.success ? true as const : undefined }
 }
 
 export async function saveCaregiverProfileAction(caregiverId: string, input: CaregiverEditInput) {
+  try { await requireAgencyCapability('caregiver_management') } catch {
+    return { success: false, error: 'Caregiver Management is not included in your agency plan.' }
+  }
   const result = await saveCaregiverProfile(caregiverId,input)
   refresh(result)
   return result

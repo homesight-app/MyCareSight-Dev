@@ -1,5 +1,5 @@
 import sql from '@/db'
-import { withImpliedParents } from '@/lib/constants/feature-keys'
+import type { CapabilityKey } from '@/lib/constants/feature-keys'
 
 export interface FeaturePlanRow {
   id: string
@@ -8,7 +8,7 @@ export interface FeaturePlanRow {
   sort_order: number
   created_at: string
   updated_at: string
-  plan_features: { feature_key: string }[]
+  plan_capabilities: { capability_key: CapabilityKey }[]
   agency_count?: number
 }
 
@@ -20,11 +20,13 @@ export async function getFeaturePlans() {
         SELECT
           fp.id, fp.name, fp.description, fp.sort_order, fp.created_at, fp.updated_at,
           COALESCE(
-            json_agg(json_build_object('feature_key', pf.feature_key)) FILTER (WHERE pf.feature_key IS NOT NULL),
+            json_agg(json_build_object('capability_key', pc.capability_key) ORDER BY catalog.sort_order)
+              FILTER (WHERE pc.capability_key IS NOT NULL),
             '[]'
-          ) AS plan_features
+          ) AS plan_capabilities
         FROM feature_plans fp
-        LEFT JOIN plan_features pf ON pf.plan_id = fp.id
+        LEFT JOIN plan_capabilities pc ON pc.plan_id = fp.id
+        LEFT JOIN capability_catalog catalog ON catalog.key = pc.capability_key
         GROUP BY fp.id, fp.name, fp.description, fp.sort_order, fp.created_at, fp.updated_at
         ORDER BY fp.sort_order ASC, fp.name ASC
       `,
@@ -55,11 +57,13 @@ export async function getFeaturePlanById(planId: string) {
       SELECT
         fp.id, fp.name, fp.description, fp.sort_order, fp.created_at, fp.updated_at,
         COALESCE(
-          json_agg(json_build_object('feature_key', pf.feature_key)) FILTER (WHERE pf.feature_key IS NOT NULL),
+          json_agg(json_build_object('capability_key', pc.capability_key) ORDER BY catalog.sort_order)
+            FILTER (WHERE pc.capability_key IS NOT NULL),
           '[]'
-        ) AS plan_features
+        ) AS plan_capabilities
       FROM feature_plans fp
-      LEFT JOIN plan_features pf ON pf.plan_id = fp.id
+      LEFT JOIN plan_capabilities pc ON pc.plan_id = fp.id
+      LEFT JOIN capability_catalog catalog ON catalog.key = pc.capability_key
       WHERE fp.id = ${planId}
       GROUP BY fp.id, fp.name, fp.description, fp.sort_order, fp.created_at, fp.updated_at
     `
@@ -90,44 +94,50 @@ export async function updateFeaturePlanById(
 ) {
   try {
     const keys = Object.keys(data) as (keyof typeof data)[]
-    await sql`UPDATE feature_plans SET ${sql(data, ...keys)} WHERE id = ${planId}`
-    return { data: null, error: null }
+    const rows = await sql<{ id: string }[]>`
+      UPDATE feature_plans SET ${sql(data, ...keys)}
+      WHERE id = ${planId}::uuid
+      RETURNING id
+    `
+    return { data: rows[0] ?? null, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
 }
 
 /**
- * Replace all feature keys for a plan (delete + re-insert).
- * Auto-adds implied parent keys for any sub-features in the list.
+ * Replace all capabilities for a plan. Call inside the plan mutation
+ * transaction so metadata and entitlements commit or roll back together.
  */
-export async function setPlanFeatures(planId: string, featureKeys: string[]) {
-  const resolvedKeys = withImpliedParents(featureKeys)
-
+export async function setPlanCapabilities(planId: string, capabilityKeys: CapabilityKey[]) {
   try {
-    await sql`DELETE FROM plan_features WHERE plan_id = ${planId}`
+    await sql`DELETE FROM plan_capabilities WHERE plan_id = ${planId}::uuid`
   } catch (err) {
     return { error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
 
-  if (resolvedKeys.length === 0) return { error: null }
+  if (capabilityKeys.length === 0) return { error: null }
 
   try {
-    const rows = resolvedKeys.map(key => ({ plan_id: planId, feature_key: key }))
-    for (const row of rows) {
-      await sql`INSERT INTO plan_features ${sql(row, 'plan_id', 'feature_key')}`
-    }
+    await sql`
+      INSERT INTO plan_capabilities (plan_id, capability_key)
+      SELECT ${planId}::uuid, capability_key
+      FROM unnest(${capabilityKeys}::text[]) AS capability_key
+    `
     return { error: null }
   } catch (err) {
     return { error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
 }
 
-/** Delete a plan (cascades plan_features). Guards: check agency count before deleting. */
+/** Delete a plan (cascades plan_capabilities). Guards: check agency count before deleting. */
 export async function deleteFeaturePlanById(planId: string) {
   try {
-    await sql`DELETE FROM feature_plans WHERE id = ${planId}`
-    return { data: null, error: null }
+    const rows = await sql<{ id: string }[]>`
+      DELETE FROM feature_plans WHERE id = ${planId}::uuid
+      RETURNING id
+    `
+    return { data: rows[0] ?? null, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }
@@ -146,8 +156,13 @@ export async function getAgencyCountForPlan(planId: string) {
 /** Assign (or remove) a plan from an agency. Pass null to remove the plan. */
 export async function updateAgencyPlanId(agencyId: string, planId: string | null) {
   try {
-    await sql`UPDATE agencies SET plan_id = ${planId} WHERE id = ${agencyId}`
-    return { data: null, error: null }
+    const rows = await sql<{ id: string; plan_id: string | null }[]>`
+      UPDATE agencies
+      SET plan_id = ${planId}::uuid, updated_at = now()
+      WHERE id = ${agencyId}::uuid
+      RETURNING id, plan_id
+    `
+    return { data: rows[0] ?? null, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }
   }

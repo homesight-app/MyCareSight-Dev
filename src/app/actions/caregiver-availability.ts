@@ -5,8 +5,15 @@ import sql, { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import type { CaregiverAvailabilitySlotInput } from '@/lib/supabase/query'
+import { requireAgencyCapability } from '@/lib/feature-access'
 
 type SlotPayload = Omit<CaregiverAvailabilitySlotInput, 'caregiver_member_id' | 'agency_id'>
+
+async function careOperationsError(): Promise<string | null> {
+  try { await requireAgencyCapability('care_operations'); return null } catch {
+    return 'Care Operations is not included in your agency plan.'
+  }
+}
 
 async function resolveMember(caregiverMemberId: string): Promise<{ agency_id: string | null; user_id: string | null } | null> {
   const rows = await sql`SELECT agency_id, user_id FROM caregiver_members WHERE id = ${caregiverMemberId} LIMIT 1`
@@ -16,6 +23,8 @@ async function resolveMember(caregiverMemberId: string): Promise<{ agency_id: st
 export async function getMyAvailabilitySlotsAction(caregiverMemberId: string) {
   const session = await getSession()
   if (!session?.user) return { data: null, error: 'Not authenticated' }
+  const capabilityError = await careOperationsError()
+  if (capabilityError) return { data: null, error: capabilityError }
   try {
     return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
       const member = await resolveMember(caregiverMemberId)
@@ -44,6 +53,8 @@ export async function insertAvailabilitySlotAction(
 ): Promise<{ error: string | null }> {
   const session = await getSession()
   if (!session?.user) return { error: 'Not authenticated' }
+  const capabilityError = await careOperationsError()
+  if (capabilityError) return { error: capabilityError }
 
   try {
     return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
@@ -84,6 +95,8 @@ export async function updateAvailabilitySlotAction(
 ): Promise<{ error: string | null }> {
   const session = await getSession()
   if (!session?.user) return { error: 'Not authenticated' }
+  const capabilityError = await careOperationsError()
+  if (capabilityError) return { error: capabilityError }
 
   try {
     return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {
@@ -119,6 +132,8 @@ export async function deleteAvailabilitySlotAction(
 ): Promise<{ error: string | null }> {
   const session = await getSession()
   if (!session?.user) return { error: 'Not authenticated' }
+  const capabilityError = await careOperationsError()
+  if (capabilityError) return { error: capabilityError }
 
   try {
     return await withUserContext(session.user.id, session.profile.role ?? '', session.profile.agency_id ?? null, async () => {

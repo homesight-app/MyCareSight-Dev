@@ -6,12 +6,19 @@ import VisitManagementContent from '@/components/VisitManagementContent'
 import FeatureGate from '@/components/FeatureGate'
 import { fetchVisitAssignmentDashboardData } from '@/lib/visit-assignment-dashboard'
 import { fetchAllVisitsDashboardData } from '@/lib/visit-all-visits-dashboard'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import FeatureLockedPage from '@/components/FeatureLockedPage'
 
 export default async function CareVisitsPage() {
   const session = await getSession()
 
   if (!session) {
     redirect('/pages/auth/login')
+  }
+  try {
+    await requireAgencyCapability('care_operations')
+  } catch {
+    return <FeatureLockedPage capabilityKey="care_operations" />
   }
 
   const agencyId = (session!.profile as { agency_id?: string | null } | null)?.agency_id ?? ''
@@ -33,7 +40,7 @@ export default async function CareVisitsPage() {
     dashboard.visits.reduce((sum, v) => sum + v.requests.length, 0) + dashboard.unassignmentItems.length
 
   return (
-    <FeatureGate feature="care_visits" agencyId={agencyId || null}>
+    <FeatureGate capability="care_operations" agencyId={agencyId || null}>
     <Suspense fallback={<div className="p-6 text-sm text-gray-500">Loading care visits…</div>}>
       <VisitManagementContent
         visits={dashboard.visits}

@@ -104,13 +104,13 @@ export default function AgencyProgramsContent({
       {/* Header */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Programs</h1>
+          <h1 className="text-2xl font-bold text-gray-900">My Services</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Track your license application requirements and submit completed items for review.
+            Track your HomeSights service engagements, requirements, and progress.
           </p>
         </div>
         <div className="flex-shrink-0 w-48">
-          <ApplyForNewLicenseButton programsOnly label="Request Program" />
+          <ApplyForNewLicenseButton programsOnly label="Request Service" />
         </div>
       </div>
 
@@ -164,7 +164,7 @@ export default function AgencyProgramsContent({
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Search by application name…"
+          placeholder="Search services..."
         />
       </div>
 
@@ -172,11 +172,11 @@ export default function AgencyProgramsContent({
         <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
           <BookOpen className="w-10 h-10 mx-auto mb-3 text-gray-300" />
           <p className="text-sm font-medium text-gray-700 mb-1">
-            {search ? 'No programs match your search.' : 'No active programs yet'}
+            {search ? 'No services match your search.' : 'No active services yet'}
           </p>
           {!search && (
             <p className="text-sm text-gray-500">
-              Request a program above to get started.
+              Request a service above to get started.
             </p>
           )}
         </div>
@@ -186,7 +186,7 @@ export default function AgencyProgramsContent({
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 <th className="w-10 px-2" />
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Application</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Service / Engagement</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">State</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Progress</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Items</th>
@@ -205,7 +205,7 @@ export default function AgencyProgramsContent({
                       <RecordActionsMenu
                         label={`Actions for ${app.application_name}`}
                         actions={[
-                          { label: 'View Program', icon: Eye, href: `/pages/agency/programs/${app.id}` },
+                          { label: 'View Service', icon: Eye, href: `/pages/agency/programs/${app.id}` },
                         ]}
                       />
                     </td>
@@ -236,7 +236,7 @@ export default function AgencyProgramsContent({
             <div className="px-6 py-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
               <p className="text-sm text-gray-600">
                 Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
-                <span className="font-medium">{totalCount}</span> programs
+                <span className="font-medium">{totalCount}</span> services
               </p>
               <div className="flex items-center gap-2">
                 <button

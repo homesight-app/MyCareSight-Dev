@@ -18,7 +18,7 @@ import {
   Lock,
 } from 'lucide-react'
 import AppHeader from './ui/AppHeader'
-import AppSidebar, { type MenuItemDef } from './ui/AppSidebar'
+import AppSidebar, { type MenuGroupDef, type MenuItemDef } from './ui/AppSidebar'
 import LinkNavigationOverlay from './LinkNavigationOverlay'
 import UpgradePromptModal from './UpgradePromptModal'
 import { getCareVisitsPendingBadgeCountAction } from '@/app/actions/care-visits-badge'
@@ -96,15 +96,15 @@ export default function DashboardLayout({
 
   const allOwnerItems: (MenuItemDef & { featureKey?: string })[] = [
     { href: '/pages/agency',                  label: 'Home',           icon: Home,          title: 'Home',           featureKey: 'home' },
-    { href: '/pages/agency/certifications',   label: 'Certifications', icon: Award,         title: 'Certifications', featureKey: 'certifications' },
-    { href: '/pages/agency/programs',         label: 'Programs',       icon: ClipboardList, title: 'Programs',       featureKey: 'programs' },
+    { href: '/pages/agency/leads',            label: 'Leads',          icon: Target,        title: 'Leads',          featureKey: 'leads' },
     { href: '/pages/agency/clients',          label: 'Clients',        icon: UserCircle,    title: 'Clients',        featureKey: 'clients' },
-    { href: '/pages/agency/user-management',   label: 'User Management', icon: UserCog,       title: 'User Management' },
+    { href: '/pages/agency/certifications',   label: 'Certifications', icon: Award,         title: 'Certifications', featureKey: 'certifications' },
+    { href: '/pages/agency/programs',         label: 'My Services',    icon: ClipboardList, title: 'My Services',    featureKey: 'programs' },
     { href: '/pages/agency/care-visits',      label: 'Care Visits',    icon: CalendarDays,  title: 'Care Visits',    featureKey: 'care_visits', badge: resolvedCareVisits || undefined },
     { href: '/pages/agency/time-billing',     label: 'Time & Billing', icon: DollarSign,    title: 'Time & Billing', featureKey: 'time_billing', badge: resolvedTimeBilling || undefined },
-    { href: '/pages/agency/leads',            label: 'Leads',          icon: Target,        title: 'Leads',          featureKey: 'leads' },
     { href: '/pages/agency/templates',        label: 'Templates',      icon: FileStack,     title: 'Templates',      featureKey: 'templates' },
     { href: '/pages/agency/reports',          label: 'Reports',        icon: BarChart3,     title: 'Reports',        featureKey: 'reports' },
+    { href: '/pages/agency/user-management',   label: 'User Management', icon: UserCog,       title: 'User Management' },
     { href: '/pages/agency/configuration',    label: 'Configuration',  icon: Settings,      title: 'Configuration',  featureKey: 'configuration' },
   ]
 
@@ -128,6 +128,30 @@ export default function DashboardLayout({
       lockedItems.push(item)
     }
   }
+
+  const ownerMenuGroups: MenuGroupDef[] | undefined = profile?.role === 'company_owner'
+    ? [
+        { id: 'client-management', label: 'Client Management', icon: Users, hrefs: ['/pages/agency/leads', '/pages/agency/clients'] },
+        { id: 'care-operations', label: 'Care Operations', icon: CalendarDays, hrefs: ['/pages/agency/care-visits', '/pages/agency/time-billing'] },
+        { id: 'agency-compliance', label: 'Agency Compliance', icon: Award, hrefs: ['/pages/agency/certifications'] },
+        { id: 'analytics-reporting', label: 'Analytics & Reporting', icon: BarChart3, hrefs: ['/pages/agency/reports'] },
+        { id: 'homesights-services', label: 'HomeSights Services', icon: FileStack, hrefs: ['/pages/agency/programs', '/pages/agency/templates'] },
+        { id: 'administration', label: 'Administration', icon: Settings, hrefs: ['/pages/agency/user-management', '/pages/agency/configuration'] },
+      ]
+        .map(group => ({
+          id: group.id,
+          label: group.label,
+          icon: group.icon,
+          items: group.hrefs
+            .map(href => menuItems.find(item => item.href === href))
+            .filter((item): item is MenuItemDef => item !== undefined),
+        }))
+        .filter(group => group.items.length > 0)
+    : undefined
+
+  const primaryMenuItems = ownerMenuGroups
+    ? menuItems.filter(item => item.href === '/pages/agency')
+    : menuItems
 
   const activePage = [...menuItems]
     .sort((a, b) => b.href.length - a.href.length)
@@ -190,7 +214,8 @@ export default function DashboardLayout({
 
       <div className="flex pt-[90px]">
         <AppSidebar
-          menuItems={menuItems}
+          menuItems={primaryMenuItems}
+          menuGroups={ownerMenuGroups}
           collapsed={collapsed}
           onCollapse={setCollapsed}
           mobileOpen={mobileOpen}

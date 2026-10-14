@@ -472,8 +472,9 @@ export interface GetApplicationsWithProgramsPaginatedOpts {
   search?: string
 }
 
-/** Paginated list of applications that have at least one playbook item (RLS-filtered). */
+/** Paginated program applications for one agency. Agency scope is mandatory. */
 export async function getApplicationsWithProgramsPaginated(
+  agencyId: string,
   opts?: GetApplicationsWithProgramsPaginatedOpts
 ) {
   const page     = opts?.page     ?? 0
@@ -496,12 +497,14 @@ export async function getApplicationsWithProgramsPaginated(
           FROM applications a
           LEFT JOIN agencies ag ON ag.id = a.agency_id
           LEFT JOIN application_playbook_items api ON api.application_id = a.id
-          WHERE a.application_name ILIKE ${term}
+          WHERE a.agency_id = ${agencyId}
+            AND a.playbook_id IS NOT NULL
+            AND a.application_name ILIKE ${term}
           GROUP BY a.id, ag.id
           ORDER BY a.created_at DESC
           LIMIT ${pageSize} OFFSET ${from}
         `,
-        sql`SELECT COUNT(*) AS count FROM applications WHERE playbook_id IS NOT NULL AND application_name ILIKE ${term}`,
+        sql`SELECT COUNT(*) AS count FROM applications WHERE agency_id = ${agencyId} AND playbook_id IS NOT NULL AND application_name ILIKE ${term}`,
       ])
     } else {
       ;[dataRows, countRows] = await Promise.all([
@@ -512,11 +515,13 @@ export async function getApplicationsWithProgramsPaginated(
           FROM applications a
           LEFT JOIN agencies ag ON ag.id = a.agency_id
           LEFT JOIN application_playbook_items api ON api.application_id = a.id
+          WHERE a.agency_id = ${agencyId}
+            AND a.playbook_id IS NOT NULL
           GROUP BY a.id, ag.id
           ORDER BY a.created_at DESC
           LIMIT ${pageSize} OFFSET ${from}
         `,
-        sql`SELECT COUNT(*) AS count FROM applications WHERE playbook_id IS NOT NULL`,
+        sql`SELECT COUNT(*) AS count FROM applications WHERE agency_id = ${agencyId} AND playbook_id IS NOT NULL`,
       ])
     }
 
@@ -530,15 +535,17 @@ export async function getApplicationsWithProgramsPaginated(
   }
 }
 
-/** Pending (status='requested') program requests for the current agency user (RLS-filtered). */
-export async function getRequestedProgramsForAgency() {
+/** Pending program requests for one agency. Agency scope is mandatory. */
+export async function getRequestedProgramsForAgency(agencyId: string) {
   try {
     const rows = await sql`
       SELECT a.id, a.application_name, a.state, a.status, a.created_at, a.playbook_id,
         json_build_object('name', p.name) AS playbooks
       FROM applications a
       LEFT JOIN playbooks p ON p.id = a.playbook_id
-      WHERE a.status = 'requested' AND a.playbook_id IS NOT NULL
+      WHERE a.agency_id = ${agencyId}
+        AND a.status = 'requested'
+        AND a.playbook_id IS NOT NULL
       ORDER BY a.created_at DESC
     `
     return { data: rows as unknown as any[], error: null }

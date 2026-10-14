@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
+import { withAuthorizedApplication } from '@/lib/repositories/application-access'
 import {
   createApplicationDocumentsSchema,
   replaceApplicationDocumentSchema,
@@ -113,13 +113,12 @@ export async function uploadApplicationDocumentsAction(input: unknown): Promise<
   }
 
   try {
-    const inserted = await withUserContext(
-      session.user.id,
-      session.profile.role ?? '',
-      session.profile.agency_id ?? null,
-      async () => {
-        const { data: application, error: applicationError } = await q.getApplicationById(applicationId)
-        if (applicationError || !application) throw new Error('APPLICATION_NOT_FOUND')
+    const inserted = await withAuthorizedApplication(
+      { applicationId },
+      async application => {
+        if (verified.some(upload => upload.agencyId !== application.agencyId)) {
+          throw new Error('UPLOAD_AGENCY_MISMATCH')
+        }
 
         if (parsed.data.applicationPlaybookItemId) {
           const { data: item, error: itemError } = await q.getApplicationPlaybookItemById(
@@ -150,11 +149,11 @@ export async function uploadApplicationDocumentsAction(input: unknown): Promise<
           if (insertError || !document) throw new Error('DOCUMENT_INSERT_FAILED')
 
           const { error: auditError } = await q.insertAuditLog({
-            agency_id: (application as { agency_id?: string | null }).agency_id ?? null,
+            agency_id: application.agencyId,
             table_name: 'application_documents',
             record_id: document.id,
             action: 'CREATE',
-            performed_by_user_id: session.user.id,
+            performed_by_user_id: application.actorId,
             details: { application_id: applicationId },
           })
           if (auditError) throw new Error('AUDIT_INSERT_FAILED')
@@ -213,14 +212,11 @@ export async function replaceApplicationDocumentAction(input: unknown): Promise<
   let oldPath: string | null = null
   let applicationAgencyId: string | null = null
   try {
-    await withUserContext(
-      session.user.id,
-      session.profile.role ?? '',
-      session.profile.agency_id ?? null,
-      async () => {
-        const { data: application, error: applicationError } = await q.getApplicationById(applicationId)
-        if (applicationError || !application) throw new Error('APPLICATION_NOT_FOUND')
-        applicationAgencyId = (application as { agency_id?: string | null }).agency_id ?? null
+    await withAuthorizedApplication(
+      { applicationId },
+      async application => {
+        if (verified.agencyId !== application.agencyId) throw new Error('UPLOAD_AGENCY_MISMATCH')
+        applicationAgencyId = application.agencyId
 
         const { data: document, error: documentError } = await q.getApplicationDocumentForUpdate(
           documentId,
@@ -242,7 +238,7 @@ export async function replaceApplicationDocumentAction(input: unknown): Promise<
           table_name: 'application_documents',
           record_id: documentId,
           action: 'UPDATE',
-          performed_by_user_id: session.user.id,
+          performed_by_user_id: application.actorId,
           details: { application_id: applicationId, field: 'file' },
         })
         if (auditError) throw new Error('AUDIT_INSERT_FAILED')

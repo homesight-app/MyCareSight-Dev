@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
-import sql from '@/db'
+import sql, { withUserContext } from '@/db'
 import {
   getApplicationForClose,
   closeApplicationUpdate,
@@ -11,6 +11,8 @@ import {
 } from '@/lib/supabase/query'
 import { applyPlaybookToApplication } from './playbooks'
 import { changeApplicationStatusWithNote } from '@/lib/repositories/internal-note-writes'
+import { requireAgencyCapability } from '@/lib/feature-access'
+import { z } from 'zod'
 
 /**
  * Admin action to approve an application under review.
@@ -466,22 +468,55 @@ export async function submitProgramRequest(data: {
  * Only works while the request is still in 'requested' status.
  */
 export async function cancelProgramRequest(applicationId: string): Promise<{ error: string | null }> {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
-  const role = session.profile?.role
-  if (role !== 'company_owner' && role !== 'care_coordinator') return { error: 'Forbidden' }
+  if (!z.uuid().safeParse(applicationId).success) return { error: 'Request not found' }
+  let actor
+  try {
+    actor = await requireAgencyCapability('homesights_services')
+  } catch {
+    return { error: 'Forbidden' }
+  }
+  if (actor.role !== 'company_owner' && actor.role !== 'care_coordinator') {
+    return { error: 'Forbidden' }
+  }
 
-  const [app] = await sql<{ id: string; status: string }[]>`
-    SELECT id, status FROM applications WHERE id = ${applicationId} LIMIT 1
-  `
-  if (!app) return { error: 'Request not found' }
-  if (app.status !== 'requested') return { error: 'This request can no longer be cancelled' }
+  let result: { error: string | null }
+  try {
+    result = await withUserContext(actor.userId, actor.role, actor.agencyId, async () => {
+      const [app] = await sql<{ id: string; status: string }[]>`
+        SELECT id, status
+        FROM applications
+        WHERE id = ${applicationId} AND agency_id = ${actor.agencyId}
+        FOR UPDATE
+      `
+      if (!app) return { error: 'Request not found' }
+      if (app.status !== 'requested') return { error: 'This request can no longer be cancelled' }
 
-  await sql`DELETE FROM applications WHERE id = ${applicationId} AND status = 'requested'`
+      const deleted = await sql<{ id: string }[]>`
+        DELETE FROM applications
+        WHERE id = ${applicationId}
+          AND agency_id = ${actor.agencyId}
+          AND status = 'requested'
+        RETURNING id
+      `
+      if (!deleted[0]) return { error: 'This request can no longer be cancelled' }
+
+      await sql`
+        INSERT INTO audit_log (
+          agency_id, table_name, record_id, action, performed_by_user_id, details
+        ) VALUES (
+          ${actor.agencyId}, 'applications', ${applicationId}, 'CANCEL_REQUEST',
+          ${actor.userId}, ${JSON.stringify({ operation: 'cancel_service_request' })}::jsonb
+        )
+      `
+      return { error: null }
+    })
+  } catch {
+    return { error: 'Unable to cancel this service request' }
+  }
 
   revalidatePath('/pages/agency/programs')
   revalidatePath('/pages/admin/programs')
-  return { error: null }
+  return result
 }
 
 export async function updateApplicationProgressAction(

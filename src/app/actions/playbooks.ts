@@ -10,6 +10,7 @@ import * as q from '@/lib/supabase/query'
 import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbooks'
 import { removeFiles } from '@/lib/storage/client'
 import { STORAGE_BUCKET } from '@/lib/storage'
+import { withAuthorizedApplication } from '@/lib/repositories/application-access'
 
 export type OtherPlaybook = {
   id: string
@@ -930,28 +931,47 @@ export async function toggleProgramRuleCheck(
   return { error: null }
 }
 
-/** Get validation rule checks for a program document item. No auth guard. */
+/** Get validation rule checks after resolving the item's application access. */
 export async function getProgramItemRuleChecks(applicationPlaybookItemId: string) {
-  const { data, error } = await q.getRuleChecksForApplicationItem(applicationPlaybookItemId)
-  if (error) return { error: error.message, checks: [] as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[] }
-  return { error: null, checks: (data ?? []) as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[] }
+  try {
+    return await withAuthorizedApplication({ playbookItemId: applicationPlaybookItemId }, async () => {
+      const { data, error } = await q.getRuleChecksForApplicationItem(applicationPlaybookItemId)
+      if (error) return { error: error.message, checks: [] as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[] }
+      return { error: null, checks: (data ?? []) as import('@/lib/supabase/query/playbooks').ApplicationRuleCheck[] }
+    })
+  } catch {
+    return { error: 'Not found or not authorized', checks: [] }
+  }
 }
 
-/** Get documents uploaded for a specific program requirement item. No auth guard. */
+/** Get documents uploaded for a program item after resolving its application access. */
 export async function getProgramItemDocuments(applicationPlaybookItemId: string) {
-  const { data, error } = await q.getDocumentsByPlaybookItem(applicationPlaybookItemId)
-  if (error) return { error: error.message, documents: [] as { id: string; document_name: string; document_url: string; document_type: string | null; status: string | null; description: string | null; expert_review_notes: string | null; created_at: string }[] }
-  return { error: null, documents: data ?? [] }
+  try {
+    return await withAuthorizedApplication({ playbookItemId: applicationPlaybookItemId }, async () => {
+      const { data, error } = await q.getDocumentsByPlaybookItem(applicationPlaybookItemId)
+      if (error) return { error: error.message, documents: [] as { id: string; document_name: string; document_url: string; document_type: string | null; status: string | null; description: string | null; expert_review_notes: string | null; created_at: string }[] }
+      return { error: null, documents: data ?? [] }
+    })
+  } catch {
+    return { error: 'Not found or not authorized', documents: [] }
+  }
 }
 
-/** Get agency field values needed for document validation display. No auth guard. */
-export async function getAgencyFieldValues(agencyId: string) {
-  const [agency] = await sql<AgencyFields[]>`
-    SELECT legal_entity_name, name, dba_name, licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code
-    FROM agencies WHERE id = ${agencyId} LIMIT 1
-  `
-  if (!agency) return { error: 'Agency not found', agency: null }
-  return { error: null, agency }
+/** Get agency fields only through an application the current actor may access. */
+export async function getAgencyFieldValues(applicationId: string) {
+  try {
+    return await withAuthorizedApplication({ applicationId }, async application => {
+      if (!application.agencyId) return { error: 'Agency not found', agency: null }
+      const [agency] = await sql<AgencyFields[]>`
+        SELECT legal_entity_name, name, dba_name, licensed_office_street, licensed_office_city, licensed_office_state, licensed_office_zip, physical_street_address, physical_city, physical_state, physical_zip_code, mailing_street_address, mailing_city, mailing_state, mailing_zip_code
+        FROM agencies WHERE id = ${application.agencyId} LIMIT 1
+      `
+      if (!agency) return { error: 'Agency not found', agency: null }
+      return { error: null, agency }
+    })
+  } catch {
+    return { error: 'Not found or not authorized', agency: null }
+  }
 }
 
 // ─── Application rule check management ───────────────────────────────────────
@@ -1253,44 +1273,52 @@ export async function getValidationHistory(itemId: string) {
 
 /** Fetch the latest validation run summary for an item (staff + agency members). */
 export async function getLatestValidationSummary(itemId: string): Promise<{ passed: number; failed: number } | null> {
-  const [data] = await sql<{ passed_count: number; failed_count: number }[]>`
-    SELECT passed_count, failed_count FROM validation_runs
-    WHERE application_playbook_item_id = ${itemId}
-    ORDER BY run_number DESC LIMIT 1
-  `
-  if (!data) return null
-  return { passed: data.passed_count, failed: data.failed_count }
+  try {
+    return await withAuthorizedApplication({ playbookItemId: itemId }, async () => {
+      const [data] = await sql<{ passed_count: number; failed_count: number }[]>`
+        SELECT passed_count, failed_count FROM validation_runs
+        WHERE application_playbook_item_id = ${itemId}
+        ORDER BY run_number DESC LIMIT 1
+      `
+      if (!data) return null
+      return { passed: data.passed_count, failed: data.failed_count }
+    })
+  } catch {
+    return null
+  }
 }
 
 // ─── Document delete / item workflow ─────────────────────────────────────────
 
 /** Delete an uploaded document (file + DB row). Accessible to staff and agency members. */
 export async function deleteApplicationDocument(documentId: string): Promise<{ error: string | null }> {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
+  try {
+    return await withAuthorizedApplication({ documentId }, async application => {
+      const [doc] = await sql<{ id: string; document_url: string | null; application_id: string }[]>`
+        SELECT id, document_url, application_id
+        FROM application_documents
+        WHERE id = ${documentId} AND application_id = ${application.id}
+        LIMIT 1
+      `
+      if (!doc) return { error: 'Document not found' }
 
-  const [doc] = await sql<{ id: string; document_url: string | null; application_id: string }[]>`
-    SELECT id, document_url, application_id FROM application_documents WHERE id = ${documentId} LIMIT 1
-  `
-  if (!doc) return { error: 'Document not found' }
+      if (doc.document_url) {
+        const { error } = await removeFiles(STORAGE_BUCKET.APPLICATION, [doc.document_url])
+        if (error) return { error: 'The document file could not be deleted' }
+      }
 
-  const role = session.profile?.role
-  if (role !== 'admin' && role !== 'expert') {
-    const [app] = await sql<{ agency_id: string }[]>`SELECT agency_id FROM applications WHERE id = ${doc.application_id} LIMIT 1`
-    if (!app) return { error: 'Access denied' }
-
-    const [membership] = await sql<{ user_id: string }[]>`
-      SELECT user_id FROM agency_admins WHERE agency_id = ${app.agency_id} AND user_id = ${session.user.id} LIMIT 1
-    `
-    if (!membership) return { error: 'Access denied' }
+      await sql`DELETE FROM application_documents WHERE id = ${documentId} AND application_id = ${application.id}`
+      await sql`
+        INSERT INTO audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+        VALUES (${application.agencyId}::uuid, 'application_documents', ${documentId}::uuid,
+          'DELETE', ${application.actorId}::uuid,
+          ${JSON.stringify({ operation: 'delete_service_document', application_id: application.id })}::jsonb)
+      `
+      return { error: null }
+    })
+  } catch {
+    return { error: 'Document not found or not authorized' }
   }
-
-  if (doc.document_url) {
-    await removeFiles(STORAGE_BUCKET.APPLICATION, [doc.document_url])
-  }
-
-  await sql`DELETE FROM application_documents WHERE id = ${documentId}`
-  return { error: null }
 }
 
 /**
@@ -1299,54 +1327,67 @@ export async function deleteApplicationDocument(documentId: string): Promise<{ e
  * For document items: at least one document must be uploaded first.
  */
 export async function submitProgramItem(itemId: string): Promise<{ error: string | null }> {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
+  try {
+    return await withAuthorizedApplication({ playbookItemId: itemId }, async application => {
+      const [item] = await sql<{ id: string; application_id: string; item_type: string; status: string; name: string }[]>`
+        SELECT id, application_id, item_type, status, name
+        FROM application_playbook_items
+        WHERE id = ${itemId} AND application_id = ${application.id}
+        FOR UPDATE
+      `
+      if (!item) return { error: 'Item not found' }
 
-  const [item] = await sql<{ id: string; application_id: string; item_type: string; status: string; name: string }[]>`
-    SELECT id, application_id, item_type, status, name FROM application_playbook_items WHERE id = ${itemId} LIMIT 1
-  `
-  if (!item) return { error: 'Item not found' }
+      if (item.status !== 'not_started' && item.status !== 'review_needed') {
+        return { error: 'Item cannot be submitted in its current status' }
+      }
 
-  if (item.status !== 'not_started' && item.status !== 'review_needed') {
-    return { error: 'Item cannot be submitted in its current status' }
+      if (item.item_type === 'document') {
+        const [countRow] = await sql<{ count: number }[]>`
+          SELECT COUNT(*)::int AS count FROM application_documents WHERE application_playbook_item_id = ${itemId}
+        `
+        if (!countRow?.count || countRow.count === 0) return { error: 'Upload a document first' }
+      }
+
+      await sql`
+        UPDATE application_playbook_items
+        SET status = 'in_progress', updated_by = ${application.actorId}, updated_at = ${new Date().toISOString()}
+        WHERE id = ${itemId} AND application_id = ${application.id}
+      `
+
+      const [app] = await sql<{ assigned_expert_id: string | null; application_name: string }[]>`
+        SELECT assigned_expert_id, application_name FROM applications WHERE id = ${application.id} LIMIT 1
+      `
+
+      if (app?.assigned_expert_id) {
+        await sql`
+          INSERT INTO notifications (user_id, title, message, type, icon_type) VALUES (
+            ${app.assigned_expert_id},
+            ${'Item Submitted for Review'},
+            ${`"${item.name}" in "${app.application_name}" has been submitted and is ready for your review.`},
+            ${'application_update'},
+            ${'document'}
+          )
+        `
+      }
+
+      await sql`
+        INSERT INTO audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+        VALUES (${application.agencyId}::uuid, 'application_playbook_items', ${itemId}::uuid,
+          'UPDATE', ${application.actorId}::uuid,
+          ${JSON.stringify({ operation: 'submit_service_item', application_id: application.id, status: 'in_progress' })}::jsonb)
+      `
+
+      revalidatePath('/pages/agency/programs')
+      revalidatePath('/pages/admin/programs')
+      revalidatePath('/pages/expert/programs')
+      revalidatePath(`/pages/agency/programs/${application.id}`)
+      revalidatePath(`/pages/admin/programs/${application.id}`)
+      revalidatePath(`/pages/expert/programs/${application.id}`)
+      return { error: null }
+    })
+  } catch {
+    return { error: 'Item not found or not authorized' }
   }
-
-  if (item.item_type === 'document') {
-    const [countRow] = await sql<{ count: number }[]>`
-      SELECT COUNT(*)::int AS count FROM application_documents WHERE application_playbook_item_id = ${itemId}
-    `
-    if (!countRow?.count || countRow.count === 0) return { error: 'Upload a document first' }
-  }
-
-  await sql`
-    UPDATE application_playbook_items
-    SET status = 'in_progress', updated_by = ${session.user.id}, updated_at = ${new Date().toISOString()}
-    WHERE id = ${itemId}
-  `
-
-  const [app] = await sql<{ assigned_expert_id: string | null; application_name: string }[]>`
-    SELECT assigned_expert_id, application_name FROM applications WHERE id = ${item.application_id} LIMIT 1
-  `
-
-  if (app?.assigned_expert_id) {
-    await sql`
-      INSERT INTO notifications (user_id, title, message, type, icon_type) VALUES (
-        ${app.assigned_expert_id},
-        ${'Item Submitted for Review'},
-        ${`"${item.name}" in "${app.application_name}" has been submitted and is ready for your review.`},
-        ${'application_update'},
-        ${'document'}
-      )
-    `
-  }
-
-  revalidatePath('/pages/agency/programs')
-  revalidatePath('/pages/admin/programs')
-  revalidatePath('/pages/expert/programs')
-  revalidatePath(`/pages/agency/programs/${item.application_id}`)
-  revalidatePath(`/pages/admin/programs/${item.application_id}`)
-  revalidatePath(`/pages/expert/programs/${item.application_id}`)
-  return { error: null }
 }
 
 /**

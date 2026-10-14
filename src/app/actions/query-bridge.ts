@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
 import * as managerSchedules from '@/lib/repositories/manager-scheduling'
 import { PLATFORM_OR_AGENCY_MANAGER_ROLES } from '@/lib/role-capabilities'
+import { withAuthorizedApplication } from '@/lib/repositories/application-access'
 
 export type {
   PatientAdlDayScheduleUpsert,
@@ -66,7 +67,8 @@ export async function getConversationApplicationIds(...args: Parameters<typeof q
 }
 
 export async function getConversationByApplicationId(...args: Parameters<typeof q.getConversationByApplicationId>) {
-  return ctx(() => q.getConversationByApplicationId(...args))
+  return withAuthorizedApplication({ applicationId: args[0] }, () => q.getConversationByApplicationId(...args))
+    .catch(() => ({ data: null, error: new Error('Forbidden') } as Awaited<ReturnType<typeof q.getConversationByApplicationId>>))
 }
 
 export async function getConversationIds(...args: Parameters<typeof q.getConversationIds>) {
@@ -90,11 +92,17 @@ export async function getUserProfilesByIds(...args: Parameters<typeof q.getUserP
 }
 
 export async function insertConversation(...args: Parameters<typeof q.insertConversation>) {
-  return ctx(() => q.insertConversation(...args))
+  return withAuthorizedApplication({ applicationId: args[0].application_id }, () => q.insertConversation(...args))
+    .catch(() => ({ data: null, error: new Error('Forbidden') } as Awaited<ReturnType<typeof q.insertConversation>>))
 }
 
 export async function insertMessage(...args: Parameters<typeof q.insertMessage>) {
-  return ctx(() => q.insertMessage(...args))
+  return withAuthorizedApplication({ conversationId: args[0].conversation_id }, application => {
+    if (args[0].sender_id !== application.actorId) {
+      return Promise.resolve({ data: null, error: new Error('Forbidden') }) as ReturnType<typeof q.insertMessage>
+    }
+    return q.insertMessage(...args)
+  }).catch(() => ({ data: null, error: new Error('Forbidden') } as Awaited<ReturnType<typeof q.insertMessage>>))
 }
 
 export async function markConversationMessagesAsReadExceptSender(...args: Parameters<typeof q.markConversationMessagesAsReadExceptSender>) {
@@ -130,11 +138,13 @@ export async function rpcMarkMessagesAsReadByUser(...args: Parameters<typeof q.r
 }
 
 export async function updateConversationLastMessageAt(...args: Parameters<typeof q.updateConversationLastMessageAt>) {
-  return ctx(() => q.updateConversationLastMessageAt(...args))
+  return withAuthorizedApplication({ conversationId: args[0] }, () => q.updateConversationLastMessageAt(...args))
+    .catch(() => ({ data: null, error: new Error('Forbidden') } as Awaited<ReturnType<typeof q.updateConversationLastMessageAt>>))
 }
 
 export async function getMessagesByConversationId(...args: Parameters<typeof q.getMessagesByConversationId>) {
-  return ctx(() => q.getMessagesByConversationId(...args))
+  return withAuthorizedApplication({ conversationId: args[0] }, () => q.getMessagesByConversationId(...args))
+    .catch(() => ({ data: null, error: new Error('Forbidden') } as Awaited<ReturnType<typeof q.getMessagesByConversationId>>))
 }
 
 export async function getUnreadNotificationItems(...args: Parameters<typeof q.getUnreadNotificationItems>) {
@@ -154,11 +164,13 @@ export async function getUnreadNotificationsCount(...args: Parameters<typeof q.g
 // ---------------------------------------------------------------------------
 
 export async function getApplicationForClose(...args: Parameters<typeof q.getApplicationForClose>) {
-  return ctx(() => q.getApplicationForClose(...args))
+  return withAuthorizedApplication({ applicationId: args[0] }, () => q.getApplicationForClose(...args))
+    .catch(() => ({ data: null, error: new Error('Forbidden') } as Awaited<ReturnType<typeof q.getApplicationForClose>>))
 }
 
 export async function getApplicationAssignedExpertId(...args: Parameters<typeof q.getApplicationAssignedExpertId>) {
-  return ctx(() => q.getApplicationAssignedExpertId(...args))
+  return withAuthorizedApplication({ applicationId: args[0] }, () => q.getApplicationAssignedExpertId(...args))
+    .catch(() => ({ data: null, error: new Error('Forbidden') } as Awaited<ReturnType<typeof q.getApplicationAssignedExpertId>>))
 }
 
 export async function getApplicationByAgencyAndExpert(...args: Parameters<typeof q.getApplicationByAgencyAndExpert>) {
@@ -166,7 +178,8 @@ export async function getApplicationByAgencyAndExpert(...args: Parameters<typeof
 }
 
 export async function getApplicationDocumentsByApplicationId(...args: Parameters<typeof q.getApplicationDocumentsByApplicationId>) {
-  return ctx(() => q.getApplicationDocumentsByApplicationId(...args))
+  return withAuthorizedApplication({ applicationId: args[0] }, () => q.getApplicationDocumentsByApplicationId(...args))
+    .catch(() => ({ data: null, error: new Error('Forbidden') } as Awaited<ReturnType<typeof q.getApplicationDocumentsByApplicationId>>))
 }
 
 export async function getApplicationsByAssignedExpertIdSelect(...args: Parameters<typeof q.getApplicationsByAssignedExpertIdSelect>) {

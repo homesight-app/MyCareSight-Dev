@@ -576,6 +576,30 @@ export async function getApplicationById(applicationId: string) {
   }
 }
 
+/** Get an application only when it belongs to the specified agency. */
+export async function getApplicationByIdAndAgencyId(
+  applicationId: string,
+  agencyId: string
+) {
+  try {
+    const rows = await sql`
+      SELECT id, company_owner_id, state, application_name, status,
+        progress_percentage, started_date, last_updated_date, submitted_date,
+        created_at, updated_at, license_type_id, assigned_expert_id,
+        revision_reason, caregiver_member_id, license_number, issue_date,
+        expiry_date, days_until_expiry, issuing_authority, agency_id,
+        playbook_id, closed_by, closed_at, close_reason, completed_by,
+        completed_at, complete_reason, category_id, subcategory_id
+      FROM applications
+      WHERE id = ${applicationId} AND agency_id = ${agencyId}
+    `
+    if (!rows.length) return { data: null, error: new Error('Not found') }
+    return { data: normalizeApplicationRow(rows[0]), error: null }
+  } catch (err) {
+    return { data: null, error: err as Error }
+  }
+}
+
 /** Get application by id and caregiver_member_id (for staff dashboard detail). */
 export async function getApplicationByIdAndStaffMemberId(
   applicationId: string,

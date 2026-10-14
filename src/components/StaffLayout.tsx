@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation'
 import { Home, Award, CalendarDays, Calendar } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import AppHeader from './ui/AppHeader'
-import AppSidebar from './ui/AppSidebar'
+import AppSidebar, { type MenuItemDef } from './ui/AppSidebar'
+import UpgradePromptModal from './UpgradePromptModal'
 import type { CapabilityKey } from '@/lib/constants/feature-keys'
 
 interface StaffLayoutProps {
@@ -23,10 +24,7 @@ interface StaffLayoutProps {
   allowedCapabilities?: CapabilityKey[]
 }
 
-const MENU_ITEMS: Array<{
-  href: string
-  label: string
-  icon: typeof Home
+const MENU_ITEMS: Array<MenuItemDef & {
   capability?: CapabilityKey
 }> = [
   { href: '/pages/caregiver',                  label: 'Dashboard',               icon: Home },
@@ -48,6 +46,12 @@ export default function StaffLayout({
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [currentPath, setCurrentPath] = useState(pathname)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+
+  const menuItems: MenuItemDef[] = MENU_ITEMS.map(({ capability, ...item }) => ({
+    ...item,
+    locked: capability ? !allowedCapabilities.includes(capability) : false,
+  }))
 
   useEffect(() => {
     if (pathname !== currentPath) {
@@ -71,11 +75,12 @@ export default function StaffLayout({
 
       <div className="flex pt-[90px]">
         <AppSidebar
-          menuItems={MENU_ITEMS.filter(item => !item.capability || allowedCapabilities.includes(item.capability))}
+          menuItems={menuItems}
           collapsed={collapsed}
           onCollapse={setCollapsed}
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
+          onLockedItemClick={() => setUpgradeOpen(true)}
           logoSrc={logoSrc}
           logoIconSrc={logoIconSrc}
         />
@@ -88,6 +93,8 @@ export default function StaffLayout({
           {children}
         </main>
       </div>
+
+      <UpgradePromptModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </div>
   )
 }

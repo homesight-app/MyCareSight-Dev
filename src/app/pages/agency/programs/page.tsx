@@ -4,6 +4,7 @@ import * as q from '@/lib/supabase/query'
 import AgencyProgramsContent from '@/components/AgencyProgramsContent'
 import { requireAgencyCapability } from '@/lib/feature-access'
 import FeatureLockedPage from '@/components/FeatureLockedPage'
+import { withUserContext } from '@/db'
 
 const PAGE_SIZE = 50
 
@@ -16,7 +17,8 @@ export default async function AgencyProgramsPage({
   if (!session) redirect('/pages/auth/login')
   const role = session.profile?.role
   if (role !== 'company_owner' && role !== 'care_coordinator') redirect('/pages/agency')
-  try { await requireAgencyCapability('homesights_services') } catch {
+  let actor
+  try { actor = await requireAgencyCapability('homesights_services') } catch {
     return <FeatureLockedPage capabilityKey="homesights_services" />
   }
 
@@ -24,10 +26,15 @@ export default async function AgencyProgramsPage({
   const page   = Math.max(0, parseInt(params.page ?? '0') || 0)
   const search = params.q ?? ''
 
-  const [result, { data: pendingRequests }] = await Promise.all([
-    q.getApplicationsWithProgramsPaginated({ page, pageSize: PAGE_SIZE, search }),
-    q.getRequestedProgramsForAgency(),
-  ])
+  const [result, { data: pendingRequests }] = await withUserContext(
+    actor.userId,
+    actor.role,
+    actor.agencyId,
+    () => Promise.all([
+      q.getApplicationsWithProgramsPaginated(actor.agencyId, { page, pageSize: PAGE_SIZE, search }),
+      q.getRequestedProgramsForAgency(actor.agencyId),
+    ])
+  )
 
   type RawRow = {
     id: string

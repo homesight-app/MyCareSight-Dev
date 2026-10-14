@@ -5,6 +5,7 @@ import * as q from '@/lib/supabase/query'
 import ClientProgramView from '@/components/ClientProgramView'
 import { requireAgencyCapability } from '@/lib/feature-access'
 import FeatureLockedPage from '@/components/FeatureLockedPage'
+import { withUserContext } from '@/db'
 
 export default async function AgencyProgramDetailPage({
   params,
@@ -15,18 +16,24 @@ export default async function AgencyProgramDetailPage({
   if (!session) redirect('/pages/auth/login')
   const role = session.profile?.role
   if (role !== 'company_owner' && role !== 'care_coordinator') redirect('/pages/agency')
-  try { await requireAgencyCapability('homesights_services') } catch {
+  let actor
+  try { actor = await requireAgencyCapability('homesights_services') } catch {
     return <FeatureLockedPage capabilityKey="homesights_services" />
   }
 
   const { applicationId } = await params
 
-  const [{ data: application }, { items }] = await Promise.all([
-    q.getApplicationById(applicationId),
-    q.getApplicationPlaybookItems(applicationId).then(r => ({ items: r.data ?? [] })),
-  ])
+  const application = await withUserContext(actor.userId, actor.role, actor.agencyId, async () => {
+    const { data } = await q.getApplicationByIdAndAgencyId(applicationId, actor.agencyId)
+    return data
+  })
 
   if (!application) redirect('/pages/agency/programs')
+
+  const items = await withUserContext(actor.userId, actor.role, actor.agencyId, async () => {
+    const result = await q.getApplicationPlaybookItems(applicationId)
+    return result.data ?? []
+  })
 
   type AppRow = {
     id: string

@@ -286,11 +286,11 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
       getLatestValidationSummary(item.id).then(setClientSummary)
     }
     if (agencyId) {
-      getAgencyFieldValues(agencyId).then(({ agency }) => {
+      getAgencyFieldValues(item.application_id).then(({ agency }) => {
         if (agency) setAgencyData(agency as AgencyFields)
       })
     }
-  }, [loadDocs, loadRules, loadHistory, agencyId, isStaff, isDocument, item.id])
+  }, [loadDocs, loadRules, loadHistory, agencyId, isStaff, isDocument, item.id, item.application_id])
 
   const openManageRules = async () => {
     setIsManageRulesOpen(true)

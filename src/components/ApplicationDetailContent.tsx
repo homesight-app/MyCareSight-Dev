@@ -1682,7 +1682,9 @@ export default function ApplicationDetailContent({
             { key: 'requirements',   label: 'Next Steps',    count: unreadMessageCount > 0 ? undefined : undefined },
             { key: 'templates',      label: 'Templates' },
             { key: 'message',        label: 'Messages',      count: unreadMessageCount > 0 ? unreadMessageCount : undefined },
-            { key: 'internal-notes', label: 'Program Notes', count: programNotesCount > 0 ? programNotesCount : undefined },
+            ...((currentUserRole === 'expert' || currentUserRole === 'admin')
+              ? [{ key: 'internal-notes', label: 'Program Notes', count: programNotesCount > 0 ? programNotesCount : undefined }]
+              : []),
           ] : [
             { key: 'next-steps',     label: 'Next Steps',    count: incompleteStepsCount > 0 ? incompleteStepsCount : undefined },
             { key: 'documents',      label: 'Documents',     count: incompleteDocsCount > 0 ? incompleteDocsCount : undefined },

@@ -79,13 +79,15 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
     setError(null)
 
     // Always sync first — safe to call repeatedly, only adds missing items
-    const migResult = await migrateApplicationToProgram(applicationId)
-    if (migResult.error) { setError(migResult.error); setIsLoading(false); return }
+    if (isStaff) {
+      const migResult = await migrateApplicationToProgram(applicationId)
+      if (migResult.error) { setError(migResult.error); setIsLoading(false); return }
+    }
 
     const result = await getApplicationProgramItems(applicationId)
     if (result.error) { setError(result.error); setIsLoading(false); return }
     setItems(result.items)
-    setNoteCounts(await getProgramItemNoteCounts(result.items.map(i => i.id)))
+    setNoteCounts(isStaff ? await getProgramItemNoteCounts(result.items.map(i => i.id)) : {})
     onProgressChange?.(computePct(result.items))
     setIsLoading(false)
   }
@@ -170,6 +172,9 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
     if (filterAssignment !== 'all' && i.assignment !== filterAssignment) return false
     return true
   })
+  const tableGridClass = isStaff
+    ? 'grid-cols-[2rem_1fr_6rem_9rem_7rem_2rem_2rem]'
+    : 'grid-cols-[2rem_1fr_6rem_9rem_7rem_2rem]'
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -272,28 +277,30 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
           onChange={(key) => setFilterType(key as typeof filterType)}
         />
         {/* Assignment filter */}
-        <select
-          value={filterAssignment}
-          onChange={e => setFilterAssignment(e.target.value as typeof filterAssignment)}
-          className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600 focus:ring-1 focus:ring-blue-500"
-        >
-          <option value="all">All Assignments</option>
-          <option value="client">Client</option>
-          <option value="expert">Expert</option>
-          <option value="both">Both</option>
-        </select>
+        {isStaff && (
+          <select
+            value={filterAssignment}
+            onChange={e => setFilterAssignment(e.target.value as typeof filterAssignment)}
+            className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600 focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="all">All Assignments</option>
+            <option value="client">Client</option>
+            <option value="expert">Expert</option>
+            <option value="both">Both</option>
+          </select>
+        )}
       </div>
 
       {/* Table */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         {/* Header */}
-        <div className="grid grid-cols-[2rem_1fr_6rem_9rem_7rem_2rem_2rem] gap-2 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+        <div className={`grid ${tableGridClass} gap-2 px-4 py-2.5 border-b border-gray-100 bg-gray-50`}>
           <span className="text-xs font-medium text-gray-400">#</span>
           <span className="text-xs font-medium text-gray-500">Requirement</span>
           <span className="text-xs font-medium text-gray-500">Type</span>
           <span className="text-xs font-medium text-gray-500">Status</span>
           <span className="text-xs font-medium text-gray-500">Due Date</span>
-          <span className="text-xs font-medium text-gray-500">Notes</span>
+          {isStaff && <span className="text-xs font-medium text-gray-500">Notes</span>}
           <span className="text-xs font-medium text-gray-500"></span>
         </div>
 
@@ -307,7 +314,7 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
           return (
             <div key={item.id} className="border-b border-gray-100 last:border-b-0">
               {/* Row */}
-              <div className="grid grid-cols-[2rem_1fr_6rem_9rem_7rem_2rem_2rem] gap-2 px-4 py-3 items-center transition-colors hover:bg-gray-50">
+              <div className={`grid ${tableGridClass} gap-2 px-4 py-3 items-center transition-colors hover:bg-gray-50`}>
                 {/* # */}
                 <span className="text-xs font-mono text-gray-400">{item.item_order}</span>
 
@@ -333,15 +340,21 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
 
                 {/* Status — clickable for staff */}
                 <div className="relative" ref={statusPopoverId === item.id ? statusPopoverRef : undefined}>
-                  <button
-                    disabled={!isStaff}
-                    onClick={() => isStaff && setStatusPopoverId(statusPopoverId === item.id ? null : item.id)}
-                    className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors ${statusCfg.color} ${isStaff ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusCfg.dot}`} />
-                    {statusCfg.label}
-                  </button>
-                  {statusPopoverId === item.id && (
+                  {isStaff ? (
+                    <button
+                      onClick={() => setStatusPopoverId(statusPopoverId === item.id ? null : item.id)}
+                      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors ${statusCfg.color} cursor-pointer hover:opacity-80`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusCfg.dot}`} />
+                      {statusCfg.label}
+                    </button>
+                  ) : (
+                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full ${statusCfg.color}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusCfg.dot}`} />
+                      {statusCfg.label}
+                    </span>
+                  )}
+                  {isStaff && statusPopoverId === item.id && (
                     <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
                       {STATUS_ORDER.map(s => (
                         <button
@@ -375,7 +388,7 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
                 </div>
 
                 {/* Notes icon — opens modal on Notes tab */}
-                <div className="flex justify-center">
+                {isStaff && <div className="flex justify-center">
                   <button
                     onClick={() => { setModalItem(item); setModalDefaultTab('notes') }}
                     className="relative p-1 rounded transition-colors text-gray-400 hover:text-blue-700"
@@ -388,7 +401,7 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
                       </span>
                     )}
                   </button>
-                </div>
+                </div>}
 
                 {/* Expand chevron — opens modal on Overview tab */}
                 <button
@@ -411,7 +424,7 @@ export default function ApplicationRequirementsTab({ applicationId, agencyId, is
           defaultTab={modalDefaultTab}
           onClose={async () => {
             setModalItem(null)
-            setNoteCounts(await getProgramItemNoteCounts(items.map(i => i.id)))
+            if (isStaff) setNoteCounts(await getProgramItemNoteCounts(items.map(i => i.id)))
           }}
           onItemUpdated={handleItemUpdated}
         />

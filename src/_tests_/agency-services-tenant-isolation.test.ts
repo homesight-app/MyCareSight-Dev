@@ -20,6 +20,7 @@ describe('agency My Services tenant isolation', () => {
   test('uses the authenticated agency for list and direct-detail reads', () => {
     const listPage = read('src/app/pages/agency/programs/page.tsx')
     const detailPage = read('src/app/pages/agency/programs/[applicationId]/page.tsx')
+    const legacyDetailPage = read('src/app/pages/agency/applications/[id]/page.tsx')
     const queries = read('src/lib/supabase/query/applications.ts')
 
     expect(listPage).toContain('getApplicationsWithProgramsPaginated(actor.agencyId')
@@ -29,6 +30,7 @@ describe('agency My Services tenant isolation', () => {
       detailPage.indexOf('getApplicationPlaybookItems')
     )
     expect(queries).toContain('WHERE id = ${applicationId} AND agency_id = ${agencyId}')
+    expect(legacyDetailPage).toContain('getApplicationByIdAndAgencyId(id, actor.agencyId)')
   })
 
   test('scopes pending-request cancellation and records an audit event atomically', () => {
@@ -61,5 +63,17 @@ describe('agency My Services tenant isolation', () => {
     expect(documentActions).toContain('upload.agencyId !== application.agencyId')
     expect(queryBridge).toContain('withAuthorizedApplication({ applicationId: args[0] }, () => q.getApplicationDocumentsByApplicationId')
     expect(queryBridge).toContain('withAuthorizedApplication({ conversationId: args[0] }, () => q.getMessagesByConversationId')
+  })
+
+  test('keeps staff-only service items and notes out of agency responses and navigation', () => {
+    const actions = read('src/app/actions/playbooks.ts')
+    const detailPage = read('src/app/pages/agency/programs/[applicationId]/page.tsx')
+    const modal = read('src/components/ProgramItemDetailModal.tsx')
+    const applicationDetail = read('src/components/ApplicationDetailContent.tsx')
+
+    expect(actions).toContain("items.filter(item => item.assignment === 'client' || item.assignment === 'both')")
+    expect(detailPage).toContain("filter(item => item.assignment === 'client' || item.assignment === 'both')")
+    expect(modal).toContain("...(isStaff ? [{ id: 'notes' as TabId, label: 'Notes' }] : [])")
+    expect(applicationDetail).toContain("currentUserRole === 'expert' || currentUserRole === 'admin'")
   })
 })

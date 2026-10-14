@@ -717,11 +717,21 @@ async function migrateApplicationToProgramTransaction(applicationId:string,actor
   return { error: null, count: existing.length + items.length }
 }
 
-/** Fetch all program items for an application. No auth guard — agency can view their own. */
+/** Fetch program items through the application boundary; agency users receive client-facing items only. */
 export async function getApplicationProgramItems(applicationId: string): Promise<{ error: string | null; items: ApplicationPlaybookItem[] }> {
-  const { data, error } = await q.getApplicationPlaybookItems(applicationId)
-  if (error) return { error: error.message, items: [] }
-  return { error: null, items: (data ?? []) as ApplicationPlaybookItem[] }
+  try {
+    return await withAuthorizedApplication({ applicationId }, async application => {
+      const { data, error } = await q.getApplicationPlaybookItems(applicationId)
+      if (error) return { error: error.message, items: [] }
+      const items = (data ?? []) as ApplicationPlaybookItem[]
+      const visibleItems = application.actorRole === 'company_owner' || application.actorRole === 'care_coordinator'
+        ? items.filter(item => item.assignment === 'client' || item.assignment === 'both')
+        : items
+      return { error: null, items: visibleItems }
+    })
+  } catch {
+    return { error: 'Not found or not authorized', items: [] }
+  }
 }
 
 export async function getProgramItemNoteCounts(itemIds: string[]): Promise<Record<string, number>> {

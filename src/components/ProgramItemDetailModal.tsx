@@ -208,7 +208,10 @@ function DocxViewerPane({ url }: { url: string }) {
 
 export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClose, onItemUpdated, defaultTab, inline, onBack, size = '2xl' }: Props) {
   const isDocument = item.item_type === 'document'
-  const [activeTab, setActiveTab] = useState<TabId>(defaultTab ?? 'overview')
+  const initialTab = !isStaff && (defaultTab === 'notes' || defaultTab === 'validation')
+    ? 'overview'
+    : defaultTab ?? 'overview'
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab)
   const [documents, setDocuments] = useState<ItemDoc[]>([])
   const [ruleChecks, setRuleChecks] = useState<ApplicationRuleCheck[]>([])
   const [agencyData, setAgencyData] = useState<AgencyFields | null>(null)
@@ -291,6 +294,12 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
       })
     }
   }, [loadDocs, loadRules, loadHistory, agencyId, isStaff, isDocument, item.id, item.application_id])
+
+  useEffect(() => {
+    if (!isStaff && (activeTab === 'notes' || activeTab === 'validation')) {
+      setActiveTab('overview')
+    }
+  }, [activeTab, isStaff])
 
   const openManageRules = async () => {
     setIsManageRulesOpen(true)
@@ -504,12 +513,12 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
         { id: 'overview',    label: 'Overview' },
         { id: 'documents',   label: 'Documents',  badge: documents.length },
         ...(isStaff ? [{ id: 'validation' as TabId, label: 'Validation', badge: issues > 0 ? issues : undefined }] : []),
-        { id: 'notes',       label: 'Notes' },
+        ...(isStaff ? [{ id: 'notes' as TabId, label: 'Notes' }] : []),
         { id: 'history',     label: 'History' },
       ]
     : [
         { id: 'overview', label: 'Overview' },
-        { id: 'notes',    label: 'Notes' },
+        ...(isStaff ? [{ id: 'notes' as TabId, label: 'Notes' }] : []),
         { id: 'history',  label: 'History' },
       ]
 
@@ -517,16 +526,21 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
     <div className="flex items-center justify-between gap-4 pt-2">
       {/* Status selector */}
       <div className="flex items-center gap-2">
-        <select
-          value={pendingStatus}
-          onChange={e => setPendingStatus(e.target.value as ApplicationPlaybookItem['status'])}
-          disabled={!isStaff}
-          className={`text-sm font-medium rounded-lg px-3 py-1.5 border focus:outline-none ${STATUS_COLORS[pendingStatus]} border-current/20`}
-        >
-          {Object.entries(STATUS_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>{label}</option>
-          ))}
-        </select>
+        {isStaff ? (
+          <select
+            value={pendingStatus}
+            onChange={e => setPendingStatus(e.target.value as ApplicationPlaybookItem['status'])}
+            className={`text-sm font-medium rounded-lg px-3 py-1.5 border focus:outline-none ${STATUS_COLORS[pendingStatus]} border-current/20`}
+          >
+            {Object.entries(STATUS_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+        ) : (
+          <span className={`inline-flex text-sm font-medium rounded-lg px-3 py-1.5 ${STATUS_COLORS[pendingStatus]}`}>
+            {STATUS_LABELS[pendingStatus]}
+          </span>
+        )}
       </div>
 
       {isStaff && (
@@ -1354,7 +1368,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
         )}
 
         {/* ── NOTES ── */}
-        {activeTab === 'notes' && agencyId && (
+        {isStaff && activeTab === 'notes' && agencyId && (
           <InternalNotesPanel
             subjectType="application_playbook_item"
             subjectId={item.id}
@@ -1362,7 +1376,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
             canManage={isStaff}
           />
         )}
-        {activeTab === 'notes' && !agencyId && (
+        {isStaff && activeTab === 'notes' && !agencyId && (
           <p className="text-sm text-gray-400 py-8 text-center">Notes are not available for this item.</p>
         )}
 

@@ -32,7 +32,7 @@ export default async function AgencyProgramDetailPage({
 
   const items = await withUserContext(actor.userId, actor.role, actor.agencyId, async () => {
     const result = await q.getApplicationPlaybookItems(applicationId)
-    return result.data ?? []
+    return (result.data ?? []).filter(item => item.assignment === 'client' || item.assignment === 'both')
   })
 
   type AppRow = {

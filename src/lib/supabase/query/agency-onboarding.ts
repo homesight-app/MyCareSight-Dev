@@ -15,6 +15,7 @@ export interface AgencyKeyStaff {
   id: string
   agency_id: string
   officer_role: string
+  officer_roles: string[]
   full_legal_name: string | null
   telephone: string | null
   email: string | null
@@ -111,7 +112,13 @@ export async function incrementTokenUseCount(tokenId: string, currentCount: numb
 export async function getKeyStaffByAgencyId(agencyId: string) {
   try {
     const rows = await sql`
-      SELECT * FROM agency_key_staff
+      SELECT id, agency_id, officer_role, officer_roles, full_legal_name,
+        telephone, email, date_of_birth, ssn_last4,
+        home_address_street, home_address_city, home_address_state,
+        home_address_zip, date_of_hire, is_licensed, license_type,
+        user_profile_id, status, created_at, updated_at,
+        ownership_percentage, professional_license_number, employment_type
+      FROM agency_key_staff
       WHERE agency_id = ${agencyId}
         AND status = 'active'
       ORDER BY created_at ASC
@@ -141,7 +148,8 @@ export async function insertKeyStaffMember(
 export async function upsertKeyStaffMember(
   agencyId: string,
   officerRole: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  insertId?: string,
 ) {
   try {
     const existingRows = await sql`
@@ -169,7 +177,7 @@ export async function upsertKeyStaffMember(
       return { data: rows[0] as AgencyKeyStaff, error: null }
     }
 
-    const insertData = { agency_id: agencyId, officer_role: officerRole, officer_roles: [officerRole], ...payload }
+    const insertData = { ...(insertId ? { id: insertId } : {}), agency_id: agencyId, officer_role: officerRole, officer_roles: [officerRole], ...payload }
     const insertKeys = Object.keys(insertData) as unknown as any[]
     const rows = await sql`INSERT INTO agency_key_staff ${sql(insertData, ...insertKeys)} RETURNING *`
     if (!rows[0]) throw new Error('Insert returned no rows')

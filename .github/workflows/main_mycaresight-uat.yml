@@ -53,7 +53,6 @@ jobs:
           AUTH_URL: ${{ secrets.UAT_AUTH_URL }}
           DATABASE_URL: ${{ secrets.UAT_DATABASE_URL }}
           AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.UAT_AZURE_STORAGE_ACCOUNT_NAME }}
-          AGENCY_SSN_KEY: ${{ secrets.UAT_AGENCY_SSN_KEY }}
           MAILGUN_API_KEY: ${{ secrets.UAT_MAILGUN_API_KEY }}
           MAILGUN_DOMAIN: ${{ secrets.UAT_MAILGUN_DOMAIN }}
           MAILGUN_FROM_EMAIL: ${{ secrets.UAT_MAILGUN_FROM_EMAIL }}

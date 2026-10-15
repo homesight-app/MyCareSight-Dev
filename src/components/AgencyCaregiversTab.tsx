@@ -10,6 +10,7 @@ import TablePagination from '@/components/ui/TablePagination'
 import { useTableState } from '@/hooks/useTableState'
 import Button from '@/components/ui/PrimaryButton'
 import StatusBadge from '@/components/ui/StatusBadge'
+import PersonnelDetailsModal from './PersonnelDetailsModal'
 import {
   updateCaregiverStatus,
   addCaregiverForAgency,
@@ -182,6 +183,7 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
   const [addError, setAddError] = useState<string | null>(null)
 
   const [settingsCg, setSettingsCg] = useState<CaregiverRecord | null>(null)
+  const [personnelCg, setPersonnelCg] = useState<CaregiverRecord | null>(null)
   const [editFirst, setEditFirst] = useState('')
   const [editLast, setEditLast] = useState('')
   const [editPhone, setEditPhone] = useState('')
@@ -434,6 +436,11 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
                       actions={[
                         { label: 'Edit Caregiver', onClick: () => openSettings(cg) },
                         {
+                          label: 'Personal & Employment Details',
+                          onClick: () => setPersonnelCg(cg),
+                          hidden: !cg.user_id,
+                        },
+                        {
                           label: cg.status === 'active' ? 'Deactivate' : 'Activate',
                           onClick: () => handleToggle(cg),
                           destructive: cg.status === 'active',
@@ -490,6 +497,16 @@ export default function AgencyCaregiversTab({ agencyId }: { agencyId: string }) 
           <FieldInput label="Job Title (optional)" value={editJobTitle} onChange={setEditJobTitle} placeholder="e.g. CNA" />
         </div>
       </UserSettingsModal>
+
+      {personnelCg && (
+        <PersonnelDetailsModal
+          isOpen
+          onClose={() => setPersonnelCg(null)}
+          target={{ agencyId, caregiverMemberId: personnelCg.id }}
+          personName={`${personnelCg.first_name} ${personnelCg.last_name}`}
+          onSuccess={fetchActive}
+        />
+      )}
     </>
   )
 }

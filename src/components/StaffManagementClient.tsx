@@ -18,10 +18,10 @@ import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import TablePagination from '@/components/ui/TablePagination'
 import ViewStaffDetailsModal from './ViewStaffDetailsModal'
 import EditCaregiverSkillsModal from './EditCaregiverSkillsModal'
-import EditCaregiverHomeAddressModal from './EditCaregiverHomeAddressModal'
 import EditStaffModal from './EditStaffModal'
 import ManageLicensesModal from './ManageLicensesModal'
 import ManageCaregiverDocumentsModal from './ManageCaregiverDocumentsModal'
+import PersonnelDetailsModal from './PersonnelDetailsModal'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 
 interface StaffMember {
@@ -100,10 +100,10 @@ export default function StaffManagementClient({
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null)
   const [isViewProfileOpen, setIsViewProfileOpen] = useState(false)
   const [isEditSkillsOpen, setIsEditSkillsOpen] = useState(false)
-  const [isEditHomeAddressOpen, setIsEditHomeAddressOpen] = useState(false)
   const [isEditInformationOpen, setIsEditInformationOpen] = useState(false)
   const [isManageLicensesOpen, setIsManageLicensesOpen] = useState(false)
   const [isManageDocumentsOpen, setIsManageDocumentsOpen] = useState(false)
+  const [isPersonnelDetailsOpen, setIsPersonnelDetailsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState(initialSearch)
   const [selectedRole, setSelectedRole] = useState(initialRole)
   const [selectedStatus, setSelectedStatus] = useState(initialStatus)
@@ -223,11 +223,6 @@ export default function StaffManagementClient({
     setIsEditSkillsOpen(true)
   }
 
-  const handleEditHomeAddress = (staff: StaffMember) => {
-    setSelectedStaff(staff)
-    setIsEditHomeAddressOpen(true)
-  }
-
   const handleManageLicenses = (staff: StaffMember) => {
     setSelectedStaff(staff)
     setIsManageLicensesOpen(true)
@@ -236,6 +231,11 @@ export default function StaffManagementClient({
   const handleManageDocuments = (staff: StaffMember) => {
     setSelectedStaff(staff)
     setIsManageDocumentsOpen(true)
+  }
+
+  const handlePersonnelDetails = (staff: StaffMember) => {
+    setSelectedStaff(staff)
+    setIsPersonnelDetailsOpen(true)
   }
 
   return (
@@ -368,8 +368,12 @@ export default function StaffManagementClient({
                             actions={[
                               { label: 'View Profile', onClick: () => handleViewProfile(staff) },
                               { label: 'Edit Information', onClick: () => handleEditInformation(staff) },
+                              {
+                                label: 'Personal & Employment Details',
+                                onClick: () => handlePersonnelDetails(staff),
+                                hidden: !agencyId,
+                              },
                               { label: 'Edit Skills', onClick: () => handleEditSkills(staff) },
-                              { label: 'Edit Home Address', onClick: () => handleEditHomeAddress(staff) },
                               { label: 'Manage Documents', onClick: () => handleManageDocuments(staff) },
                               { label: 'Manage Certifications', onClick: () => handleManageLicenses(staff) },
                               {
@@ -526,6 +530,16 @@ export default function StaffManagementClient({
             }}
           />
 
+          {agencyId && (
+            <PersonnelDetailsModal
+              isOpen={isPersonnelDetailsOpen}
+              onClose={() => setIsPersonnelDetailsOpen(false)}
+              target={{ agencyId, caregiverMemberId: selectedStaff.id }}
+              personName={`${selectedStaff.first_name} ${selectedStaff.last_name}`.trim()}
+              onSuccess={() => router.refresh()}
+            />
+          )}
+
           <EditCaregiverSkillsModal
             isOpen={isEditSkillsOpen}
             onClose={() => {
@@ -534,19 +548,6 @@ export default function StaffManagementClient({
             caregiver={selectedStaff}
             onSuccess={() => {
               setIsEditSkillsOpen(false)
-              setSelectedStaff(null)
-              router.refresh()
-            }}
-          />
-
-          <EditCaregiverHomeAddressModal
-            isOpen={isEditHomeAddressOpen}
-            onClose={() => {
-              setIsEditHomeAddressOpen(false)
-            }}
-            caregiver={selectedStaff}
-            onSuccess={() => {
-              setIsEditHomeAddressOpen(false)
               setSelectedStaff(null)
               router.refresh()
             }}

@@ -8,6 +8,7 @@ import { sendInvitationEmail } from '@/lib/email'
 import sql, { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
+import { decryptSSN, encryptSSNWithMetadata } from '@/lib/ssn-crypto'
 
 function revalidateAgencyDetailPages(agencyId: string) {
   revalidatePath(`/pages/admin/agencies/${agencyId}`)
@@ -568,6 +569,48 @@ export async function promoteKeyStaffToUser(
   const fullName = `${opts.firstName} ${opts.lastName}`.trim()
   const userId = randomUUID()
   const passwordHash = await hashPassword(opts.tempPassword)
+  const actorRole = session.profile?.role ?? ''
+  const canManageSensitive = actorRole === 'admin' || actorRole === 'company_owner'
+  const [keyStaff] = await sql<{
+    id: string
+    date_of_birth: string | null
+    date_of_hire: string | null
+    ssn_encrypted: string | null
+    ssn_last4: string | null
+    home_address_street: string | null
+    home_address_city: string | null
+    home_address_state: string | null
+    home_address_zip: string | null
+  }[]>`
+    SELECT id,
+      CASE WHEN ${canManageSensitive} THEN date_of_birth ELSE NULL END AS date_of_birth,
+      date_of_hire,
+      CASE WHEN ${canManageSensitive} THEN ssn_encrypted ELSE NULL END AS ssn_encrypted,
+      CASE WHEN ${canManageSensitive} THEN ssn_last4 ELSE NULL END AS ssn_last4,
+      home_address_street, home_address_city, home_address_state, home_address_zip
+    FROM public.agency_key_staff
+    WHERE id = ${keyStaffId}::uuid AND agency_id = ${agencyId}::uuid AND status = 'active'
+    LIMIT 1
+  `
+  if (!keyStaff) return { error: 'Agency person not found.' }
+
+  let personnelSsn: { ciphertext: string; keyId: string } | null = null
+  if (keyStaff.ssn_encrypted) {
+    try {
+      const plaintext = await decryptSSN(keyStaff.ssn_encrypted, {
+        agencyId,
+        recordId: keyStaffId,
+        field: 'key_staff_ssn',
+      })
+      personnelSsn = await encryptSSNWithMetadata(plaintext, {
+        agencyId,
+        recordId: userId,
+        field: 'personnel_ssn',
+      })
+    } catch {
+      return { error: 'Unable to migrate the stored private identifier. Please contact support.' }
+    }
+  }
 
   try {
     await sql`INSERT INTO user_profiles ${sql({
@@ -621,7 +664,27 @@ export async function promoteKeyStaffToUser(
   await sendInvitationEmail(normalizedEmail, fullName, opts.tempPassword)
 
   try {
-    await sql`UPDATE agency_key_staff SET user_profile_id = ${userId}, updated_at = ${new Date().toISOString()} WHERE id = ${keyStaffId} AND agency_id = ${agencyId}`
+    await withUserContext(session.user.id, actorRole, session.profile?.agency_id ?? null, async () => {
+      await sql`UPDATE agency_key_staff SET user_profile_id = ${userId}, updated_at = ${new Date().toISOString()} WHERE id = ${keyStaffId} AND agency_id = ${agencyId}`
+      // Experts retain the established account-provisioning workflow but never
+      // read or populate the restricted personnel record.
+      if (actorRole !== 'expert') {
+        await sql`
+          INSERT INTO public.agency_personnel_private (
+            agency_id, user_id, birth_date, hire_date, ssn_encrypted, ssn_last4,
+            ssn_key_id, home_address_street, home_address_city,
+            home_address_state, home_address_zip, created_by_user_id
+          ) VALUES (
+            ${agencyId}::uuid, ${userId}::uuid, ${keyStaff.date_of_birth}::date,
+            ${keyStaff.date_of_hire}::date, ${personnelSsn?.ciphertext ?? null},
+            ${keyStaff.ssn_last4}, ${personnelSsn?.keyId ?? null},
+            ${keyStaff.home_address_street}, ${keyStaff.home_address_city},
+            ${keyStaff.home_address_state}, ${keyStaff.home_address_zip}, ${session.user.id}::uuid
+          )
+          ON CONFLICT (agency_id, user_id) DO NOTHING
+        `
+      }
+    })
   } catch (err) {
     return { error: `User created but failed to link: ${err instanceof Error ? err.message : 'Unknown'}` }
   }

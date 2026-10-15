@@ -15,7 +15,7 @@ jest.mock('@/app/actions/agency-users', () => ({ updateCaregiverStatus: jest.fn(
 jest.mock('@/components/AddStaffMemberModal', () => () => null)
 jest.mock('@/components/ViewStaffDetailsModal', () => () => null)
 jest.mock('@/components/EditCaregiverSkillsModal', () => () => null)
-jest.mock('@/components/EditCaregiverHomeAddressModal', () => () => null)
+jest.mock('@/components/PersonnelDetailsModal', () => () => null)
 jest.mock('@/components/EditStaffModal', () => () => null)
 jest.mock('@/components/ManageLicensesModal', () => () => null)
 jest.mock('@/components/ManageCaregiverDocumentsModal', () => () => null)

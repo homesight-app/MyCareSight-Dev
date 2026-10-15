@@ -25,6 +25,7 @@ import { changePersonCredential } from '@/app/actions/agency-users'
 import PhoneInput from '@/components/ui/PhoneInput'
 import EmailInput from '@/components/ui/EmailInput'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
+import PersonnelDetailsModal from './PersonnelDetailsModal'
 
 // ——— Constants ————————————————————————————————————————————
 
@@ -796,6 +797,7 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
   const [addOpen, setAddOpen]         = useState(false)
   const [editPerson, setEditPerson]   = useState<PersonRow | null>(null)
   const [accessPerson, setAccessPerson] = useState<PersonRow | null>(null)
+  const [personnelPerson, setPersonnelPerson] = useState<PersonRow | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -1016,6 +1018,11 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
                               onClick: () => setEditPerson(row),
                             },
                             {
+                              label: 'Personal & Employment Details',
+                              onClick: () => setPersonnelPerson(row),
+                              hidden: !row.userProfileId,
+                            },
+                            {
                               label: 'Give System Access',
                               icon: KeyRound,
                               onClick: () => setAccessPerson(row),
@@ -1094,6 +1101,16 @@ export default function AgencyPeopleTab({ agencyId }: { agencyId: string }) {
           agencyId={agencyId}
           person={accessPerson}
           onSuccess={() => { setAccessPerson(null); fetchData() }}
+        />
+      )}
+
+      {personnelPerson?.userProfileId && (
+        <PersonnelDetailsModal
+          isOpen
+          onClose={() => setPersonnelPerson(null)}
+          target={{ agencyId, userProfileId: personnelPerson.userProfileId }}
+          personName={personnelPerson.fullName}
+          onSuccess={fetchData}
         />
       )}
     </div>

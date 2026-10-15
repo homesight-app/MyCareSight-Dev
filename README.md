@@ -63,6 +63,10 @@ A care-management application built with Next.js 15, TypeScript, Tailwind CSS, A
    AUTH_SECRET=replace-with-a-long-random-secret
    AUTH_URL=http://localhost:3000
    AZURE_STORAGE_ACCOUNT_NAME=your-storage-account
+   SENSITIVE_DATA_KEY_PROVIDER=environment
+   SENSITIVE_DATA_ENVIRONMENT=development
+   SENSITIVE_DATA_KEYS={"dev-v1":"replace-with-a-64-character-hex-key"}
+   SENSITIVE_DATA_ACTIVE_KEY_ID=dev-v1
    NEXT_PUBLIC_SITE_URL=http://localhost:3000
    ```
 
@@ -172,6 +176,13 @@ When users check "Remember me" during login, their session is extended for a lon
 | `AUTH_SECRET` | Auth.js signing/encryption secret | Yes |
 | `AUTH_URL` | Canonical application origin, read at runtime for password-reset links; HTTPS required in production | Yes |
 | `AZURE_STORAGE_ACCOUNT_NAME` | Azure Blob Storage account name | Yes |
+| `SENSITIVE_DATA_KEY_PROVIDER` | `azure-key-vault` for deployed Azure environments; `environment` for local development and tests | When storing restricted identifiers |
+| `SENSITIVE_DATA_ENVIRONMENT` | Stable environment name bound into authenticated encryption, such as `development`, `uat`, or `production` | When storing restricted identifiers |
+| `AZURE_KEY_VAULT_URL` | Environment-specific Key Vault URL accessed through Managed Identity | With `azure-key-vault` provider |
+| `SENSITIVE_DATA_KEY_SECRET_NAME` | Name of the versioned Key Vault secret containing the 32-byte hexadecimal data key | With `azure-key-vault` provider |
+| `SENSITIVE_DATA_LEGACY_KEY_SECRET_NAME` | Optional Key Vault secret containing the former `AGENCY_SSN_KEY` while legacy ciphertext is being rotated | Only while legacy ciphertext remains |
+| `SENSITIVE_DATA_KEYS` | Local-only JSON map of key IDs to 32-byte hexadecimal keys | With `environment` provider |
+| `SENSITIVE_DATA_ACTIVE_KEY_ID` | Key ID used for new local/test ciphertext | With `environment` provider |
 | `NEXT_PUBLIC_SITE_URL` | Build-time public site URL; not used for password-reset links | No |
 | `WEBSITE_LEAD_INTEGRATION_ENABLED` | Server-only switch for the agency website lead API and credential UI; defaults to disabled | No |
 

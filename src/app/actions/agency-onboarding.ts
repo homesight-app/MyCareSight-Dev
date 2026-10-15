@@ -1,13 +1,14 @@
 'use server'
 
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
 import * as q from '@/lib/supabase/query'
 import { sendOnboardingLinkEmail } from '@/lib/email'
 import { formatDate } from '@/lib/format-date'
-import { encryptSSN, ssnToLast4 } from '@/lib/ssn-crypto'
+import { encryptSSNWithMetadata, ssnToLast4 } from '@/lib/ssn-crypto'
 import sql from '@/db'
 
 const keyStaffEntrySchema = z.object({
@@ -253,8 +254,15 @@ export async function saveKeyStaffAdmin(
 ) {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
+  if (session.profile?.role !== 'admin' && session.profile?.role !== 'company_owner') {
+    return { error: 'Forbidden', data: null }
+  }
 
   try {
+    const existingResult = await q.getKeyStaffByAgencyId(agencyId)
+    if (existingResult.error) return { error: existingResult.error.message, data: null }
+    const existing = existingResult.data?.find(staff => staff.officer_role === officerRole)
+    const recordId = existing?.id ?? randomUUID()
     const clean: Record<string, unknown> = {
       full_legal_name: payload.full_legal_name?.trim() || null,
       telephone: payload.telephone?.trim() || null,
@@ -273,12 +281,19 @@ export async function saveKeyStaffAdmin(
     }
 
     const rawSsn = payload.ssn?.replace(/\D/g, '')
-    if (rawSsn && rawSsn.length >= 4) {
-      clean.ssn_encrypted = encryptSSN(rawSsn)
+    if (rawSsn && rawSsn.length !== 9) return { error: 'Enter a valid 9-digit SSN', data: null }
+    if (rawSsn) {
+      const encrypted = await encryptSSNWithMetadata(rawSsn, {
+        agencyId,
+        recordId,
+        field: 'key_staff_ssn',
+      })
+      clean.ssn_encrypted = encrypted.ciphertext
       clean.ssn_last4 = ssnToLast4(rawSsn)
+      clean.ssn_key_id = encrypted.keyId
     }
 
-    const { data, error } = await q.upsertKeyStaffMember(agencyId, officerRole, clean)
+    const { data, error } = await q.upsertKeyStaffMember(agencyId, officerRole, clean, recordId)
     if (error) return { error: error.message, data: null }
 
     await q.insertAuditLog({
@@ -287,7 +302,7 @@ export async function saveKeyStaffAdmin(
       record_id: data?.id ?? null,
       action: 'CREATE_KEY_STAFF',
       performed_by_user_id: session.user.id,
-      details: { officer_role: officerRole, full_legal_name: payload.full_legal_name?.trim() },
+      details: { officer_role: officerRole, changed_fields: Object.keys(clean).filter(key => !key.startsWith('ssn_')) },
     })
 
     revalidateAgencyDetailPages(agencyId)
@@ -339,6 +354,9 @@ export async function updateMemberOwner(
 ) {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
+  if (session.profile?.role !== 'admin' && session.profile?.role !== 'company_owner') {
+    return { error: 'Forbidden', data: null }
+  }
 
   try {
     const clean: Record<string, unknown> = {
@@ -354,9 +372,16 @@ export async function updateMemberOwner(
     }
 
     const rawSsn = payload.ssn?.replace(/\D/g, '')
-    if (rawSsn && rawSsn.length >= 4) {
-      clean.ssn_encrypted = encryptSSN(rawSsn)
+    if (rawSsn && rawSsn.length !== 9) return { error: 'Enter a valid 9-digit SSN', data: null }
+    if (rawSsn) {
+      const encrypted = await encryptSSNWithMetadata(rawSsn, {
+        agencyId,
+        recordId: staffId,
+        field: 'key_staff_ssn',
+      })
+      clean.ssn_encrypted = encrypted.ciphertext
       clean.ssn_last4 = ssnToLast4(rawSsn)
+      clean.ssn_key_id = encrypted.keyId
     }
 
     const { data, error } = await q.updateKeyStaffById(staffId, clean)
@@ -395,9 +420,14 @@ export async function addMemberOwner(
 ) {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden', data: null }
+  if (session.profile?.role !== 'admin' && session.profile?.role !== 'company_owner') {
+    return { error: 'Forbidden', data: null }
+  }
 
   try {
+    const recordId = randomUUID()
     const clean: Record<string, unknown> = {
+      id: recordId,
       full_legal_name: payload.full_legal_name?.trim() || null,
       telephone: payload.telephone?.trim() || null,
       email: payload.email?.trim() || null,
@@ -410,9 +440,16 @@ export async function addMemberOwner(
     }
 
     const rawSsn = payload.ssn?.replace(/\D/g, '')
-    if (rawSsn && rawSsn.length >= 4) {
-      clean.ssn_encrypted = encryptSSN(rawSsn)
+    if (rawSsn && rawSsn.length !== 9) return { error: 'Enter a valid 9-digit SSN', data: null }
+    if (rawSsn) {
+      const encrypted = await encryptSSNWithMetadata(rawSsn, {
+        agencyId,
+        recordId,
+        field: 'key_staff_ssn',
+      })
+      clean.ssn_encrypted = encrypted.ciphertext
       clean.ssn_last4 = ssnToLast4(rawSsn)
+      clean.ssn_key_id = encrypted.keyId
     }
 
     const { data, error } = await q.insertKeyStaffMember(agencyId, 'member_owner', clean)
@@ -424,7 +461,7 @@ export async function addMemberOwner(
       record_id: data?.id ?? null,
       action: 'CREATE_MEMBER_OWNER',
       performed_by_user_id: session.user.id,
-      details: { ownership_percentage: payload.ownership_percentage?.trim(), full_legal_name: payload.full_legal_name?.trim() },
+      details: { changed_fields: Object.keys(clean).filter(key => !key.startsWith('ssn_')) },
     })
 
     revalidateAgencyDetailPages(agencyId)
@@ -500,7 +537,7 @@ export async function addKeyStaffWithRoles(
       record_id: inserted?.id ?? null,
       action: 'CREATE_KEY_STAFF',
       performed_by_user_id: session.user.id,
-      details: { officer_roles: payload.officer_roles, full_legal_name: payload.full_legal_name?.trim() },
+      details: { officer_roles: payload.officer_roles },
     })
 
     revalidateAgencyDetailPages(agencyId)

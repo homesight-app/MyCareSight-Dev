@@ -29,6 +29,7 @@ The versioned SQL under `scripts/migrations/` is the schema and access-control h
 | Audit history | Neon mutations create identifier-only audit records and avoid PHI content. | Decide which production audit history is legally and operationally required, validate its source shape, and import it append-only. Never place audit exports or PHI-bearing content in GitHub or CI logs. | Retention/legal decision required before import. |
 | Reference/configuration data | Configurable lists use stable codes where logic depends on the value; UAT includes synthetic setup data. | Import approved production reference values or seed reviewed canonical values. Never copy synthetic UAT identifiers blindly when business rows reference different production IDs. | ID/code mapping required. |
 | Runtime identities and permissions | Neon uses separate restricted `mycaresight_app` and `mycaresight_jobs` roles; migration owners remain separate. | Roles, grants, RLS, secrets, and connection strings are infrastructure and must be recreated. They are not database rows to copy from UAT. | Recreate and verify independently. |
+| Personnel private identifiers | Migration 026 adds tenant-scoped personnel DOB, hire date, address, masked SSN suffix, and versioned application-encrypted SSN envelopes. Azure environments use separate Key Vault secrets through Managed Identity. | Inspect the live source for agency-person and caregiver identifiers only after production migration planning is authorized. Never copy UAT keys or synthetic private records. Re-encrypt approved source SSNs into the production environment context and reconcile existing key-staff/person links before enabling access. | Separate key creation, field mapping, controlled re-encryption, and access acceptance required. |
 
 ## Rows that should not be copied from UAT
 
@@ -66,6 +67,8 @@ When production migration planning is authorized, record evidence for:
 - `022`: client required/preferred caregiver skill matching and manager-only requirement access.
 - `023`: one-row-per-client caregiver-skill requirement integrity and atomic-upsert key.
 - `024`: normalized searchable skill catalog, caregiver verification, client requirement references, and agency-ready catalog scope.
+- `025`: normalized capability-based feature plans and server-enforced agency entitlements.
+- `026`: tenant-scoped agency personnel private details and versioned application-level SSN encryption metadata.
 
 Update this register whenever a new migration, provider-boundary change, or application data contract changes what a future production import must create, transform, exclude, or verify.
 

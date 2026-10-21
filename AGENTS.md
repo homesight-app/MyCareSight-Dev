@@ -59,6 +59,194 @@ Important reusable flows:
 
 Do not duplicate a flow for a different entry point. Extend the shared component with a prop when needed.
 
+## UI Design System and Cross-Portal Consistency
+
+The objective of UI design-system work is to improve visual consistency,
+centralized styling, accessibility, and maintainability without changing
+application functionality. Application stability and functional preservation
+take priority over architectural perfection or complete design-system adoption.
+These requirements apply across HomeSights Admin, Licensing Expert, Agency
+Admin, Care Coordinator, Caregiver, authentication, onboarding, and public
+experiences.
+
+### Functional Preservation
+
+UI refactoring must not intentionally alter:
+
+- Business logic or calculations.
+- Database queries, schemas, migrations, API contracts, or server actions.
+- Authentication, authorization, role permissions, tenant isolation, or PHI
+  security controls.
+- Form validation rules or submission behavior.
+- Existing workflow steps, navigation destinations, or available user actions.
+- Data filtering, sorting, pagination, persistence, uploads, downloads, or
+  storage behavior.
+
+Accessibility improvements may deliberately change keyboard or focus behavior,
+but they must preserve business behavior and receive focused regression and
+accessibility testing.
+
+### Centralized Design Foundations
+
+- Use centrally defined design-system values and variants when an applicable
+  standard exists. Do not add hardcoded colors, arbitrary dimensions, or
+  duplicated styling rules to standard controls when a shared token or variant
+  covers the need.
+- Centralized definitions should cover primary and secondary actions, semantic
+  success, warning, danger, and information colors, text and surfaces, borders,
+  typography roles, spacing, control sizes, radii, shadows and elevation,
+  focus, responsive breakpoints, and standard or compact density.
+- Specialized visualizations, third-party widgets, and domain-specific controls
+  may use documented exceptions when the shared system is not appropriate.
+- New tokens or theme behavior require an approved implementation batch. The
+  current governance phase documents the intended architecture only.
+
+### Shared Component Reuse
+
+- Follow [Reuse Before Building](#reuse-before-building): search
+  `src/components/ui/` and relevant feature components before creating a
+  visual or interaction pattern. Reuse or extend an existing equivalent instead
+  of introducing a parallel implementation.
+- Prefer shared foundations for buttons and icon buttons, tables and data-list
+  controls, form fields, selects and dates, dialogs, cards, page headers, tabs,
+  navigation, badges, feedback states, search, filters, and pagination.
+- Do not force specialized calendars, editors, charts, reports, or clinical and
+  visit interactions into a generic component that does not fit their behavior.
+- Presentation primitives must not own business rules, data access,
+  authorization, tenant scope, persistence, or workflow orchestration.
+
+### Buttons, Tables, Forms, and Dialogs
+
+- Treat `src/components/ui/PrimaryButton.tsx` as the canonical shared-button
+  foundation. Use its existing variants for new standard buttons. Renaming or
+  changing its public API requires separate approval and a compatibility plan.
+- Follow `src/components/ui/TABLES.md`. Keep business-specific columns,
+  filtering rules, sorting semantics, pagination semantics, and row workflows
+  in the owning feature. Do not force every table into one rigid data-grid
+  abstraction.
+- Follow [Forms and Validation](#forms-and-validation). Standardize labels,
+  required indicators, help text, control sizing, field spacing, focus states,
+  error presentation, validation accessibility, and disabled/read-only states
+  through approved shared controls while preserving React Hook Form, Zod,
+  validation rules, submission behavior, and server error mapping.
+- Use the existing shared modal foundation for new modal interactions when it
+  fits. Do not add manual modal shells without a documented reason. Dialog
+  semantics, focus containment, keyboard behavior, initial focus, and focus
+  return are future accessibility work that requires separate approval and
+  focused tests.
+
+### Typography, Layout, and Portal Variants
+
+- Use documented roles for page titles, section headings, body text, labels,
+  helper text, table text, captions, and numeric metrics as those roles are
+  approved and implemented. Each route should have one meaningful primary
+  heading.
+- Do not change the current global 14px root font size as an incidental UI
+  refactor. A root typography change requires separate approval and broad
+  visual, responsive, zoom, and workflow regression testing.
+- The same kind of control should share a visual foundation across portals.
+  Intentional variants are allowed when workflow or usability requires them,
+  including larger caregiver touch targets, compact report tables, distinct
+  public/auth presentation, FullCalendar and TipTap adapters, and domain-specific
+  visit status indicators. Document intentional variants instead of creating
+  unexplained duplicates.
+
+### Theme and White-Label Boundaries
+
+- Keep global design foundations, tenant theme inputs, and controlled component
+  variants separate. Theme customization must never affect business logic,
+  authorization, data access, tenant isolation, or workflow behavior.
+- Future tenant-selected colors must be constrained and validated for contrast
+  in normal, hover, selected, disabled, and focus states.
+- Do not introduce new theme behavior without explicit approval and a defined
+  fallback. Documentation of a proposed theme architecture does not mean it is
+  implemented.
+
+### Accessibility
+
+- Preserve or improve keyboard operation, visible focus, accessible names,
+  dialog semantics, form error associations, table-sort semantics,
+  screen-reader announcements, responsive accessibility, zoom behavior, and
+  touch target sizing.
+- Keep accessibility changes separate from unrelated business-logic changes
+  where practical. Test deliberate interaction changes against existing mouse,
+  keyboard, touch, and workflow behavior.
+
+### Incremental Refactoring
+
+- Do not perform bulk UI rewrites or combine UI refactoring with feature
+  development.
+- Make changes in small, independently testable batches.
+- Prefer improving existing shared components while preserving their public
+  APIs.
+- Existing screens do not need rewrites merely to reach complete adoption.
+  Prefer opportunistic migration during normal maintenance for lower-value
+  inconsistencies.
+- Preserve current behavior unless the user explicitly approves a specific
+  change.
+
+### Required Validation
+
+Before changing an existing component:
+
+1. Identify its consumers and dependencies.
+2. Document its current props, callbacks, and behavior.
+3. Identify the affected workflows and portals.
+4. Confirm relevant regression coverage exists or add proportionate coverage.
+5. Capture existing visual behavior with synthetic data where practical.
+
+After changing it:
+
+1. Run TypeScript checks.
+2. Run relevant unit and integration tests.
+3. Run linting.
+4. Run the affected Playwright end-to-end tests.
+5. Verify keyboard and accessibility behavior where applicable.
+6. Compare before-and-after screenshots when appearance changes.
+
+Shared-component changes should gain proportionate TypeScript, unit,
+integration, Playwright, accessibility, and visual-regression coverage. Use
+only synthetic, non-PHI fixtures and screenshots. Follow [Commands](#commands),
+and report every check that was not run and why. Never claim a check passed when
+it did not execute successfully.
+
+### Critical Workflow Protection
+
+Exercise additional caution with authentication and authorization, agency
+onboarding, licensing applications and documents, client and caregiver records,
+scheduling, EVV clock-in and clock-out, caregiver visit execution,
+documentation and uploads, payroll and billing, and tenant-specific data
+visibility. Do not refactor these workflows merely for visual consistency. If a
+visual improvement requires changing underlying behavior, document it as a
+separate work item requiring explicit approval. Never use production PHI in
+screenshots, tests, fixtures, or debugging output.
+
+### Change Control, Phase Gates, and Reporting
+
+For every implementation batch, report:
+
+- Files modified.
+- Components, workflows, and portals affected.
+- Intended visual changes.
+- Any deliberate functional or accessibility behavior changes.
+- Tests executed and their results.
+- Tests not executed and why.
+- Known risks and the rollback approach.
+
+Stop and request approval before changes involving business logic, public
+component APIs, database behavior, authorization, or unexpected failures. Do
+not advance automatically between design-system phases. At each phase boundary,
+report benefits, remaining inconsistencies, risks, next-phase value, and a
+recommendation of `PROCEED`, `PROCEED SELECTIVELY`, or `STOP`, then obtain
+explicit approval.
+
+### Rollback
+
+- Perform UI design-system implementation on a dedicated Git branch.
+- Keep changes in small, reviewable commits that can be reverted independently.
+- Do not deploy automatically.
+- Do not merge into the production branch without approval.
+
 ## Commands
 
 ```bash
@@ -180,6 +368,46 @@ All uploads, downloads, deletes, and signed URLs go through `src/lib/storage/`.
 - Never expose a generic endpoint that signs an arbitrary object key.
 - Validate file type and size server-side; add malware scanning before accepting PHI-bearing documents.
 - Audit uploads, downloads, URL issuance, deletion, and failed access attempts.
+
+## Sensitive Data Encryption Boundary
+
+When a field requires application-level encryption, reuse
+`src/lib/security/sensitive-field-cipher.ts`. Do not create a second cipher,
+embed cryptographic keys in business logic, or import an Azure/provider SDK into
+pages, components, actions, or domain repositories.
+
+- Encryption and decryption are server-only and occur only after the caller and
+  target record have been authorized.
+- Use AES-256-GCM through the shared boundary. Every write must use a fresh
+  96-bit nonce and authenticated context that binds the deployment environment,
+  agency, record, and field purpose.
+- Persist the versioned envelope produced by the shared cipher, including the
+  algorithm, key identifier, nonce, authentication tag, and ciphertext. Do not
+  invent a field-specific envelope format.
+- Azure deployments use an environment-specific Key Vault through Managed
+  Identity. Business code depends only on `SensitiveDataKeyProvider`; provider
+  selection and Key Vault access remain inside the security boundary.
+- Local and automated environments may use the environment provider only with
+  synthetic, non-production keys. Never copy a UAT or production data key into a
+  developer environment, test fixture, GitHub secret, or CI output.
+- Rotate by creating a new version of the configured Key Vault secret. New
+  writes use the latest version, while historical versions remain enabled until
+  every dependent ciphertext has been re-encrypted or lawfully retired.
+- Plaintext and ciphertext must not appear in logs, telemetry, audit details,
+  analytics, error messages, URLs, client storage, or test fixtures. Store a
+  masked derivative such as the last four digits only when the workflow needs it
+  and authorize that derivative separately.
+- Add focused tests for round-trip encryption, nonce uniqueness, tampering,
+  authenticated-context mismatch, historical-key decryption, provider failure,
+  and unauthorized access before introducing a new encrypted field.
+- Update `docs/operations/sensitive-data-key-management.md`, the relevant
+  migration documentation, `docs/migrations/future-production-port-impact-register.md`,
+  and `docs/hipaa/compliance-log.md` when a new encrypted data class or key is
+  introduced.
+
+Field-level encryption is based on data sensitivity and the documented threat
+model; it is not a substitute for data minimization, tenant authorization, RLS,
+TLS, database encryption at rest, private storage, or audit controls.
 
 ## Auth.js Target Requirements
 

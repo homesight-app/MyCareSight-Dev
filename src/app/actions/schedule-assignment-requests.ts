@@ -48,11 +48,29 @@ function mapSubmitUnassignmentRequestError(code: string | undefined): string {
 
 type RpcPayload = { ok?: boolean; error?: string }
 
+type ScheduleAuditDetails = {
+  request_id?: string
+  schedule_id?: string
+  text_present?: boolean
+  text_length?: number
+}
+
+function textAuditMetadata(value: string | null | undefined): Pick<
+  ScheduleAuditDetails,
+  'text_present' | 'text_length'
+> {
+  const normalized = value?.trim() ?? ''
+  return {
+    text_present: normalized.length > 0,
+    text_length: normalized.length,
+  }
+}
+
 async function logScheduleAudit(
   userId: string,
   action: string,
   recordId: string,
-  details: Record<string, unknown>,
+  details: ScheduleAuditDetails,
   opts?: { agencyId?: string | null; patientId?: string | null }
 ) {
   const { error } = await q.insertAuditLog({
@@ -128,7 +146,10 @@ export async function declineScheduleAssignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
-  await logScheduleAudit(session.user.id, 'DECLINE_ASSIGNMENT', requestId, { request_id: requestId, reason })
+  await logScheduleAudit(session.user.id, 'DECLINE_ASSIGNMENT', requestId, {
+    request_id: requestId,
+    ...textAuditMetadata(reason),
+  })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -168,7 +189,10 @@ export async function requestScheduleAssignmentAction(
     return { error: mapSubmitAssignmentRequestError(body?.error) }
   }
 
-  await logScheduleAudit(session.user.id, 'REQUEST_ASSIGNMENT', scheduleId, { schedule_id: scheduleId, caregiver_note: note || null })
+  await logScheduleAudit(session.user.id, 'REQUEST_ASSIGNMENT', scheduleId, {
+    schedule_id: scheduleId,
+    ...textAuditMetadata(note),
+  })
   revalidateVisitsPages()
   return { ok: true }
 }
@@ -410,7 +434,10 @@ export async function declineScheduleUnassignmentRequestAction(
     return { error: mapRpcError(body?.error) }
   }
 
-  await logScheduleAudit(session.user.id, 'DECLINE_UNASSIGNMENT', requestId, { request_id: requestId, reason })
+  await logScheduleAudit(session.user.id, 'DECLINE_UNASSIGNMENT', requestId, {
+    request_id: requestId,
+    ...textAuditMetadata(reason),
+  })
   revalidateVisitsPages()
   return { ok: true }
 }

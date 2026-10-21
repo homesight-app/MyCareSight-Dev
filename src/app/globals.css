@@ -9,6 +9,96 @@
   --brand-subtle: #EEF2FF;
   --sidebar-bg:   #0F172A;
   --content-bg:   #F8FAFC;
+
+  /*
+   * Semantic color foundation. These are additive aliases for values already
+   * used by the application. Existing components continue to use their current
+   * classes; future migrations can adopt these roles incrementally.
+   */
+  --color-canvas: var(--content-bg);
+  --color-surface: #FFFFFF;
+  --color-surface-elevated: #FFFFFF;
+  --color-surface-muted: #F8FAFC;
+  --color-surface-subtle: #F1F5F9;
+
+  --color-foreground: #0F172A;
+  --color-foreground-muted: #475569;
+  --color-foreground-subtle: #64748B;
+  --color-foreground-inverse: #FFFFFF;
+
+  --color-border: #E2E8F0;
+  --color-border-strong: #CBD5E1;
+  --color-focus: var(--brand);
+
+  --color-primary: var(--brand);
+  --color-primary-hover: var(--brand-hover);
+  --color-primary-subtle: var(--brand-subtle);
+  --color-primary-foreground: #FFFFFF;
+
+  --color-secondary: #FFFFFF;
+  --color-secondary-hover: #F8FAFC;
+  --color-secondary-foreground: #334155;
+  --color-secondary-border: #CBD5E1;
+
+  --color-success: #16A34A;
+  --color-success-hover: #15803D;
+  --color-success-subtle: #F0FDF4;
+  --color-success-subtle-foreground: #15803D;
+  --color-success-border: #BBF7D0;
+
+  --color-warning: #D97706;
+  --color-warning-hover: #B45309;
+  --color-warning-subtle: #FFFBEB;
+  --color-warning-subtle-foreground: #B45309;
+  --color-warning-border: #FDE68A;
+
+  --color-danger: #DC2626;
+  --color-danger-hover: #B91C1C;
+  --color-danger-subtle: #FEF2F2;
+  --color-danger-subtle-foreground: #B91C1C;
+  --color-danger-border: #FECACA;
+  --color-danger-foreground: #FFFFFF;
+
+  --color-info: #2563EB;
+  --color-info-hover: #1D4ED8;
+  --color-info-subtle: #EFF6FF;
+  --color-info-subtle-foreground: #1D4ED8;
+  --color-info-border: #BFDBFE;
+
+  --color-sidebar: var(--sidebar-bg);
+  --color-sidebar-foreground: #F1F5F9;
+  --color-sidebar-muted: #CBD5E1;
+  --color-sidebar-border: #334155;
+
+  /* Existing Tailwind values exposed under semantic typography roles. */
+  --font-size-page-title: 1.5rem;
+  --line-height-page-title: 2rem;
+  --font-size-section-title: 1.125rem;
+  --line-height-section-title: 1.75rem;
+  --font-size-body: 0.875rem;
+  --line-height-body: 1.25rem;
+  --font-size-label: 0.875rem;
+  --line-height-label: 1.25rem;
+  --font-size-helper: 0.75rem;
+  --line-height-helper: 1rem;
+  --font-size-caption: 0.75rem;
+  --line-height-caption: 1rem;
+  --font-size-metric: 1.875rem;
+  --line-height-metric: 2.25rem;
+
+  /* Existing spacing, radius, elevation, and control-size values. */
+  --space-page: 1.5rem;
+  --space-section: 1.5rem;
+  --space-card: 1.25rem;
+  --space-control-gap: 0.5rem;
+  --control-height-sm: 2rem;
+  --control-height-md: 2.5rem;
+  --control-height-lg: 3rem;
+  --radius-control: 0.5rem;
+  --radius-surface: 0.75rem;
+  --radius-pill: 9999px;
+  --shadow-surface: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-overlay: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 }
 
 body {

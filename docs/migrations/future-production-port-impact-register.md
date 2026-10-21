@@ -15,6 +15,8 @@ The versioned SQL under `scripts/migrations/` is the schema and access-control h
 | Area | UAT change | Future production-data impact | Current disposition |
 |---|---|---|---|
 | Core application schema | Migrations 001–014 added indexes, missing tables, constraints, triggers, RLS, and scoped runtime grants. | Create and verify the target schema before importing rows. Do not replay UAT rows. Compare live production columns, constraints, functions, and policies first. | Schema recreation required; row transformations unresolved until live comparison. |
+| ADL/IADL plan day key | Migration 027 restores the Neon `patient_care_plan_tasks` unique index on `(patient_id, legacy_task_code, day_of_week)` required by the non-skilled plan save. The user verified that live Supabase has this index, UAT Neon lacks it, and UAT has zero duplicate key groups. | Verify the live source and target definitions and duplicate counts again at the production migration gate. Apply and verify 027 on the target Neon branch before importing production care-plan rows or enabling saves. Do not change Supabase production in the UAT repair. | Operator reports Development and UAT verifiers `key_ok=true`, `duplicate_groups=0`; UAT ADL and IADL save/refresh accepted. Baseline promotion pending. |
+| System settings key | Migration 028 reconciles exact duplicate Neon `system_settings` rows and restores the source `(category, key)` primary key required by settings upserts. The operator found four three-row groups on Neon Development and confirmed every group contained one complete-row version. | Import or recreate production settings only after mapping storage paths and environment-specific values. Do not copy synthetic branding paths or UAT settings into production. | Operator reports verifier `key_ok=true`, `duplicate_groups=0` on Development, UAT, `environment-base`, and protected production; no agent-connected verification. |
 | Certification categories | The Neon application writes `licenses.category_id`; the removed legacy `certification_category` column is no longer used. | Inspect production `licenses` and configuration values. If production stores category text or a different identifier, map it to stable target configuration codes/IDs and validate unmatched values. | Transformation may be required. |
 | Users and roles | Auth.js uses `user_profiles`, active agency memberships, current roles (`admin`, `expert`, `company_owner`, `care_coordinator`, `staff_member`), and Neon-backed opaque sessions. Migration 019 makes matching domain role rows the synchronized source for `user_agency_roles`; migration 021 removes historical memberships that no longer match the profile's current role/agency or a current domain role row and strengthens future cleanup. Legacy `agency_admin` is a table/domain label, not an accepted session role. | Build a deterministic identity and membership mapping. Detect case-insensitive duplicate emails, inactive accounts, legacy role values, duplicate or unexpected memberships, source/profile role disagreements, and source/membership status disagreements before enabling logins. Apply and verify the target constraints/triggers before importing identities. Preserve `pending` and `invited` as non-login states and do not infer activation from a password hash. Do not assume Supabase Auth credential hashes are portable to the Auth.js password format. | Identity/credential migration decision remains unresolved; migrations 019 and 021 plus their verification are required. |
 | Sessions and recovery | Migration 015 introduced Auth.js sessions, password-reset tokens, rate-limit events, Argon2id credentials, and session-revocation behavior. | Do not carry live Supabase or UAT sessions into the new production environment. Reset/recovery and rate-limit operational rows should start clean unless a later security review requires a narrowly defined carryover. | Recreate empty; user credential transition remains unresolved. |
@@ -29,7 +31,7 @@ The versioned SQL under `scripts/migrations/` is the schema and access-control h
 | Audit history | Neon mutations create identifier-only audit records and avoid PHI content. | Decide which production audit history is legally and operationally required, validate its source shape, and import it append-only. Never place audit exports or PHI-bearing content in GitHub or CI logs. | Retention/legal decision required before import. |
 | Reference/configuration data | Configurable lists use stable codes where logic depends on the value; UAT includes synthetic setup data. | Import approved production reference values or seed reviewed canonical values. Never copy synthetic UAT identifiers blindly when business rows reference different production IDs. | ID/code mapping required. |
 | Runtime identities and permissions | Neon uses separate restricted `mycaresight_app` and `mycaresight_jobs` roles; migration owners remain separate. | Roles, grants, RLS, secrets, and connection strings are infrastructure and must be recreated. They are not database rows to copy from UAT. | Recreate and verify independently. |
-| Personnel private identifiers | Migration 026 adds tenant-scoped personnel DOB, hire date, address, masked SSN suffix, and versioned application-encrypted SSN envelopes. Azure environments use separate Key Vault secrets through Managed Identity. | Inspect the live source for agency-person and caregiver identifiers only after production migration planning is authorized. Never copy UAT keys or synthetic private records. Re-encrypt approved source SSNs into the production environment context and reconcile existing key-staff/person links before enabling access. | Separate key creation, field mapping, controlled re-encryption, and access acceptance required. |
+| Personnel private identifiers | Migration 026 adds tenant-scoped personnel DOB, hire date, address, masked SSN suffix, and versioned application-encrypted SSN envelopes. Azure environments use separate Key Vault secrets through Managed Identity. | Inspect the live source for agency-person and caregiver identifiers only after production migration planning is authorized. Never copy UAT keys or synthetic private records. Re-encrypt approved source SSNs into the Production environment context and reconcile existing key-staff/person links before enabling access. Production also needs its own vault, key, workload identity, RBAC, application settings, private networking, diagnostics, recovery, and rotation ownership. | Separate key creation, infrastructure gate, field mapping, controlled re-encryption, and access acceptance required. |
 
 ## Rows that should not be copied from UAT
 
@@ -40,6 +42,33 @@ The future production import must use the live production source, not UAT data. 
 - `lead_integration_credentials`, `lead_integration_deliveries`, or `lead_integration_rate_limit_events`;
 - synthetic agencies, users, patients, caregivers, visits, leads, documents, certifications, contracts, rates, notes, or audit events;
 - UAT Blob objects, secrets, connection strings, or runtime-role passwords.
+
+## Personnel encryption Production gate
+
+Production is not configured or authorized by the UAT implementation. Before a
+future Production port enables personnel SSNs or another field-level encrypted
+data class:
+
+1. Create a dedicated Production Key Vault with Azure RBAC, 90-day soft delete,
+   purge protection, approved backup/recovery, diagnostic export, and security
+   alerts.
+2. Generate new Production AES-256 key material. Do not promote a Development or
+   UAT secret or ciphertext.
+3. Give the Production application identity only `Key Vault Secrets User` on the
+   Production vault. Keep secret-version writers and access administrators as
+   separate operator roles.
+4. Configure Production-specific `SENSITIVE_DATA_*` settings and private
+   App-Service-to-vault networking. If Production remains outside Azure App
+   Service, review and approve a workload-identity provider before migration;
+   App Service Managed Identity cannot be assumed.
+5. Apply and verify migration 026, inventory the live source under an approved
+   production-data plan, and re-encrypt approved values into the Production
+   environment context through an audited server operation.
+6. Complete synthetic authorization, cross-tenant denial, tamper, old-version,
+   recovery, and rotation acceptance before real records are exposed.
+
+The operational procedure and rotation rules are in
+[`docs/operations/sensitive-data-key-management.md`](../operations/sensitive-data-key-management.md).
 
 ## Required future reconciliation evidence
 
@@ -69,6 +98,8 @@ When production migration planning is authorized, record evidence for:
 - `024`: normalized searchable skill catalog, caregiver verification, client requirement references, and agency-ready catalog scope.
 - `025`: normalized capability-based feature plans and server-enforced agency entitlements.
 - `026`: tenant-scoped agency personnel private details and versioned application-level SSN encryption metadata.
+- `027`: ADL/IADL patient day-key integrity.
+- `028`: exact-duplicate system-settings reconciliation and composite primary-key restoration.
 
 Update this register whenever a new migration, provider-boundary change, or application data contract changes what a future production import must create, transform, exclude, or verify.
 

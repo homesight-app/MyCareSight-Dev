@@ -31,16 +31,23 @@ export interface BrandingColorValues {
   sidebarColor?: string | null
 }
 
+const BRANDING_CSS_VARIABLES = {
+  primary: '--brand',
+  primaryHover: '--brand-hover',
+  primarySubtle: '--brand-subtle',
+  sidebar: '--sidebar-bg',
+} as const
+
 /** Returns an inline CSS string to override branding vars, or null if no overrides needed. */
 export function buildBrandingStyleVars(branding: BrandingColorValues): string | null {
   const parts: string[] = []
   if (branding.primaryColor) {
-    parts.push(`--brand: ${branding.primaryColor};`)
-    parts.push(`--brand-hover: ${hexDarken(branding.primaryColor)};`)
-    parts.push(`--brand-subtle: ${hexLighten(branding.primaryColor)};`)
+    parts.push(`${BRANDING_CSS_VARIABLES.primary}: ${branding.primaryColor};`)
+    parts.push(`${BRANDING_CSS_VARIABLES.primaryHover}: ${hexDarken(branding.primaryColor)};`)
+    parts.push(`${BRANDING_CSS_VARIABLES.primarySubtle}: ${hexLighten(branding.primaryColor)};`)
   }
   if (branding.sidebarColor) {
-    parts.push(`--sidebar-bg: ${branding.sidebarColor};`)
+    parts.push(`${BRANDING_CSS_VARIABLES.sidebar}: ${branding.sidebarColor};`)
   }
   return parts.length > 0 ? parts.join(' ') : null
 }

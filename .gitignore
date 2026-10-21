@@ -48,3 +48,7 @@ next-env.d.ts
 .mcp.json
 CLAUDE.md
 AGENTS.md
+README.md
+AGENTS.md
+docs/migrations/uat-agency-personnel-private-details.md
+docs/operations/sensitive-data-key-management.md

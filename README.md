@@ -186,6 +186,11 @@ When users check "Remember me" during login, their session is extended for a lon
 | `NEXT_PUBLIC_SITE_URL` | Build-time public site URL; not used for password-reset links | No |
 | `WEBSITE_LEAD_INTEGRATION_ENABLED` | Server-only switch for the agency website lead API and credential UI; defaults to disabled | No |
 
+Use the [sensitive data key-management runbook](docs/operations/sensitive-data-key-management.md)
+for the exact App Service Managed Identity, Key Vault RBAC, local Development,
+rotation, and future Production configuration. Never put a deployed data-key
+value in App Service settings or GitHub.
+
 ## Building for Production
 
 ```bash

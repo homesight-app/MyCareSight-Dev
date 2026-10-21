@@ -14,10 +14,10 @@ interface PrimaryButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary:   'bg-brand hover:bg-brand-hover text-white border-transparent shadow-sm',
-  secondary: 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm',
-  danger:    'bg-red-600 hover:bg-red-700 text-white border-transparent shadow-sm',
-  ghost:     'bg-transparent border-transparent text-slate-600 hover:bg-slate-100',
+  primary:   'bg-primary hover:bg-primary-hover text-primary-foreground border-transparent shadow-ui-surface',
+  secondary: 'bg-secondary border-secondary-border text-secondary-foreground hover:bg-secondary-hover shadow-ui-surface',
+  danger:    'bg-danger hover:bg-danger-hover text-danger-foreground border-transparent shadow-ui-surface',
+  ghost:     'bg-transparent border-transparent text-foreground-muted hover:bg-surface-subtle',
 }
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
@@ -50,8 +50,8 @@ const PrimaryButton = forwardRef<HTMLButtonElement, PrimaryButtonProps>(
         {...props}
         disabled={isDisabled}
         className={`
-          inline-flex items-center justify-center font-medium rounded-lg border
-          transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1
+          inline-flex items-center justify-center font-medium rounded-ui-control border
+          transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1
           disabled:opacity-50 disabled:cursor-not-allowed
           ${VARIANT_CLASSES[variant]}
           ${SIZE_CLASSES[size]}

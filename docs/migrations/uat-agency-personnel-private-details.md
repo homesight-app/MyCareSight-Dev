@@ -24,14 +24,27 @@ Local development and automated tests use `SENSITIVE_DATA_KEY_PROVIDER=environme
 
 ## Azure configuration gate
 
-Before deploying the matching application code to an Azure environment:
+Follow the exact portal and CLI procedure in
+[`docs/operations/sensitive-data-key-management.md`](../operations/sensitive-data-key-management.md).
+For UAT, the required outcome is:
 
-1. Use a separate Key Vault and AES data key for that environment. Never reuse Development, UAT, or Production key material.
-2. Enable a system-assigned or approved user-assigned Managed Identity on the App Service.
-3. Grant that identity the least-privilege Key Vault secret-read role for the required vault/secret. Application operators do not need permission to read the secret value.
-4. Configure `SENSITIVE_DATA_KEY_PROVIDER=azure-key-vault`, `SENSITIVE_DATA_ENVIRONMENT`, `AZURE_KEY_VAULT_URL`, and `SENSITIVE_DATA_KEY_SECRET_NAME` as App Service settings. If the verifier reports legacy ciphertext, also configure `SENSITIVE_DATA_LEGACY_KEY_SECRET_NAME`.
-5. Enable Key Vault diagnostic monitoring, soft delete, purge protection, and the approved network restrictions.
-6. Keep every historical secret version enabled until all ciphertext using that key ID has been rotated or its retention period has expired.
+1. The `mycaresight-uat` system-assigned Managed Identity is enabled. It has
+   `Key Vault Secrets User` on a dedicated UAT vault and has no secret-write or
+   vault-administration role.
+2. The vault uses Azure RBAC, 90-day soft delete, purge protection, approved
+   diagnostics, and an environment-specific 32-byte hexadecimal secret. Neither
+   the secret value nor another environment's key appears in App Service or
+   GitHub settings.
+3. App Service has `SENSITIVE_DATA_KEY_PROVIDER=azure-key-vault`,
+   `SENSITIVE_DATA_ENVIRONMENT=uat`, `AZURE_KEY_VAULT_URL`, and
+   `SENSITIVE_DATA_KEY_SECRET_NAME`. If count-only verification finds legacy
+   ciphertext, it also has `SENSITIVE_DATA_LEGACY_KEY_SECRET_NAME` pointing to a
+   separate legacy secret.
+4. Networking permits the App Service request path. The Key Vault trusted-service
+   firewall bypass alone is insufficient for App Service application traffic;
+   private networking is required before PHI is authorized.
+5. Every historical secret version stays enabled until no retained ciphertext
+   references it. Rotation creates a new version under the same secret name.
 
 UAT remains synthetic-only until the BAA, infrastructure, operational, and security gates permit PHI.
 

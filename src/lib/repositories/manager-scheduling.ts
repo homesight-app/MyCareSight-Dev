@@ -67,52 +67,6 @@ async function assertAssignmentIntegrity(actor:{agencyId:string},visitIds:string
     LIMIT 1`
   if(missingTime)throw new SchedulingError('Set a start and end time before assigning a caregiver.')
 
-  const [outsideAvailability]=await sql<{id:string}[]>`SELECT visit.id
-    FROM public.scheduled_visits visit
-    WHERE visit.agency_id=${actor.agencyId}::uuid AND visit.id=ANY(${clean}::uuid[])
-      AND visit.caregiver_member_id IS NOT NULL
-      AND visit.status IN ('scheduled','in_progress','on_hold')
-      AND NOT EXISTS (
-        SELECT 1 FROM public.caregiver_availability_slots slot
-        WHERE (slot.agency_id=visit.agency_id OR slot.agency_id IS NULL)
-          AND slot.caregiver_member_id=visit.caregiver_member_id
-          AND slot.start_time<=visit.scheduled_start_time
-          AND slot.end_time>=visit.scheduled_end_time
-          AND (
-            (slot.is_recurring=true
-              AND extract(dow FROM visit.visit_date)::integer=ANY(slot.days_of_week)
-              AND (slot.repeat_start IS NULL OR slot.repeat_start<=visit.visit_date)
-              AND (slot.repeat_end IS NULL OR slot.repeat_end>=visit.visit_date))
-            OR (slot.is_recurring=false AND slot.specific_date=visit.visit_date)
-          )
-      )
-    LIMIT 1`
-  if(outsideAvailability)throw new SchedulingError('The caregiver is not available for the full visit time.')
-
-  const [missingRequiredSkill]=await sql<{id:string}[]>`SELECT visit.id
-    FROM public.scheduled_visits visit
-    WHERE visit.agency_id=${actor.agencyId}::uuid AND visit.id=ANY(${clean}::uuid[])
-      AND visit.caregiver_member_id IS NOT NULL
-      AND visit.status IN ('scheduled','in_progress','on_hold')
-      AND EXISTS (
-        SELECT 1
-        FROM public.patient_skill_requirement_items requirement
-        WHERE requirement.patient_id=visit.patient_id
-          AND requirement.agency_id=visit.agency_id
-          AND requirement.requirement_level='required'
-          AND NOT EXISTS (
-            SELECT 1 FROM public.caregiver_skill_assignments assignment
-            JOIN public.credential_catalog catalog ON catalog.id=assignment.credential_id
-            WHERE assignment.caregiver_member_id=visit.caregiver_member_id
-              AND assignment.agency_id=visit.agency_id
-              AND assignment.credential_id=requirement.credential_id
-              AND assignment.verification_status='verified'
-              AND catalog.is_active=true
-          )
-      )
-    LIMIT 1`
-  if(missingRequiredSkill)throw new SchedulingError('The caregiver does not have every required client skill.')
-
   const [conflict]=await sql<{id:string;conflict_id:string}[]>`SELECT visit.id, other.id AS conflict_id
     FROM public.scheduled_visits visit
     JOIN public.scheduled_visits other

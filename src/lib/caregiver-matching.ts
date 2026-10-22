@@ -111,6 +111,11 @@ export function eligibleCaregiverCandidates(candidates: CaregiverMatchOption[]):
   )
 }
 
+/** Direct manager assignment permits unrecorded availability and skill overrides, but never a booking conflict. */
+export function isDirectAssignmentCandidate(candidate: CaregiverMatchOption): boolean {
+  return candidate.availability !== 'booked'
+}
+
 function slotCoversVisit(
   slot: SlotInput,
   visitDate: string,
@@ -193,22 +198,18 @@ export function computeCaregiverMatches(params: ComputeParams): CaregiverMatchOp
           slot.caregiver_member_id === s.id &&
           slotCoversVisit(slot, visitDate, startMins as number, endMins as number, visitDayOfWeek)
       )
-      if (available) {
-        booked = conflicts
-          .filter((c) => c.id !== excludeConflictId)
-          .some((c) => {
-            if (!c.caregiver_id || c.caregiver_id !== s.id) return false
-            const cStart = parseMinutes(c.start_time)
-            const cEnd = parseMinutes(c.end_time)
-            if (cStart === null || cEnd === null) return false
-            return (startMins as number) < cEnd && (endMins as number) > cStart
-          })
-      }
+      booked = conflicts
+        .filter((c) => c.id !== excludeConflictId)
+        .some((c) => {
+          if (!c.caregiver_id || c.caregiver_id !== s.id) return false
+          const cStart = parseMinutes(c.start_time)
+          const cEnd = parseMinutes(c.end_time)
+          if (cStart === null || cEnd === null) return false
+          return (startMins as number) < cEnd && (endMins as number) > cStart
+        })
     }
 
-    const availability: CaregiverAvailabilityStatus = available
-      ? booked ? 'booked' : 'available'
-      : 'blocked'
+    const availability: CaregiverAvailabilityStatus = booked ? 'booked' : available ? 'available' : 'blocked'
 
     const proxPct = proximityPercentFromMiles(distanceMiles)
     const overallPct = overallCaregiverMatchPercent(

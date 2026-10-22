@@ -1,0 +1,29 @@
+# Production Readiness Before Data Migration
+
+Status: operator-led setup in progress; stop before any production-data export, import, rehearsal, or cutover
+Recorded: 2026-10-21
+
+The operator performs all work in the production Azure, Neon, Cloudflare, and GitHub accounts. The agent may inspect and prepare local repository files and provide instructions, but must not connect to or change the production environment. This tracker records operator reports, not independently verified cloud evidence. The broader design remains in [Production Environment, Data Migration, and Release Promotion Plan](production-environment-and-promotion.md).
+
+## Operator-reported foundations
+
+- The dedicated `MyCareSight-Prod` Azure subscription, production resource group, budget, and a West US 2 Linux/Node 24 App Service on P0v3 have been created. Zone redundancy was left off for the current single-instance, pre-user stage; basic deployment authentication was disabled.
+- A protected, empty Neon `production` branch was created from `environment-base`. The operator reports applying/verifying migrations 027–029 on Development, UAT, `environment-base`, and protected production. This does not establish complete source/target schema parity.
+- A production Key Vault with a production-only secret, role assignment, private endpoint, and private DNS resolution was set up. A production virtual network exists. A production Storage account, private Blob endpoint/DNS, private containers, access assignment, and diagnostics were also configured.
+- The operator reported production Log Analytics, Key Vault and Storage diagnostic settings, alert delivery, budget monitoring, domain resolution, and Cloudflare Turnstile site/secret setup. The agent has not inspected those resources or their configuration.
+- The operator created an empty `staging` deployment slot on the production App Service, confirmed a Main site allow rule for their current public IP with unmatched requests denied, enabled its own system-assigned managed identity, and confirmed slot-specific outbound integration with `vnet-mycaresight-prod / snet-app-integration` (outbound internet traffic enabled). Its data-access assignments, settings, SCM access, and release configuration still require verification.
+- The operator would like to use UAT data as a starting point when populating the new environment. No data copy is part of this pre-migration milestone. A later population plan must distinguish synthetic staging fixtures from actual production records and exclude UAT sessions, secrets, and environment-specific settings.
+- The operator reports creating the `production-staging` Neon branch and running count-only checks showing zero rows in `agencies`, `patients`, `user_profiles`, and `auth_sessions`. The operator confirmed `environment-base` as parent and the restricted `mycaresight_app` login role (`rolcanlogin=true`, `rolsuper=false`, `rolbypassrls=false`); copy-mode metadata and the jobs role were not reported separately. The operator added that branch's pooled `mycaresight_app` connection as a `DATABASE_URL` deployment-slot setting on staging; the value was not shared with or verified by the agent.
+
+## Remaining milestones before data migration
+
+1. **Application hosting:** Verify App Service identity, VNet outbound integration, private Key Vault/Blob DNS and access, production-only app settings, HTTPS/custom domain, health endpoint, and safe network exposure. Verify staging-specific data services and settings before any synthetic test or swap; the staging slot must not inherit future production PHI access.
+2. **Recovery and monitoring:** Verify App Service, Neon, Key Vault, and Blob restore procedures with synthetic data; define recovery time/point objectives. Verify Application Insights/Log Analytics sampling, PHI redaction, retention, alert delivery, and operator access. App Service backup does not replace Neon or Blob recovery.
+3. **Release path:** Choose the canonical GitHub repository and exact release SHA; protect the release path. Configure a GitHub `production` environment with available reviewer controls, environment-scoped values, and a production-only Azure OIDC identity restricted to the target app/slot. Build and validate from the exact SHA, deploy to staging, test, then require a manual release decision. Retire local file copying as the release method.
+4. **Migration control without data movement:** Prepare an ordered, immutable migration manifest and target-identity preflight. Reconcile the live Supabase source and Neon target schema metadata and classify remaining index, constraint, grant, RLS, trigger, function, and storage-contract differences before any import. Keep source data, row contents, and credentials out of the repository and CI.
+5. **Synthetic acceptance:** With no production PHI, verify startup, health, login/recovery, tenant denial, role access, private document upload/download, email, Turnstile, background jobs, audit events, and alerting. Record the deployed SHA, configuration version, test evidence, and rollback path.
+6. **Compliance sign-off:** Confirm provider BAAs/eligibility, production RBAC and break-glass ownership, key recovery, retention, incident response, and named go/no-go authority. No external users or PHI may enter the new target before these gates are accepted.
+
+## Stop line
+
+Completing this checklist means the empty/synthetic production target is ready for a separately reviewed data-migration runbook. Do not export or import Supabase production rows or objects, create a PHI-bearing rehearsal branch, move DNS traffic, disable the existing production site, or revoke source credentials as part of this milestone.

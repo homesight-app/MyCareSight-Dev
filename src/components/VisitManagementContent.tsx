@@ -1081,6 +1081,7 @@ export default function VisitManagementContent({
               preferredSkills={reassignVisit.clientPreferredSkills}
               selectedId={reassignVisit.caregiverId}
               defaultFilter="eligible"
+              assignmentMode="direct"
               isLoading={loadingCandidates}
               disabled={pendingActionKey === `assign:${reassignVisit.id}`}
               onSelect={(id) => {

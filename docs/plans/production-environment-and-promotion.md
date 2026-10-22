@@ -1,6 +1,6 @@
 # Production Environment, Data Migration, and Release Promotion Plan
 
-Status: design draft; no production action authorized  
+Status: design baseline; operator-led pre-migration setup in progress (see [readiness tracker](production-pre-migration-readiness.md))
 Recorded: 2026-10-16
 
 ## Decision summary
@@ -21,7 +21,7 @@ This document plans:
 - controlled database migrations, verification, rollback, and release evidence; and
 - the gates required before production data or users enter the new environment.
 
-It does not authorize Azure provisioning, database access, production schema changes, data export/import, DNS changes, credential rotation, deployment, or cutover. Those require separately approved implementation and runbooks after live discovery.
+This plan alone does not authorize production access, data export/import, deployment, or cutover. The operator has separately chosen to perform production infrastructure setup manually and has prohibited agent access to that environment. Data migration remains outside the current milestone.
 
 ## Target production boundary
 

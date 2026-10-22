@@ -74,6 +74,8 @@ import InternalNotesPanel from '@/components/InternalNotesPanel'
 import zipcodes from 'zipcodes'
 import { patientFullName } from '@/lib/patient-name'
 import { US_STATES } from '@/lib/constants'
+import { extractVisitTaskToken, visitTaskAnytimeFrequency, visitTaskAssignmentKey } from '@/lib/visit-task-codes'
+import { allCarePlanDaysEnabled, toggleCarePlanWeek } from '@/lib/care-plan-days'
 
 const VISIT_TYPES = ['Routine', 'Medical', 'Therapy', 'Social', 'Other'] as const
 
@@ -130,8 +132,9 @@ function dayOfWeekDbFromDateStr(dateStr: string): number {
   return d === 0 ? 7 : d
 }
 
-function encodeVisitAdlSlotKey(slotKey: string, adlCode: string): string {
-  return `${slotKey}${VISIT_ADL_SLOT_SEP}${adlCode}`
+function encodeVisitAdlSlotKey(slotKey: string, adlCode: string, timesPerDay = 1): string {
+  const base = `${slotKey}${VISIT_ADL_SLOT_SEP}${adlCode}`
+  return slotKey === 'any' && timesPerDay > 1 ? `${base}${VISIT_ADL_SLOT_SEP}${timesPerDay}` : base
 }
 
 /** Legacy rows used plain ADL names; map to one slot key for this weekday. */
@@ -199,7 +202,7 @@ function buildAssignedVisitTaskSlotSet(
   for (const row of rows) {
     const dow = dayOfWeekDbFromDateStr(row.date)
     for (const token of row.adl_codes ?? []) {
-      set.add(normalizeScheduleTaskToken(token, dow, adlSchedules, skilledSchedules))
+      set.add(visitTaskAssignmentKey(normalizeScheduleTaskToken(token, dow, adlSchedules, skilledSchedules)))
     }
   }
   return set
@@ -375,6 +378,7 @@ export default function ClientDetailContent({ client, allClients, representative
   const [adlNoteTarget, setAdlNoteTarget] = useState<{ name: string; group: string } | null>(null)
   const [adlNoteDraft, setAdlNoteDraft] = useState('')
   const [selectTimeForm, setSelectTimeForm] = useState({
+    mode: 'anytime' as 'anytime' | 'specific_times',
     timesPerDay: 1 as 1 | 2 | 3 | 4,
     morning: false,
     afternoon: false,
@@ -1436,6 +1440,7 @@ export default function ClientDetailContent({ client, allClients, representative
         night: !!existing.slot_night,
       }
       setSelectTimeForm({
+        mode: 'specific_times',
         timesPerDay: Math.min(4, Math.max(1, existing.times_per_day ?? 1)) as 1 | 2 | 3 | 4,
         morning: slots.morning,
         afternoon: slots.afternoon,
@@ -1448,7 +1453,8 @@ export default function ClientDetailContent({ client, allClients, representative
       })
     } else {
       setSelectTimeForm({
-        timesPerDay: 1,
+        mode: 'anytime',
+        timesPerDay: Math.min(4, Math.max(1, existing?.times_per_day ?? 1)) as 1 | 2 | 3 | 4,
         morning: false,
         afternoon: false,
         evening: false,
@@ -1478,6 +1484,7 @@ export default function ClientDetailContent({ client, allClients, representative
         night: !!existing.slot_night,
       }
       setSelectTimeForm({
+        mode: 'specific_times',
         timesPerDay: Math.min(4, Math.max(1, existing.times_per_day ?? 1)) as 1 | 2 | 3 | 4,
         morning: slots.morning,
         afternoon: slots.afternoon,
@@ -1490,7 +1497,8 @@ export default function ClientDetailContent({ client, allClients, representative
       })
     } else {
       setSelectTimeForm({
-        timesPerDay: 1,
+        mode: 'anytime',
+        timesPerDay: Math.min(4, Math.max(1, existing?.times_per_day ?? 1)) as 1 | 2 | 3 | 4,
         morning: false,
         afternoon: false,
         evening: false,
@@ -1583,10 +1591,10 @@ export default function ClientDetailContent({ client, allClients, representative
         updated_at: now,
       }
       let row: PatientSkilledTaskDaySchedule
-      if (scheduleType === 'specific_times' && payload) {
+      if ((scheduleType === 'specific_times' || scheduleType === 'always') && payload) {
         row = {
           ...base,
-          schedule_type: 'specific_times',
+          schedule_type: scheduleType,
           times_per_day: payload.times_per_day ?? null,
           slot_morning: payload.slot_morning ?? null,
           slot_afternoon: payload.slot_afternoon ?? null,
@@ -1629,10 +1637,10 @@ export default function ClientDetailContent({ client, allClients, representative
       updated_at: now,
     }
     let row: PatientAdlDaySchedule
-    if (scheduleType === 'specific_times' && payload) {
+    if ((scheduleType === 'specific_times' || scheduleType === 'always') && payload) {
       row = {
         ...base,
-        schedule_type: 'specific_times',
+        schedule_type: scheduleType,
         times_per_day: payload.times_per_day ?? null,
         slot_morning: payload.slot_morning ?? null,
         slot_afternoon: payload.slot_afternoon ?? null,
@@ -1659,38 +1667,20 @@ export default function ClientDetailContent({ client, allClients, representative
 
   const handleDoneSelectTime = (e: React.FormEvent) => {
     e.preventDefault()
-    if (selectTimeSkilledTask) {
-      const hasSlots = selectTimeForm.morning || selectTimeForm.afternoon || selectTimeForm.evening || selectTimeForm.night
-      const scheduleType = hasSlots ? 'specific_times' : 'never'
-      applySelectTimeSchedule(
-        scheduleType,
-        hasSlots
-          ? {
-              times_per_day: selectTimeForm.timesPerDay,
-              slot_morning: selectTimeForm.morning ? selectTimeForm.slotMorning : null,
-              slot_afternoon: selectTimeForm.afternoon ? selectTimeForm.slotAfternoon : null,
-              slot_evening: selectTimeForm.evening ? selectTimeForm.slotEvening : null,
-              slot_night: selectTimeForm.night ? selectTimeForm.slotNight : null,
-            }
-          : undefined
-      )
+    if (selectTimeForm.mode === 'anytime') {
+      applySelectTimeSchedule('always', { times_per_day: selectTimeForm.timesPerDay })
       return
     }
-    if (!selectTimeAdl) return
     const hasSlots = selectTimeForm.morning || selectTimeForm.afternoon || selectTimeForm.evening || selectTimeForm.night
-    const scheduleType = hasSlots ? 'specific_times' : 'never'
-    applySelectTimeSchedule(
-      scheduleType,
-      hasSlots
-        ? {
-            times_per_day: selectTimeForm.timesPerDay,
-            slot_morning: selectTimeForm.morning ? selectTimeForm.slotMorning : null,
-            slot_afternoon: selectTimeForm.afternoon ? selectTimeForm.slotAfternoon : null,
-            slot_evening: selectTimeForm.evening ? selectTimeForm.slotEvening : null,
-            slot_night: selectTimeForm.night ? selectTimeForm.slotNight : null,
-          }
-        : undefined
-    )
+    if (!hasSlots) return
+    if (!selectTimeSkilledTask && !selectTimeAdl) return
+    applySelectTimeSchedule('specific_times', {
+      times_per_day: selectTimeForm.timesPerDay,
+      slot_morning: selectTimeForm.morning ? selectTimeForm.slotMorning : null,
+      slot_afternoon: selectTimeForm.afternoon ? selectTimeForm.slotAfternoon : null,
+      slot_evening: selectTimeForm.evening ? selectTimeForm.slotEvening : null,
+      slot_night: selectTimeForm.night ? selectTimeForm.slotNight : null,
+    })
   }
 
   const handleSelectTimeQuick = (scheduleType: 'always' | 'as_needed' | 'never') => {
@@ -1721,7 +1711,7 @@ export default function ClientDetailContent({ client, allClients, representative
       if (error) throw error
       const scheduleRows = (schedules ?? []) as ScheduleRow[]
       const isUsedInSchedules = scheduleRows.some((s: ScheduleRow) =>
-        (s.adl_codes ?? []).some((token: string) => token === adlCode || token.endsWith(`::${adlCode}`))
+        (s.adl_codes ?? []).some((token: string) => extractVisitTaskToken(token) === adlCode)
       )
       if (isUsedInSchedules) {
         setAdlPlanError('This ADL is already used in scheduled visits. Remove it from Schedule first before deleting from ADL plan.')
@@ -1885,7 +1875,7 @@ export default function ClientDetailContent({ client, allClients, representative
 
   const formatAdlDaySummary = (schedule: DayScheduleLike | undefined): string | null => {
     if (!schedule || schedule.schedule_type === 'never') return null
-    if (schedule.schedule_type === 'always') return 'Always'
+    if (schedule.schedule_type === 'always') return `Anytime ${schedule.times_per_day ?? 1}x`
     if (schedule.schedule_type === 'as_needed') return 'As Needed'
     return null
   }
@@ -1902,20 +1892,14 @@ export default function ClientDetailContent({ client, allClients, representative
   }
 
   const isAdlRowAllSelected = (adlCode: string) => {
-    return [1, 2, 3, 4, 5, 6, 7].every((dow) => {
-      const s = localAdlSchedules.find((x) => x.adl_code === adlCode && x.day_of_week === dow)
-      return s && s.schedule_type === 'specific_times' && s.times_per_day === 1 && s.slot_morning
-    })
+    return allCarePlanDaysEnabled(localAdlSchedules.filter((s) => s.adl_code === adlCode))
   }
 
   const handleToggleAdlRowAll = (adlRow: { adl_code: string; display_order?: number }) => {
     const existingForAdl = localAdlSchedules.filter((s) => s.adl_code === adlRow.adl_code)
-    const isAllSelected = isAdlRowAllSelected(adlRow.adl_code)
     const displayOrder = existingForAdl[0]?.display_order ?? adlRow.display_order ?? 0
     const rest = localAdlSchedules.filter((s) => s.adl_code !== adlRow.adl_code)
-    const newEntries: PatientAdlDaySchedule[] = []
-    for (let dow = 1; dow <= 7; dow++) {
-      const existing = existingForAdl.find((x) => x.day_of_week === dow)
+    const newEntries = toggleCarePlanWeek(existingForAdl, (dow, existing, enabled): PatientAdlDaySchedule => {
       const base = {
         id: existing?.id ?? `temp-${adlRow.adl_code}-${dow}`,
         patient_id: localClient.id,
@@ -1926,8 +1910,8 @@ export default function ClientDetailContent({ client, allClients, representative
         created_at: existing?.created_at ?? '',
         updated_at: existing?.updated_at ?? '',
       } as const
-      if (isAllSelected) {
-        newEntries.push({
+      if (!enabled) {
+        return {
           ...base,
           schedule_type: 'never',
           times_per_day: null,
@@ -1935,19 +1919,18 @@ export default function ClientDetailContent({ client, allClients, representative
           slot_afternoon: null,
           slot_evening: null,
           slot_night: null,
-        })
-      } else {
-        newEntries.push({
-          ...base,
-          schedule_type: 'specific_times',
-          times_per_day: 1,
-          slot_morning: 'always',
-          slot_afternoon: null,
-          slot_evening: null,
-          slot_night: null,
-        })
+        }
       }
-    }
+      return {
+        ...base,
+        schedule_type: 'always',
+        times_per_day: 1,
+        slot_morning: null,
+        slot_afternoon: null,
+        slot_evening: null,
+        slot_night: null,
+      }
+    })
     setLocalAdlSchedules([...rest, ...newEntries])
   }
 
@@ -2059,7 +2042,7 @@ export default function ClientDetailContent({ client, allClients, representative
       return !!(s && s.schedule_type !== 'never')
     })
 
-    const rowEntries: Array<{ adl: PatientAdl; rowKey: string; periodLabel: string; storageSlot: string; groupName: string }> = []
+    const rowEntries: Array<{ adl: PatientAdl; rowKey: string; periodLabel: string; storageSlot: string; groupName: string; timesPerDay?: number }> = []
     for (const a of candidates) {
       const s = localAdlSchedules.find((x) => x.adl_code === a.adl_code && x.day_of_week === dow)
       const info = adlLists.find((x) => x.name === a.adl_code)
@@ -2067,7 +2050,7 @@ export default function ClientDetailContent({ client, allClients, representative
       if (s?.schedule_type === 'always') {
         const token = encodeVisitAdlSlotKey('any', a.adl_code)
         if (!assignedSlots.has(token)) {
-          rowEntries.push({ adl: a, rowKey: `always-${a.adl_code}`, periodLabel: 'Any time', storageSlot: 'any', groupName })
+          rowEntries.push({ adl: a, rowKey: `always-${a.adl_code}`, periodLabel: 'Anytime', storageSlot: 'any', groupName, timesPerDay: s.times_per_day ?? 1 })
         }
       } else if (s?.schedule_type === 'as_needed') {
         const token = encodeVisitAdlSlotKey('as_needed', a.adl_code)
@@ -2087,10 +2070,14 @@ export default function ClientDetailContent({ client, allClients, representative
     const periodBadgeClass =
       'inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 border border-gray-200/80'
 
-    const renderRow = (a: PatientAdl, rowKey: string, periodBadges: string[], storageSlot: string) => {
+    const renderRow = (a: PatientAdl, rowKey: string, periodBadges: string[], storageSlot: string, timesPerDay = 1) => {
       const info = adlLists.find((x) => x.name === a.adl_code) ?? { name: a.adl_code, group: 'General' }
-      const token = encodeVisitAdlSlotKey(storageSlot, a.adl_code)
-      const isChecked = visitAdlSelected.has(token)
+      const token = encodeVisitAdlSlotKey(storageSlot, a.adl_code, timesPerDay)
+      const selectedToken = Array.from(visitAdlSelected).find((selected) => visitTaskAssignmentKey(selected) === visitTaskAssignmentKey(token))
+      const isChecked = !!selectedToken
+      const badgeLabels = storageSlot === 'any'
+        ? [`Anytime ${visitTaskAnytimeFrequency(selectedToken ?? token) ?? 1}x`]
+        : periodBadges
       return (
         <label
           key={rowKey}
@@ -2103,7 +2090,7 @@ export default function ClientDetailContent({ client, allClients, representative
               setVisitAdlSelected((prev) => {
                 const next = new Set(prev)
                 if (e.target.checked) next.add(token)
-                else next.delete(token)
+                else if (selectedToken) next.delete(selectedToken)
                 return next
               })
             }}
@@ -2116,7 +2103,7 @@ export default function ClientDetailContent({ client, allClients, representative
               <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs text-gray-600 border border-gray-100 ${info.group === 'ADL' ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'}`}>
                 {info.group}
               </span>
-              {periodBadges.map((b) => (
+              {badgeLabels.map((b) => (
                 <span key={b} className={periodBadgeClass}>
                   <Clock className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
                   {b}
@@ -2157,7 +2144,7 @@ export default function ClientDetailContent({ client, allClients, representative
             <div key={groupName}>
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{groupName}</h4>
               <div className="space-y-2">
-                {grouped[groupName].map((item) => renderRow(item.adl, item.rowKey, [item.periodLabel], item.storageSlot))}
+                {grouped[groupName].map((item) => renderRow(item.adl, item.rowKey, [item.periodLabel], item.storageSlot, item.timesPerDay))}
               </div>
             </div>
           ))
@@ -2181,6 +2168,7 @@ export default function ClientDetailContent({ client, allClients, representative
       periodLabel: string
       storageSlot: string
       groupName: string
+      timesPerDay?: number
     }> = []
     for (const t of candidates) {
       const s = localSkilledSchedules.find((x) => x.task_id === t.task_id && x.day_of_week === dow)
@@ -2188,7 +2176,7 @@ export default function ClientDetailContent({ client, allClients, representative
       if (s?.schedule_type === 'always') {
         const token = encodeVisitAdlSlotKey('any', t.task_id)
         if (!assignedSlots.has(token)) {
-          rowEntries.push({ task: t, rowKey: `always-${t.task_id}`, periodLabel: 'Any time', storageSlot: 'any', groupName })
+          rowEntries.push({ task: t, rowKey: `always-${t.task_id}`, periodLabel: 'Anytime', storageSlot: 'any', groupName, timesPerDay: s.times_per_day ?? 1 })
         }
       } else if (s?.schedule_type === 'as_needed') {
         const token = encodeVisitAdlSlotKey('as_needed', t.task_id)
@@ -2208,9 +2196,13 @@ export default function ClientDetailContent({ client, allClients, representative
     const periodBadgeClass =
       'inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 border border-gray-200/80'
 
-    const renderRow = (t: SkilledCarePlanTask, rowKey: string, periodBadges: string[], storageSlot: string) => {
-      const token = encodeVisitAdlSlotKey(storageSlot, t.task_id)
-      const isChecked = visitAdlSelected.has(token)
+    const renderRow = (t: SkilledCarePlanTask, rowKey: string, periodBadges: string[], storageSlot: string, timesPerDay = 1) => {
+      const token = encodeVisitAdlSlotKey(storageSlot, t.task_id, timesPerDay)
+      const selectedToken = Array.from(visitAdlSelected).find((selected) => visitTaskAssignmentKey(selected) === visitTaskAssignmentKey(token))
+      const isChecked = !!selectedToken
+      const badgeLabels = storageSlot === 'any'
+        ? [`Anytime ${visitTaskAnytimeFrequency(selectedToken ?? token) ?? 1}x`]
+        : periodBadges
       return (
         <label
           key={rowKey}
@@ -2223,7 +2215,7 @@ export default function ClientDetailContent({ client, allClients, representative
               setVisitAdlSelected((prev) => {
                 const next = new Set(prev)
                 if (e.target.checked) next.add(token)
-                else next.delete(token)
+                else if (selectedToken) next.delete(selectedToken)
                 return next
               })
             }}
@@ -2238,7 +2230,7 @@ export default function ClientDetailContent({ client, allClients, representative
               >
                 {t.category}
               </span>
-              {periodBadges.map((b) => (
+              {badgeLabels.map((b) => (
                 <span key={b} className={periodBadgeClass}>
                   <Clock className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
                   {b}
@@ -2271,7 +2263,7 @@ export default function ClientDetailContent({ client, allClients, representative
             <div key={groupName}>
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{groupName}</h4>
               <div className="space-y-2">
-                {grouped[groupName].map((item) => renderRow(item.task, item.rowKey, [item.periodLabel], item.storageSlot))}
+                {grouped[groupName].map((item) => renderRow(item.task, item.rowKey, [item.periodLabel], item.storageSlot, item.timesPerDay))}
               </div>
             </div>
           ))
@@ -2452,6 +2444,7 @@ export default function ClientDetailContent({ client, allClients, representative
           preferredSkills={preferredCaregiverSkills ?? []}
           selectedId={visitForm.caregiverId || null}
           defaultFilter="eligible"
+          assignmentMode="direct"
           clientId={localClient.id}
           onSelect={(id) => {
             setVisitForm(p => ({ ...p, caregiverId: id }))
@@ -3692,7 +3685,7 @@ export default function ClientDetailContent({ client, allClients, representative
   const taskTokenReferencesTaskId = (token: string, taskId: string): boolean => {
     if (token === taskId) return true
     if (token === `skilled::${taskId}`) return true
-    if (token.endsWith(`${VISIT_ADL_SLOT_SEP}${taskId}`)) return true
+    if (extractVisitTaskToken(token) === taskId) return true
     return false
   }
 
@@ -3720,21 +3713,15 @@ export default function ClientDetailContent({ client, allClients, representative
   }
 
   const isSkilledRowAllSelected = (taskId: string) => {
-    return [1, 2, 3, 4, 5, 6, 7].every((dow) => {
-      const s = localSkilledSchedules.find((x) => x.task_id === taskId && x.day_of_week === dow)
-      return s && s.schedule_type === 'specific_times' && s.times_per_day === 1 && s.slot_morning
-    })
+    return allCarePlanDaysEnabled(localSkilledSchedules.filter((s) => s.task_id === taskId))
   }
 
   const handleToggleSkilledRowAll = (taskRow: SkilledCarePlanTask) => {
     const existingForTask = localSkilledSchedules.filter((s) => s.task_id === taskRow.task_id)
-    const isAllSelected = isSkilledRowAllSelected(taskRow.task_id)
     const displayOrder = existingForTask[0]?.display_order ?? taskRow.display_order ?? 0
     const rest = localSkilledSchedules.filter((s) => s.task_id !== taskRow.task_id)
-    const newEntries: PatientSkilledTaskDaySchedule[] = []
     const now = new Date().toISOString()
-    for (let dow = 1; dow <= 7; dow++) {
-      const existing = existingForTask.find((x) => x.day_of_week === dow)
+    const newEntries = toggleCarePlanWeek(existingForTask, (dow, existing, enabled): PatientSkilledTaskDaySchedule => {
       const base = {
         id: existing?.id ?? `temp-${taskRow.task_id}-${dow}`,
         patient_id: localClient.id,
@@ -3745,8 +3732,8 @@ export default function ClientDetailContent({ client, allClients, representative
         created_at: existing?.created_at ?? now,
         updated_at: now,
       }
-      if (isAllSelected) {
-        newEntries.push({
+      if (!enabled) {
+        return {
           ...base,
           schedule_type: 'never',
           times_per_day: null,
@@ -3754,19 +3741,18 @@ export default function ClientDetailContent({ client, allClients, representative
           slot_afternoon: null,
           slot_evening: null,
           slot_night: null,
-        })
-      } else {
-        newEntries.push({
-          ...base,
-          schedule_type: 'specific_times',
-          times_per_day: 1,
-          slot_morning: 'always',
-          slot_afternoon: null,
-          slot_evening: null,
-          slot_night: null,
-        })
+        }
       }
-    }
+      return {
+        ...base,
+        schedule_type: 'always',
+        times_per_day: 1,
+        slot_morning: null,
+        slot_afternoon: null,
+        slot_evening: null,
+        slot_night: null,
+      }
+    })
     setLocalSkilledSchedules([...rest, ...newEntries])
   }
 
@@ -5267,14 +5253,39 @@ export default function ClientDetailContent({ client, allClients, representative
                     changes, trashed tasks, and the weekly grid to the database (same idea as the Skilled Tasks tab).
                   </p>
                 </div>
-                <Button
-                  variant="primary"
-                  type="button"
-                  onClick={openAddAdlModal}
-                  icon={Plus}
-                >
-                  ADD NON-SKILLED TASK
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="primary"
+                    type="button"
+                    onClick={openAddAdlModal}
+                    icon={Plus}
+                  >
+                    ADD NON-SKILLED TASK
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={() => {
+                      setLocalAdls(initialAdls ?? [])
+                      setLocalAdlSchedules(initialAdlSchedules ?? [])
+                      setPendingAdlDeletes([])
+                      setAdlPlanError(null)
+                      router.refresh()
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    className="!bg-success-hover hover:!bg-success-hover hover:brightness-90"
+                    type="button"
+                    onClick={handleSaveAdlPlan}
+                    disabled={isSavingAdlPlan || !hasAdlPlanChanges}
+                    loading={isSavingAdlPlan}
+                  >
+                    Save NON-SKILLED Plan
+                  </Button>
+                </div>
               </div>
 
               {adlPlanError && (
@@ -5400,12 +5411,13 @@ export default function ClientDetailContent({ client, allClients, representative
                                 <button
                                   type="button"
                                   onClick={() => handleToggleAdlRowAll(adlRow)}
+                                  aria-pressed={isAdlRowAllSelected(adlRow.adl_code)}
                                   className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
                                     isAdlRowAllSelected(adlRow.adl_code)
                                       ? 'bg-blue-600'
                                       : 'bg-gray-300'
                                   }`}
-                                  aria-label={isAdlRowAllSelected(adlRow.adl_code) ? `Unselect all days for ${adlInfo.name}` : `Select all days (morning 1x) for ${adlInfo.name}`}
+                                  aria-label={isAdlRowAllSelected(adlRow.adl_code) ? `Unselect all days for ${adlInfo.name}` : `Select all days (Anytime 1x) for ${adlInfo.name}`}
                                 >
                                   <span
                                     className={`w-3 h-3 rounded-full border-2 ${
@@ -5461,30 +5473,6 @@ export default function ClientDetailContent({ client, allClients, representative
                 </div>
               </div> */}
 
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="secondary"
-                  type="button"
-                  onClick={() => {
-                    setLocalAdls(initialAdls ?? [])
-                    setLocalAdlSchedules(initialAdlSchedules ?? [])
-                    setPendingAdlDeletes([])
-                    setAdlPlanError(null)
-                    router.refresh()
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  type="button"
-                  onClick={handleSaveAdlPlan}
-                  disabled={isSavingAdlPlan || !hasAdlPlanChanges}
-                  loading={isSavingAdlPlan}
-                >
-                  Save NON-SKILLED Plan
-                </Button>
-              </div>
             </div>
           )}
 
@@ -5499,14 +5487,39 @@ export default function ClientDetailContent({ client, allClients, representative
                     Manage skilled care tasks and weekly schedule. Scheduled visits use a <strong>Skilled</strong> service contract.
                   </p>
                 </div>
-                <Button
-                  variant="primary"
-                  type="button"
-                  onClick={openSkilledTaskModal}
-                  icon={Plus}
-                >
-                  ADD SKILLED TASK
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="primary"
+                    type="button"
+                    onClick={openSkilledTaskModal}
+                    icon={Plus}
+                  >
+                    ADD SKILLED TASK
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={() => {
+                      setLocalSkilledCarePlanTasks(initialSkilledCarePlanTasks ?? [])
+                      setLocalSkilledSchedules(initialSkilledSchedules)
+                      setPendingSkilledDeletes([])
+                      setSkilledTasksError(null)
+                      router.refresh()
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    className="!bg-success-hover hover:!bg-success-hover hover:brightness-90"
+                    type="button"
+                    onClick={handleSaveSkilledCarePlan}
+                    disabled={isSavingSkilledTasks || !hasSkilledPlanChanges}
+                    loading={isSavingSkilledTasks}
+                  >
+                    Save Skilled Plan
+                  </Button>
+                </div>
               </div>
 
               {skilledTasksError && (
@@ -5642,13 +5655,14 @@ export default function ClientDetailContent({ client, allClients, representative
                                 <button
                                   type="button"
                                   onClick={() => handleToggleSkilledRowAll(taskRow)}
+                                  aria-pressed={isSkilledRowAllSelected(taskRow.task_id)}
                                   className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
                                     isSkilledRowAllSelected(taskRow.task_id) ? 'bg-blue-600' : 'bg-gray-300'
                                   }`}
                                   aria-label={
                                     isSkilledRowAllSelected(taskRow.task_id)
                                       ? `Unselect all days for ${taskRow.name}`
-                                      : `Select all days (morning 1x) for ${taskRow.name}`
+                                      : `Select all days (Anytime 1x) for ${taskRow.name}`
                                   }
                                 >
                                   <span
@@ -5681,30 +5695,6 @@ export default function ClientDetailContent({ client, allClients, representative
                 )}
               </div>
 
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="secondary"
-                  type="button"
-                  onClick={() => {
-                    setLocalSkilledCarePlanTasks(initialSkilledCarePlanTasks ?? [])
-                    setLocalSkilledSchedules(initialSkilledSchedules)
-                    setPendingSkilledDeletes([])
-                    setSkilledTasksError(null)
-                    router.refresh()
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  type="button"
-                  onClick={handleSaveSkilledCarePlan}
-                  disabled={isSavingSkilledTasks || !hasSkilledPlanChanges}
-                  loading={isSavingSkilledTasks}
-                >
-                  Save Skilled Plan
-                </Button>
-              </div>
             </div>
           )}
         </div>
@@ -6251,7 +6241,7 @@ export default function ClientDetailContent({ client, allClients, representative
         </div>
       </Modal>
 
-      {/* Select Time Modal — no Frequency section; times per day 1–4 */}
+      {/* Shared ADL/IADL and skilled task schedule picker. */}
       <Modal
         isOpen={selectTimeModalOpen}
         onClose={closeSelectTimeModal}
@@ -6264,14 +6254,37 @@ export default function ClientDetailContent({ client, allClients, representative
               Choose when <span className="font-medium">{selectTimeSkilledTask?.name ?? selectTimeAdl?.name}</span> should happen on {selectTimeDayLabel}
             </p>
           )}
-          
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-semibold text-gray-800">When should this task happen?</legend>
+            <label className="flex items-center gap-2 text-sm text-gray-800">
+              <input
+                type="radio"
+                name="task-schedule-mode"
+                value="anytime"
+                checked={selectTimeForm.mode === 'anytime'}
+                onChange={() => setSelectTimeForm((p) => ({ ...p, mode: 'anytime' }))}
+              />
+              Anytime
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-800">
+              <input
+                type="radio"
+                name="task-schedule-mode"
+                value="specific_times"
+                checked={selectTimeForm.mode === 'specific_times'}
+                onChange={() => setSelectTimeForm((p) => ({ ...p, mode: 'specific_times' }))}
+              />
+              Specific time windows
+            </label>
+          </fieldset>
           <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-800">Times per Day</label>
+                <label htmlFor="task-times-per-day" className="block text-sm font-semibold text-gray-800">Times per Day</label>
                 <p className="mt-1 text-xs text-gray-500">How many times this task should be performed on {selectTimeDayLabel}</p>
               </div>
               <select
+                id="task-times-per-day"
                 value={selectTimeForm.timesPerDay}
                 onChange={(e) => {
                   const next = Number(e.target.value) as 1 | 2 | 3 | 4
@@ -6298,16 +6311,11 @@ export default function ClientDetailContent({ client, allClients, representative
               </select>
             </div>
           </div>
-          <div className="relative py-2">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200" />
-            </div>
-            <div className="relative flex justify-center">
-              <span className="bg-white px-2 text-xs font-medium text-gray-500">OR SELECT SPECIFIC TIME</span>
-            </div>
-          </div>
-          <div>
+          {selectTimeForm.mode === 'specific_times' && <div>
             <p className="text-sm font-bold text-gray-700 mb-2">Specific Times (select up to {selectTimeForm.timesPerDay})</p>
+            {!selectTimeForm.morning && !selectTimeForm.afternoon && !selectTimeForm.evening && !selectTimeForm.night && (
+              <p className="mb-2 text-xs text-amber-700" role="status">Select at least one time window.</p>
+            )}
             <div className="space-y-2">
               {[
                 { key: 'morning' as const, label: 'Morning', range: '6 AM - 12 PM', slotKey: 'slotMorning' as const },
@@ -6370,9 +6378,13 @@ export default function ClientDetailContent({ client, allClients, representative
                 )
               })}
             </div>
-          </div>
+          </div>}
           <div className="flex justify-end pt-2">
-            <Button variant="primary" type="submit">
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={selectTimeForm.mode === 'specific_times' && ![selectTimeForm.morning, selectTimeForm.afternoon, selectTimeForm.evening, selectTimeForm.night].some(Boolean)}
+            >
               Done
             </Button>
           </div>

@@ -21,6 +21,8 @@ Each existing Neon query has an explicit `ON CONFLICT` target, but the exported 
 
 `system_settings` has a source index but no index at all in the Neon export; this does not prove that the Neon table is absent. The earlier live schema baseline reported the composite primary key missing. Verify the current target table and constraints before preparing a repair.
 
+Migration 029 covers the other three confirmed `ON CONFLICT` gaps: agency configurations, agency lead stages, and patient lead details. It adds only the source-equivalent unique indexes and aborts if the target branch has duplicate keys. The operator reports its verifier returned `key_ok=true`, `duplicate_groups=0` for all three on Neon Development, UAT, `environment-base`, and protected production. Synthetic workflow acceptance on UAT remains unreported.
+
 The operator ran aggregate-only duplicate checks on Neon Development. `agency_configurations`, `agency_lead_stages`, and `patient_lead_details` each returned zero duplicate key groups. `system_settings` returned four duplicate `(category, key)` groups. No setting keys, values, or application rows were shared. Adding the source composite primary key to Development would fail until those four groups are reviewed and reconciled. The current `getSystemSettingsByCategory` query has no ordering and folds rows into an object by key, so duplicate settings may also produce ambiguous read behavior.
 
 A second aggregate-only Development check showed that each of the four `system_settings` groups contains three rows, one distinct `value`, and no variation in `updated_at`. At that point, `updated_by` and complete-row equivalence remained unverified; matching values and timestamps alone would not justify row removal.

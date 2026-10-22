@@ -15,6 +15,25 @@ export function visitTaskSlotKey(raw: unknown): string {
   return parts.length > 1 ? parts[0].trim().toLowerCase() : ''
 }
 
+/** An Anytime task is assigned once; the optional final segment snapshots its daily frequency. */
+export function visitTaskAnytimeFrequency(raw: unknown): number | null {
+  const value = String(raw ?? '').trim()
+  const parts = value.split('::')
+  if (parts[0]?.toLowerCase() !== 'any' || parts.length < 2) return null
+  const frequency = parts.length === 3 ? Number(parts[2]) : 1
+  return Number.isInteger(frequency) && frequency >= 1 && frequency <= 4 ? frequency : 1
+}
+
+/** Frequency is display metadata, not part of the task's assignment identity. */
+export function visitTaskAssignmentKey(raw: string): string {
+  return visitTaskAnytimeFrequency(raw) === null ? raw : `any::${extractVisitTaskToken(raw)}`
+}
+
+export function formatVisitTaskName(name: string, raw: string): string {
+  const frequency = visitTaskAnytimeFrequency(raw)
+  return frequency === null ? name : `${name} · Anytime ${frequency}×`
+}
+
 export function isUuidToken(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value.trim())
 }
@@ -30,7 +49,7 @@ export function decodeVisitTaskCodes(
       const token = extractVisitTaskToken(code)
       if (!token) return ''
       const mapped = taskNameById?.get(token)
-      return mapped?.trim() || token
+      return formatVisitTaskName(mapped?.trim() || token, code)
     })
     .filter(Boolean)
 }

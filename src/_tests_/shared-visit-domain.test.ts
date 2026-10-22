@@ -7,6 +7,8 @@ import {
   decodeVisitTaskCodes,
   extractVisitTaskToken,
   isUuidToken,
+  visitTaskAnytimeFrequency,
+  visitTaskAssignmentKey,
   visitTaskSlotKey,
 } from '@/lib/visit-task-codes'
 import { normalizeUsZipForLookup } from '@/lib/us-postal-code'
@@ -35,6 +37,17 @@ describe('shared visit-domain rules', () => {
     expect(decodeVisitTaskCodes([`morning::${taskId}`, 'Meal preparation'], taskNames)).toEqual([
       'Medication reminder',
       'Meal preparation',
+    ])
+  })
+
+  it('keeps an Anytime task single while preserving its assigned daily frequency', () => {
+    const task = 'Meal preparation'
+    expect(visitTaskAnytimeFrequency(`any::${task}::2`)).toBe(2)
+    expect(visitTaskAnytimeFrequency(`any::${task}`)).toBe(1)
+    expect(visitTaskAssignmentKey(`any::${task}::2`)).toBe(`any::${task}`)
+    expect(decodeVisitTaskCodes([`any::${task}::2`, `morning::${task}`])).toEqual([
+      `${task} · Anytime 2×`,
+      task,
     ])
   })
 

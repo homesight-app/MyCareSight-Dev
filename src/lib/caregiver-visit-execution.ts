@@ -4,7 +4,7 @@ import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import { patientFullName } from '@/lib/patient-name'
-import { extractVisitTaskToken, isUuidToken, visitTaskSlotKey } from '@/lib/visit-task-codes'
+import { extractVisitTaskToken, formatVisitTaskName, isUuidToken, visitTaskSlotKey } from '@/lib/visit-task-codes'
 
 export type CaregiverExecutionTaskDTO = {
   id: string
@@ -239,7 +239,7 @@ export async function fetchCaregiverPastVisitSummary(
 
       return {
         id: t.id,
-        name,
+        name: formatVisitTaskName(name, legacy),
         categoryLabel,
         completed,
         completedAtLabel: completed ? formatInstantAmPm(t.completed_at) : null,
@@ -331,7 +331,7 @@ export async function fetchCaregiverVisitExecutionDetail(
 
       return {
         id: t.id,
-        name,
+        name: formatVisitTaskName(name, legacy),
         tags,
         asNeeded,
         completed: !!t.completed_at,

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Check, Clock, X, MapPin, Phone, SquareArrowOutUpRight, Loader2 } from 'lucide-react'
-import type { CaregiverMatchOption, CaregiverAvailabilityStatus } from '@/lib/caregiver-matching'
+import { isDirectAssignmentCandidate, type CaregiverMatchOption, type CaregiverAvailabilityStatus } from '@/lib/caregiver-matching'
 import Button from '@/components/ui/PrimaryButton'
 
 type CaregiverCandidateFilter = 'eligible' | 'all' | 'available' | 'booked' | 'blocked'
@@ -24,9 +24,11 @@ interface Props {
   emptyMessage?: string
   /** Use `eligible` where availability and required skills are hard gates. */
   defaultFilter?: CaregiverCandidateFilter
+  /** Direct assignment allows a manager to override missing availability or required skills. */
+  assignmentMode?: 'open-shift' | 'direct'
 }
 
-function AvailabilityPill({ status }: { status: CaregiverAvailabilityStatus }) {
+function AvailabilityPill({ status, assignmentMode }: { status: CaregiverAvailabilityStatus; assignmentMode: 'open-shift' | 'direct' }) {
   if (status === 'available')
     return (
       <span className="inline-flex items-center gap-1 border border-green-200 bg-green-50 text-green-700 rounded-md px-2 py-0.5 text-xs font-semibold">
@@ -39,6 +41,13 @@ function AvailabilityPill({ status }: { status: CaregiverAvailabilityStatus }) {
       <span className="inline-flex items-center gap-1 border border-amber-200 bg-amber-50 text-amber-700 rounded-md px-2 py-0.5 text-xs font-semibold">
         <Clock className="w-3 h-3" />
         Booked
+      </span>
+    )
+  if (assignmentMode === 'direct')
+    return (
+      <span className="inline-flex items-center gap-1 border border-gray-200 bg-gray-50 text-gray-700 rounded-md px-2 py-0.5 text-xs font-semibold">
+        <Clock className="w-3 h-3" />
+        No matching availability
       </span>
     )
   return (
@@ -70,6 +79,7 @@ function SortFilterHeader({
   setFilter,
   options,
   showEligibleFilter,
+  assignmentMode,
 }: {
   sort: 'availability' | 'proximity'
   setSort: (v: 'availability' | 'proximity') => void
@@ -77,9 +87,13 @@ function SortFilterHeader({
   setFilter: (v: CaregiverCandidateFilter) => void
   options: CaregiverMatchOption[]
   showEligibleFilter: boolean
+  assignmentMode: 'open-shift' | 'direct'
 }) {
+  const isEligible = (option: CaregiverMatchOption) => assignmentMode === 'direct'
+    ? isDirectAssignmentCandidate(option)
+    : option.availability === 'available' && option.skillMatchPercent === 100
   const counts = {
-    eligible: options.filter(option => option.availability === 'available' && option.skillMatchPercent === 100).length,
+    eligible: options.filter(isEligible).length,
     all: options.length,
     available: options.filter(option => option.availability === 'available').length,
     booked: options.filter(option => option.availability === 'booked').length,
@@ -89,14 +103,14 @@ function SortFilterHeader({
     ? [
         { key: 'eligible', label: 'Eligible', dot: 'bg-green-500', text: 'text-green-700' },
         { key: 'booked', label: 'Booked', dot: 'bg-amber-500', text: 'text-amber-700' },
-        { key: 'blocked', label: 'Not Available', dot: 'bg-red-500', text: 'text-red-700' },
+        { key: 'blocked', label: assignmentMode === 'direct' ? 'No matching availability' : 'Not Available', dot: 'bg-red-500', text: 'text-red-700' },
         { key: 'all', label: 'All', dot: 'bg-gray-400', text: 'text-gray-600' },
       ] as const
     : [
         { key: 'all', label: 'All', dot: 'bg-gray-400', text: 'text-gray-600' },
         { key: 'available', label: 'Available', dot: 'bg-green-500', text: 'text-green-700' },
         { key: 'booked', label: 'Booked', dot: 'bg-amber-500', text: 'text-amber-700' },
-        { key: 'blocked', label: 'Not Available', dot: 'bg-red-500', text: 'text-red-700' },
+        { key: 'blocked', label: assignmentMode === 'direct' ? 'No matching availability' : 'Not Available', dot: 'bg-red-500', text: 'text-red-700' },
       ] as const
 
   return (
@@ -157,22 +171,36 @@ export function CaregiverAssignmentList({
   selectionMode = 'single',
   emptyMessage = 'No caregivers found.',
   defaultFilter = 'all',
+  assignmentMode = 'open-shift',
 }: Props) {
   const [sort, setSort] = useState<'availability' | 'proximity'>('availability')
   const [filter, setFilter] = useState<CaregiverCandidateFilter>(defaultFilter)
   const showEligibleFilter = defaultFilter === 'eligible'
+  const isEligible = (option: CaregiverMatchOption) => assignmentMode === 'direct'
+    ? isDirectAssignmentCandidate(option)
+    : option.availability === 'available' && option.skillMatchPercent === 100
+  const selectCandidate = (option: CaregiverMatchOption) => {
+    if (assignmentMode === 'direct' && option.skillMatchPercent < 100) {
+      const missingSkills = requiredSkills.filter(skill => !option.matchedSkills.includes(skill))
+      const warning = `This caregiver has not verified every required client skill${missingSkills.length ? `: ${missingSkills.join(', ')}` : ''}. Select this caregiver anyway?`
+      if (!window.confirm(warning)) return
+    }
+    onSelect(option.id)
+  }
 
   const filtered = options.filter((option) => {
     if (filter === 'all') return true
     if (filter === 'eligible') {
-      return option.availability === 'available' && option.skillMatchPercent === 100
+      return isEligible(option)
     }
     return option.availability === filter
   })
   const filteredEmptyMessage = options.length === 0
     ? emptyMessage
     : filter === 'eligible'
-      ? 'No caregivers are currently available, conflict-free, and matched to every required skill.'
+      ? assignmentMode === 'direct'
+        ? 'No caregivers are free from overlapping bookings for this visit.'
+        : 'No caregivers are currently available, conflict-free, and matched to every required skill.'
       : 'No caregivers match this availability filter.'
   const sorted = [...filtered].sort((a, b) => {
     if (sort === 'availability') {
@@ -204,6 +232,7 @@ export function CaregiverAssignmentList({
           setFilter={setFilter}
           options={options}
           showEligibleFilter={showEligibleFilter}
+          assignmentMode={assignmentMode}
         />
         <div className="max-h-[240px] overflow-y-auto overflow-x-hidden">
           {sorted.length === 0 ? (
@@ -213,10 +242,10 @@ export function CaregiverAssignmentList({
               <button
                 key={o.id}
                 type="button"
-                disabled={disabled || o.availability !== 'available' || o.skillMatchPercent !== 100}
-                onClick={() => onSelect(o.id)}
+                disabled={disabled || !isEligible(o)}
+                onClick={() => selectCandidate(o)}
                 className={`w-full px-4 py-2 border-b border-gray-50 text-left ${
-                  o.availability === 'available' && o.skillMatchPercent === 100
+                  isEligible(o)
                     ? 'cursor-pointer hover:bg-gray-50'
                     : 'cursor-not-allowed opacity-60'
                 } ${
@@ -267,7 +296,7 @@ export function CaregiverAssignmentList({
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <AvailabilityPill status={o.availability} />
+                    <AvailabilityPill status={o.availability} assignmentMode={assignmentMode} />
                     <div className="flex items-center gap-1 text-[12px] text-gray-500 mt-2 justify-end whitespace-nowrap">
                       <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
                       <span>{o.distanceLabel}</span>
@@ -320,6 +349,7 @@ export function CaregiverAssignmentList({
         setFilter={setFilter}
         options={options}
         showEligibleFilter={showEligibleFilter}
+        assignmentMode={assignmentMode}
       />
       <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
         {sorted.length === 0 && (
@@ -345,7 +375,7 @@ export function CaregiverAssignmentList({
                       Currently Assigned
                     </span>
                   )}
-                  <AvailabilityPill status={o.availability} />
+                  <AvailabilityPill status={o.availability} assignmentMode={assignmentMode} />
                 </div>
                 <div className="max-w-sm mt-2 space-y-1">
                   <ProgressBar label="Overall Score" value={o.overallPercent} barClass="bg-blue-500" />
@@ -375,8 +405,8 @@ export function CaregiverAssignmentList({
               <Button
                 variant={isSelected && selectionMode === 'multiple' ? 'secondary' : 'primary'}
                 type="button"
-                disabled={disabled || o.availability !== 'available' || o.skillMatchPercent !== 100}
-                onClick={() => onSelect(o.id)}
+                disabled={disabled || !isEligible(o)}
+                onClick={() => selectCandidate(o)}
               >
                 {selectionMode === 'multiple'
                   ? isSelected ? 'Remove' : 'Select'

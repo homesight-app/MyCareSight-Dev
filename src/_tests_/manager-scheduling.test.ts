@@ -92,8 +92,6 @@ test('current membership and patient ownership control create and audit',async()
 test('caregiver assignment rolls back when the visit overlaps an existing assignment',async()=>{
   await db.exec(`
     INSERT INTO caregiver_members(id,agency_id,status,skills) VALUES('${CAREGIVER}','${AGENCY}','active','{}');
-    INSERT INTO caregiver_availability_slots(caregiver_member_id,agency_id,is_recurring,start_time,end_time,days_of_week,repeat_start)
-      VALUES('${CAREGIVER}','${AGENCY}',true,'08:00','18:00',ARRAY[2],'2026-01-01');
     INSERT INTO scheduled_visits(id,agency_id,patient_id,status,caregiver_member_id,visit_date,scheduled_start_time,scheduled_end_time)
       VALUES('${CONFLICT}','${AGENCY}','${PATIENT}','scheduled','${CAREGIVER}','2026-09-22','11:00','13:00');
   `)
@@ -106,7 +104,7 @@ test('caregiver assignment rolls back when the visit overlaps an existing assign
   expect((await db.query<{caregiver_member_id:string|null}>('SELECT caregiver_member_id FROM scheduled_visits WHERE id=$1',[VISIT])).rows[0].caregiver_member_id).toBeNull()
 })
 
-test('caregiver assignment rolls back when required client skills are missing',async()=>{
+test('manager may assign an unbooked caregiver without recorded availability or a required skill',async()=>{
   await db.exec(`
     INSERT INTO credential_catalog(id,name,is_active) VALUES('${id(40)}','Wound Care',true);
     INSERT INTO caregiver_members(id,agency_id,status,skills)
@@ -115,18 +113,19 @@ test('caregiver assignment rolls back when required client skills are missing',a
       VALUES('${AGENCY}','${PATIENT}',ARRAY['Wound Care']);
     INSERT INTO patient_skill_requirement_items(patient_id,agency_id,credential_id,requirement_level)
       VALUES('${PATIENT}','${AGENCY}','${id(40)}','required');
-    INSERT INTO caregiver_availability_slots(caregiver_member_id,agency_id,is_recurring,start_time,end_time,days_of_week,repeat_start)
-      VALUES('${CAREGIVER}','${AGENCY}',true,'08:00','18:00',ARRAY[2],'2026-01-01');
   `)
   jest.mocked(scheduleQueries.updateSchedule).mockImplementation(async visitId=>{
     await sql`UPDATE scheduled_visits SET caregiver_member_id=${CAREGIVER}::uuid WHERE id=${visitId}::uuid`
     return {data:{id:visitId,status:'scheduled'} as never,error:null}
   })
   const result=await managerUpdateSchedule(VISIT,{caregiver_id:CAREGIVER})
-  expect(result.error?.message).toMatch(/required client skill/i)
+  expect(result.error).toBeNull()
   expect((await db.query<{caregiver_member_id:string|null}>(
     'SELECT caregiver_member_id FROM scheduled_visits WHERE id=$1',[VISIT]
-  )).rows[0].caregiver_member_id).toBeNull()
+  )).rows[0].caregiver_member_id).toBe(CAREGIVER)
+  expect((await db.query<{action:string}>(
+    "SELECT action FROM audit_log WHERE record_id=$1 AND table_name='scheduled_visits'",[VISIT]
+  )).rows).toEqual([{action:'UPDATE'}])
 })
 
 test('a recurring item error rolls back earlier changes',async()=>{

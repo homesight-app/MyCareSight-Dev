@@ -1072,7 +1072,7 @@ export default function VisitManagementContent({
                     : <ol className="mt-2 space-y-3">
                       {correctionHistory.map(item => <li key={item.id} className="rounded-lg border border-gray-200 p-3 text-sm">
                         <div className="font-medium text-gray-900">{item.previousStatus} → {item.correctedStatus}</div>
-                        <div className="text-xs text-gray-500">{new Date(item.createdAt).toLocaleString()} · Administrator {item.correctedByUserId}</div>
+                        <div className="text-xs text-gray-500">{new Date(item.createdAt).toLocaleString()} · Changed by user {item.correctedByUserId}</div>
                         <p className="mt-2 whitespace-pre-wrap text-gray-700">{item.reason}</p>
                         {item.actualStartTime && item.actualEndTime ? <p className="mt-1 text-xs text-gray-600">
                           Manually verified: {new Date(item.actualStartTime).toLocaleString()} – {new Date(item.actualEndTime).toLocaleString()}

@@ -50,7 +50,6 @@ export async function correctVisit(input: VisitCorrectionInput): Promise<{ ok?: 
 
   try {
     await withCareOperationsManager(async actor => {
-      if (actor.role !== 'company_owner') throw new CorrectionError('Only an agency administrator can correct a visit.')
       const data = parsed.data
       const [visit] = await sql<Visit[]>`
         SELECT id,agency_id,patient_id,caregiver_member_id,service_type,status
@@ -132,7 +131,7 @@ export async function correctVisit(input: VisitCorrectionInput): Promise<{ ok?: 
           (agency_id,visit_time_entry_id,changed_by_user_id,reason,
            previous_actual_hours,current_actual_hours,previous_billable_hours,current_billable_hours,note)
           VALUES (${actor.agencyId}::uuid,${entryId}::uuid,${actor.id}::uuid,
-            'administrator_manual_visit_completion',${entry?.actual_hours ?? null},${actualHours},
+            'manager_manual_visit_completion',${entry?.actual_hours ?? null},${actualHours},
             ${entry?.billable_hours ?? null},${data.billableHours},${data.reason})`
 
         await sql`INSERT INTO public.visit_financials
@@ -142,7 +141,7 @@ export async function correctVisit(input: VisitCorrectionInput): Promise<{ ok?: 
           VALUES (${actor.agencyId}::uuid,${visit.id}::uuid,${entryId}::uuid,
             ${visit.patient_id}::uuid,${caregiver.id}::uuid,${visit.service_type},'pending',
             ${actualHours},${data.billableHours},
-            ${JSON.stringify({ source: 'administrator_manual_correction', correction_id: correction.id })}::jsonb,
+            ${JSON.stringify({ source: 'manager_manual_correction', correction_id: correction.id })}::jsonb,
             0,'hour',0,0,'hour',0)
           ON CONFLICT (scheduled_visit_id) DO UPDATE SET
             visit_time_entry_id=EXCLUDED.visit_time_entry_id,
@@ -153,7 +152,7 @@ export async function correctVisit(input: VisitCorrectionInput): Promise<{ ok?: 
         await sql`INSERT INTO public.audit_log
           (agency_id,table_name,record_id,action,performed_by_user_id,details)
           VALUES (${actor.agencyId}::uuid,'scheduled_visits',${visit.id}::uuid,'UPDATE',${actor.id}::uuid,
-            ${JSON.stringify({ operation: 'administrator_visit_correction', correction_id: correction.id })}::jsonb)`
+            ${JSON.stringify({ operation: 'manager_visit_correction', correction_id: correction.id })}::jsonb)`
       } else {
         await sql`UPDATE public.scheduled_visits SET status='missed',status_reason=${data.reason},
           updated_at=now() WHERE id=${visit.id}::uuid AND agency_id=${actor.agencyId}::uuid`
@@ -176,7 +175,7 @@ export async function correctVisit(input: VisitCorrectionInput): Promise<{ ok?: 
         await sql`INSERT INTO public.audit_log
           (agency_id,table_name,record_id,action,performed_by_user_id,details)
           VALUES (${actor.agencyId}::uuid,'scheduled_visits',${visit.id}::uuid,'UPDATE',${actor.id}::uuid,
-            ${JSON.stringify({ operation: 'administrator_visit_correction', correction_id: correction.id })}::jsonb)`
+            ${JSON.stringify({ operation: 'manager_visit_correction', correction_id: correction.id })}::jsonb)`
       }
     })
     return { ok: true }
@@ -194,7 +193,6 @@ export async function readVisitCorrectionHistory(scheduledVisitId: string): Prom
   }
   try {
     const data = await withCareOperationsManager(async actor => {
-      if (actor.role !== 'company_owner') throw new CorrectionError('Only an agency administrator can view corrections.')
       const [visit] = await sql<{id:string}[]>`SELECT id FROM public.scheduled_visits
         WHERE id=${scheduledVisitId}::uuid AND agency_id=${actor.agencyId}::uuid`
       if (!visit) throw new CorrectionError('Visit not found in your agency.')

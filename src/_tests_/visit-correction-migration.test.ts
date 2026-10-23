@@ -95,3 +95,29 @@ test('031 repairs a later broad grant and still denies mutation of recorded hist
   await expect(asApp('company_owner', AGENCY,
     'DELETE FROM public.visit_corrections')).rejects.toThrow()
 })
+
+test('032 permits coordinator corrections only within the actor agency', async () => {
+  const migration = readFileSync(join(process.cwd(),
+    'scripts/migrations/032-care-coordinator-visit-correction-access.sql'), 'utf8')
+  await db.exec(migration)
+  await db.exec(migration)
+  const verification = await db.exec(readFileSync(join(process.cwd(),
+    'scripts/migrations/032-verify-care-coordinator-visit-correction-access.sql'), 'utf8'))
+  expect(verification[0]?.rows?.[0]).toMatchObject({
+    forced_rls: true, policy_count: 2,
+    coordinator_read_policy: true, coordinator_insert_policy: true,
+    app_can_read: true, app_can_insert: true, app_cannot_change_history: true,
+  })
+  const insert = (agencyId: string) => `INSERT INTO public.visit_corrections
+    (agency_id,scheduled_visit_id,corrected_by_user_id,previous_status,corrected_status,reason)
+    VALUES ('${agencyId}','${VISIT}','${USER}','completed','missed',
+      'Synthetic coordinator correction after verification.') RETURNING id`
+  expect((await asApp('care_coordinator', AGENCY, insert(AGENCY))).rows).toHaveLength(1)
+  await expect(asApp('care_coordinator', OTHER_AGENCY, insert(OTHER_AGENCY))).rejects.toThrow()
+  expect((await asApp('care_coordinator', AGENCY,
+    'SELECT id FROM public.visit_corrections')).rows).toHaveLength(2)
+  expect((await asApp('care_coordinator', OTHER_AGENCY,
+    'SELECT id FROM public.visit_corrections')).rows).toHaveLength(0)
+  await expect(asApp('care_coordinator', AGENCY,
+    'DELETE FROM public.visit_corrections')).rejects.toThrow()
+})

@@ -168,9 +168,12 @@ test('a pending completed visit becomes missed with billing voided and evidence 
   expect((await db.query('SELECT id FROM visit_corrections')).rows).toHaveLength(1)
 })
 
-test('a coordinator and a member of another agency cannot correct the visit', async () => {
+test('an active coordinator can correct the visit, but another agency cannot', async () => {
   await db.exec("UPDATE user_profiles SET role='care_coordinator'; UPDATE user_agency_roles SET role='care_coordinator'")
-  expect((await correctVisit(completion)).error).toMatch(/agency administrator/i)
+  expect(await correctVisit(completion)).toEqual({ ok: true })
+  expect((await db.query<{status:string}>('SELECT status FROM scheduled_visits')).rows[0].status).toBe('completed')
+  expect((await db.query<{corrected_by_user_id:string}>('SELECT corrected_by_user_id FROM visit_corrections')).rows)
+    .toEqual([{ corrected_by_user_id: USER }])
   await db.exec(`UPDATE user_profiles SET role='company_owner',agency_id='${OTHER}';
     UPDATE user_agency_roles SET role='company_owner',agency_id='${OTHER}'`)
   expect((await correctVisit(completion)).error).toMatch(/not found in your agency/i)

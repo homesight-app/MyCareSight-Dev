@@ -820,7 +820,7 @@ export async function updateRecurringSchedulesByScope(
 ): Promise<{ updated_ids: string[]; error: { message: string } | null }> {
   try {
     const seedRows = await sql`
-      SELECT id, visit_series_id, visit_date, scheduled_start_time, scheduled_end_time
+      SELECT id, visit_series_id, visit_date, scheduled_start_time, scheduled_end_time, status
       FROM scheduled_visits WHERE id = ${data.seed_schedule_id} LIMIT 1
     `
     if (!seedRows.length) return { updated_ids: [], error: { message: 'Seed visit not found.' } }
@@ -830,10 +830,14 @@ export async function updateRecurringSchedulesByScope(
       visit_date: string
       scheduled_start_time?: string | null
       scheduled_end_time?: string | null
+      status: string
     }
 
     const seedSeriesId = seed.visit_series_id ?? null
     if (!seedSeriesId || data.scope === 'this_visit') {
+      if (seed.status === 'completed') {
+        return { updated_ids: [], error: { message: 'Completed visits require an audited correction.' } }
+      }
       const one = await updateSchedule(data.seed_schedule_id, data.patch)
       if (one.error) return { updated_ids: [], error: { message: (one.error as { message?: string }).message || 'Failed to update visit.' } }
       return { updated_ids: [data.seed_schedule_id], error: null }
@@ -847,17 +851,17 @@ export async function updateRecurringSchedulesByScope(
     const fromDate = data.apply_from_date?.trim() || seedLocal.visitDateLocal
     const seedWeekday = new Date(`${seedLocal.visitDateLocal}T12:00:00`).getDay()
 
-    let seriesRows: Array<{ id: string; visit_date: string; scheduled_start_time?: string | null; scheduled_end_time?: string | null }>
+    let seriesRows: Array<{ id: string; visit_date: string; scheduled_start_time?: string | null; scheduled_end_time?: string | null; status: string }>
     if (data.scope === 'this_and_future') {
       seriesRows = (await sql`
-        SELECT id, visit_date, scheduled_start_time, scheduled_end_time
+        SELECT id, visit_date, scheduled_start_time, scheduled_end_time, status
         FROM scheduled_visits
         WHERE visit_series_id = ${seedSeriesId}
           AND visit_date >= ${fromDate}
       `) as typeof seriesRows
     } else {
       seriesRows = (await sql`
-        SELECT id, visit_date, scheduled_start_time, scheduled_end_time
+        SELECT id, visit_date, scheduled_start_time, scheduled_end_time, status
         FROM scheduled_visits
         WHERE visit_series_id = ${seedSeriesId}
       `) as typeof seriesRows
@@ -865,6 +869,7 @@ export async function updateRecurringSchedulesByScope(
 
     const ids = seriesRows
       .filter((r) => {
+        if (r.status === 'completed') return false
         if (data.scope === 'all_in_series' || data.scope === 'this_and_future') return true
         if (data.scope === 'weekday_in_series') {
           const local = toLocalVisitParts(

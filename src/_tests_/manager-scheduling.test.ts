@@ -138,6 +138,18 @@ test('a recurring item error rolls back earlier changes',async()=>{
   expect((await db.query<{status:string}>('SELECT status FROM scheduled_visits WHERE id=$1',[VISIT])).rows[0].status).toBe('scheduled')
 })
 
+test('completed visits cannot be changed or replaced through ordinary scheduling',async()=>{
+  await db.exec(`UPDATE scheduled_visits SET status='completed' WHERE id='${VISIT}'`)
+  expect((await managerUpdateSchedule(VISIT,{status:'missed'})).error?.message).toMatch(/audited visit correction/i)
+  expect(scheduleQueries.updateSchedule).not.toHaveBeenCalled()
+  const replacement=await managerReplaceSchedules({kind:'single',replaceVisitIds:[VISIT],visits:[
+    {patient_id:PATIENT,date:'2026-09-23'},
+  ]})
+  expect(replacement.error?.message).toMatch(/Completed visits cannot be replaced/i)
+  expect(scheduleQueries.deleteSchedule).not.toHaveBeenCalled()
+  expect((await db.query<{status:string}>('SELECT status FROM scheduled_visits WHERE id=$1',[VISIT])).rows[0].status).toBe('completed')
+})
+
 test('replacement rolls back deletions when a later insert fails',async()=>{
   let calls=0
   jest.mocked(scheduleQueries.deleteSchedule).mockImplementation(async visitId=>{

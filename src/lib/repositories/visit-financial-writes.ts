@@ -9,11 +9,11 @@ import { timeBillingDecisionSchema, type TimeBillingDecisionInput } from '@/lib/
 import { assertAgencyCapability } from '@/lib/feature-access'
 
 type Manager = { id:string; role:'company_owner'|'care_coordinator'; agencyId:string }
-type Visit = { id:string; agency_id:string; patient_id:string; caregiver_member_id:string|null; visit_date:string }
+type Visit = { id:string; agency_id:string; patient_id:string; caregiver_member_id:string|null; visit_date:string; status:string }
 type TimeEntry = { id:string; actual_hours:number|null; billable_hours:number|null }
 type Approval = { id:string; pay_rate:number|null; bill_rate:number|null }
 type Financial = {
-  id:string; visit_approval_id:string|null; contract_id:string|null; billing_code_id:string|null
+  id:string; status:string; visit_approval_id:string|null; contract_id:string|null; billing_code_id:string|null
   pay_rate:number; pay_unit_type:string; pay_amount:number; bill_rate:number; bill_unit_type:string; bill_amount:number
   approved_actual_hours:number|null; approved_billable_hours:number|null; service_type:string|null
 }
@@ -42,9 +42,10 @@ async function currentManager<T>(run:(actor:Manager)=>Promise<T>):Promise<T>{
 }
 
 async function lockedVisit(actor:Manager,id:string):Promise<Visit>{
-  const [visit]=await sql<Visit[]>`SELECT id,agency_id,patient_id,caregiver_member_id,visit_date::text
+  const [visit]=await sql<Visit[]>`SELECT id,agency_id,patient_id,caregiver_member_id,visit_date::text,status
     FROM public.scheduled_visits WHERE id=${id}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`
   if(!visit) throw new AccessError('Visit not found.')
+  if(visit.status!=='completed') throw new AccessError('Complete the visit before reviewing its time and billing.')
   if(!visit.caregiver_member_id) throw new AccessError('Assign a caregiver before changing billing status.')
   return visit
 }
@@ -53,12 +54,7 @@ async function lockedTimeEntry(visit:Visit):Promise<TimeEntry>{
   const [existing]=await sql<TimeEntry[]>`SELECT id,actual_hours,billable_hours FROM public.visit_time_entries
     WHERE scheduled_visit_id=${visit.id}::uuid FOR UPDATE`
   if(existing) return existing
-  const [created]=await sql<TimeEntry[]>`INSERT INTO public.visit_time_entries
-    (agency_id,scheduled_visit_id,patient_id,caregiver_member_id,entry_status)
-    VALUES(${visit.agency_id}::uuid,${visit.id}::uuid,${visit.patient_id}::uuid,
-      ${visit.caregiver_member_id}::uuid,'submitted') RETURNING id,actual_hours,billable_hours`
-  if(!created) throw new Error('Time entry insert returned no row')
-  return created
+  throw new AccessError('No time entry exists for this visit. Correct the visit before billing review.')
 }
 
 async function payRate(visit:Visit,serviceType:string){
@@ -99,10 +95,17 @@ export async function decideTimeBillingVisit(input:TimeBillingDecisionInput):Pro
       const entry=await lockedTimeEntry(visit)
       const [approval]=await sql<Approval[]>`SELECT id,pay_rate,bill_rate FROM public.visit_approvals
         WHERE visit_time_entry_id=${entry.id}::uuid FOR UPDATE`
-      const [financial]=await sql<Financial[]>`SELECT id,visit_approval_id,contract_id,billing_code_id,pay_rate,
+      const [financial]=await sql<Financial[]>`SELECT id,status,visit_approval_id,contract_id,billing_code_id,pay_rate,
         pay_unit_type,pay_amount,bill_rate,bill_unit_type,bill_amount,approved_actual_hours,
         approved_billable_hours,service_type FROM public.visit_financials
         WHERE scheduled_visit_id=${visit.id}::uuid FOR UPDATE`
+      if(!financial) throw new AccessError('No pending financial record exists for this visit.')
+      if(data.decision==='approved'&&financial.status!=='pending'){
+        throw new AccessError('Only a pending financial record can be approved.')
+      }
+      if(data.decision==='voided'&&financial.status==='voided'){
+        throw new AccessError('This financial record is already voided.')
+      }
       const previousActual=financial?.approved_actual_hours??entry.actual_hours
       const previousBillable=financial?.approved_billable_hours??entry.billable_hours
       const hoursChanged=(previousActual!==null&&round2(Number(previousActual))!==data.actualHours)
@@ -113,10 +116,16 @@ export async function decideTimeBillingVisit(input:TimeBillingDecisionInput):Pro
 
       if(data.decision==='approved'){
         const [pay,contract]=await Promise.all([payRate(visit,data.serviceType),billContract(visit,data.serviceType)])
-        const frozenPay=approval?.pay_rate??Number(pay?.rate??0)
-        const frozenBill=approval?.bill_rate??Number(contract?.bill_rate??0)
-        const payUnit=financial?.pay_unit_type??pay?.unit_type??'hour'
-        const billUnit=financial?.bill_unit_type??contract?.bill_unit_type??'hour'
+        if(pay?.rate==null||!Number.isFinite(Number(pay.rate))||Number(pay.rate)<0){
+          throw new AccessError('Set a valid caregiver pay rate before approval.')
+        }
+        if(!contract||contract.bill_rate==null||!Number.isFinite(Number(contract.bill_rate))||Number(contract.bill_rate)<0){
+          throw new AccessError('Set a valid client billing contract before approval.')
+        }
+        const frozenPay=Number(pay.rate)
+        const frozenBill=Number(contract.bill_rate)
+        const payUnit=pay.unit_type??'hour'
+        const billUnit=contract.bill_unit_type
         const payAmount=round2(calcAmount(data.actualHours,Number(frozenPay),payUnit))
         const billAmount=round2(calcAmount(data.billableHours,Number(frozenBill),billUnit))
         const [history]=await sql<{id:string}[]>`INSERT INTO public.visit_adjustment_history
@@ -134,8 +143,8 @@ export async function decideTimeBillingVisit(input:TimeBillingDecisionInput):Pro
           ON CONFLICT(visit_time_entry_id) DO UPDATE SET approved_by_user_id=EXCLUDED.approved_by_user_id,
             approval_status='approved',approved_actual_hours=EXCLUDED.approved_actual_hours,
             approved_billable_hours=EXCLUDED.approved_billable_hours,approval_comment=EXCLUDED.approval_comment,
-            pay_rate=coalesce(public.visit_approvals.pay_rate,EXCLUDED.pay_rate),
-            bill_rate=coalesce(public.visit_approvals.bill_rate,EXCLUDED.bill_rate),approved_at=now(),updated_at=now()
+            pay_rate=EXCLUDED.pay_rate,bill_rate=EXCLUDED.bill_rate,
+            approved_at=now(),updated_at=now()
           RETURNING id`
         if(!history||!savedApproval) throw new Error('Approval records were not created')
         approvalId=savedApproval.id

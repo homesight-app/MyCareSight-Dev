@@ -30,6 +30,7 @@ export type AllVisitCardDTO = {
   visitTitle: string
   status: VisitStatus
   statusLabel: string
+  correctionCount: number
   typeLabel: string
   clientId: string
   clientName: string
@@ -153,7 +154,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
 
   const patientIds = Array.from(new Set(schedules.map((s) => s.patient_id)))
   const visitIds = schedules.map(schedule => schedule.id)
-  const [patientsData, reqResult, offerRows] = await Promise.all([
+  const [patientsData, reqResult, offerRows, correctionRows] = await Promise.all([
     sql<PatientRow[]>`
       SELECT id, first_name, last_name, zip_code, state, city, street_address
       FROM patients WHERE id = ANY(${patientIds}::uuid[])
@@ -178,6 +179,13 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
         AND offer.expires_at > now()
       GROUP BY offer.id, offer.scheduled_visit_id
     `,
+    sql<{ scheduled_visit_id: string; correction_count: number }[]>`
+      SELECT scheduled_visit_id, count(*)::integer AS correction_count
+      FROM public.visit_corrections
+      WHERE agency_id = ${agencyId}::uuid
+        AND scheduled_visit_id = ANY(${visitIds}::uuid[])
+      GROUP BY scheduled_visit_id
+    `,
   ])
 
   const patientById = new Map(patientsData.map((p) => [p.id, p]))
@@ -198,6 +206,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
     interestedCount: Number(row.interested_count),
     declinedCount: Number(row.declined_count),
   }]))
+  const correctionCountByVisit = new Map(correctionRows.map(row => [row.scheduled_visit_id, Number(row.correction_count)]))
 
   const taskIdTokens = Array.from(
     new Set(
@@ -237,6 +246,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
       visitTitle: visitTitleFromSchedule(s),
       status,
       statusLabel: visitStatusLabel(status),
+      correctionCount: correctionCountByVisit.get(s.id) ?? 0,
       typeLabel: typeLabel(s),
       clientId: s.patient_id,
       clientName: patient ? patientFullName(patient as { first_name: string; last_name: string }) : 'Client',

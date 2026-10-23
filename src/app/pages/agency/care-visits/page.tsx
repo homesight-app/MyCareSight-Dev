@@ -56,6 +56,7 @@ export default async function CareVisitsPage() {
         loadError={dashboard.error}
         agencyId={agencyId}
         canManageNotes={canManageNotes}
+        canCorrectVisits={role === 'company_owner'}
       />
     </Suspense>
     </FeatureGate>

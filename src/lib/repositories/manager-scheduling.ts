@@ -28,7 +28,7 @@ async function requirePatient(actor:{agencyId:string},patientId:string){
   if(!row)throw new SchedulingError('Patient not found in your agency.')
 }
 async function requireVisit(actor:{agencyId:string},visitId:string){
-  const [row]=await sql<{id:string;patient_id:string;visit_series_id:string|null;caregiver_member_id:string|null}[]>`SELECT id,patient_id,visit_series_id,caregiver_member_id
+  const [row]=await sql<{id:string;patient_id:string;visit_series_id:string|null;caregiver_member_id:string|null;status:string}[]>`SELECT id,patient_id,visit_series_id,caregiver_member_id,status
     FROM public.scheduled_visits WHERE id=${visitId}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`
   if(!row)throw new SchedulingError('Visit not found in your agency.')
   return row
@@ -161,10 +161,11 @@ export async function managerReplaceSchedules(input:ScheduleReplacementInput){
       for(const visit of parsed.data.visits)await validateLinks(actor,patientId,visit)
     }else await validateLinks(actor,patientId,parsed.data.visit)
     const replaceIds=Array.from(new Set(parsed.data.replaceVisitIds))
-    if(replaceIds.length){const owned=await sql<{id:string}[]>`SELECT id FROM public.scheduled_visits
+    if(replaceIds.length){const owned=await sql<{id:string;status:string}[]>`SELECT id,status FROM public.scheduled_visits
       WHERE agency_id=${actor.agencyId}::uuid AND patient_id=${patientId}::uuid AND id=ANY(${replaceIds}::uuid[])
       ORDER BY id FOR UPDATE`
       if(owned.length!==replaceIds.length)throw new SchedulingError('One or more replacement visits were not found for this client.')
+      if(owned.some(visit=>visit.status==='completed'))throw new SchedulingError('Completed visits cannot be replaced; use an audited correction.')
       for(const id of replaceIds)ensure(await schedules.deleteSchedule(id))}
     let createdIds:string[]=[]
     if(parsed.data.kind==='recurring'){
@@ -185,12 +186,24 @@ export async function managerReplaceSchedules(input:ScheduleReplacementInput){
 export async function managerUpdateSchedule(id:string,input:Parameters<typeof schedules.updateSchedule>[1]){
   const parsedId=scheduleIdSchema.safeParse(id),parsed=scheduleUpdateSchema.safeParse(input)
   if(!parsedId.success||!parsed.success)return {data:null,error:new Error(parsed.success?'Invalid visit.':parsed.error.issues[0]?.message??'Invalid visit.')}
-  try{return await withCareOperationsManager(async actor=>{const visit=await requireVisit(actor,id);await validateLinks(actor,visit.patient_id,{...parsed.data,caregiver_id:parsed.data.caregiver_id===undefined?visit.caregiver_member_id:parsed.data.caregiver_id})
+  try{return await withCareOperationsManager(async actor=>{const visit=await requireVisit(actor,id)
+    if(parsed.data.status==='completed'||(visit.status==='completed'&&parsed.data.status!==undefined)){
+      throw new SchedulingError('Use the audited visit correction workflow to change a completed visit.')
+    }
+    if(visit.status==='completed'&&[
+      'date','start_time','end_time','end_date','caregiver_id','service_type','contract_id',
+    ].some(field=>parsed.data[field as keyof typeof parsed.data]!==undefined)){
+      throw new SchedulingError('Completed visit time, caregiver, and billing links require an audited correction.')
+    }
+    await validateLinks(actor,visit.patient_id,{...parsed.data,caregiver_id:parsed.data.caregiver_id===undefined?visit.caregiver_member_id:parsed.data.caregiver_id})
     const result=ensure(await schedules.updateSchedule(id,parsed.data));await assertAssignmentIntegrity(actor,[id]);await audit(actor,id,'UPDATE','update_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 export async function managerUpdateRecurringSchedules(input:Parameters<typeof schedules.updateRecurringSchedulesByScope>[0]){
   const parsed=recurringScheduleUpdateSchema.safeParse(input);if(!parsed.success)return {updated_ids:[],error:{message:parsed.error.issues[0]?.message??'Invalid recurring update.'}}
+  if(parsed.data.patch.status==='completed'||parsed.data.patch.status==='missed'){
+    return {updated_ids:[],error:{message:'Correct completed or missed visits individually in Visit Management.'}}
+  }
   try{return await withCareOperationsManager(async actor=>{const seed=await requireVisit(actor,parsed.data.seed_schedule_id)
     if(seed.visit_series_id){await sql`SELECT id FROM public.scheduled_visits WHERE agency_id=${actor.agencyId}::uuid
       AND visit_series_id=${seed.visit_series_id}::uuid ORDER BY id FOR UPDATE`
@@ -204,7 +217,8 @@ export async function managerUpdateRecurringSchedules(input:Parameters<typeof sc
 }
 export async function managerDeleteSchedule(id:string){
   if(!scheduleIdSchema.safeParse(id).success)return {data:null,error:new Error('Invalid visit.')}
-  try{return await withCareOperationsManager(async actor=>{await requireVisit(actor,id)
+  try{return await withCareOperationsManager(async actor=>{const visit=await requireVisit(actor,id)
+    if(visit.status==='completed')throw new SchedulingError('Completed visits require an audited correction before removal.')
     const result=ensure(await schedules.deleteSchedule(id));await audit(actor,id,'DELETE','delete_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }

@@ -37,6 +37,9 @@ import { getCaregiverCandidatesForVisitAction } from '@/app/actions/visit-candid
 import type { CaregiverMatchOption } from '@/lib/caregiver-matching'
 import { CaregiverAssignmentList } from '@/components/CaregiverAssignmentList'
 import VisitShiftOfferModal from '@/components/VisitShiftOfferModal'
+import VisitCorrectionModal from '@/components/VisitCorrectionModal'
+import { correctVisitAction, readVisitCorrectionHistoryAction } from '@/app/actions/visit-corrections'
+import type { VisitCorrectionHistoryItem } from '@/lib/repositories/visit-corrections'
 import { toast } from 'sonner'
 import type {
   AssignmentRequestCardDTO,
@@ -61,6 +64,7 @@ export type VisitManagementContentProps = {
   loadError?: string
   agencyId?: string
   canManageNotes?: boolean
+  canCorrectVisits?: boolean
 }
 
 function formatDistance(miles: number): string {
@@ -141,6 +145,7 @@ export default function VisitManagementContent({
   loadError,
   agencyId,
   canManageNotes,
+  canCorrectVisits,
 }: VisitManagementContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -198,6 +203,10 @@ export default function VisitManagementContent({
     kind: 'assignment' | 'unassignment'
   } | null>(null)
   const [detailVisit, setDetailVisit] = useState<AllVisitCardDTO | null>(null)
+  const [correctionVisit, setCorrectionVisit] = useState<AllVisitCardDTO | null>(null)
+  const [correctionHistory, setCorrectionHistory] = useState<VisitCorrectionHistoryItem[]>([])
+  const [correctionHistoryLoading, setCorrectionHistoryLoading] = useState(false)
+  const correctionHistoryRequestRef = useRef(0)
   const [reassignVisit, setReassignVisit] = useState<AllVisitCardDTO | null>(null)
   const [advertiseVisit, setAdvertiseVisit] = useState<AllVisitCardDTO | null>(null)
   const [missVisit, setMissVisit] = useState<AllVisitCardDTO | null>(null)
@@ -419,6 +428,22 @@ export default function VisitManagementContent({
     void runAction(`reinstate:${visit.id}`, () => reinstateScheduleAction(visit.id))
   }
 
+  const openVisitDetails = (visit: AllVisitCardDTO) => {
+    const requestId = ++correctionHistoryRequestRef.current
+    setDetailVisit(visit)
+    setCorrectionHistory([])
+    if (!canCorrectVisits) return
+    setCorrectionHistoryLoading(true)
+    void readVisitCorrectionHistoryAction(visit.id).then(result => {
+      if (requestId !== correctionHistoryRequestRef.current) return
+      if (result.data) setCorrectionHistory(result.data)
+      if (result.error) toast.error(result.error)
+      setCorrectionHistoryLoading(false)
+    }).catch(() => {
+      if (requestId === correctionHistoryRequestRef.current) setCorrectionHistoryLoading(false)
+    })
+  }
+
   const requestActionBusy = (requestId: string, kind: 'assignment' | 'unassignment' = 'assignment') => {
     if (kind === 'unassignment') {
       return (
@@ -615,6 +640,7 @@ export default function VisitManagementContent({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="inline-flex items-center px-2 py-0.5 text-lg">{visit.adlTasks.length ? visit.adlTasks.join(', ') : 'No ADL tasks'}</span>
                             <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${visitStatusBadgeClass(visit.status)}`}>{visit.statusLabel}</span>
+                            {visit.correctionCount > 0 ? <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">Corrected</span> : null}
                             <span className="inline-flex items-center rounded-full border border-blue-200 text-blue-700 text-xs px-2 py-0.5">{visit.typeLabel}</span>
                           </div>
                           <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
@@ -633,7 +659,7 @@ export default function VisitManagementContent({
                           </div>
                         </div>
                         <div className="flex lg:flex-col gap-2 lg:w-[130px]">
-                          <button type="button" onClick={() => setDetailVisit(visit)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium hover:bg-gray-50">Details</button>
+                          <button type="button" onClick={() => openVisitDetails(visit)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium hover:bg-gray-50">Details</button>
                           {visit.status === 'cancelled' || visit.status === 'on_hold' ? (
                             <button
                               type="button"
@@ -1009,7 +1035,7 @@ export default function VisitManagementContent({
         variant={declineModal?.kind === 'unassignment' ? 'unassignment' : 'assignment'}
       />
 
-      <Modal isOpen={!!detailVisit} onClose={() => setDetailVisit(null)} title="Visit Details" size="md">
+      <Modal isOpen={!!detailVisit} onClose={() => { correctionHistoryRequestRef.current += 1; setDetailVisit(null) }} title="Visit Details" size="md">
         {detailVisit ? (
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -1019,6 +1045,7 @@ export default function VisitManagementContent({
             </div>
             <div className="flex items-center gap-2">
               <span className={`rounded-full border px-2 py-0.5 text-xs ${visitStatusBadgeClass(detailVisit.status)}`}>{detailVisit.statusLabel}</span>
+              {detailVisit.correctionCount > 0 ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">Corrected</span> : null}
               <span className="rounded-full border border-blue-200 text-blue-700 px-2 py-0.5 text-xs">{detailVisit.typeLabel}</span>
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -1028,6 +1055,32 @@ export default function VisitManagementContent({
               <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Caregiver</div><div className="font-semibold">{detailVisit.caregiverName ?? '-'}</div></div>
             </div>
             <div><div className="text-xs text-gray-500 mb-1">ADL Tasks</div><div className="flex flex-wrap gap-2">{detailVisit.adlTasks.length ? detailVisit.adlTasks.map((task) => <span key={task} className="rounded-full border border-blue-200 text-blue-700 bg-blue-50 px-2 py-0.5 text-xs">{task}</span>) : <span className="text-sm text-gray-500">No ADL tasks</span>}</div></div>
+            {canCorrectVisits && (detailVisit.status === 'missed' || detailVisit.status === 'completed') ? (
+              <div className="flex justify-end">
+                <Button variant="secondary" type="button" onClick={() => {
+                  correctionHistoryRequestRef.current += 1
+                  setDetailVisit(null)
+                  setCorrectionVisit(detailVisit)
+                }}>Correct Visit</Button>
+              </div>
+            ) : null}
+            {canCorrectVisits ? (
+              <div className="border-t border-gray-200 pt-3">
+                <h3 className="text-sm font-semibold text-gray-900">Correction history</h3>
+                {correctionHistoryLoading ? <p className="mt-2 text-sm text-gray-500">Loading history...</p>
+                  : correctionHistory.length === 0 ? <p className="mt-2 text-sm text-gray-500">No corrections recorded.</p>
+                    : <ol className="mt-2 space-y-3">
+                      {correctionHistory.map(item => <li key={item.id} className="rounded-lg border border-gray-200 p-3 text-sm">
+                        <div className="font-medium text-gray-900">{item.previousStatus} → {item.correctedStatus}</div>
+                        <div className="text-xs text-gray-500">{new Date(item.createdAt).toLocaleString()} · Administrator {item.correctedByUserId}</div>
+                        <p className="mt-2 whitespace-pre-wrap text-gray-700">{item.reason}</p>
+                        {item.actualStartTime && item.actualEndTime ? <p className="mt-1 text-xs text-gray-600">
+                          Manually verified: {new Date(item.actualStartTime).toLocaleString()} – {new Date(item.actualEndTime).toLocaleString()}
+                        </p> : null}
+                      </li>)}
+                    </ol>}
+              </div>
+            ) : null}
             {detailVisit.status !== 'completed' && detailVisit.status !== 'missed' && !isPastVisitDate(detailVisit.date) ? (
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setMissVisit(detailVisit)} className="rounded-lg border border-orange-200 text-orange-700 px-3 py-2 text-sm font-medium hover:bg-orange-50">Mark Missed</button>
@@ -1052,6 +1105,14 @@ export default function VisitManagementContent({
           </div>
         ) : null}
       </Modal>
+
+      {correctionVisit ? <VisitCorrectionModal key={correctionVisit.id} visit={correctionVisit}
+        caregivers={allCaregivers} onClose={() => setCorrectionVisit(null)}
+        onSubmit={async input => {
+          const result = await correctVisitAction(input)
+          if (result.ok) router.refresh()
+          return result
+        }} /> : null}
 
       <VisitShiftOfferModal
         visit={advertiseVisit}

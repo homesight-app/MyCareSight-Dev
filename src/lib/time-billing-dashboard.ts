@@ -201,10 +201,10 @@ async function fetchScopedTimeBillingRows(
       )
 
       const status: TimeBillingStatus =
-        approval?.approval_status === 'approved'
-          ? 'approved'
-          : financial?.status === 'voided'
-            ? 'voided'
+        financial?.status === 'voided'
+          ? 'voided'
+          : approval?.approval_status === 'approved'
+            ? 'approved'
             : 'pending'
 
       return {

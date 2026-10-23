@@ -17,6 +17,7 @@ type Visit = {
 type TimeEntry = {
   id: string
   caregiver_member_id: string
+  entry_status: string
   actual_hours: number | null
   billable_hours: number | null
 }
@@ -62,7 +63,7 @@ export async function correctVisit(input: VisitCorrectionInput): Promise<{ ok?: 
       }
 
       const [entry] = await sql<TimeEntry[]>`
-        SELECT id,caregiver_member_id,actual_hours,billable_hours
+        SELECT id,caregiver_member_id,entry_status,actual_hours,billable_hours
         FROM public.visit_time_entries
         WHERE scheduled_visit_id=${visit.id}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`
       const [financial] = await sql<Financial[]>`
@@ -71,7 +72,7 @@ export async function correctVisit(input: VisitCorrectionInput): Promise<{ ok?: 
       const [approval] = await sql<Approval[]>`
         SELECT id,approval_status FROM public.visit_approvals
         WHERE scheduled_visit_id=${visit.id}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`
-      if (financial?.status === 'approved' || approval?.approval_status === 'approved') {
+      if (financial?.status === 'approved' || approval?.approval_status === 'approved' || entry?.entry_status === 'approved') {
         throw new CorrectionError('Void the approved Time & Billing decision before correcting this visit.')
       }
 

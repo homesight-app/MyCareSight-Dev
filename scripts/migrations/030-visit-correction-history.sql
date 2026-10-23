@@ -81,8 +81,19 @@ CREATE POLICY visit_corrections_owner_insert ON public.visit_corrections
     )
   );
 
-REVOKE ALL ON public.visit_corrections FROM PUBLIC;
+REVOKE ALL ON public.visit_corrections FROM PUBLIC, mycaresight_app;
 GRANT SELECT, INSERT ON public.visit_corrections TO mycaresight_app;
+
+DO $verify$
+BEGIN
+  IF NOT has_table_privilege('mycaresight_app', 'public.visit_corrections', 'SELECT')
+    OR NOT has_table_privilege('mycaresight_app', 'public.visit_corrections', 'INSERT')
+    OR has_table_privilege('mycaresight_app', 'public.visit_corrections', 'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    OR has_any_column_privilege('mycaresight_app', 'public.visit_corrections', 'UPDATE,REFERENCES') THEN
+    RAISE EXCEPTION '030 did not establish append-only runtime privileges';
+  END IF;
+END
+$verify$;
 
 COMMENT ON TABLE public.visit_corrections IS
   'Append-only manual visit correction history. Reason and actual times are sensitive; never copy into generic audit details.';

@@ -12,4 +12,7 @@ SELECT
   has_table_privilege('mycaresight_app', 'public.visit_corrections', 'INSERT') AS app_can_insert,
   NOT has_table_privilege('mycaresight_app', 'public.visit_corrections', 'UPDATE') AS app_cannot_update,
   NOT has_table_privilege('mycaresight_app', 'public.visit_corrections', 'DELETE') AS app_cannot_delete,
+  NOT has_table_privilege('mycaresight_app', 'public.visit_corrections', 'TRUNCATE,REFERENCES,TRIGGER')
+    AND NOT has_any_column_privilege('mycaresight_app', 'public.visit_corrections', 'UPDATE,REFERENCES')
+    AS app_has_no_other_write_grants,
   (SELECT count(*) FROM public.visit_corrections) AS correction_count;

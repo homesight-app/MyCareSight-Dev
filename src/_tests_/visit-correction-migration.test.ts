@@ -14,6 +14,7 @@ beforeAll(async () => {
   db = new PGlite()
   await db.exec(`
     CREATE ROLE mycaresight_app LOGIN NOSUPERUSER NOBYPASSRLS;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO mycaresight_app;
     CREATE TABLE public.agencies(id uuid PRIMARY KEY);
     CREATE TABLE public.user_profiles(id uuid PRIMARY KEY);
     CREATE TABLE public.caregiver_members(id uuid PRIMARY KEY);
@@ -67,4 +68,30 @@ test('only the agency owner can append a correction for an owned visit', async (
   expect(ownerRead.rows).toHaveLength(1)
   const coordinatorRead = await asApp('care_coordinator', AGENCY, 'SELECT id FROM public.visit_corrections')
   expect(coordinatorRead.rows).toHaveLength(0)
+})
+
+test('031 repairs a later broad grant and still denies mutation of recorded history', async () => {
+  await db.exec('GRANT ALL ON public.visit_corrections TO mycaresight_app')
+  const before = await db.query<{ can_update: boolean; can_delete: boolean }>(`
+    SELECT has_table_privilege('mycaresight_app','public.visit_corrections','UPDATE') AS can_update,
+      has_table_privilege('mycaresight_app','public.visit_corrections','DELETE') AS can_delete`)
+  expect(before.rows).toEqual([{ can_update: true, can_delete: true }])
+
+  const repair = readFileSync(join(process.cwd(),
+    'scripts/migrations/031-repair-visit-correction-privileges.sql'), 'utf8')
+  await db.exec(repair)
+  await db.exec(repair)
+  const verification = await db.exec(readFileSync(join(process.cwd(),
+    'scripts/migrations/031-verify-visit-correction-privileges.sql'), 'utf8'))
+  expect(verification[0]?.rows?.[0]).toMatchObject({
+    table_exists: true, forced_rls: true, policy_count: 2,
+    app_can_read: true, app_can_insert: true,
+    app_cannot_update: true, app_cannot_delete: true,
+    app_has_no_other_write_grants: true,
+  })
+  await expect(asApp('company_owner', AGENCY,
+    "UPDATE public.visit_corrections SET reason='Synthetic tampering blocked by privilege.'"))
+    .rejects.toThrow()
+  await expect(asApp('company_owner', AGENCY,
+    'DELETE FROM public.visit_corrections')).rejects.toThrow()
 })

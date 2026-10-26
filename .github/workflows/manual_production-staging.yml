@@ -111,7 +111,7 @@ jobs:
             echo '::error::Azure login selected a different subscription.'
             exit 1
           fi
-          slot_id="$(az webapp deployment slot show \
+          slot_id="$(az webapp show \
             --resource-group rg-mycaresight-prod \
             --name mycaresight-prod-web \
             --slot staging \

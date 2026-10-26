@@ -1,0 +1,131 @@
+name: Manual production staging deployment
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: mycaresight-production-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  validate-and-deploy:
+    name: Validate and deploy to staging slot
+    if: github.repository == 'homesight-app/MyCareSight-Dev' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production-staging
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out the selected main commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify staging build configuration
+        shell: bash
+        env:
+          STAGING_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+          STAGING_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          STAGING_AUTH_URL: ${{ vars.STAGING_AUTH_URL }}
+          STAGING_TURNSTILE_SITE_KEY: ${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          STAGING_AUTH_SECRET: ${{ secrets.STAGING_AUTH_SECRET }}
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          for name in STAGING_APP_URL STAGING_SITE_URL STAGING_AUTH_URL STAGING_TURNSTILE_SITE_KEY STAGING_AUTH_SECRET STAGING_DATABASE_URL AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing production-staging GitHub environment value: ${name}"
+              exit 1
+            fi
+          done
+          for name in STAGING_APP_URL STAGING_SITE_URL STAGING_AUTH_URL; do
+            if [[ "${!name}" != https://* ]]; then
+              echo "::error::${name} must use HTTPS."
+              exit 1
+            fi
+          done
+          echo "Building main commit ${GITHUB_SHA} for the production staging slot."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Build standalone app
+        env:
+          NEXT_PUBLIC_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          AUTH_URL: ${{ vars.STAGING_AUTH_URL }}
+          AUTH_SECRET: ${{ secrets.STAGING_AUTH_SECRET }}
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          AZURE_STORAGE_ACCOUNT_NAME: stmycaresightstg
+        run: npm run build
+
+      - name: Prepare standalone artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir deploy
+          cp -R .next/standalone/. deploy/
+          mkdir -p deploy/.next
+          cp -R .next/static deploy/.next/static
+          if [ -d public ]; then cp -R public deploy/public; fi
+          test -f deploy/server.js
+          test -f deploy/.next/BUILD_ID
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify deployment target
+        shell: bash
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          active_subscription_id="$(az account show --query id --output tsv)"
+          if [ "$active_subscription_id" != "$EXPECTED_SUBSCRIPTION_ID" ]; then
+            echo '::error::Azure login selected a different subscription.'
+            exit 1
+          fi
+          slot_id="$(az webapp deployment slot show \
+            --resource-group rg-mycaresight-prod \
+            --name mycaresight-prod-web \
+            --slot staging \
+            --query id --output tsv)"
+          expected_slot_id="/subscriptions/${EXPECTED_SUBSCRIPTION_ID}/resourceGroups/rg-mycaresight-prod/providers/Microsoft.Web/sites/mycaresight-prod-web/slots/staging"
+          if [ "${slot_id,,}" != "${expected_slot_id,,}" ]; then
+            echo '::error::The expected production staging slot was not found.'
+            exit 1
+          fi
+
+      - name: Deploy only to the staging slot
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: mycaresight-prod-web
+          slot-name: staging
+          package: deploy
+          startup-command: node server.js

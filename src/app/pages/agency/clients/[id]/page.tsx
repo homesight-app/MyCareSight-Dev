@@ -61,6 +61,8 @@ export default async function ClientDetailPage({
       contractedHours={bundle.contractedHoursList}
       skilledCarePlanTasks={bundle.skilledCarePlanTasks}
       skilledSchedules={bundle.skilledSchedulesList}
+      adlTaskCatalog={bundle.adlTaskCatalog}
+      skilledTaskCatalog={bundle.skilledTaskCatalog}
       serviceContracts={bundle.serviceContracts}
       initialAddresses={addresses.data ?? []}
       canManageNotes={canManageNotes}

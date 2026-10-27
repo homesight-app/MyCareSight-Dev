@@ -1,4 +1,4 @@
-import { visitTaskAssignmentKey } from '@/lib/visit-task-codes'
+import { encodeVisitAnytimeOccurrence, isVisitTaskAssigned, visitTaskAssignmentKey } from '@/lib/visit-task-codes'
 
 type Slot = 'morning' | 'afternoon' | 'evening' | 'night'
 
@@ -55,8 +55,16 @@ export function suggestedVisitTaskTokens(
     if (!schedule) continue
     if (schedule.schedule_type === 'always') {
       const frequency = schedule.times_per_day ?? 1
-      const token = frequency > 1 ? `any::${code}::${frequency}` : `any::${code}`
-      if (!assignedKeys.has(visitTaskAssignmentKey(token))) tokens.push(token)
+      const legacyKey = `any::${code}`
+      if (assignedKeys.has(legacyKey)) continue
+      if (frequency > 1) {
+        for (let ordinal = 1; ordinal <= frequency; ordinal++) {
+          const token = encodeVisitAnytimeOccurrence(code, frequency, ordinal)
+          if (!isVisitTaskAssigned(assignedKeys, token)) tokens.push(token)
+        }
+      } else if (!isVisitTaskAssigned(assignedKeys, legacyKey)) {
+        tokens.push(legacyKey)
+      }
     } else if (schedule.schedule_type === 'specific_times') {
       for (const slot of overlapping) {
         if (schedule[`slot_${slot}`] !== 'always') continue

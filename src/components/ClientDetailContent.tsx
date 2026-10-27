@@ -75,7 +75,7 @@ import InternalNotesPanel from '@/components/InternalNotesPanel'
 import zipcodes from 'zipcodes'
 import { patientFullName } from '@/lib/patient-name'
 import { US_STATES } from '@/lib/constants'
-import { extractVisitTaskToken, visitTaskAnytimeFrequency, visitTaskAssignmentKey } from '@/lib/visit-task-codes'
+import { encodeVisitAnytimeOccurrence, extractVisitTaskToken, isVisitTaskAssigned, visitTaskAnytimeFrequency, visitTaskAnytimeOccurrence, visitTaskAssignmentKey } from '@/lib/visit-task-codes'
 import { allCarePlanDaysEnabled, toggleCarePlanWeek } from '@/lib/care-plan-days'
 import { suggestedVisitTaskTokens } from '@/lib/visit-task-prefill'
 
@@ -134,7 +134,8 @@ function dayOfWeekDbFromDateStr(dateStr: string): number {
   return d === 0 ? 7 : d
 }
 
-function encodeVisitAdlSlotKey(slotKey: string, adlCode: string, timesPerDay = 1): string {
+function encodeVisitAdlSlotKey(slotKey: string, adlCode: string, timesPerDay = 1, ordinal?: number): string {
+  if (slotKey === 'any' && timesPerDay > 1 && ordinal) return encodeVisitAnytimeOccurrence(adlCode, timesPerDay, ordinal)
   const base = `${slotKey}${VISIT_ADL_SLOT_SEP}${adlCode}`
   return slotKey === 'any' && timesPerDay > 1 ? `${base}${VISIT_ADL_SLOT_SEP}${timesPerDay}` : base
 }
@@ -202,6 +203,7 @@ function buildAssignedVisitTaskSlotSet(
 ): Set<string> {
   const set = new Set<string>()
   for (const row of rows) {
+    if (['cancelled', 'voided'].includes(visitStatusFromScheduleRow(row))) continue
     const dow = dayOfWeekDbFromDateStr(row.date)
     for (const token of row.adl_codes ?? []) {
       set.add(visitTaskAssignmentKey(normalizeScheduleTaskToken(token, dow, adlSchedules, skilledSchedules)))
@@ -257,6 +259,8 @@ interface ClientDetailContentProps {
   contractedHours?: PatientContractedHoursRow[] | null
   skilledCarePlanTasks?: SkilledCarePlanTask[] | null
   skilledSchedules?: PatientSkilledTaskDaySchedule[] | null
+  adlTaskCatalog?: Array<{ name: string; group: string }>
+  skilledTaskCatalog?: Array<{ id: string; code: string; name: string; category: string; description: string | null }>
   serviceContracts?: PatientServiceContractRow[] | null
   initialAddresses?: PatientAddress[]
   canManageNotes?: boolean
@@ -268,6 +272,8 @@ export default function ClientDetailContent({ client, allClients, representative
   incidents: initialIncidents = [], adls: initialAdls = [], adlSchedules: initialAdlSchedules = [], staff: staffList = [],
   contractedHours: initialContractedHours = [], skilledCarePlanTasks: initialSkilledCarePlanTasks = [],
   skilledSchedules: skilledSchedulesProp,
+  adlTaskCatalog = [],
+  skilledTaskCatalog = [],
   serviceContracts: initialServiceContracts = [],
   initialAddresses = [],
   canManageNotes = false,
@@ -359,10 +365,8 @@ export default function ClientDetailContent({ client, allClients, representative
   const [localSkilledCarePlanTasks, setLocalSkilledCarePlanTasks] = useState<SkilledCarePlanTask[]>(
     initialSkilledCarePlanTasks ?? []
   )
-  const [adlLists, setAdlLists] = useState<{ name: string; group: string }[]>([])
-  const [skilledTaskLibrary, setSkilledTaskLibrary] = useState<
-    Array<{ id: string; code: string; name: string; category: string; description: string | null }>
-  >([])
+  const adlLists = adlTaskCatalog
+  const skilledTaskLibrary = skilledTaskCatalog
   const [localAdlSchedules, setLocalAdlSchedules] = useState<PatientAdlDaySchedule[]>(initialAdlSchedules ?? [])
   const [localSkilledSchedules, setLocalSkilledSchedules] = useState<PatientSkilledTaskDaySchedule[]>(
     () => skilledSchedulesProp ?? EMPTY_SKILLED_SCHEDULES
@@ -393,9 +397,6 @@ export default function ClientDetailContent({ client, allClients, representative
   })
   const [isSavingAdlPlan, setIsSavingAdlPlan] = useState(false)
   const [adlPlanError, setAdlPlanError] = useState<string | null>(null)
-  /** After save + `router.refresh()`, bump so the ADL hydration effect runs again (covers remount with stale RSC props). */
-  const [adlHydrateNonce, setAdlHydrateNonce] = useState(0)
-  const adlHydrateAbortRef = useRef<AbortController | null>(null)
   const [deletingAdlCode, setDeletingAdlCode] = useState<string | null>(null)
   const [skilledTaskModalOpen, setSkilledTaskModalOpen] = useState(false)
   const [skilledTaskSearch, setSkilledTaskSearch] = useState('')
@@ -499,6 +500,7 @@ export default function ClientDetailContent({ client, allClients, representative
   const [visitDateSchedulesForDate, setVisitDateSchedulesForDate] = useState<string | null>(null)
   const [visitDateSchedulesLoadError, setVisitDateSchedulesLoadError] = useState(false)
   const [caregiverAvailabilitySlots, setCaregiverAvailabilitySlots] = useState<CaregiverAvailabilitySlotRow[]>([])
+  const [caregiverAvailabilityStatus, setCaregiverAvailabilityStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [editVisitModalOpen, setEditVisitModalOpen] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<ScheduleRow | null>(null)
   const [visitStatusModal, setVisitStatusModal] = useState<'missed' | 'cancelled' | 'on_hold' | null>(null)
@@ -571,10 +573,6 @@ export default function ClientDetailContent({ client, allClients, representative
   }, [client.id])
 
   useEffect(() => {
-    setAdlHydrateNonce(0)
-  }, [client.id])
-
-  useEffect(() => {
     setIsClientSwitching(false)
   }, [client.id])
 
@@ -597,43 +595,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setLocalIncidents(initialIncidents ?? [])
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: stale initialIncidents after refresh
   }, [client.id])
-
-  /** Load the non-skilled plan from the server action on mount / patient change. After
-   * `router.refresh()`, Next can remount with a cached `initialAdls` payload; a client refetch matches DB truth.
-   * Aborted when saving so a slow in-flight fetch cannot overwrite `handleSaveAdlPlan` results. */
-  useEffect(() => {
-    const ac = new AbortController()
-    adlHydrateAbortRef.current = ac
-    ;(async () => {
-      const [a, s] = await Promise.all([
-        q.getAdlsByPatientId(localClient.id),
-        q.getPatientAdlDaySchedulesByPatientId(localClient.id),
-      ])
-      if (ac.signal.aborted) return
-      if (a.error || s.error) return
-      if (a.data) setLocalAdls(a.data)
-      if (s.data) setLocalAdlSchedules(s.data)
-    })()
-    return () => {
-      ac.abort()
-    }
-  }, [localClient.id, adlHydrateNonce])
-
-  useEffect(() => {
-    setLocalSkilledCarePlanTasks(initialSkilledCarePlanTasks ?? [])
-    setLocalSkilledSchedules(initialSkilledSchedules)
-    setPendingSkilledDeletes([])
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- same pattern as non-skilled plan above
-  }, [client.id])
-
-  useEffect(() => {
-    q.getTaskCatalogAdlLists().then(({ data }) => {
-      if (data) setAdlLists(data)
-    })
-    q.getTaskCatalogSkilledTasks().then(({ data }) => {
-      if (data) setSkilledTaskLibrary(data)
-    })
-  }, [])
 
   useEffect(() => {
     setLocalContractedHours(initialContractedHours ?? [])
@@ -740,6 +701,7 @@ export default function ClientDetailContent({ client, allClients, representative
   }, [activeTab, scheduleNowTick, scheduleWeekStartStr, weekSchedules])
 
   const schedulingAgencyId = useMemo(() => {
+    if (agencyId) return agencyId
     for (const s of staffList ?? []) {
       const agency = (s as any)?.agency_id
       if (typeof agency === 'string' && agency.trim()) return agency.trim()
@@ -748,7 +710,7 @@ export default function ClientDetailContent({ client, allClients, representative
       if (typeof s.agency_id === 'string' && s.agency_id.trim()) return s.agency_id.trim()
     }
     return null
-  }, [staffList, weekSchedules])
+  }, [agencyId, staffList, weekSchedules])
 
   useEffect(() => {
     const dateForFetch = visitForm.isRecurring ? visitForm.repeatStart : visitForm.date
@@ -756,7 +718,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setVisitDateSchedulesLoadError(false)
     if ((!addVisitModalOpen && !editVisitModalOpen) || !dateForFetch || !schedulingAgencyId) {
       setVisitDateSchedules([])
-      setCaregiverAvailabilitySlots([])
       return
     }
     let cancelled = false
@@ -778,10 +739,6 @@ export default function ClientDetailContent({ client, allClients, representative
       if (!cancelled) setVisitDateSchedulesLoadError(true)
     })
 
-    const caregiverIds = (staffList ?? []).map((s) => String(s.id)).filter(Boolean)
-    q.getCaregiverAvailabilitySlotsByCaregiverIds(caregiverIds).then(({ data }) =>
-      setCaregiverAvailabilitySlots((data ?? []) as CaregiverAvailabilitySlotRow[])
-    )
     return () => { cancelled = true }
   }, [
     addVisitModalOpen,
@@ -789,9 +746,31 @@ export default function ClientDetailContent({ client, allClients, representative
     visitForm.date,
     visitForm.isRecurring,
     visitForm.repeatStart,
-    staffList,
     schedulingAgencyId,
   ])
+
+  useEffect(() => {
+    if (!caregiverPickerOpen || (!addVisitModalOpen && !editVisitModalOpen)) return
+    let cancelled = false
+    const caregiverIds = (staffList ?? []).map((staff) => String(staff.id)).filter(Boolean)
+    if (caregiverIds.length === 0) {
+      setCaregiverAvailabilitySlots([])
+      setCaregiverAvailabilityStatus('ready')
+      return
+    }
+    q.getCaregiverAvailabilitySlotsByCaregiverIds(caregiverIds).then(({ data, error }) => {
+      if (cancelled) return
+      if (error || !data) {
+        setCaregiverAvailabilityStatus('error')
+        return
+      }
+      setCaregiverAvailabilitySlots(data as CaregiverAvailabilitySlotRow[])
+      setCaregiverAvailabilityStatus('ready')
+    }).catch(() => {
+      if (!cancelled) setCaregiverAvailabilityStatus('error')
+    })
+    return () => { cancelled = true }
+  }, [caregiverPickerOpen, addVisitModalOpen, editVisitModalOpen, staffList])
 
   useEffect(() => {
     if (isEditingMedical) {
@@ -1748,7 +1727,6 @@ export default function ClientDetailContent({ client, allClients, representative
     setIsSavingAdlPlan(true)
     setAdlPlanError(null)
     try {
-      adlHydrateAbortRef.current?.abort()
       const localCodeSet = new Set(localAdls.map((a) => a.adl_code))
       const { data: dbAdlRows, error: dbAdlErr } = await q.getAdlsByPatientId(localClient.id)
       if (dbAdlErr) throw dbAdlErr
@@ -1803,23 +1781,7 @@ export default function ClientDetailContent({ client, allClients, representative
         setLocalAdls(adlD)
         setLocalAdlSchedules(schedD)
       })
-      await new Promise((r) => setTimeout(r, 120))
-      const [adls2, sched2] = await Promise.all([
-        q.getAdlsByPatientId(localClient.id),
-        q.getPatientAdlDaySchedulesByPatientId(localClient.id),
-      ])
-      if (adls2.error) throw adls2.error
-      if (sched2.error) throw sched2.error
-      const finalAdls = adls2.data ?? adlD
-      const finalSched = sched2.data ?? schedD
-      flushSync(() => {
-        setLocalAdls(finalAdls)
-        setLocalAdlSchedules(finalSched)
-      })
       router.refresh()
-      setTimeout(() => {
-        setAdlHydrateNonce((n) => n + 1)
-      }, 0)
       return true
     } catch (err: unknown) {
       setAdlPlanError(err instanceof Error ? err.message : 'Failed to save ADL plan.')
@@ -2030,7 +1992,7 @@ export default function ClientDetailContent({ client, allClients, representative
       const s = localAdlSchedules.find((x) => x.adl_code === a.adl_code && x.day_of_week === dayOfWeekDb)
       if (!s || s.schedule_type === 'never') continue
       if (s.schedule_type === 'always' || s.schedule_type === 'as_needed') {
-        expectedSlots += 1
+        expectedSlots += s.schedule_type === 'always' ? s.times_per_day ?? 1 : 1
         continue
       }
       expectedSlots += [s.slot_morning, s.slot_afternoon, s.slot_evening, s.slot_night].filter(Boolean).length
@@ -2039,7 +2001,7 @@ export default function ClientDetailContent({ client, allClients, representative
       const s = localSkilledSchedules.find((x) => x.task_id === t.task_id && x.day_of_week === dayOfWeekDb)
       if (!s || s.schedule_type === 'never') continue
       if (s.schedule_type === 'always' || s.schedule_type === 'as_needed') {
-        expectedSlots += 1
+        expectedSlots += s.schedule_type === 'always' ? s.times_per_day ?? 1 : 1
         continue
       }
       expectedSlots += [s.slot_morning, s.slot_afternoon, s.slot_evening, s.slot_night].filter(Boolean).length
@@ -2063,27 +2025,25 @@ export default function ClientDetailContent({ client, allClients, representative
       return !!(s && s.schedule_type !== 'never')
     })
 
-    const rowEntries: Array<{ adl: PatientAdl; rowKey: string; periodLabel: string; storageSlot: string; groupName: string; timesPerDay?: number }> = []
+    const rowEntries: Array<{ adl: PatientAdl; rowKey: string; periodLabel: string; storageSlot: string; groupName: string; timesPerDay?: number; ordinal?: number; assigned: boolean }> = []
     for (const a of candidates) {
       const s = localAdlSchedules.find((x) => x.adl_code === a.adl_code && x.day_of_week === dow)
       const info = adlLists.find((x) => x.name === a.adl_code)
       const groupName = info?.group ?? 'General'
       if (s?.schedule_type === 'always') {
-        const token = encodeVisitAdlSlotKey('any', a.adl_code)
-        if (!assignedSlots.has(token)) {
-          rowEntries.push({ adl: a, rowKey: `always-${a.adl_code}`, periodLabel: 'Anytime', storageSlot: 'any', groupName, timesPerDay: s.times_per_day ?? 1 })
+        const frequency = s.times_per_day ?? 1
+        for (let ordinal = 1; ordinal <= frequency; ordinal++) {
+          const token = encodeVisitAdlSlotKey('any', a.adl_code, frequency, ordinal)
+          rowEntries.push({ adl: a, rowKey: `always-${a.adl_code}-${ordinal}`, periodLabel: 'Anytime', storageSlot: 'any', groupName, timesPerDay: frequency, ordinal, assigned: isVisitTaskAssigned(assignedSlots, token) })
         }
       } else if (s?.schedule_type === 'as_needed') {
         const token = encodeVisitAdlSlotKey('as_needed', a.adl_code)
-        if (!assignedSlots.has(token)) {
-          rowEntries.push({ adl: a, rowKey: `needed-${a.adl_code}`, periodLabel: 'As needed', storageSlot: 'as_needed', groupName })
-        }
+        rowEntries.push({ adl: a, rowKey: `needed-${a.adl_code}`, periodLabel: 'As needed', storageSlot: 'as_needed', groupName, assigned: isVisitTaskAssigned(assignedSlots, token) })
       } else if (s?.schedule_type === 'specific_times') {
         for (const { key, label } of ADL_VISIT_TIME_SLOTS) {
           if (!scheduleHasAdlSlot(s, key)) continue
           const token = encodeVisitAdlSlotKey(key, a.adl_code)
-          if (assignedSlots.has(token)) continue
-          rowEntries.push({ adl: a, rowKey: `${key}-${a.adl_code}`, periodLabel: label, storageSlot: key, groupName })
+          rowEntries.push({ adl: a, rowKey: `${key}-${a.adl_code}`, periodLabel: label, storageSlot: key, groupName, assigned: isVisitTaskAssigned(assignedSlots, token) })
         }
       }
     }
@@ -2091,22 +2051,24 @@ export default function ClientDetailContent({ client, allClients, representative
     const periodBadgeClass =
       'inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 border border-gray-200/80'
 
-    const renderRow = (a: PatientAdl, rowKey: string, periodBadges: string[], storageSlot: string, timesPerDay = 1) => {
+    const renderRow = (a: PatientAdl, rowKey: string, periodBadges: string[], storageSlot: string, timesPerDay = 1, ordinal?: number, assigned = false) => {
       const info = adlLists.find((x) => x.name === a.adl_code) ?? { name: a.adl_code, group: 'General' }
-      const token = encodeVisitAdlSlotKey(storageSlot, a.adl_code, timesPerDay)
+      const token = encodeVisitAdlSlotKey(storageSlot, a.adl_code, timesPerDay, ordinal)
       const selectedToken = Array.from(visitAdlSelected).find((selected) => visitTaskAssignmentKey(selected) === visitTaskAssignmentKey(token))
       const isChecked = !!selectedToken
       const badgeLabels = storageSlot === 'any'
-        ? [`Anytime ${visitTaskAnytimeFrequency(selectedToken ?? token) ?? 1}x`]
+        ? [visitTaskAnytimeOccurrence(token) ? `Anytime ${ordinal} of ${timesPerDay}` : `Anytime ${visitTaskAnytimeFrequency(selectedToken ?? token) ?? 1}x`]
         : periodBadges
       return (
         <label
           key={rowKey}
-          className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer ${isChecked ? 'border-green-500 bg-green-50/50' : 'border-gray-200 hover:bg-gray-50'}`}
+          className={`flex items-start gap-3 p-3 rounded-lg border ${assigned ? 'border-gray-200 bg-gray-50 opacity-70' : isChecked ? 'cursor-pointer border-green-500 bg-green-50/50' : 'cursor-pointer border-gray-200 hover:bg-gray-50'}`}
         >
           <input
             type="checkbox"
+            data-visit-task-key={token}
             checked={isChecked}
+            disabled={assigned}
             onChange={(e) => {
               setVisitAdlSelected((prev) => {
                 const next = new Set(prev)
@@ -2115,11 +2077,17 @@ export default function ClientDetailContent({ client, allClients, representative
                 return next
               })
               if (addVisitModalOpen) manualVisitTaskChoices.current.set(visitTaskAssignmentKey(token), e.target.checked)
+              requestAnimationFrame(() => {
+                const checkbox = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-visit-task-key]'))
+                  .find((input) => input.dataset.visitTaskKey === token)
+                checkbox?.focus({ preventScroll: true })
+              })
             }}
             className="mt-1 rounded border-gray-300"
           />
           <div className="min-w-0 flex-1">
             <div className="font-medium text-gray-900">{info.name}</div>
+            {assigned && <div className="text-xs text-gray-600">Already assigned to another visit on this date</div>}
             <div className="text-xs text-gray-500 mt-0.5">{info.group}</div>
             <div className="flex flex-wrap gap-1 mt-1.5 items-center">
               <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs text-gray-600 border border-gray-100 ${info.group === 'ADL' ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'}`}>
@@ -2145,32 +2113,35 @@ export default function ClientDetailContent({ client, allClients, representative
       )
     }
 
+    const selectedKeys = new Set(Array.from(visitAdlSelected, visitTaskAssignmentKey))
+    const isSelected = (item: (typeof rowEntries)[number]) => {
+      const token = encodeVisitAdlSlotKey(item.storageSlot, item.adl.adl_code, item.timesPerDay, item.ordinal)
+      return selectedKeys.has(visitTaskAssignmentKey(token))
+    }
+    const selectedRows = rowEntries.filter((item) => !item.assigned && isSelected(item))
+    const otherRows = rowEntries.filter((item) => !item.assigned && !isSelected(item))
+    const assignedRows = rowEntries.filter((item) => item.assigned)
+    const renderRows = (rows: typeof rowEntries) => rows.map((item) =>
+      renderRow(item.adl, item.rowKey, [item.periodLabel], item.storageSlot, item.timesPerDay, item.ordinal, item.assigned)
+    )
     return (
       <div className="space-y-4">
-        {(() => {
-          const grouped = rowEntries.reduce<Record<string, typeof rowEntries>>((acc, item) => {
-            if (!acc[item.groupName]) acc[item.groupName] = []
-            acc[item.groupName].push(item)
-            return acc
-          }, {})
-          const groupOrder = ['ADL', 'IADL']
-          const groups = Object.keys(grouped).sort((a, b) => {
-            const ai = groupOrder.indexOf(a.toUpperCase())
-            const bi = groupOrder.indexOf(b.toUpperCase())
-            if (ai === -1 && bi === -1) return a.localeCompare(b)
-            if (ai === -1) return 1
-            if (bi === -1) return -1
-            return ai - bi
-          })
-          return groups.map((groupName) => (
-            <div key={groupName}>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{groupName}</h4>
-              <div className="space-y-2">
-                {grouped[groupName].map((item) => renderRow(item.adl, item.rowKey, [item.periodLabel], item.storageSlot, item.timesPerDay))}
-              </div>
-            </div>
-          ))
-        })()}
+        <section aria-label="Selected visit tasks">
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Selected ({selectedRows.length})</h4>
+          <div className="space-y-2">{selectedRows.length ? renderRows(selectedRows) : <p className="text-sm text-gray-500 py-2">No tasks selected.</p>}</div>
+        </section>
+        {otherRows.length > 0 && (
+          <section aria-label="Other available visit tasks">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Other ({otherRows.length})</h4>
+            <div className="space-y-2">{renderRows(otherRows)}</div>
+          </section>
+        )}
+        {assignedRows.length > 0 && (
+          <section aria-label="Tasks already assigned to another visit">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Already assigned ({assignedRows.length})</h4>
+            <div className="space-y-2">{renderRows(assignedRows)}</div>
+          </section>
+        )}
       </div>
     )
   }
@@ -2191,26 +2162,26 @@ export default function ClientDetailContent({ client, allClients, representative
       storageSlot: string
       groupName: string
       timesPerDay?: number
+      ordinal?: number
+      assigned: boolean
     }> = []
     for (const t of candidates) {
       const s = localSkilledSchedules.find((x) => x.task_id === t.task_id && x.day_of_week === dow)
       const groupName = t.category || 'General'
       if (s?.schedule_type === 'always') {
-        const token = encodeVisitAdlSlotKey('any', t.task_id)
-        if (!assignedSlots.has(token)) {
-          rowEntries.push({ task: t, rowKey: `always-${t.task_id}`, periodLabel: 'Anytime', storageSlot: 'any', groupName, timesPerDay: s.times_per_day ?? 1 })
+        const frequency = s.times_per_day ?? 1
+        for (let ordinal = 1; ordinal <= frequency; ordinal++) {
+          const token = encodeVisitAdlSlotKey('any', t.task_id, frequency, ordinal)
+          rowEntries.push({ task: t, rowKey: `always-${t.task_id}-${ordinal}`, periodLabel: 'Anytime', storageSlot: 'any', groupName, timesPerDay: frequency, ordinal, assigned: isVisitTaskAssigned(assignedSlots, token) })
         }
       } else if (s?.schedule_type === 'as_needed') {
         const token = encodeVisitAdlSlotKey('as_needed', t.task_id)
-        if (!assignedSlots.has(token)) {
-          rowEntries.push({ task: t, rowKey: `needed-${t.task_id}`, periodLabel: 'As needed', storageSlot: 'as_needed', groupName })
-        }
+        rowEntries.push({ task: t, rowKey: `needed-${t.task_id}`, periodLabel: 'As needed', storageSlot: 'as_needed', groupName, assigned: isVisitTaskAssigned(assignedSlots, token) })
       } else if (s?.schedule_type === 'specific_times') {
         for (const { key, label } of ADL_VISIT_TIME_SLOTS) {
           if (!scheduleHasAdlSlot(s, key)) continue
           const token = encodeVisitAdlSlotKey(key, t.task_id)
-          if (assignedSlots.has(token)) continue
-          rowEntries.push({ task: t, rowKey: `${key}-${t.task_id}`, periodLabel: label, storageSlot: key, groupName })
+          rowEntries.push({ task: t, rowKey: `${key}-${t.task_id}`, periodLabel: label, storageSlot: key, groupName, assigned: isVisitTaskAssigned(assignedSlots, token) })
         }
       }
     }
@@ -2218,21 +2189,22 @@ export default function ClientDetailContent({ client, allClients, representative
     const periodBadgeClass =
       'inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 border border-gray-200/80'
 
-    const renderRow = (t: SkilledCarePlanTask, rowKey: string, periodBadges: string[], storageSlot: string, timesPerDay = 1) => {
-      const token = encodeVisitAdlSlotKey(storageSlot, t.task_id, timesPerDay)
+    const renderRow = (t: SkilledCarePlanTask, rowKey: string, periodBadges: string[], storageSlot: string, timesPerDay = 1, ordinal?: number, assigned = false) => {
+      const token = encodeVisitAdlSlotKey(storageSlot, t.task_id, timesPerDay, ordinal)
       const selectedToken = Array.from(visitAdlSelected).find((selected) => visitTaskAssignmentKey(selected) === visitTaskAssignmentKey(token))
       const isChecked = !!selectedToken
       const badgeLabels = storageSlot === 'any'
-        ? [`Anytime ${visitTaskAnytimeFrequency(selectedToken ?? token) ?? 1}x`]
+        ? [visitTaskAnytimeOccurrence(token) ? `Anytime ${ordinal} of ${timesPerDay}` : `Anytime ${visitTaskAnytimeFrequency(selectedToken ?? token) ?? 1}x`]
         : periodBadges
       return (
         <label
           key={rowKey}
-          className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer ${isChecked ? 'border-green-500 bg-green-50/50' : 'border-gray-200 hover:bg-gray-50'}`}
+          className={`flex items-start gap-3 p-3 rounded-lg border ${assigned ? 'border-gray-200 bg-gray-50 opacity-70' : isChecked ? 'cursor-pointer border-green-500 bg-green-50/50' : 'cursor-pointer border-gray-200 hover:bg-gray-50'}`}
         >
           <input
             type="checkbox"
             checked={isChecked}
+            disabled={assigned}
             onChange={(e) => {
               setVisitAdlSelected((prev) => {
                 const next = new Set(prev)
@@ -2246,6 +2218,7 @@ export default function ClientDetailContent({ client, allClients, representative
           />
           <div className="min-w-0 flex-1">
             <div className="font-medium text-gray-900">{t.name}</div>
+            {assigned && <div className="text-xs text-gray-600">Already assigned to another visit on this date</div>}
             <div className="text-xs text-gray-500 mt-0.5">{t.category}</div>
             <div className="flex flex-wrap gap-1 mt-1.5 items-center">
               <span
@@ -2273,24 +2246,16 @@ export default function ClientDetailContent({ client, allClients, representative
       )
     }
 
+    const selectedKeys = new Set(Array.from(visitAdlSelected, visitTaskAssignmentKey))
+    const selectedRows = rowEntries.filter((item) => !item.assigned && selectedKeys.has(visitTaskAssignmentKey(encodeVisitAdlSlotKey(item.storageSlot, item.task.task_id, item.timesPerDay, item.ordinal))))
+    const otherRows = rowEntries.filter((item) => !item.assigned && !selectedRows.includes(item))
+    const assignedRows = rowEntries.filter((item) => item.assigned)
+    const renderRows = (rows: typeof rowEntries) => rows.map((item) => renderRow(item.task, item.rowKey, [item.periodLabel], item.storageSlot, item.timesPerDay, item.ordinal, item.assigned))
     return (
       <div className="space-y-4">
-        {(() => {
-          const grouped = rowEntries.reduce<Record<string, typeof rowEntries>>((acc, item) => {
-            if (!acc[item.groupName]) acc[item.groupName] = []
-            acc[item.groupName].push(item)
-            return acc
-          }, {})
-          const groups = Object.keys(grouped).sort((a, b) => a.localeCompare(b))
-          return groups.map((groupName) => (
-            <div key={groupName}>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{groupName}</h4>
-              <div className="space-y-2">
-                {grouped[groupName].map((item) => renderRow(item.task, item.rowKey, [item.periodLabel], item.storageSlot, item.timesPerDay))}
-              </div>
-            </div>
-          ))
-        })()}
+        <section aria-label="Selected skilled visit tasks"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Selected ({selectedRows.length})</h4><div className="space-y-2">{selectedRows.length ? renderRows(selectedRows) : <p className="text-sm text-gray-500 py-2">No tasks selected.</p>}</div></section>
+        {otherRows.length > 0 && <section aria-label="Other skilled visit tasks"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Other ({otherRows.length})</h4><div className="space-y-2">{renderRows(otherRows)}</div></section>}
+        {assignedRows.length > 0 && <section aria-label="Skilled tasks already assigned to another visit"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Already assigned ({assignedRows.length})</h4><div className="space-y-2">{renderRows(assignedRows)}</div></section>}
       </div>
     )
   }
@@ -2317,10 +2282,10 @@ export default function ClientDetailContent({ client, allClients, representative
 
   useEffect(() => {
     if (!addVisitModalOpen || visitForm.isRecurring || !visitForm.date ||
-        visitDateSchedulesForDate !== visitForm.date || !selectedVisitContract) return
+        visitDateSchedulesForDate !== visitForm.date) return
 
     const dow = dayOfWeekDbFromDateStr(visitForm.date)
-    const skilled = selectedVisitContract.service_type === 'skilled'
+    const skilled = selectedVisitContract?.service_type === 'skilled'
     const dayTasks = skilled
       ? localSkilledCarePlanTasks.map((task) => ({
           code: task.task_id,
@@ -2336,15 +2301,19 @@ export default function ClientDetailContent({ client, allClients, representative
       localSkilledSchedules
     )
     const suggested = suggestedVisitTaskTokens(dayTasks, visitForm.startTime, visitForm.endTime, assigned)
-    const available = new Set<string>()
+    const available = new Map<string, string>()
     for (const { code, schedule } of dayTasks) {
       if (!schedule || schedule.schedule_type === 'never') continue
       const slots = schedule.schedule_type === 'always' ? ['any']
         : schedule.schedule_type === 'as_needed' ? ['as_needed']
         : ADL_VISIT_TIME_SLOTS.filter(({ key }) => scheduleHasAdlSlot(schedule, key)).map(({ key }) => key)
       for (const slot of slots) {
-        const key = visitTaskAssignmentKey(encodeVisitAdlSlotKey(slot, code))
-        if (!assigned.has(key)) available.add(key)
+        const frequency = slot === 'any' ? schedule.times_per_day ?? 1 : 1
+        for (let ordinal = 1; ordinal <= frequency; ordinal++) {
+          const token = encodeVisitAdlSlotKey(slot, code, frequency, ordinal)
+          const key = visitTaskAssignmentKey(token)
+          if (!isVisitTaskAssigned(assigned, token)) available.set(key, token)
+        }
       }
     }
     const next = new Set(suggested.filter((token) =>
@@ -2352,9 +2321,7 @@ export default function ClientDetailContent({ client, allClients, representative
     ))
     for (const [key, checked] of manualVisitTaskChoices.current) {
       if (checked && available.has(key) && !Array.from(next).some((token) => visitTaskAssignmentKey(token) === key)) {
-        const task = dayTasks.find(({ code }) => key.endsWith(`::${code}`))
-        const frequency = key.startsWith('any::') ? task?.schedule?.times_per_day ?? 1 : 1
-        next.add(key.startsWith('any::') && frequency > 1 ? `${key}::${frequency}` : key)
+        next.add(available.get(key)!)
       }
     }
     setVisitAdlSelected(next)
@@ -2430,6 +2397,7 @@ export default function ClientDetailContent({ client, allClients, representative
   }
 
   const caregiverMatchOptions = useMemo(() => {
+    if (!caregiverPickerOpen || caregiverAvailabilityStatus !== 'ready') return []
     const visitDate = visitForm.isRecurring ? visitForm.repeatStart : visitForm.date
     const selectedAddr = addresses.find(a => a.id === visitForm.addressId)
     const clientZip = normalizeUsZipForLookup(selectedAddr?.zip_code ?? localClient.zip_code)
@@ -2486,12 +2454,17 @@ export default function ClientDetailContent({ client, allClients, representative
     addresses,
     visitDateSchedules,
     caregiverAvailabilitySlots,
+    caregiverPickerOpen,
+    caregiverAvailabilityStatus,
     editingSchedule?.id,
   ])
 
   const renderCaregiverPicker = () => {
     const selectedOption = caregiverMatchOptions.find(o => o.id === visitForm.caregiverId)
-    const selectedName = selectedOption?.name ?? ''
+    const selectedStaff = (staffList ?? []).find((staff) => staff.id === visitForm.caregiverId)
+    const selectedName = selectedOption?.name ?? (selectedStaff
+      ? [selectedStaff.first_name, selectedStaff.last_name].filter(Boolean).join(' ')
+      : '')
 
     const menuPanel = (
       <div
@@ -2507,9 +2480,12 @@ export default function ClientDetailContent({ client, allClients, representative
             : undefined
         }
       >
-        <CaregiverAssignmentList
+        {caregiverAvailabilityStatus === 'error' ? (
+          <p className="p-4 text-sm text-red-700" role="alert">Unable to load caregiver availability. Close and reopen the list to try again.</p>
+        ) : <CaregiverAssignmentList
           variant="picker"
           options={caregiverMatchOptions}
+          isLoading={caregiverAvailabilityStatus !== 'ready'}
           requiredSkills={caregiverRequirements ?? []}
           preferredSkills={preferredCaregiverSkills ?? []}
           selectedId={visitForm.caregiverId || null}
@@ -2520,7 +2496,7 @@ export default function ClientDetailContent({ client, allClients, representative
             setVisitForm(p => ({ ...p, caregiverId: id }))
             setCaregiverPickerOpen(false)
           }}
-        />
+        />}
       </div>
     )
 
@@ -2529,7 +2505,10 @@ export default function ClientDetailContent({ client, allClients, representative
         <button
           ref={caregiverPickerTriggerRef}
           type="button"
-          onClick={() => setCaregiverPickerOpen((p) => !p)}
+          onClick={() => {
+            if (!caregiverPickerOpen) setCaregiverAvailabilityStatus('loading')
+            setCaregiverPickerOpen((p) => !p)
+          }}
           className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-500"
           disabled={isSavingVisit}
         >
@@ -2557,14 +2536,16 @@ export default function ClientDetailContent({ client, allClients, representative
     const today = toLocalDateString(new Date())
     const primaryAddr = addresses.find(a => a.is_primary)
     setCaregiverPickerOpen(false)
+    setCaregiverAvailabilityStatus('idle')
     manualVisitTaskChoices.current.clear()
     setVisitDateSchedulesForDate(null)
+    setVisitDateSchedulesLoadError(false)
     setVisitForm({
       date: today,
       endDate: today,
       startTime: '09:00',
       endTime: '10:00',
-      contractId: activeContracts[0]?.id ?? '',
+      contractId: patientServiceContractsSelectableForBillingVisit(serviceContracts, today)[0]?.id ?? '',
       description: '',
       type: 'Routine',
       caregiverId: '',
@@ -2589,14 +2570,16 @@ export default function ClientDetailContent({ client, allClients, representative
     const startTime = `${String(hour).padStart(2, '0')}:00`
     const endTime = hour < 23 ? `${String(hour + 1).padStart(2, '0')}:00` : '23:59'
     setCaregiverPickerOpen(false)
+    setCaregiverAvailabilityStatus('idle')
     manualVisitTaskChoices.current.clear()
     setVisitDateSchedulesForDate(null)
+    setVisitDateSchedulesLoadError(false)
     setVisitForm({
       date: dateStr,
       endDate: dateStr,
       startTime,
       endTime,
-      contractId: activeContracts[0]?.id ?? '',
+      contractId: patientServiceContractsSelectableForBillingVisit(serviceContracts, dateStr)[0]?.id ?? '',
       description: '',
       type: 'Routine',
       caregiverId: '',
@@ -2628,6 +2611,7 @@ export default function ClientDetailContent({ client, allClients, representative
     const start = (schedule.start_time ?? '09:00').slice(0, 5)
     const end = (schedule.end_time ?? '10:00').slice(0, 5)
     setCaregiverPickerOpen(false)
+    setCaregiverAvailabilityStatus('idle')
     setEditingSchedule(schedule)
     setEditRecurringApplyScope(schedule.is_recurring ? 'weekday_in_series' : 'this_visit')
     setVisitForm({
@@ -3970,7 +3954,6 @@ export default function ClientDetailContent({ client, allClients, representative
                       if (!window.confirm('Save your skilled plan changes before leaving this tab?')) return
                       if (!(await handleSaveSkilledCarePlan())) return
                     }
-                    setActiveTab(tab.id)
                     router.replace(`/pages/agency/clients/${localClient.id}?tab=${tab.id}`, { scroll: false })
                   }}
                   className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
@@ -6989,8 +6972,8 @@ export default function ClientDetailContent({ client, allClients, representative
             {(visitForm.isRecurring ? visitForm.repeatStart : visitForm.date) && (
               <p className="text-xs text-gray-500">
                 {selectedVisitContract?.service_type === 'skilled'
-                  ? 'Only showing skilled task slots that are not already assigned to other visits on '
-                  : 'Only showing ADL/IADL slots that are not already assigned to other visits on '}
+                  ? 'Task slots already assigned to another visit are shown below as unavailable for '
+                  : 'ADL/IADL slots already assigned to another visit are shown below as unavailable for '}
                 {new Date((visitForm.isRecurring ? visitForm.repeatStart : visitForm.date)! + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.
               </p>
             )}
@@ -7411,8 +7394,8 @@ export default function ClientDetailContent({ client, allClients, representative
             {(visitForm.isRecurring ? visitForm.repeatStart : visitForm.date) && (
               <p className="text-xs text-gray-500">
                 {selectedVisitContract?.service_type === 'skilled'
-                  ? 'Only showing skilled task slots that are not already assigned to other visits on '
-                  : 'Only showing ADL/IADL slots that are not already assigned to other visits on '}
+                  ? 'Task slots already assigned to another visit are shown below as unavailable for '
+                  : 'ADL/IADL slots already assigned to another visit are shown below as unavailable for '}
                 {new Date((visitForm.isRecurring ? visitForm.repeatStart : visitForm.date)! + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.
               </p>
             )}

@@ -1,4 +1,5 @@
 import * as q from '@/lib/supabase/query'
+import { getCachedNonSkilledTasks } from '@/lib/server-cache/reference-lists'
 
 export type AgencyClientDetailTab =
   | 'overview'
@@ -57,6 +58,8 @@ async function loadAgencyClientDetailBundleUncached(
     serviceContracts,
     skilledCarePlanTasks,
     skilledSchedulesList,
+    adlTaskCatalog,
+    skilledTaskCatalog,
   ] = await Promise.all([
     dataOrThrow(q.getPatientsByAgencyIdMinimal(agencyId), []),
     requestedTab === 'representatives'
@@ -77,6 +80,13 @@ async function loadAgencyClientDetailBundleUncached(
     dataOrThrow(q.getPatientServiceContractsByPatientId(patientId), []),
     needsSkilled ? dataOrThrow(q.getPatientSkilledCarePlanTasks(patientId), []) : Promise.resolve([]),
     needsSkilled ? dataOrThrow(q.getPatientSkilledDaySchedulesByPatientId(patientId), []) : Promise.resolve([]),
+    needsAdls
+      ? getCachedNonSkilledTasks().then((result) => {
+          if (result.error) throw new Error(result.error)
+          return (result.data ?? []).map((task) => ({ name: task.name, group: task.categoryName }))
+        })
+      : Promise.resolve([]),
+    needsSkilled ? dataOrThrow(q.getTaskCatalogSkilledTasks(), []) : Promise.resolve([]),
   ])
 
   return {
@@ -92,6 +102,8 @@ async function loadAgencyClientDetailBundleUncached(
     serviceContracts,
     skilledCarePlanTasks,
     skilledSchedulesList,
+    adlTaskCatalog,
+    skilledTaskCatalog,
   }
 }
 

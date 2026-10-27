@@ -1010,8 +1010,32 @@ and auditors.
 
 ### Visit Task Time-Window Preselection Prepared (2026-10-26)
 
-- **What:** New single visits suggest the selected day's unassigned care-plan tasks whose Morning, Afternoon, Evening, or Night window overlaps the visit, plus unassigned Anytime tasks. As Needed tasks remain manual. Coordinators can override suggestions; editing existing visits retains saved choices. Existing task-availability checks now compare assignments only within the current client.
+- **What:** New single visits suggest the selected day's unassigned care-plan tasks whose Morning, Afternoon, Evening, or Night window overlaps the visit, plus unassigned Anytime tasks. As Needed tasks remain manual. The non-skilled task list now groups ADLs and IADLs by Selected and Other and moves rows as coordinators change them; editing existing visits retains saved choices. Existing task-availability checks now compare assignments only within the current client. The agency-scoped availability lookup uses the agency identifier supplied by the protected client page, including when no staff or earlier visits exist.
 - **Access, integrity, and privacy impact:** The suggestion runs in the authorized client scheduling UI and waits for the agency-scoped visit lookup before showing available tasks. Existing server authorization, RLS, persistence, and audit behavior are unchanged. No visit or care-plan content is logged.
 - **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity by reducing missed or duplicate task assignments while retaining 164.312(a)(1) Access Control and 164.312(b) Audit Controls.
 - **Files:** `src/components/ClientDetailContent.tsx`, `src/lib/visit-task-prefill.ts`, `src/_tests_/visit-task-prefill.test.ts`, and this log.
 - **Remaining gap:** Automatic suggestions currently apply to single visits; recurring series retain manual task selection. Authenticated synthetic UAT browser verification is required after deployment.
+
+### Care-Plan Tab Loading Consolidation (2026-10-26)
+
+- **What:** Non-skilled and skilled task catalogs now arrive with the server-rendered tab data. The non-skilled catalog uses the existing tagged reference-list cache. Removed duplicate initial care-plan fetches, a second post-save non-skilled refetch, and eager tab switching that displayed empty data before navigation finished. ADL/IADL badges now render from the catalog with the first task display.
+- **Access, integrity, and privacy impact:** Patient-specific care plans still use the authorized, uncached agency client-detail bundle. Catalog caching covers shared reference tasks only, not patient data. Existing save authorization, RLS, and audit behavior remain unchanged; no care-plan content is logged.
+- **Relevant safeguards:** Preserves 45 CFR 164.312(a)(1) Access Control and 164.312(b) Audit Controls, and supports 164.312(c)(1) Integrity by avoiding stale client refetches overwriting the initial plan.
+- **Files:** `src/lib/server-cache/agency-client-detail-bundle.ts`, `src/app/pages/agency/clients/[id]/page.tsx`, `src/components/ClientDetailContent.tsx`, and this log.
+- **Remaining gap:** Authenticated synthetic browser timing and visual verification are still needed after deployment.
+
+### Add Visit Loading Consolidation (2026-10-26)
+
+- **What:** Add/Edit Visit continues to load same-day agency visits when the modal opens because task availability and caregiver conflicts require them. Caregiver availability and matching now run only when its picker opens, with an explicit loading/error state. New visits choose the initial billing contract for the actual selected date, avoiding a transient contract switch after opening.
+- **Access, integrity, and privacy impact:** Both reads continue through the existing authorized server actions; task assignment, visit save, and audit behavior are unchanged. No visit or caregiver content is logged or newly cached.
+- **Relevant safeguards:** Preserves 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, and 164.312(c)(1) Integrity by withholding availability decisions until the read completes.
+- **Files:** `src/components/ClientDetailContent.tsx` and this log.
+- **Remaining gap:** Authenticated synthetic Development/UAT browser timing and picker interaction verification are needed after deployment.
+
+### Individual Anytime Visit Tasks and Assignment Visibility (2026-10-27)
+
+- **What:** The Add/Edit Visit task picker now offers each 2–4x Anytime care-plan task as an independent occurrence, so occurrences may be assigned to different visits. Slots already assigned to another active visit remain visible in a disabled, labeled section; cancelled and voided visits no longer reserve slots. Prepared Neon migration 034 to split existing uncompleted combined assignments on nonterminal visits into individual rows. It preserves the original row as occurrence one, inserts the remaining occurrences, and records a metadata-only migration audit event. Completed task rows and terminal visits remain unchanged to avoid inventing completion evidence.
+- **Access, integrity, and privacy impact:** The existing agency-scoped visit read and server-authorized save path remain in place. The UI does not reveal another visit's details. The migration uses the existing visit task and audit tables, with no patient or task content in audit details or verification output. Separate rows permit each occurrence to be completed independently.
+- **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity through accurate per-occurrence task tracking, 164.312(b) Audit Controls through the conversion event and preserved historical rows, and maintains 164.312(a)(1) Access Control.
+- **Files:** `src/components/ClientDetailContent.tsx`, `src/lib/visit-task-codes.ts`, `src/lib/visit-task-prefill.ts`, focused synthetic tests, migration 034 and its verifier, and this log.
+- **Remaining gap:** Migration 034 is prepared but has not been applied to Neon branches. The operator should apply and verify it before releasing the code to each environment. Historical completed combined tasks remain combined; an authenticated synthetic browser check of Wednesday task availability and splitting across two visits is still required.

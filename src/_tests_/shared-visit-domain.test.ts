@@ -7,8 +7,10 @@ import {
   decodeVisitTaskCodes,
   extractVisitTaskToken,
   isUuidToken,
+  isVisitTaskAssigned,
   visitTaskAnytimeFrequency,
   visitTaskAssignmentKey,
+  visitTaskAnytimeOccurrence,
   visitTaskSlotKey,
 } from '@/lib/visit-task-codes'
 import { normalizeUsZipForLookup } from '@/lib/us-postal-code'
@@ -48,6 +50,17 @@ describe('shared visit-domain rules', () => {
     expect(decodeVisitTaskCodes([`any::${task}::2`, `morning::${task}`])).toEqual([
       `${task} · Anytime 2×`,
       task,
+    ])
+  })
+
+  it('identifies repeated Anytime occurrences independently and keeps legacy combined assignments exclusive', () => {
+    expect(visitTaskAnytimeOccurrence('any::Feeding::2::2')).toEqual({ total: 2, ordinal: 2 })
+    expect(visitTaskAssignmentKey('any::Feeding::2::1')).toBe('any::Feeding::1')
+    expect(visitTaskAssignmentKey('any::Feeding::2::2')).toBe('any::Feeding::2')
+    expect(isVisitTaskAssigned(new Set(['any::Feeding::1']), 'any::Feeding::2::2')).toBe(false)
+    expect(isVisitTaskAssigned(new Set(['any::Feeding']), 'any::Feeding::2::2')).toBe(true)
+    expect(decodeVisitTaskCodes(['any::Feeding::2::1', 'any::Feeding::2::2'])).toEqual([
+      'Feeding · Anytime 1 of 2', 'Feeding · Anytime 2 of 2',
     ])
   })
 

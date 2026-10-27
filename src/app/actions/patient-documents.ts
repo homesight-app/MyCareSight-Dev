@@ -6,6 +6,7 @@ import { withUserContext } from '@/db'
 import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
+import { readPatientDocuments } from '@/lib/patient-document-metadata'
 import { STORAGE_BUCKET } from '@/lib/storage'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
 
@@ -14,31 +15,18 @@ function revalidatePatientPages(patientId: string) {
   revalidatePath(`/pages/agency/clients/${patientId}`)
 }
 
-function normalizeDocuments(value: unknown): PatientDocument[] {
-  return Array.isArray(value)
-    ? value.filter((doc): doc is PatientDocument =>
-        !!doc &&
-        typeof doc === 'object' &&
-        typeof (doc as PatientDocument).id === 'string' &&
-        typeof (doc as PatientDocument).path === 'string'
-      )
-    : []
-}
-
 /**
- * Upload one or more patient documents. Files are appended to existingDocs and persisted in
+ * Upload one or more patient documents. Files are appended to the locked database list and persisted in
  * the patients.documents JSONB column. Accepts files via FormData field 'file' (repeatable).
  */
 export async function uploadPatientDocumentsAction(
   patientId: string,
-  formData: FormData,
-  existingDocs: PatientDocument[]
+  formData: FormData
 ): Promise<{ error: string | null; data: PatientDocument[] | null }> {
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', data: null }
   const role = session.profile?.role ?? ''
   const agencyId = session.profile?.agency_id ?? null
-  void existingDocs
 
   const files = formData.getAll('file') as File[]
   if (files.length === 0) return { error: 'No files provided', data: null }
@@ -84,11 +72,15 @@ export async function uploadPatientDocumentsAction(
     `
     if (!row) return { error: 'Patient not found or not authorized', data: null as PatientDocument[] | null }
 
-    const nextDocs = [...normalizeDocuments(row.documents), ...newDocs]
-    const { error } = await q.updatePatientDocuments(patientId, nextDocs)
+    const nextDocs = [...readPatientDocuments(row.documents), ...newDocs]
+    const { data: updated, error } = await q.updatePatientDocuments(patientId, nextDocs)
     if (error) return { error: error.message, data: null as PatientDocument[] | null }
-    return { error: null, data: nextDocs }
-  })
+    const savedDocs = readPatientDocuments(updated?.documents)
+    if (savedDocs.length !== nextDocs.length || newDocs.some((doc) => !savedDocs.some((saved) => saved.id === doc.id))) {
+      throw new Error('Document list was not saved')
+    }
+    return { error: null, data: savedDocs }
+  }).catch(() => ({ error: 'Could not save document metadata', data: null as PatientDocument[] | null }))
   if (updateResult.error || !updateResult.data) {
     await removeFiles(STORAGE_BUCKET.PATIENT, uploadedPaths)
     return { error: updateResult.error ?? 'Update failed', data: null }
@@ -112,14 +104,12 @@ export async function uploadPatientDocumentsAction(
 /** Remove a single patient document from storage and persist the updated document list. */
 export async function deletePatientDocumentAction(
   patientId: string,
-  docPath: string,
-  updatedDocs: PatientDocument[]
-): Promise<{ error: string | null }> {
+  docPath: string
+): Promise<{ error: string | null; data?: PatientDocument[] }> {
   const session = await getSession()
   if (!session) return { error: 'Not authenticated' }
   const role = session.profile?.role ?? ''
   const agencyId = session.profile?.agency_id ?? null
-  void updatedDocs
 
   // Validate path is scoped to this patient (prevents path traversal)
   if (!docPath.startsWith(`${patientId}/`)) return { error: 'Document not found' }
@@ -134,17 +124,25 @@ export async function deletePatientDocumentAction(
     `
     if (!row?.agency_id) return { error: 'Patient not found or not authorized' }
 
-    const currentDocs = normalizeDocuments(row.documents)
+    const currentDocs = readPatientDocuments(row.documents)
     if (!currentDocs.some((doc) => doc.path === docPath)) {
       return { error: 'Document not found' }
     }
 
     const nextDocs = currentDocs.filter((doc) => doc.path !== docPath)
-    const { error } = await q.updatePatientDocuments(patientId, nextDocs)
+    const { data: updated, error } = await q.updatePatientDocuments(patientId, nextDocs)
     if (error) return { error: error.message }
-
-    return { error: null, agencyId: row.agency_id, remaining: nextDocs.length }
-  })
+    const savedDocs = readPatientDocuments(updated?.documents)
+    if (savedDocs.length !== nextDocs.length || savedDocs.some((doc) => doc.path === docPath)) {
+      throw new Error('Document list was not saved')
+    }
+    return { error: null, agencyId: row.agency_id, remaining: savedDocs.length, data: savedDocs }
+  }).catch(() => ({
+    error: 'Could not save document metadata',
+    agencyId: undefined,
+    remaining: undefined,
+    data: undefined,
+  }))
   if (updateResult.error) return { error: updateResult.error }
 
   await removeFiles(STORAGE_BUCKET.PATIENT, [docPath])
@@ -161,5 +159,5 @@ export async function deletePatientDocumentAction(
   if (auditErr) console.error('[patient-documents/delete] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
 
   revalidatePatientPages(patientId)
-  return { error: null }
+  return { error: null, data: updateResult.data }
 }

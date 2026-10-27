@@ -17,6 +17,7 @@ import {
   User,
   Users,
   Plus,
+  Save,
   AlertCircle,
   AlertTriangle,
   Loader2,
@@ -76,6 +77,7 @@ import { patientFullName } from '@/lib/patient-name'
 import { US_STATES } from '@/lib/constants'
 import { extractVisitTaskToken, visitTaskAnytimeFrequency, visitTaskAssignmentKey } from '@/lib/visit-task-codes'
 import { allCarePlanDaysEnabled, toggleCarePlanWeek } from '@/lib/care-plan-days'
+import { suggestedVisitTaskTokens } from '@/lib/visit-task-prefill'
 
 const VISIT_TYPES = ['Routine', 'Medical', 'Therapy', 'Social', 'Other'] as const
 
@@ -484,6 +486,7 @@ export default function ClientDetailContent({ client, allClients, representative
     addressId: '',
   })
   const [visitAdlSelected, setVisitAdlSelected] = useState<Set<string>>(new Set())
+  const manualVisitTaskChoices = useRef(new Map<string, boolean>())
   const [isSavingVisit, setIsSavingVisit] = useState(false)
   const [visitError, setVisitError] = useState<string | null>(null)
   const [manageLimitModalOpen, setManageLimitModalOpen] = useState(false)
@@ -493,6 +496,8 @@ export default function ClientDetailContent({ client, allClients, representative
   const [limitError, setLimitError] = useState<string | null>(null)
   const [scheduleLimitWarning, setScheduleLimitWarning] = useState<string | null>(null)
   const [visitDateSchedules, setVisitDateSchedules] = useState<ScheduleRow[]>([])
+  const [visitDateSchedulesForDate, setVisitDateSchedulesForDate] = useState<string | null>(null)
+  const [visitDateSchedulesLoadError, setVisitDateSchedulesLoadError] = useState(false)
   const [caregiverAvailabilitySlots, setCaregiverAvailabilitySlots] = useState<CaregiverAvailabilitySlotRow[]>([])
   const [editVisitModalOpen, setEditVisitModalOpen] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<ScheduleRow | null>(null)
@@ -747,22 +752,37 @@ export default function ClientDetailContent({ client, allClients, representative
 
   useEffect(() => {
     const dateForFetch = visitForm.isRecurring ? visitForm.repeatStart : visitForm.date
+    setVisitDateSchedulesForDate(null)
+    setVisitDateSchedulesLoadError(false)
     if ((!addVisitModalOpen && !editVisitModalOpen) || !dateForFetch || !schedulingAgencyId) {
       setVisitDateSchedules([])
       setCaregiverAvailabilitySlots([])
       return
     }
+    let cancelled = false
+    setVisitDateSchedules([])
     q.getScheduledVisitsAsScheduleRowsForAgencyAndDateRange(schedulingAgencyId,
       dateForFetch,
       dateForFetch
     ).then(
-      ({ data }) => setVisitDateSchedules(data ?? [])
-    )
+      ({ data, error }) => {
+        if (cancelled) return
+        if (error || !data) {
+          setVisitDateSchedulesLoadError(true)
+          return
+        }
+        setVisitDateSchedules(data)
+        setVisitDateSchedulesForDate(dateForFetch)
+      }
+    ).catch(() => {
+      if (!cancelled) setVisitDateSchedulesLoadError(true)
+    })
 
     const caregiverIds = (staffList ?? []).map((s) => String(s.id)).filter(Boolean)
     q.getCaregiverAvailabilitySlotsByCaregiverIds(caregiverIds).then(({ data }) =>
       setCaregiverAvailabilitySlots((data ?? []) as CaregiverAvailabilitySlotRow[])
     )
+    return () => { cancelled = true }
   }, [
     addVisitModalOpen,
     editVisitModalOpen,
@@ -1109,7 +1129,7 @@ export default function ClientDetailContent({ client, allClients, representative
     try {
       const formData = new FormData()
       for (const file of filesArray) formData.append('file', file)
-      const { error, data: nextDocs } = await uploadPatientDocumentsAction(localClient.id, formData, patientDocuments)
+      const { error, data: nextDocs } = await uploadPatientDocumentsAction(localClient.id, formData)
       if (error) throw new Error(error)
       setLocalClient((c) => ({ ...c, documents: nextDocs ?? c.documents }))
     } catch (err: unknown) {
@@ -1125,10 +1145,9 @@ export default function ClientDetailContent({ client, allClients, representative
     setIsDeletingDocId(doc.id)
     setDocumentUploadError(null)
     try {
-      const nextDocs = patientDocuments.filter((d) => d.id !== doc.id)
-      const { error } = await deletePatientDocumentAction(localClient.id, doc.path, nextDocs)
+      const { error, data: nextDocs } = await deletePatientDocumentAction(localClient.id, doc.path)
       if (error) throw new Error(error)
-      setLocalClient((c) => ({ ...c, documents: nextDocs }))
+      setLocalClient((c) => ({ ...c, documents: nextDocs ?? c.documents }))
       setDocToDelete(null)
     } catch (err: unknown) {
       setDocumentUploadError(err instanceof Error ? err.message : 'Delete failed')
@@ -1382,7 +1401,7 @@ export default function ClientDetailContent({ client, allClients, representative
   const closeAddAdlModal = () => {
     setAddAdlModalOpen(false)
   }
-  /** Same pattern as Skilled Task Library: Apply only updates local state; DB writes happen on "Save NON-SKILLED Plan". */
+  /** Same pattern as Skilled Task Library: Apply only updates local state; DB writes happen on Save Plan. */
   const applyAdlTaskSelection = () => {
     const selected = adlLists.filter((a) => addAdlSelected.has(a.name))
     const now = new Date().toISOString()
@@ -1801,8 +1820,10 @@ export default function ClientDetailContent({ client, allClients, representative
       setTimeout(() => {
         setAdlHydrateNonce((n) => n + 1)
       }, 0)
+      return true
     } catch (err: unknown) {
       setAdlPlanError(err instanceof Error ? err.message : 'Failed to save ADL plan.')
+      return false
     } finally {
       setIsSavingAdlPlan(false)
     }
@@ -2093,6 +2114,7 @@ export default function ClientDetailContent({ client, allClients, representative
                 else if (selectedToken) next.delete(selectedToken)
                 return next
               })
+              if (addVisitModalOpen) manualVisitTaskChoices.current.set(visitTaskAssignmentKey(token), e.target.checked)
             }}
             className="mt-1 rounded border-gray-300"
           />
@@ -2218,6 +2240,7 @@ export default function ClientDetailContent({ client, allClients, representative
                 else if (selectedToken) next.delete(selectedToken)
                 return next
               })
+              if (addVisitModalOpen) manualVisitTaskChoices.current.set(visitTaskAssignmentKey(token), e.target.checked)
             }}
             className="mt-1 rounded border-gray-300"
           />
@@ -2291,6 +2314,53 @@ export default function ClientDetailContent({ client, allClients, representative
     () => activeContracts.find((c) => c.id === visitForm.contractId) ?? null,
     [activeContracts, visitForm.contractId]
   )
+
+  useEffect(() => {
+    if (!addVisitModalOpen || visitForm.isRecurring || !visitForm.date ||
+        visitDateSchedulesForDate !== visitForm.date || !selectedVisitContract) return
+
+    const dow = dayOfWeekDbFromDateStr(visitForm.date)
+    const skilled = selectedVisitContract.service_type === 'skilled'
+    const dayTasks = skilled
+      ? localSkilledCarePlanTasks.map((task) => ({
+          code: task.task_id,
+          schedule: localSkilledSchedules.find((s) => s.task_id === task.task_id && s.day_of_week === dow),
+        }))
+      : localAdls.map((task) => ({
+          code: task.adl_code,
+          schedule: localAdlSchedules.find((s) => s.adl_code === task.adl_code && s.day_of_week === dow),
+        }))
+    const assigned = buildAssignedVisitTaskSlotSet(
+      visitDateSchedules.filter((visit) => visit.patient_id === localClient.id),
+      localAdlSchedules,
+      localSkilledSchedules
+    )
+    const suggested = suggestedVisitTaskTokens(dayTasks, visitForm.startTime, visitForm.endTime, assigned)
+    const available = new Set<string>()
+    for (const { code, schedule } of dayTasks) {
+      if (!schedule || schedule.schedule_type === 'never') continue
+      const slots = schedule.schedule_type === 'always' ? ['any']
+        : schedule.schedule_type === 'as_needed' ? ['as_needed']
+        : ADL_VISIT_TIME_SLOTS.filter(({ key }) => scheduleHasAdlSlot(schedule, key)).map(({ key }) => key)
+      for (const slot of slots) {
+        const key = visitTaskAssignmentKey(encodeVisitAdlSlotKey(slot, code))
+        if (!assigned.has(key)) available.add(key)
+      }
+    }
+    const next = new Set(suggested.filter((token) =>
+      manualVisitTaskChoices.current.get(visitTaskAssignmentKey(token)) !== false
+    ))
+    for (const [key, checked] of manualVisitTaskChoices.current) {
+      if (checked && available.has(key) && !Array.from(next).some((token) => visitTaskAssignmentKey(token) === key)) {
+        const task = dayTasks.find(({ code }) => key.endsWith(`::${code}`))
+        const frequency = key.startsWith('any::') ? task?.schedule?.times_per_day ?? 1 : 1
+        next.add(key.startsWith('any::') && frequency > 1 ? `${key}::${frequency}` : key)
+      }
+    }
+    setVisitAdlSelected(next)
+  }, [addVisitModalOpen, visitForm.isRecurring, visitForm.date, visitForm.startTime,
+    visitForm.endTime, visitDateSchedulesForDate, visitDateSchedules, selectedVisitContract,
+    localAdls, localAdlSchedules, localSkilledCarePlanTasks, localSkilledSchedules, localClient.id])
 
   const serviceContractsModalStatusAsOf = toLocalDateString(new Date())
 
@@ -2487,6 +2557,8 @@ export default function ClientDetailContent({ client, allClients, representative
     const today = toLocalDateString(new Date())
     const primaryAddr = addresses.find(a => a.is_primary)
     setCaregiverPickerOpen(false)
+    manualVisitTaskChoices.current.clear()
+    setVisitDateSchedulesForDate(null)
     setVisitForm({
       date: today,
       endDate: today,
@@ -2517,6 +2589,8 @@ export default function ClientDetailContent({ client, allClients, representative
     const startTime = `${String(hour).padStart(2, '0')}:00`
     const endTime = hour < 23 ? `${String(hour + 1).padStart(2, '0')}:00` : '23:59'
     setCaregiverPickerOpen(false)
+    manualVisitTaskChoices.current.clear()
+    setVisitDateSchedulesForDate(null)
     setVisitForm({
       date: dateStr,
       endDate: dateStr,
@@ -3615,11 +3689,15 @@ export default function ClientDetailContent({ client, allClients, representative
       if (skilledBatchErr) throw skilledBatchErr
       const tasksRes = await q.getPatientSkilledCarePlanTasks(localClient.id)
       const schedRes = await q.getPatientSkilledDaySchedulesByPatientId(localClient.id)
+      if (tasksRes.error) throw tasksRes.error
+      if (schedRes.error) throw schedRes.error
       if (tasksRes.data) setLocalSkilledCarePlanTasks(tasksRes.data)
       if (schedRes.data) setLocalSkilledSchedules(schedRes.data)
       router.refresh()
+      return true
     } catch (e) {
       setSkilledTasksError(e instanceof Error ? e.message : 'Failed to save care plan.')
+      return false
     } finally {
       setIsSavingSkilledTasks(false)
     }
@@ -3880,8 +3958,18 @@ export default function ClientDetailContent({ client, allClients, representative
               return (
                 <button
                   key={tab.id}
-                  onClick={() => {
+                  onClick={async () => {
                     if (isLocked) { setUpgradeOpen(true); return }
+                    if (isSavingAdlPlan || isSavingSkilledTasks) return
+                    if (tab.id === activeTab) return
+                    if (activeTab === 'adls' && hasAdlPlanChanges) {
+                      if (!window.confirm('Save your non-skilled plan changes before leaving this tab?')) return
+                      if (!(await handleSaveAdlPlan())) return
+                    }
+                    if (activeTab === 'skilled-tasks' && hasSkilledPlanChanges) {
+                      if (!window.confirm('Save your skilled plan changes before leaving this tab?')) return
+                      if (!(await handleSaveSkilledCarePlan())) return
+                    }
                     setActiveTab(tab.id)
                     router.replace(`/pages/agency/clients/${localClient.id}?tab=${tab.id}`, { scroll: false })
                   }}
@@ -5249,23 +5337,26 @@ export default function ClientDetailContent({ client, allClients, representative
                     Activities of Daily Living ({localAdls.length})
                   </h3>
                   <p className="text-sm text-gray-500 mt-1">
-                    Manage client care tasks and schedules. Use <strong>Save NON-SKILLED Plan</strong> to write library
-                    changes, trashed tasks, and the weekly grid to the database (same idea as the Skilled Tasks tab).
+                    Manage client care tasks and schedules.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
-                    variant="primary"
+                    variant="secondary"
+                    className="!border-primary !bg-secondary !text-primary hover:!bg-primary-subtle"
                     type="button"
                     onClick={openAddAdlModal}
                     icon={Plus}
+                    disabled={isSavingAdlPlan}
                   >
-                    ADD NON-SKILLED TASK
+                    Add Task
                   </Button>
                   <Button
                     variant="secondary"
                     type="button"
+                    disabled={isSavingAdlPlan}
                     onClick={() => {
+                      if (hasAdlPlanChanges && !window.confirm('Discard your unsaved non-skilled plan changes?')) return
                       setLocalAdls(initialAdls ?? [])
                       setLocalAdlSchedules(initialAdlSchedules ?? [])
                       setPendingAdlDeletes([])
@@ -5277,13 +5368,13 @@ export default function ClientDetailContent({ client, allClients, representative
                   </Button>
                   <Button
                     variant="primary"
-                    className="!bg-success-hover hover:!bg-success-hover hover:brightness-90"
                     type="button"
                     onClick={handleSaveAdlPlan}
                     disabled={isSavingAdlPlan || !hasAdlPlanChanges}
                     loading={isSavingAdlPlan}
+                    icon={Save}
                   >
-                    Save NON-SKILLED Plan
+                    Save Plan
                   </Button>
                 </div>
               </div>
@@ -5299,16 +5390,22 @@ export default function ClientDetailContent({ client, allClients, representative
                   <div className="p-12 flex flex-col items-center justify-center text-center">
                     <ClipboardList className="w-12 h-12 text-gray-300 mb-4" aria-hidden />
                     <p className="text-gray-700 font-medium mb-1">No ADL tasks added yet</p>
-                    <p className="text-sm text-gray-500 mb-0">Click &quot;ADD NON-SKILLED TASKS&quot; to get started.</p>
+                    <p className="text-sm text-gray-500 mb-0">Click &quot;Add Task&quot; to get started.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
+                    <table className="w-full min-w-[68rem] table-fixed text-left text-sm">
+                      <colgroup>
+                        <col className="w-[15rem]" />
+                        {ADL_DAYS.map((d) => <col key={d.value} />)}
+                        <col className="w-14" />
+                        <col className="w-14" />
+                      </colgroup>
                       <thead>
                         <tr className="border-b border-gray-200 text-xs font-semibold uppercase tracking-wider text-gray-600">
                           <th className="px-4 py-3 bg-gray-50">Name</th>
                           {ADL_DAYS.map((d) => (
-                            <th key={d.value} className="px-2 py-3 text-center bg-gray-50">
+                            <th key={d.value} className="px-3 py-3 text-left bg-gray-50">
                               {d.label}
                             </th>
                           ))}
@@ -5363,11 +5460,11 @@ export default function ClientDetailContent({ client, allClients, representative
                                 const specificSlots = getSpecificTimesSlots(s)
                                 const type = s?.schedule_type ?? 'never'
                                 return (
-                                  <td key={d.value} className="px-2 py-3 text-left align-center">
+                                  <td key={d.value} className="px-2 py-3 text-left align-middle min-w-0">
                                     <button
                                       type="button"
                                       onClick={() => openSelectTimeModal(adlInfo, d.value, DAY_LABELS[d.value])}
-                                      className="inline-flex flex-row items-start gap-1.5 p-1 rounded hover:bg-gray-100 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 min-w-0"
+                                      className="inline-flex w-full min-w-0 flex-row items-start gap-1.5 p-1 rounded text-left hover:bg-gray-100 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
                                       aria-label={`Set schedule for ${adlInfo.name} on ${d.label}`}
                                     >
                                       {type === 'never' && (
@@ -5489,17 +5586,21 @@ export default function ClientDetailContent({ client, allClients, representative
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
-                    variant="primary"
+                    variant="secondary"
+                    className="!border-primary !bg-secondary !text-primary hover:!bg-primary-subtle"
                     type="button"
                     onClick={openSkilledTaskModal}
                     icon={Plus}
+                    disabled={isSavingSkilledTasks}
                   >
-                    ADD SKILLED TASK
+                    Add Task
                   </Button>
                   <Button
                     variant="secondary"
                     type="button"
+                    disabled={isSavingSkilledTasks}
                     onClick={() => {
+                      if (hasSkilledPlanChanges && !window.confirm('Discard your unsaved skilled plan changes?')) return
                       setLocalSkilledCarePlanTasks(initialSkilledCarePlanTasks ?? [])
                       setLocalSkilledSchedules(initialSkilledSchedules)
                       setPendingSkilledDeletes([])
@@ -5511,13 +5612,13 @@ export default function ClientDetailContent({ client, allClients, representative
                   </Button>
                   <Button
                     variant="primary"
-                    className="!bg-success-hover hover:!bg-success-hover hover:brightness-90"
                     type="button"
                     onClick={handleSaveSkilledCarePlan}
                     disabled={isSavingSkilledTasks || !hasSkilledPlanChanges}
                     loading={isSavingSkilledTasks}
+                    icon={Save}
                   >
-                    Save Skilled Plan
+                    Save Plan
                   </Button>
                 </div>
               </div>
@@ -5531,7 +5632,7 @@ export default function ClientDetailContent({ client, allClients, representative
                   <div className="p-12 flex flex-col items-center justify-center text-center">
                     <ClipboardList className="w-12 h-12 text-gray-300 mb-4" aria-hidden />
                     <p className="text-gray-700 font-medium mb-1">No skilled tasks added yet</p>
-                    <p className="text-sm text-gray-500 mb-0">Click &quot;ADD SKILLED TASK&quot; to get started.</p>
+                    <p className="text-sm text-gray-500 mb-0">Click &quot;Add Task&quot; to get started.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -6843,7 +6944,11 @@ export default function ClientDetailContent({ client, allClients, representative
               )}
             </div>
             <div className="max-h-160 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2">
-              {selectedVisitContract?.service_type === 'skilled'
+              {visitDateSchedulesLoadError ? (
+                <p className="text-sm text-red-600 p-3" role="alert">Unable to load available tasks. Close and reopen the visit to try again.</p>
+              ) : !visitForm.isRecurring && visitForm.date && visitDateSchedulesForDate !== visitForm.date ? (
+                <p className="text-sm text-gray-500 p-3" role="status">Loading available tasks for this date...</p>
+              ) : selectedVisitContract?.service_type === 'skilled'
                 ? localSkilledCarePlanTasks.length === 0 ? (
                     <p className="text-sm text-gray-500 p-3">
                       No skilled tasks configured. Add them in the Skilled Tasks tab and set days/times first.
@@ -6858,7 +6963,7 @@ export default function ClientDetailContent({ client, allClients, representative
                           })()
                         : null
                       const assignedSlots = buildAssignedVisitTaskSlotSet(
-                        visitDateSchedules ?? [],
+                        visitDateSchedules.filter((visit) => visit.patient_id === localClient.id),
                         localAdlSchedules,
                         localSkilledSchedules
                       )
@@ -6874,7 +6979,7 @@ export default function ClientDetailContent({ client, allClients, representative
                         })()
                       : null
                     const assignedSlots = buildAssignedVisitTaskSlotSet(
-                      visitDateSchedules ?? [],
+                      visitDateSchedules.filter((visit) => visit.patient_id === localClient.id),
                       localAdlSchedules,
                       localSkilledSchedules
                     )
@@ -7277,7 +7382,7 @@ export default function ClientDetailContent({ client, allClients, representative
                             return d === 0 ? 7 : d
                           })()
                         : null
-                      const otherVisitsOnDate = (visitDateSchedules ?? []).filter((s) => s.id !== editingSchedule?.id)
+                      const otherVisitsOnDate = visitDateSchedules.filter((s) => s.patient_id === localClient.id && s.id !== editingSchedule?.id)
                       const assignedSlots = buildAssignedVisitTaskSlotSet(
                         otherVisitsOnDate,
                         localAdlSchedules,
@@ -7294,7 +7399,7 @@ export default function ClientDetailContent({ client, allClients, representative
                           return d === 0 ? 7 : d
                         })()
                       : null
-                    const otherVisitsOnDate = (visitDateSchedules ?? []).filter((s) => s.id !== editingSchedule?.id)
+                    const otherVisitsOnDate = visitDateSchedules.filter((s) => s.patient_id === localClient.id && s.id !== editingSchedule?.id)
                     const assignedSlots = buildAssignedVisitTaskSlotSet(
                       otherVisitsOnDate,
                       localAdlSchedules,

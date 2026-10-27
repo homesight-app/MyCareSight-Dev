@@ -1,5 +1,6 @@
 import sql from '@/db'
 import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
+import { readPatientDocuments } from '@/lib/patient-document-metadata'
 
 const PATIENT_TEMPORAL_CONTRACT = {
   dates: ['date_of_birth', 'start_date'] as const,
@@ -350,7 +351,9 @@ export async function getPatientByIdAndAgencyId(patientId: string, agencyId: str
         AND p.agency_id = ${agencyId}
       LIMIT 1
     `
-    return { data: rows[0] ? normalizePatientRow(rows[0]) as any : null, error: null }
+    if (!rows[0]) return { data: null, error: null }
+    const row = normalizePatientRow(rows[0])
+    return { data: { ...row, documents: readPatientDocuments(row.documents) } as any, error: null }
   } catch (err) {
     return { data: null, error: pgError(err) }
   }

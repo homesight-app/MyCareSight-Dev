@@ -983,3 +983,35 @@ and auditors.
 - **Relevant safeguards:** Supports 45 CFR 164.312(a)(1) Access Control and 164.312(b) Audit Controls through a gated, attributable staging release and recorded commit SHA, and 164.312(c)(1) Integrity through CI checks before deployment.
 - **Files:** `.github/workflows/manual_production-staging.yml`, `docs/plans/production-pre-migration-readiness.md`, and this log.
 - **Validation and remaining gap:** The workflow parses as YAML and a local guard check confirms manual trigger, `main` restriction, protected environment reference, and `staging` slot target. TypeScript passes; lint passes with 17 existing warnings. Build and tests were not rerun because this batch changes workflow and documentation only. The operator reports that staging-only GitHub build values are now in the `production-staging` environment, with `STAGING_AUTH_SECRET` and `STAGING_DATABASE_URL` under environment secrets rather than variables. The operator also reports the staging SCM endpoint has separate rules with unmatched requests allowed. This should permit GitHub-hosted runner connectivity but leaves SCM network-accessible from unlisted addresses; it requires review before PHI. The GitHub environment reportedly restricts deployment branches to `main` but has no required reviewer. No deployment, synthetic acceptance, or independent cloud verification has occurred. Production data migration remains outside this work.
+
+### Non-Skilled Care-Plan Draft Navigation Guard (2026-10-26)
+
+- **What:** Aligned the weekly non-skilled day headers with their schedule controls using fixed table columns. When an agency user leaves the non-skilled tab with unsaved plan changes, the UI now offers to save before navigation and stays on the tab if the user declines or the save fails.
+- **Access, integrity, and privacy impact:** The existing authorized server save, tenant scope, RLS, and audit path remain unchanged. The guard reduces accidental loss of patient care-plan edits; no care-plan content is placed in prompts, telemetry, or logs.
+- **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity and preserves existing 45 CFR 164.312(a)(1) Access Control and 164.312(b) Audit Controls.
+- **Files:** `src/components/ClientDetailContent.tsx`, this log.
+- **Remaining gap:** The guard covers in-page client-tab navigation. A full browser close or navigation outside this component still relies on the explicit Save action. Synthetic UAT browser verification is needed after deployment.
+
+### Care-Plan Section Action Hierarchy (2026-10-26)
+
+- **What:** Matched the non-skilled and skilled care-plan section actions: outlined Add Task, neutral Cancel, and primary Save Plan. Both sections retain disabled Save when no plan changes are detected. Cancel asks before discarding edits, and skilled tab navigation now offers to save pending changes as the non-skilled tab does.
+- **Access, integrity, and privacy impact:** The existing authorized save operations, tenant isolation, RLS, and audit paths remain unchanged. Confirmation prompts contain no patient or plan details. The skilled save now reports a post-save read failure rather than silently treating it as a successful refresh.
+- **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity while preserving 45 CFR 164.312(a)(1) Access Control and 164.312(b) Audit Controls.
+- **Files:** `src/components/ClientDetailContent.tsx`, this log.
+- **Remaining gap:** Unsaved-change prompts cover these section controls and in-page tab navigation, not every browser exit. Authenticated synthetic UAT visual and workflow verification remains necessary after deployment.
+
+### Patient Document Metadata Array Repair Prepared (2026-10-26)
+
+- **What:** Neon UAT metadata-only checks reported `patients.documents` as nullable JSONB, with eight rows holding arrays and two rows holding JSONB strings. Client document reads and upload/delete actions now decode an encoded array without dropping existing entries, return the database's saved list, and fail closed on malformed metadata. Prepared Neon-only migration 033 to convert valid encoded arrays to native JSONB arrays without changing blob objects.
+- **Access, integrity, and privacy impact:** Existing session authorization, patient RLS, private storage access, and audit paths remain in place. The upload action no longer accepts a client-supplied existing-document list; the delete action no longer accepts a client-supplied replacement list. Migration output and tests contain no patient names, document names, paths, or contents from UAT.
+- **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity by preserving all document references, 164.312(a)(1) Access Control through server-authorized reads and writes, and 164.312(b) Audit Controls through the existing metadata-only events.
+- **Files:** `src/lib/patient-document-metadata.ts`, `src/lib/supabase/query/patients.ts`, `src/app/actions/patient-documents.ts`, `src/components/ClientDetailContent.tsx`, migration 033 and verifier, focused synthetic tests, and this log.
+- **Remaining gap:** The agent has not connected to Neon UAT or applied migration 033. The operator must apply and verify it after review; an authenticated synthetic UAT upload-two-files, refresh, and download check is still required. Any encoded string that is not a JSON array causes the migration to roll back without changing rows.
+
+### Visit Task Time-Window Preselection Prepared (2026-10-26)
+
+- **What:** New single visits suggest the selected day's unassigned care-plan tasks whose Morning, Afternoon, Evening, or Night window overlaps the visit, plus unassigned Anytime tasks. As Needed tasks remain manual. Coordinators can override suggestions; editing existing visits retains saved choices. Existing task-availability checks now compare assignments only within the current client.
+- **Access, integrity, and privacy impact:** The suggestion runs in the authorized client scheduling UI and waits for the agency-scoped visit lookup before showing available tasks. Existing server authorization, RLS, persistence, and audit behavior are unchanged. No visit or care-plan content is logged.
+- **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity by reducing missed or duplicate task assignments while retaining 164.312(a)(1) Access Control and 164.312(b) Audit Controls.
+- **Files:** `src/components/ClientDetailContent.tsx`, `src/lib/visit-task-prefill.ts`, `src/_tests_/visit-task-prefill.test.ts`, and this log.
+- **Remaining gap:** Automatic suggestions currently apply to single visits; recurring series retain manual task selection. Authenticated synthetic UAT browser verification is required after deployment.

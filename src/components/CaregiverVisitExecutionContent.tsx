@@ -18,6 +18,7 @@ import { MY_CARE_VISITS_TAB_STORAGE_KEY } from '@/lib/caregiver-care-visits-shar
 import Modal from '@/components/Modal'
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
+import { formatVisitTimeRangeLabel } from '@/lib/visit-time-display'
 import {
   caregiverClockInAction,
   caregiverClockOutAction,
@@ -404,7 +405,7 @@ export default function CaregiverVisitExecutionContent({ initial }: Props) {
           </span>
           <span className="inline-flex items-center gap-1.5">
             <Clock3 className="h-4 w-4 text-gray-400" aria-hidden />
-            {initial.timeLabel} {initial.durationLabel}
+            {formatVisitTimeRangeLabel(initial.timeLabel)} {initial.durationLabel}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <MapPin className="h-4 w-4 text-gray-400" aria-hidden />

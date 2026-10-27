@@ -18,6 +18,7 @@ import InternalNotesPanel from './InternalNotesPanel'
 import { patientFullName } from '@/lib/patient-name'
 import Tabs from '@/components/ui/Tabs'
 import Badge, { type BadgeColor } from '@/components/ui/Badge'
+import { formatVisitTime } from '@/lib/visit-time-display'
 
 interface StaffMember {
   id: string
@@ -191,8 +192,7 @@ export default function CaregiverProfileContent({
   }
 
   const formatTime = (raw: string | null | undefined) => {
-    if (!raw) return '--:--'
-    return String(raw).slice(0, 5)
+    return formatVisitTime(raw) || '--:--'
   }
 
   const formatVisitStatus = (status: string | null | undefined) => {

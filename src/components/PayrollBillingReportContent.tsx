@@ -31,6 +31,7 @@ import { payRateBatchSchema, type PayRateBatchInput, type PayRateBatch, type Pay
 import { saveCaregiverPayRatesAction } from '@/app/actions/caregiver-pay-rates'
 import { toast } from 'sonner'
 import { billRateBatchSchema } from '@/lib/schemas/financial-maintenance'
+import { formatVisitTimeRange } from '@/lib/visit-time-display'
 
 type TabKey = 'detail' | 'payroll' | 'billing'
 
@@ -430,7 +431,7 @@ export default function PayrollBillingReportContent({
                       </span>
                     </td>
                     <td className="px-3 py-3 text-gray-700">{r.visitDate}</td>
-                    <td className="px-3 py-3 text-gray-700">{r.startTime}–{r.endTime}</td>
+                    <td className="px-3 py-3 text-gray-700">{formatVisitTimeRange(r.startTime, r.endTime)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-gray-700">{(r.regHours ?? 0).toFixed(2)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-orange-600">{(r.otHours ?? 0) > 0 ? (r.otHours ?? 0).toFixed(2) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-blue-600">{(r.holidayHours ?? 0) > 0 ? (r.holidayHours ?? 0).toFixed(2) : '—'}</td>

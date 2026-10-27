@@ -18,6 +18,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
+import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import Modal from './Modal'
 import DeclineAssignmentModal from './DeclineAssignmentModal'
 import InternalNotesPanel from './InternalNotesPanel'
@@ -49,6 +50,7 @@ import type {
 } from '@/lib/visit-assignment-dashboard'
 import type { AllVisitCardDTO } from '@/lib/visit-all-visits-dashboard'
 import { visitStatusBadgeClass, visitStatusLeftBorderClass } from '@/lib/visit-status-styles'
+import { formatVisitTime, formatVisitTimeRangeLabel } from '@/lib/visit-time-display'
 
 export type VisitManagementContentProps = {
   visits: AssignmentVisitCardDTO[]
@@ -628,25 +630,26 @@ export default function VisitManagementContent({
                   {group.visits.map((visit) => {
                     const isPastVisit = isPastVisitDate(visit.date)
                     const isLockedStatus = visit.status === 'completed' || visit.status === 'missed' || visit.status === 'cancelled'
+                    const canManageVisit = !isPastVisit && !isLockedStatus
+                    const isVisitBusy = pendingActionKey?.endsWith(`:${visit.id}`) ?? false
                     return (
-                    <div key={visit.id} className={`bg-white border rounded-xl p-4 shadow-sm border-l-4 ${visitStatusLeftBorderClass(visit.status)} ${visit.status === 'unassigned' ? 'border-red-200' : 'border-gray-200'}`}>
-                      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                        <div className="min-w-[84px] text-sm">
+                    <div key={visit.id} className={`bg-white border rounded-xl border-l-4 px-3 py-2.5 shadow-sm ${visitStatusLeftBorderClass(visit.status)} ${visit.status === 'unassigned' ? 'border-red-200' : 'border-gray-200'}`}>
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+                        <div className="shrink-0 text-sm lg:w-[82px]">
                           <div className="text-xs text-gray-500">{visit.date.slice(5).replace('-', ' / ')}</div>
-                          <div className="font-semibold text-gray-900">{visit.timeLabel.split(' - ')[0] || '-'}</div>
+                          <div className="font-semibold text-gray-900">{formatVisitTime(visit.timeLabel.split(' - ')[0]) || '-'}</div>
                         </div>
-                        <div className="flex-1 space-y-2">
-                          {/* <div className="font-semibold text-gray-900">{visit.visitTitle}</div> */}
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center px-2 py-0.5 text-lg">{visit.adlTasks.length ? visit.adlTasks.join(', ') : 'No ADL tasks'}</span>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="min-w-0 max-w-full truncate text-sm font-semibold text-gray-900" title={visit.adlTasks.join(', ')}>{visit.adlTasks.length ? visit.adlTasks.join(', ') : 'No ADL tasks'}</span>
                             <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${visitStatusBadgeClass(visit.status)}`}>{visit.statusLabel}</span>
                             {visit.correctionCount > 0 ? <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">Corrected</span> : null}
                             <span className="inline-flex items-center rounded-full border border-blue-200 text-blue-700 text-xs px-2 py-0.5">{visit.typeLabel}</span>
                           </div>
-                          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
                             <span className="inline-flex items-center gap-1"><User className="h-3.5 w-3.5" /> {visit.clientName}</span>
-                            <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {visit.locationLabel}</span>
-                            <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {visit.timeLabel}</span>
+                            <span className="inline-flex min-w-0 max-w-48 items-center gap-1 truncate" title={visit.locationLabel}><MapPin className="h-3.5 w-3.5 shrink-0" /> {visit.locationLabel}</span>
+                            <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {formatVisitTimeRangeLabel(visit.timeLabel)}</span>
                             <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${visit.caregiverName ? 'border-blue-200 text-blue-700' : 'border-red-200 text-red-700'}`}>
                               {visit.caregiverName ?? 'No caregiver assigned'}
                             </span>
@@ -658,72 +661,46 @@ export default function VisitManagementContent({
                             ) : null}
                           </div>
                         </div>
-                        <div className="flex lg:flex-col gap-2 lg:w-[130px]">
-                          <button type="button" onClick={() => openVisitDetails(visit)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium hover:bg-gray-50">Details</button>
+                        <div className="flex shrink-0 items-center gap-1.5 lg:ml-auto">
+                          <Button variant="secondary" size="sm" type="button" onClick={() => openVisitDetails(visit)}>Details</Button>
                           {visit.status === 'cancelled' || visit.status === 'on_hold' ? (
-                            <button
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               type="button"
-                              disabled={pendingActionKey === `reinstate:${visit.id}`}
+                              disabled={isVisitBusy}
                               onClick={() => handleReinstate(visit)}
-                              className="rounded-lg border border-gray-300 text-gray-700 px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60"
                             >
                               Reinstate
-                            </button>
+                            </Button>
                           ) : null}
-                          {!isPastVisit && !isLockedStatus ? (
+                          {canManageVisit ? (
                             <>
                               <Button
                                 variant="primary"
+                                size="sm"
                                 type="button"
-                                disabled={pendingActionKey === `assign:${visit.id}`}
+                                disabled={isVisitBusy}
                                 onClick={() => void openReassignModal(visit)}
                               >
                                 {visit.caregiverId ? 'Reassign' : 'Assign'}
                               </Button>
-                              {!visit.caregiverId ? (
-                                <Button
-                                  variant="secondary"
-                                  type="button"
-                                  icon={BellRing}
-                                  onClick={() => void openAdvertiseModal(visit)}
-                                >
-                                  Advertise
-                                </Button>
-                              ) : null}
-                              {visit.caregiverId ? (
-                                <button
-                                  type="button"
-                                  disabled={pendingActionKey === `unassign:${visit.id}`}
-                                  onClick={() => handleUnassign(visit)}
-                                  className="rounded-lg border border-red-200 text-red-600 px-3 py-2 text-sm font-medium hover:bg-red-50 disabled:opacity-60"
-                                >
-                                  Unassign
-                                </button>
-                              ) : null}
-                              <button
-                                type="button"
-                                disabled={pendingActionKey === `miss:${visit.id}`}
-                                onClick={() => setMissVisit(visit)}
-                                className="rounded-lg border border-orange-200 text-orange-700 px-3 py-2 text-sm font-medium hover:bg-orange-50 disabled:opacity-60"
-                              >
-                                Miss
-                              </button>
-                              <button
-                                type="button"
-                                disabled={pendingActionKey === `hold:${visit.id}`}
-                                onClick={() => setHoldVisit(visit)}
-                                className="rounded-lg border border-yellow-300 text-yellow-700 px-3 py-2 text-sm font-medium hover:bg-yellow-50 disabled:opacity-60"
-                              >
-                                On Hold
-                              </button>
-                              <button
-                                type="button"
-                                disabled={pendingActionKey === `cancel:${visit.id}`}
-                                onClick={() => setCancelVisit(visit)}
-                                className="rounded-lg border border-rose-200 text-rose-700 px-3 py-2 text-sm font-medium hover:bg-rose-50 disabled:opacity-60"
-                              >
-                                Cancel
-                              </button>
+                              {isVisitBusy ? (
+                                <button type="button" disabled aria-label="Visit actions pending" className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-50"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /></button>
+                              ) : (
+                                <div className="rounded-lg border border-gray-200">
+                                  <RecordActionsMenu
+                                    label={`More actions for ${visit.clientName}'s visit`}
+                                    actions={[
+                                      ...(!visit.caregiverId ? [{ label: 'Advertise shift', icon: BellRing, onClick: () => void openAdvertiseModal(visit) }] : []),
+                                      ...(visit.caregiverId ? [{ label: 'Unassign caregiver', icon: User, onClick: () => handleUnassign(visit), destructive: true }] : []),
+                                      { label: 'Mark missed', icon: XCircle, onClick: () => setMissVisit(visit) },
+                                      { label: 'Place on hold', icon: Clock, onClick: () => setHoldVisit(visit) },
+                                      { label: 'Cancel visit', icon: XCircle, onClick: () => setCancelVisit(visit), destructive: true },
+                                    ]}
+                                  />
+                                </div>
+                              )}
                             </>
                           ) : null}
                         </div>
@@ -833,7 +810,7 @@ export default function VisitManagementContent({
                               </span>
                               <span className="inline-flex items-center gap-1.5">
                                 <Clock className="h-4 w-4 text-gray-400 shrink-0" aria-hidden />
-                                {item.timeLabel}
+                                {formatVisitTimeRangeLabel(item.timeLabel)}
                               </span>
                               <span className="inline-flex items-center gap-1.5">
                                 <MapPin className="h-4 w-4 text-gray-400 shrink-0" aria-hidden />
@@ -921,7 +898,7 @@ export default function VisitManagementContent({
                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
                           <span className="inline-flex items-center gap-1.5"><User className="h-4 w-4 text-gray-400 shrink-0" aria-hidden />{visit.clientName}</span>
                           <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-gray-400 shrink-0" aria-hidden />{visit.dateLabel}</span>
-                          <span className="inline-flex items-center gap-1.5"><Clock className="h-4 w-4 text-gray-400 shrink-0" aria-hidden />{visit.timeLabel}</span>
+                          <span className="inline-flex items-center gap-1.5"><Clock className="h-4 w-4 text-gray-400 shrink-0" aria-hidden />{formatVisitTimeRangeLabel(visit.timeLabel)}</span>
                           <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-gray-400 shrink-0" aria-hidden />{visit.locationLabel}</span>
                         </div>
                       </div>
@@ -1051,7 +1028,7 @@ export default function VisitManagementContent({
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Client</div><div className="font-semibold">{detailVisit.clientName}</div></div>
               <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Location</div><div className="font-semibold">{detailVisit.locationLabel}</div></div>
-              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Time</div><div className="font-semibold">{detailVisit.timeLabel}</div></div>
+              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Time</div><div className="font-semibold">{formatVisitTimeRangeLabel(detailVisit.timeLabel)}</div></div>
               <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Caregiver</div><div className="font-semibold">{detailVisit.caregiverName ?? '-'}</div></div>
             </div>
             <div><div className="text-xs text-gray-500 mb-1">ADL Tasks</div><div className="flex flex-wrap gap-2">{detailVisit.adlTasks.length ? detailVisit.adlTasks.map((task) => <span key={task} className="rounded-full border border-blue-200 text-blue-700 bg-blue-50 px-2 py-0.5 text-xs">{task}</span>) : <span className="text-sm text-gray-500">No ADL tasks</span>}</div></div>
@@ -1131,10 +1108,10 @@ export default function VisitManagementContent({
         }}
       />
 
-      <Modal isOpen={!!reassignVisit} onClose={() => { setReassignVisit(null); setCandidates([]) }} title="Assign Caregiver" size="lg">
+      <Modal isOpen={!!reassignVisit} onClose={() => { setReassignVisit(null); setCandidates([]) }} title="Assign Caregiver" size="xl">
         {reassignVisit ? (
           <div className="space-y-3">
-            <div className="text-sm text-gray-600">{reassignVisit.clientName} — {reassignVisit.visitTitle} — {reassignVisit.timeLabel}</div>
+            <div className="text-sm text-gray-600">{reassignVisit.clientName} — {reassignVisit.visitTitle} — {formatVisitTimeRangeLabel(reassignVisit.timeLabel)}</div>
             <CaregiverAssignmentList
               variant="modal"
               options={candidates}
@@ -1164,7 +1141,7 @@ export default function VisitManagementContent({
             <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900">
               <div className="font-semibold">{missVisit.clientName}</div>
               <div>{missVisit.visitTitle}</div>
-              <div>{missVisit.dateLabel}, {missVisit.timeLabel}</div>
+              <div>{missVisit.dateLabel}, {formatVisitTimeRangeLabel(missVisit.timeLabel)}</div>
               <div>Caregiver: {missVisit.caregiverName ?? 'Unassigned'}</div>
             </div>
             <div>
@@ -1193,7 +1170,7 @@ export default function VisitManagementContent({
             <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
               <div className="font-semibold">{cancelVisit.clientName}</div>
               <div>{cancelVisit.visitTitle}</div>
-              <div>{cancelVisit.dateLabel}, {cancelVisit.timeLabel}</div>
+              <div>{cancelVisit.dateLabel}, {formatVisitTimeRangeLabel(cancelVisit.timeLabel)}</div>
               <div>Caregiver: {cancelVisit.caregiverName ?? 'Unassigned'}</div>
             </div>
             <div>
@@ -1222,7 +1199,7 @@ export default function VisitManagementContent({
             <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
               <div className="font-semibold">{holdVisit.clientName}</div>
               <div>{holdVisit.visitTitle}</div>
-              <div>{holdVisit.dateLabel}, {holdVisit.timeLabel}</div>
+              <div>{holdVisit.dateLabel}, {formatVisitTimeRangeLabel(holdVisit.timeLabel)}</div>
               <div>Caregiver: {holdVisit.caregiverName ?? 'Unassigned'}</div>
             </div>
             <div>

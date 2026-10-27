@@ -8,6 +8,7 @@ import { approveTimeBillingRowAction, voidTimeBillingRowAction } from '@/app/act
 import Tabs from '@/components/ui/Tabs'
 import StatusBadge from '@/components/ui/StatusBadge'
 import SearchInput from '@/components/ui/SearchInput'
+import { formatVisitTimeRangeLabel } from '@/lib/visit-time-display'
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -385,7 +386,7 @@ export default function TimeBillingContent({ rows, loadError, selectedMonth, sel
                     <td className="px-3 py-2">{row.date}</td>
                     {activeTab !== 'voided' ? <td className="px-3 py-2">{row.clientName}</td> : null}
                     <td className="px-3 py-2">{row.caregiverName}</td>
-                    <td className="px-3 py-2">{row.timeLabel}</td>
+                    <td className="px-3 py-2">{formatVisitTimeRangeLabel(row.timeLabel)}</td>
                     <td className="px-3 py-2 group">
                       {activeTab === 'pending' ? (
                         actualHoursEditingId === row.id ? (

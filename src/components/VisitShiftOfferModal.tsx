@@ -14,6 +14,7 @@ import {
   type PublishVisitShiftOfferInput,
 } from '@/lib/schemas/visit-shift-offers'
 import { publishVisitShiftOfferAction } from '@/app/actions/visit-shift-offers'
+import { formatVisitTimeRangeLabel } from '@/lib/visit-time-display'
 
 type Props = {
   visit: AllVisitCardDTO | null
@@ -93,7 +94,7 @@ export default function VisitShiftOfferModal({
         <form noValidate onSubmit={submit} className="space-y-5">
           <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-950">
             <div className="font-semibold">{visit.dateLabel}</div>
-            <div>{visit.timeLabel} · {visit.typeLabel}</div>
+            <div>{formatVisitTimeRangeLabel(visit.timeLabel)} · {visit.typeLabel}</div>
             <div className="mt-1 text-xs text-blue-700">
               Caregivers will not see the client name, address, visit notes, or care tasks in the invitation.
             </div>

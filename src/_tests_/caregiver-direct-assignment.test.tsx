@@ -27,7 +27,7 @@ describe('direct caregiver assignment', () => {
     try {
       render(<CaregiverAssignmentList assignmentMode="direct" variant="modal" options={[free] as CaregiverMatchOption[]}
         requiredSkills={visit.requiredSkills} defaultFilter="eligible" onSelect={onSelect} />)
-      expect(screen.getByRole('button', { name: 'Eligible (1)' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Assignable (1)' })).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Assign' }))
       expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Required Skill'))
       expect(onSelect).toHaveBeenCalledWith(staff[0].id)
@@ -56,5 +56,37 @@ describe('direct caregiver assignment', () => {
     } finally {
       confirm.mockRestore()
     }
+  })
+
+  test('modal keeps requirements and scoring collapsed while showing accurate row status', () => {
+    const [candidate] = computeCaregiverMatches({ ...visit, conflicts: [] })
+    render(<CaregiverAssignmentList assignmentMode="direct" variant="modal" options={[candidate]}
+      requiredSkills={visit.requiredSkills} defaultFilter="all" onSelect={jest.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Client Required Skills (1)' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('Overall Score')).not.toBeInTheDocument()
+    expect(screen.getByText('No matching availability')).toBeInTheDocument()
+    expect(screen.getByText('Required skills 0 of 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Assign' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show details for Synthetic Caregiver' }))
+    expect(screen.getByText('Overall Score')).toBeInTheDocument()
+    expect(screen.getByText('Missing required skills (1)')).toBeInTheDocument()
+    expect(screen.getByText('Required Skill')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Client Required Skills (1)' }))
+    expect(screen.getByRole('button', { name: 'Client Required Skills (1)' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  test('search narrows modal results and availability counts without changing assignment rules', () => {
+    const [candidate] = computeCaregiverMatches({ ...visit, conflicts: [] })
+    const other = { ...candidate, id: 'caregiver-2', name: 'Second Caregiver', title: 'Nurse' }
+    render(<CaregiverAssignmentList assignmentMode="direct" variant="modal" options={[candidate, other]}
+      requiredSkills={visit.requiredSkills} defaultFilter="all" onSelect={jest.fn()} />)
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search caregivers by name or role' }), { target: { value: 'Nurse' } })
+    expect(screen.queryByText('Synthetic Caregiver')).not.toBeInTheDocument()
+    expect(screen.getByText('Second Caregiver')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'All (1)' })).toBeInTheDocument()
   })
 })

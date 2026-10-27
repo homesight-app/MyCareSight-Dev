@@ -1039,3 +1039,51 @@ and auditors.
 - **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity through accurate per-occurrence task tracking, 164.312(b) Audit Controls through the conversion event and preserved historical rows, and maintains 164.312(a)(1) Access Control.
 - **Files:** `src/components/ClientDetailContent.tsx`, `src/lib/visit-task-codes.ts`, `src/lib/visit-task-prefill.ts`, focused synthetic tests, migration 034 and its verifier, and this log.
 - **Remaining gap:** Migration 034 is prepared but has not been applied to Neon branches. The operator should apply and verify it before releasing the code to each environment. Historical completed combined tasks remain combined; an authenticated synthetic browser check of Wednesday task availability and splitting across two visits is still required.
+
+### Visit Time Display in 12-Hour Format (2026-10-27)
+
+- **What:** Visit times on the client schedule and status dialog, Visit Management, caregiver visit views, shift-offer preview, time and billing table, and payroll/billing detail now display in 12-hour AM/PM format. A shared formatter converts stored wall-clock strings at display time; raw values continue to drive scheduling, duration calculations, and chronological sorting.
+- **Access, integrity, and privacy impact:** This is a presentation change to already authorized visit views. It changes no visit records, timezone conversion, API contracts, tenant checks, or audit events, and logs no visit details.
+- **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity by making visit time labels unambiguous while preserving existing 164.312(a)(1) Access Control and 164.312(b) Audit Controls.
+- **Files:** `src/lib/visit-time-display.ts`, its synthetic tests, the affected visit display components, and this log.
+- **Remaining gap:** Authenticated synthetic browser verification across the affected portals remains necessary; the formatter does not alter data entry controls or time zones.
+
+### Contiguous Care-Plan Task Time Windows (2026-10-27)
+
+- **What:** The shared ADL/IADL and skilled-task schedule picker and new-visit task preselection now use Morning 5 AM–11 AM, Afternoon 11 AM–5 PM, Evening 5 PM–11 PM, and Night 11 PM–5 AM. All four windows cover the day without a gap or overlap; a visit starting exactly at a boundary belongs to the new window. Existing care-plan rows retain their Morning/Afternoon/Evening/Night slot keys, so no schema or data migration is required.
+- **Access, integrity, and privacy impact:** New visit preselection changes at the revised boundaries. Existing visit assignments are not rewritten. Existing patient authorization, RLS, saving, and audit paths remain unchanged; no plan or visit content is logged.
+- **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity by aligning displayed windows with task suggestions, while preserving 164.312(a)(1) Access Control and 164.312(b) Audit Controls.
+- **Files:** `src/lib/visit-task-time-windows.ts`, `src/lib/visit-task-prefill.ts`, `src/components/ClientDetailContent.tsx`, focused synthetic tests, and this log.
+- **Remaining gap:** Authenticated synthetic UAT verification of tasks around 5 AM, 11 AM, 5 PM, and 11 PM is still needed after release.
+
+### Client Age Display Derived from Date of Birth (2026-10-27)
+
+- **What:** The client detail header and overview now calculate age from the stored date of birth, including when the separate age field is null. The personal edit form and newly inserted client list row use the same calendar-date calculation. Invalid or future birth dates display N/A.
+- **Access, integrity, and privacy impact:** Existing authorized client reads and patient save behavior are unchanged. No patient data is logged or added to audit details.
+- **Relevant safeguards:** Supports 45 CFR 164.312(c)(1) Integrity by preventing an empty or stale age field from misrepresenting a client's age; existing 164.312(a)(1) Access Control and 164.312(b) Audit Controls remain in place.
+- **Files:** `src/lib/age-from-date-of-birth.ts`, `src/lib/map-inserted-patient-to-list-row.ts`, `src/components/ClientDetailContent.tsx`, its synthetic age tests, and this log.
+- **Remaining gap:** The change does not repair stored age values; other screens that rely on that field may still show stale values. Authenticated UAT visual verification is still needed.
+
+### Caregiver Name on Client Schedule Visit Cards (2026-10-27)
+
+- **What:** Client schedule visit cards now show the assigned caregiver name from the agency-scoped staff list already loaded for scheduling. Unassigned visits are labeled, and a missing staff name is shown as unavailable rather than guessing an identity.
+- **Access, integrity, and privacy impact:** No new query, storage, mutation, or role permission was added. Names are rendered only inside the existing authorized client schedule and are not logged or added to audit details.
+- **Relevant safeguards:** Preserves 45 CFR 164.312(a)(1) Access Control and 164.312(b) Audit Controls; supports 164.312(c)(1) Integrity by making the displayed assignment easier to verify.
+- **Files:** `src/components/ClientDetailContent.tsx` and this log.
+- **Remaining gap:** The existing schedule staff list contains active caregivers only, so a historical visit assigned to an inactive caregiver may show "Name unavailable." Authenticated synthetic UAT visual verification is still needed.
+
+### Compact Visit Management Cards (2026-10-27)
+
+- **What:** The All Visits cards now use a compact two-line information layout. Details and Assign/Reassign remain visible; Advertise, Unassign, Mark missed, Place on hold, and Cancel visit use the existing shared actions menu. Reinstate remains visible for held and cancelled visits. Existing action handlers and confirmation/reason dialogs are reused.
+- **Access, integrity, and privacy impact:** This changes presentation and action placement only. The same authorized visit data, server actions, tenant checks, audit paths, and status rules remain in place. No visit data is added to logs or telemetry.
+- **Relevant safeguards:** Preserves 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, and 164.312(c)(1) Integrity by retaining existing confirmation and reason flows.
+- **Files:** `src/components/VisitManagementContent.tsx` and this log.
+- **Remaining gap:** Authenticated synthetic desktop and mobile visual and keyboard checks are needed after release, including the overflow menu and long task names.
+
+### Compact Caregiver Assignment Modal (2026-10-27)
+
+- **What:** The shared caregiver assignment list now shows collapsed required and preferred skill summaries, searchable and filterable compact caregiver rows, and expandable skill, score, and availability details in its modal variant, used by Visit Management and open-shift selection. The smaller visit-form picker retains its compact row layout. The Visit Management assignment modal uses the existing wider `xl` modal size. Its direct-assignment filter is labeled "Assignable" because caregivers without a matching saved availability slot can still be assigned when they have no overlapping booking.
+- **Access, integrity, and privacy impact:** No candidate query, ranking formula, assignment authorization, database write, or audit path changed. Booked caregivers remain unselectable. Direct assignment with missing required skills retains the existing warning; no new caregiver or client data is logged.
+- **Relevant safeguards:** Preserves 45 CFR 164.312(a)(1) Access Control and 164.312(b) Audit Controls, and supports 164.312(c)(1) Integrity by making scheduling conflicts and missing required skills visible before selection.
+- **Files:** `src/components/CaregiverAssignmentList.tsx`, `src/components/VisitManagementContent.tsx`, `src/_tests_/caregiver-direct-assignment.test.tsx`, and this log.
+- **Remaining gap:** The existing warning does not capture an override reason. The shared modal still has a 90vh outer scroll limit; results have their own scroll area. Authenticated synthetic UAT visual and keyboard verification is needed for narrow screens and long skill lists.

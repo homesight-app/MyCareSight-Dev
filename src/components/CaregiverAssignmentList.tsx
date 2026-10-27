@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Check, Clock, X, MapPin, Phone, SquareArrowOutUpRight, Loader2 } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Clock, X, MapPin, Phone, Search, SquareArrowOutUpRight, Loader2 } from 'lucide-react'
 import { isDirectAssignmentCandidate, type CaregiverMatchOption, type CaregiverAvailabilityStatus } from '@/lib/caregiver-matching'
 import Button from '@/components/ui/PrimaryButton'
 
@@ -101,7 +101,7 @@ function SortFilterHeader({
   }
   const filters = showEligibleFilter
     ? [
-        { key: 'eligible', label: 'Eligible', dot: 'bg-green-500', text: 'text-green-700' },
+        { key: 'eligible', label: assignmentMode === 'direct' ? 'Assignable' : 'Eligible', dot: 'bg-green-500', text: 'text-green-700' },
         { key: 'booked', label: 'Booked', dot: 'bg-amber-500', text: 'text-amber-700' },
         { key: 'blocked', label: assignmentMode === 'direct' ? 'No matching availability' : 'Not Available', dot: 'bg-red-500', text: 'text-red-700' },
         { key: 'all', label: 'All', dot: 'bg-gray-400', text: 'text-gray-600' },
@@ -175,6 +175,10 @@ export function CaregiverAssignmentList({
 }: Props) {
   const [sort, setSort] = useState<'availability' | 'proximity'>('availability')
   const [filter, setFilter] = useState<CaregiverCandidateFilter>(defaultFilter)
+  const [search, setSearch] = useState('')
+  const [requiredSkillsExpanded, setRequiredSkillsExpanded] = useState(false)
+  const [preferredSkillsExpanded, setPreferredSkillsExpanded] = useState(false)
+  const [expandedCaregiverId, setExpandedCaregiverId] = useState<string | null>(null)
   const showEligibleFilter = defaultFilter === 'eligible'
   const isEligible = (option: CaregiverMatchOption) => assignmentMode === 'direct'
     ? isDirectAssignmentCandidate(option)
@@ -188,7 +192,10 @@ export function CaregiverAssignmentList({
     onSelect(option.id)
   }
 
-  const filtered = options.filter((option) => {
+  const searchedOptions = variant === 'modal' && search.trim()
+    ? options.filter((option) => `${option.name} ${option.title}`.toLowerCase().includes(search.trim().toLowerCase()))
+    : options
+  const filtered = searchedOptions.filter((option) => {
     if (filter === 'all') return true
     if (filter === 'eligible') {
       return isEligible(option)
@@ -197,6 +204,8 @@ export function CaregiverAssignmentList({
   })
   const filteredEmptyMessage = options.length === 0
     ? emptyMessage
+    : searchedOptions.length === 0
+      ? 'No caregivers match your search.'
     : filter === 'eligible'
       ? assignmentMode === 'direct'
         ? 'No caregivers are free from overlapping bookings for this visit.'
@@ -314,107 +323,147 @@ export function CaregiverAssignmentList({
   // modal variant
   return (
     <div className="space-y-3">
-      {requiredSkills !== undefined && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-          <div className="text-xs font-semibold text-blue-700 mb-2">Client Required Skills</div>
-          <div className="flex flex-wrap gap-2">
-            {requiredSkills.length > 0 ? (
-              requiredSkills.map((sk) => (
-                <span key={sk} className="rounded-full bg-white border border-blue-200 text-blue-700 px-2 py-0.5 text-xs">
-                  {sk}
-                </span>
-              ))
-            ) : (
-              <span className="text-xs text-blue-600">No required skills</span>
-            )}
+      <div className="rounded-lg border border-blue-200 bg-blue-50">
+        <button
+          type="button"
+          aria-expanded={requiredSkillsExpanded}
+          onClick={() => setRequiredSkillsExpanded((expanded) => !expanded)}
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          <span>Client Required Skills ({requiredSkills.length})</span>
+          {requiredSkillsExpanded ? <ChevronUp className="h-4 w-4 shrink-0" aria-hidden /> : <ChevronDown className="h-4 w-4 shrink-0" aria-hidden />}
+        </button>
+        {requiredSkillsExpanded ? (
+          <div className="flex flex-wrap gap-2 border-t border-blue-200 px-3 py-2">
+            {requiredSkills.length > 0
+              ? requiredSkills.map((skill) => <span key={skill} className="rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs text-blue-700">{skill}</span>)
+              : <span className="text-xs text-blue-700">No required skills</span>}
           </div>
+        ) : null}
+      </div>
+      {preferredSkills.length > 0 ? (
+        <div className="rounded-lg border border-violet-200 bg-violet-50">
+          <button
+            type="button"
+            aria-expanded={preferredSkillsExpanded}
+            onClick={() => setPreferredSkillsExpanded((expanded) => !expanded)}
+            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold text-violet-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            <span>Client Preferred Skills ({preferredSkills.length})</span>
+            {preferredSkillsExpanded ? <ChevronUp className="h-4 w-4 shrink-0" aria-hidden /> : <ChevronDown className="h-4 w-4 shrink-0" aria-hidden />}
+          </button>
+          {preferredSkillsExpanded ? (
+            <div className="flex flex-wrap gap-2 border-t border-violet-200 px-3 py-2">
+              {preferredSkills.map((skill) => <span key={skill} className="rounded-full border border-violet-200 bg-white px-2 py-0.5 text-xs text-violet-700">{skill}</span>)}
+            </div>
+          ) : null}
         </div>
-      )}
-      {preferredSkills.length > 0 && (
-        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
-          <div className="text-xs font-semibold text-violet-700 mb-2">Client Preferred Skills</div>
-          <div className="flex flex-wrap gap-2">
-            {preferredSkills.map((skill) => (
-              <span key={skill} className="rounded-full bg-white border border-violet-200 text-violet-700 px-2 py-0.5 text-xs">
-                {skill}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      ) : null}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+        <input
+          type="search"
+          aria-label="Search caregivers by name or role"
+          placeholder="Search caregivers..."
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        />
+      </div>
       <SortFilterHeader
         sort={sort}
         setSort={setSort}
         filter={filter}
         setFilter={setFilter}
-        options={options}
+        options={searchedOptions}
         showEligibleFilter={showEligibleFilter}
         assignmentMode={assignmentMode}
       />
-      <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
-        {sorted.length === 0 && (
+      <div className="max-h-[52vh] space-y-2 overflow-y-auto pr-1">
+        {sorted.length === 0 ? (
           <div className="py-6 text-center text-sm text-gray-500">{filteredEmptyMessage}</div>
-        )}
-        {sorted.map((o, idx) => {
-          const isSelected = selectionMode === 'multiple' ? selectedIds.includes(o.id) : selectedId === o.id
+        ) : null}
+        {sorted.map((option, index) => {
+          const isSelected = selectionMode === 'multiple' ? selectedIds.includes(option.id) : selectedId === option.id
+          const isExpanded = expandedCaregiverId === option.id
+          const matchedRequired = requiredSkills.filter((skill) => option.matchedSkills.includes(skill))
+          const missingRequired = requiredSkills.filter((skill) => !option.matchedSkills.includes(skill))
           return (
-          <div
-            key={o.id}
-            className={`rounded-xl border p-3 ${
-              isSelected || o.isCurrent ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-white'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-bold text-gray-700">#{idx + 1}</span>
-                  <span className="font-semibold text-gray-900">{o.name}</span>
-                  <span className="text-sm text-gray-600">{o.title}</span>
-                  {o.isCurrent && (
-                    <span className="rounded-full border border-blue-200 text-blue-700 bg-blue-100 px-2 py-0.5 text-xs">
-                      Currently Assigned
-                    </span>
-                  )}
-                  <AvailabilityPill status={o.availability} assignmentMode={assignmentMode} />
-                </div>
-                <div className="max-w-sm mt-2 space-y-1">
-                  <ProgressBar label="Overall Score" value={o.overallPercent} barClass="bg-blue-500" />
-                  <ProgressBar label="Skill Match" value={o.skillMatchPercent} barClass="bg-violet-500" />
-                  {preferredSkills.length > 0 && (
-                    <ProgressBar label="Preferred Skills" value={o.preferredSkillMatchPercent} barClass="bg-fuchsia-500" />
-                  )}
-                  <ProgressBar label="Proximity" value={o.proximityPercent} barClass="bg-emerald-500" />
-                </div>
-                <div className="mt-2 text-xs text-gray-600 flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-gray-400" />
-                  {o.distanceLabel} away
-                </div>
-                {o.matchedSkills.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {o.matchedSkills.map((sk) => (
-                      <span
-                        key={sk}
-                        className="rounded-full border border-emerald-200 text-emerald-700 bg-emerald-50 px-2 py-0.5 text-xs"
-                      >
-                        {sk}
-                      </span>
-                    ))}
+            <div
+              key={option.id}
+              className={`rounded-lg border ${isSelected || option.isCurrent ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-white'}`}
+            >
+              <div className="flex flex-wrap items-center gap-3 p-3">
+                <span className="w-6 shrink-0 text-center text-xs font-semibold text-gray-500">{index + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-semibold text-gray-900">{option.name}</span>
+                    <span className="text-xs text-gray-600">{option.title}</span>
+                    <AvailabilityPill status={option.availability} assignmentMode={assignmentMode} />
+                    {option.isCurrent ? <span className="rounded-full border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs text-blue-700">Currently Assigned</span> : null}
                   </div>
-                )}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+                    <span>{requiredSkills.length > 0 ? `Required skills ${matchedRequired.length} of ${requiredSkills.length}` : 'No required skills'}</span>
+                    <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" aria-hidden />{option.distanceLabel} away</span>
+                    {missingRequired.length > 0 ? <span className="font-medium text-amber-700">{missingRequired.length} missing required</span> : null}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant={isSelected && selectionMode === 'multiple' ? 'secondary' : 'primary'}
+                    size="sm"
+                    type="button"
+                    disabled={disabled || !isEligible(option)}
+                    onClick={() => selectCandidate(option)}
+                  >
+                    {selectionMode === 'multiple' ? isSelected ? 'Remove' : 'Select' : option.isCurrent ? 'Keep' : 'Assign'}
+                  </Button>
+                  <button
+                    type="button"
+                    aria-label={`${isExpanded ? 'Hide' : 'Show'} details for ${option.name}`}
+                    aria-expanded={isExpanded}
+                    onClick={() => setExpandedCaregiverId(isExpanded ? null : option.id)}
+                    className="rounded-lg border border-gray-200 p-1.5 text-gray-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    {isExpanded ? <ChevronUp className="h-4 w-4" aria-hidden /> : <ChevronDown className="h-4 w-4" aria-hidden />}
+                  </button>
+                </div>
               </div>
-              <Button
-                variant={isSelected && selectionMode === 'multiple' ? 'secondary' : 'primary'}
-                type="button"
-                disabled={disabled || !isEligible(o)}
-                onClick={() => selectCandidate(o)}
-              >
-                {selectionMode === 'multiple'
-                  ? isSelected ? 'Remove' : 'Select'
-                  : o.isCurrent ? 'Keep' : 'Assign'}
-              </Button>
+              {isExpanded ? (
+                <div className="space-y-3 border-t border-gray-200 bg-gray-50/60 p-3">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <ProgressBar label="Overall Score" value={option.overallPercent} barClass="bg-blue-500" />
+                    <ProgressBar label="Skill Match" value={option.skillMatchPercent} barClass="bg-violet-500" />
+                    <ProgressBar label="Proximity" value={option.proximityPercent} barClass="bg-emerald-500" />
+                  </div>
+                  {preferredSkills.length > 0 ? <ProgressBar label="Preferred Skills" value={option.preferredSkillMatchPercent} barClass="bg-fuchsia-500" /> : null}
+                  <div className="grid gap-3 text-xs sm:grid-cols-2">
+                    <div>
+                      <div className="mb-1 font-semibold text-gray-700">Matching required skills ({matchedRequired.length})</div>
+                      <div className="flex flex-wrap gap-1">
+                        {matchedRequired.length > 0 ? matchedRequired.map((skill) => <span key={skill} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">{skill}</span>) : <span className="text-gray-500">None matched</span>}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 font-semibold text-gray-700">Missing required skills ({missingRequired.length})</div>
+                      <div className="flex flex-wrap gap-1">
+                        {missingRequired.length > 0 ? missingRequired.map((skill) => <span key={skill} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800">{skill}</span>) : <span className="text-gray-500">None</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    {option.availability === 'booked'
+                      ? 'Overlapping booking: assignment is unavailable.'
+                      : option.availability === 'blocked'
+                        ? 'No saved availability covers this visit.'
+                        : 'Saved availability covers this visit.'}
+                  </p>
+                  {option.phone ? <p className="text-xs text-gray-600"><Phone className="mr-1 inline h-3 w-3" aria-hidden />{option.phone}</p> : null}
+                </div>
+              ) : null}
             </div>
-          </div>
-        )})}
+          )
+        })}
       </div>
     </div>
   )

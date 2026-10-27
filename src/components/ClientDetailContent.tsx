@@ -78,6 +78,9 @@ import { US_STATES } from '@/lib/constants'
 import { encodeVisitAnytimeOccurrence, extractVisitTaskToken, isVisitTaskAssigned, visitTaskAnytimeFrequency, visitTaskAnytimeOccurrence, visitTaskAssignmentKey } from '@/lib/visit-task-codes'
 import { allCarePlanDaysEnabled, toggleCarePlanWeek } from '@/lib/care-plan-days'
 import { suggestedVisitTaskTokens } from '@/lib/visit-task-prefill'
+import { VISIT_TASK_TIME_WINDOWS } from '@/lib/visit-task-time-windows'
+import { formatVisitTimeRange } from '@/lib/visit-time-display'
+import { ageFromDateOfBirth } from '@/lib/age-from-date-of-birth'
 
 const VISIT_TYPES = ['Routine', 'Medical', 'Therapy', 'Social', 'Other'] as const
 
@@ -95,12 +98,7 @@ function sanitizeDownloadFilename(name: string): string {
 }
 
 /** Order used in Add/Edit Visit → ADLs tab when ADL plan uses specific times (morning…night). */
-const ADL_VISIT_TIME_SLOTS = [
-  { key: 'morning' as const, label: 'Morning' },
-  { key: 'afternoon' as const, label: 'Afternoon' },
-  { key: 'evening' as const, label: 'Evening' },
-  { key: 'night' as const, label: 'Night' },
-]
+const ADL_VISIT_TIME_SLOTS = VISIT_TASK_TIME_WINDOWS
 
 type ScheduleSlotFields = Pick<
   PatientAdlDaySchedule,
@@ -285,6 +283,7 @@ export default function ClientDetailContent({ client, allClients, representative
   const tab = searchParams.get('tab')
   const [isClientSwitching, setIsClientSwitching] = useState(false)
   const [localClient, setLocalClient] = useState<SmallClient>(client)
+  const displayedAge = ageFromDateOfBirth(localClient.date_of_birth)
   const [activeTab, setActiveTab] = useState(tab ?? 'overview')
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [clientStatus, setClientStatus] = useState(client.status)
@@ -295,7 +294,7 @@ export default function ClientDetailContent({ client, allClients, representative
     last_name: client.last_name,
     gender: client.gender ?? '',
     date_of_birth: client.date_of_birth,
-    age: client.age ?? 0,
+    age: ageFromDateOfBirth(client.date_of_birth) ?? 0,
   })
   const [isSavingPersonal, setIsSavingPersonal] = useState(false)
   const [personalEditError, setPersonalEditError] = useState<string | null>(null)
@@ -421,6 +420,12 @@ export default function ClientDetailContent({ client, allClients, representative
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   const [scheduleWeekStart, setScheduleWeekStart] = useState<Date>(() => getMonday(new Date()))
   const [weekSchedules, setWeekSchedules] = useState<ScheduleRow[]>([])
+  const caregiverNamesById = useMemo(() => new Map(
+    (staffList ?? []).map((staff) => [
+      staff.id,
+      [staff.first_name, staff.last_name].filter(Boolean).join(' ').trim(),
+    ]),
+  ), [staffList])
   const [serviceContracts, setServiceContracts] = useState<PatientServiceContractRow[]>(initialServiceContracts ?? [])
   const [serviceContractsModalOpen, setServiceContractsModalOpen] = useState(false)
   const [isSavingServiceContract, setIsSavingServiceContract] = useState(false)
@@ -832,15 +837,6 @@ export default function ClientDetailContent({ client, allClients, representative
 
   const formatMoney = (value: number) => `$${(Number.isFinite(value) ? value : 0).toFixed(2)}`
 
-  const ageFromDob = (dateOfBirth: string) => {
-    const dob = new Date(dateOfBirth)
-    const today = new Date()
-    let age = today.getFullYear() - dob.getFullYear()
-    const m = today.getMonth() - dob.getMonth()
-    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--
-    return Math.max(0, age)
-  }
-
   const dobFromAge = (age: number) => {
     const d = new Date()
     d.setFullYear(d.getFullYear() - age)
@@ -882,7 +878,7 @@ export default function ClientDetailContent({ client, allClients, representative
   }
 
   const startEditPersonal = () => {
-    const age = localClient.age ?? ageFromDob(localClient.date_of_birth)
+    const age = ageFromDateOfBirth(localClient.date_of_birth) ?? 0
     setEditPersonalForm({
       first_name: localClient.first_name,
       last_name: localClient.last_name,
@@ -915,7 +911,7 @@ export default function ClientDetailContent({ client, allClients, representative
         date_of_birth: editPersonalForm.date_of_birth,
       })
       if (error) throw error
-      const newAge = editPersonalForm.date_of_birth ? ageFromDob(editPersonalForm.date_of_birth) : localClient.age
+      const newAge = ageFromDateOfBirth(editPersonalForm.date_of_birth)
       setLocalClient((prev) => ({
         ...prev,
         first_name: editPersonalForm.first_name.trim(),
@@ -3898,7 +3894,7 @@ export default function ClientDetailContent({ client, allClients, representative
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-gray-400" />
-                <span><strong>Date of Birth:</strong> {formatShortDate(localClient.date_of_birth)} (Age {localClient.age || 'N/A'})</span>
+                <span><strong>Date of Birth:</strong> {formatShortDate(localClient.date_of_birth)} (Age {displayedAge ?? 'N/A'})</span>
               </div>
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-gray-400" />
@@ -4052,7 +4048,7 @@ export default function ClientDetailContent({ client, allClients, representative
                           setEditPersonalForm((p) => ({
                             ...p,
                             date_of_birth,
-                            age: date_of_birth ? ageFromDob(date_of_birth) : 0,
+                            age: ageFromDateOfBirth(date_of_birth) ?? 0,
                           }))
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -4093,7 +4089,7 @@ export default function ClientDetailContent({ client, allClients, representative
                   </div>
                   <div>
                     <span className="text-sm text-gray-600">Age:</span>
-                      <p className="text-sm font-medium text-gray-900">{localClient.age || 'N/A'} years</p>
+                      <p className="text-sm font-medium text-gray-900">{displayedAge === null ? 'N/A' : `${displayedAge} years`}</p>
                   </div>
                 </div>
                 )}
@@ -5229,17 +5225,24 @@ export default function ClientDetailContent({ client, allClients, representative
                                         >
                                           <div className="min-w-0 flex-1 flex flex-col">
                                             <div className="font-medium">
-                                              {block.start_time?.slice(0, 5)} - {block.end_time?.slice(0, 5)}
+                                              {formatVisitTimeRange(block.start_time, block.end_time)}
                                             </div>
                                             {seg.totalDays > 1 && (
                                               <div className="text-xs opacity-70">Day {seg.dayIndex} of {seg.totalDays}</div>
                                             )}
-                                            <div className="text-xs" style={{ color: colors.text }}>
-                                              {block.type || 'Routine'}
+                                            <div className="flex min-w-0 items-center gap-2 text-xs" style={{ color: colors.text }}>
+                                              <span className="truncate">{block.type || 'Routine'}</span>
+                                              <span className="inline-flex shrink-0 items-center gap-1 opacity-90">
+                                                <Clock className="h-3 w-3" />
+                                                {segDurationMins >= 60 ? `${Math.floor(segDurationMins / 60)}h` : `${segDurationMins}m`}
+                                              </span>
                                             </div>
-                                            <div className="mt-0.5 flex items-center gap-1 text-xs opacity-90" style={{ color: colors.text }}>
-                                              <Clock className="w-3 h-3" />
-                                              {segDurationMins >= 60 ? `${Math.floor(segDurationMins / 60)}h` : `${segDurationMins}m`}
+                                            <div
+                                              className="mt-0.5 min-w-0 truncate text-xs"
+                                              style={{ color: colors.text }}
+                                              title={block.caregiver_id ? caregiverNamesById.get(block.caregiver_id) || 'Caregiver name unavailable' : 'Unassigned'}
+                                            >
+                                              Caregiver: {block.caregiver_id ? caregiverNamesById.get(block.caregiver_id) || 'Name unavailable' : 'Unassigned'}
                                             </div>
                                           </div>
                                           <span
@@ -6389,12 +6392,7 @@ export default function ClientDetailContent({ client, allClients, representative
               <p className="mb-2 text-xs text-amber-700" role="status">Select at least one time window.</p>
             )}
             <div className="space-y-2">
-              {[
-                { key: 'morning' as const, label: 'Morning', range: '6 AM - 12 PM', slotKey: 'slotMorning' as const },
-                { key: 'afternoon' as const, label: 'Afternoon', range: '12 PM - 6 PM', slotKey: 'slotAfternoon' as const },
-                { key: 'evening' as const, label: 'Evening', range: '6 PM - 10 PM', slotKey: 'slotEvening' as const },
-                { key: 'night' as const, label: 'Night', range: '10 PM - 5 AM', slotKey: 'slotNight' as const },
-              ].map(({ key, label, range, slotKey }) => {
+              {VISIT_TASK_TIME_WINDOWS.map(({ key, label, range, slotKey }) => {
                 const selectedCount = [selectTimeForm.morning, selectTimeForm.afternoon, selectTimeForm.evening, selectTimeForm.night].filter(Boolean).length
                 const atLimit = selectedCount >= selectTimeForm.timesPerDay
                 const canCheck = !selectTimeForm[key] && atLimit ? false : true
@@ -7482,7 +7480,7 @@ export default function ClientDetailContent({ client, allClients, representative
             }`}>
               <div className="font-semibold">{patientFullName(localClient)}</div>
               {editingSchedule && (
-                <div className="text-xs mt-0.5 opacity-80">{editingSchedule.date} · {editingSchedule.start_time ?? ''}{editingSchedule.end_time ? ` – ${editingSchedule.end_time}` : ''}</div>
+                <div className="text-xs mt-0.5 opacity-80">{editingSchedule.date} · {formatVisitTimeRange(editingSchedule.start_time, editingSchedule.end_time)}</div>
               )}
             </div>
             <div>

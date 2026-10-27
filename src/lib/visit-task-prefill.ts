@@ -1,6 +1,7 @@
 import { encodeVisitAnytimeOccurrence, isVisitTaskAssigned, visitTaskAssignmentKey } from '@/lib/visit-task-codes'
+import { VISIT_TASK_TIME_WINDOWS, type VisitTaskTimeSlot } from '@/lib/visit-task-time-windows'
 
-type Slot = 'morning' | 'afternoon' | 'evening' | 'night'
+type Slot = VisitTaskTimeSlot
 
 type DayTaskSchedule = {
   schedule_type: 'never' | 'always' | 'as_needed' | 'specific_times'
@@ -9,13 +10,6 @@ type DayTaskSchedule = {
   slot_afternoon: string | null
   slot_evening: string | null
   slot_night: string | null
-}
-
-const WINDOWS: Record<Slot, readonly (readonly [number, number])[]> = {
-  morning: [[6 * 60, 12 * 60]],
-  afternoon: [[12 * 60, 18 * 60]],
-  evening: [[18 * 60, 22 * 60]],
-  night: [[0, 5 * 60], [22 * 60, 24 * 60]],
 }
 
 function minutes(time: string): number | null {
@@ -30,14 +24,14 @@ export function visitOverlappingTaskSlots(startTime: string, endTime: string): S
   const start = minutes(startTime)
   const end = minutes(endTime)
   if (start === null || end === null || start === end) return new Set()
-  const intervals: Array<readonly [number, number]> = end > start
+  const visitIntervals: Array<readonly [number, number]> = end > start
     ? [[start, end]]
     : [[start, 24 * 60], [0, end]]
   const selected = new Set<Slot>()
-  for (const slot of Object.keys(WINDOWS) as Slot[]) {
-    if (WINDOWS[slot].some(([windowStart, windowEnd]) =>
-      intervals.some(([visitStart, visitEnd]) => visitStart < windowEnd && visitEnd > windowStart)
-    )) selected.add(slot)
+  for (const { key, intervals } of VISIT_TASK_TIME_WINDOWS) {
+    if (intervals.some(([windowStart, windowEnd]) =>
+      visitIntervals.some(([visitStart, visitEnd]) => visitStart < windowEnd && visitEnd > windowStart)
+    )) selected.add(key)
   }
   return selected
 }

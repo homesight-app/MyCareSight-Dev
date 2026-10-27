@@ -42,6 +42,7 @@ import {
   type CaregiverVisitCardDTO,
 } from '@/lib/caregiver-care-visits-shared'
 import Modal from '@/components/Modal'
+import { formatVisitTimeRangeLabel } from '@/lib/visit-time-display'
 
 type Props = {
   visits: CaregiverVisitCardDTO[]
@@ -557,7 +558,7 @@ export default function CaregiverMyCareVisitsContent({
               </div>
               <div>
                 <span className="font-medium text-gray-600">Time: </span>
-                {requestModalVisit.timeLabel}
+                {formatVisitTimeRangeLabel(requestModalVisit.timeLabel)}
               </div>
               <div>
                 <span className="font-medium text-gray-600">Service: </span>
@@ -705,7 +706,7 @@ export default function CaregiverMyCareVisitsContent({
             <div className="rounded-xl border border-amber-300 bg-amber-50/90 px-4 py-3 text-sm text-gray-900 space-y-2">
               <div className="text-base font-semibold text-amber-900">{unassignModalVisit.clientName}</div>
               <div>{unassignModalVisit.dateLabelLong}</div>
-              <div>{unassignModalVisit.timeLabel.replace(' - ', ' – ')}</div>
+              <div>{formatVisitTimeRangeLabel(unassignModalVisit.timeLabel)}</div>
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
               <Button
@@ -1050,7 +1051,7 @@ export default function CaregiverMyCareVisitsContent({
                           className={`w-full rounded border px-2 py-1 text-left text-xs transition ${visit.isMine ? 'border-green-300 bg-green-50' : 'border-sky-300 bg-sky-50'} ${clickable ? 'cursor-pointer hover:ring-2 hover:ring-gray-300' : 'cursor-default opacity-90'}`}
                         >
                           <div className="font-medium">{visit.clientName}</div>
-                          <div>{visit.timeLabel}</div>
+                          <div>{formatVisitTimeRangeLabel(visit.timeLabel)}</div>
                         </button>
                       )
                     })}
@@ -1119,7 +1120,7 @@ export default function CaregiverMyCareVisitsContent({
                         className="block w-full rounded border border-green-300 bg-green-50 px-2 py-1 text-left text-xs transition hover:ring-2 hover:ring-gray-300"
                       >
                         <div className="font-medium">{visit.clientName}</div>
-                        <div>{visit.timeLabel}</div>
+                        <div>{formatVisitTimeRangeLabel(visit.timeLabel)}</div>
                       </Link>
                     ))}
                   </div>
@@ -1248,7 +1249,7 @@ export default function CaregiverMyCareVisitsContent({
                   <div className="inline-flex rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700">{visit.serviceName}</div>
                   <div className="flex flex-wrap items-center gap-4 text-sm text-gray-700">
                     <span className="inline-flex items-center gap-1"><Calendar className="h-4 w-4 text-gray-400" />{visit.dateLabel}</span>
-                    <span className="inline-flex items-center gap-1"><Clock3 className="h-4 w-4 text-gray-400" />{visit.timeLabel} {visit.durationLabel}</span>
+                    <span className="inline-flex items-center gap-1"><Clock3 className="h-4 w-4 text-gray-400" />{formatVisitTimeRangeLabel(visit.timeLabel)} {visit.durationLabel}</span>
                     <span className="inline-flex items-center gap-1"><MapPin className="h-4 w-4 text-gray-400" />{visit.locationShort}</span>
                   </div>
                   {visit.locationLine !== '-' ? (

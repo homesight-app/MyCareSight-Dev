@@ -2,6 +2,7 @@
  * Normalize a freshly inserted patient row into the agency clients table row shape (including age).
  */
 import { databaseDate, databaseTimestamp } from '@/lib/database-date-contract'
+import { ageFromDateOfBirth } from '@/lib/age-from-date-of-birth'
 
 export interface RepresentativeEmbed {
   id: string
@@ -34,21 +35,6 @@ export interface ClientsListPatient {
   patients_representatives: RepresentativeEmbed[]
 }
 
-function ageFromDobYmd(dob: Date | string | null | undefined): number | null {
-  if (!dob) return null
-  const ymd = databaseDate(dob)
-  const parts = ymd.split('-').map(Number)
-  if (parts.length < 3 || parts.some((n) => Number.isNaN(n))) return null
-  const [year, month, day] = parts as [number, number, number]
-  const birth = new Date(year, month - 1, day)
-  if (!Number.isFinite(birth.getTime())) return null
-  const today = new Date()
-  let age = today.getFullYear() - birth.getFullYear()
-  const m = today.getMonth() - birth.getMonth()
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age -= 1
-  return age >= 0 ? age : null
-}
-
 export function mapInsertedPatientToListPatient(raw: Record<string, unknown>): ClientsListPatient {
   const reps = Array.isArray(raw.patients_representatives) ? raw.patients_representatives : []
   const representatives = reps as RepresentativeEmbed[]
@@ -63,7 +49,7 @@ export function mapInsertedPatientToListPatient(raw: Record<string, unknown>): C
     first_name: String(raw.first_name ?? ''),
     last_name: String(raw.last_name ?? ''),
     date_of_birth: dobRaw,
-    age: ageFromDobYmd(raw.date_of_birth instanceof Date || typeof raw.date_of_birth === 'string' ? raw.date_of_birth : null),
+    age: ageFromDateOfBirth(dobRaw),
     gender: raw.gender != null ? String(raw.gender) : null,
     class: raw.class != null ? String(raw.class) : null,
     phone_number: typeof raw.phone_number === 'string' ? raw.phone_number : '',

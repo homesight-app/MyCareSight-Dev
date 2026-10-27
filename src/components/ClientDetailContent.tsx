@@ -2062,7 +2062,7 @@ export default function ClientDetailContent({ client, allClients, representative
       return (
         <label
           key={rowKey}
-          className={`flex items-start gap-3 p-3 rounded-lg border ${assigned ? 'border-gray-200 bg-gray-50 opacity-70' : isChecked ? 'cursor-pointer border-green-500 bg-green-50/50' : 'cursor-pointer border-gray-200 hover:bg-gray-50'}`}
+          className={`flex min-h-11 items-center gap-2 rounded-lg border px-2.5 py-2 ${assigned ? 'border-gray-200 bg-gray-50 opacity-70' : isChecked ? 'cursor-pointer border-gray-200 bg-gray-50/60 hover:bg-gray-100/70' : 'cursor-pointer border-gray-200 hover:bg-gray-50'}`}
         >
           <input
             type="checkbox"
@@ -2083,24 +2083,19 @@ export default function ClientDetailContent({ client, allClients, representative
                 checkbox?.focus({ preventScroll: true })
               })
             }}
-            className="mt-1 rounded border-gray-300"
+            className="shrink-0 rounded border-gray-300"
           />
-          <div className="min-w-0 flex-1">
-            <div className="font-medium text-gray-900">{info.name}</div>
-            {assigned && <div className="text-xs text-gray-600">Already assigned to another visit on this date</div>}
-            <div className="text-xs text-gray-500 mt-0.5">{info.group}</div>
-            <div className="flex flex-wrap gap-1 mt-1.5 items-center">
-              <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs text-gray-600 border border-gray-100 ${info.group === 'ADL' ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'}`}>
-                {info.group}
-              </span>
-              {badgeLabels.map((b) => (
-                <span key={b} className={periodBadgeClass}>
-                  <Clock className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
-                  {b}
-                </span>
-              ))}
-            </div>
-          </div>
+          <span className="min-w-0 flex-1 truncate font-medium text-gray-900" title={info.name}>{info.name}</span>
+          {assigned && <span className="sr-only">Already assigned to another visit on this date.</span>}
+          <span className={`inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-xs ${info.group === 'ADL' ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'}`}>
+            {info.group}
+          </span>
+          {badgeLabels.map((b) => (
+            <span key={b} className={`${periodBadgeClass} shrink-0 whitespace-nowrap`}>
+              <Clock className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+              {b}
+            </span>
+          ))}
         </label>
       )
     }
@@ -2125,21 +2120,21 @@ export default function ClientDetailContent({ client, allClients, representative
       renderRow(item.adl, item.rowKey, [item.periodLabel], item.storageSlot, item.timesPerDay, item.ordinal, item.assigned)
     )
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <section aria-label="Selected visit tasks">
           <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Selected ({selectedRows.length})</h4>
-          <div className="space-y-2">{selectedRows.length ? renderRows(selectedRows) : <p className="text-sm text-gray-500 py-2">No tasks selected.</p>}</div>
+          <div className="space-y-1">{selectedRows.length ? renderRows(selectedRows) : <p className="text-sm text-gray-500 py-2">No tasks selected.</p>}</div>
         </section>
         {otherRows.length > 0 && (
-          <section aria-label="Other available visit tasks">
+          <section aria-label="Other available visit tasks" className="border-t border-gray-200 pt-4">
             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Other ({otherRows.length})</h4>
-            <div className="space-y-2">{renderRows(otherRows)}</div>
+            <div className="space-y-1">{renderRows(otherRows)}</div>
           </section>
         )}
         {assignedRows.length > 0 && (
-          <section aria-label="Tasks already assigned to another visit">
+          <section aria-label="Tasks already assigned to another visit" className="border-t border-gray-200 pt-4">
             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Already assigned ({assignedRows.length})</h4>
-            <div className="space-y-2">{renderRows(assignedRows)}</div>
+            <div className="space-y-1">{renderRows(assignedRows)}</div>
           </section>
         )}
       </div>
@@ -2199,7 +2194,7 @@ export default function ClientDetailContent({ client, allClients, representative
       return (
         <label
           key={rowKey}
-          className={`flex items-start gap-3 p-3 rounded-lg border ${assigned ? 'border-gray-200 bg-gray-50 opacity-70' : isChecked ? 'cursor-pointer border-green-500 bg-green-50/50' : 'cursor-pointer border-gray-200 hover:bg-gray-50'}`}
+          className={`flex min-h-11 items-center gap-2 rounded-lg border px-2.5 py-2 ${assigned ? 'border-gray-200 bg-gray-50 opacity-70' : isChecked ? 'cursor-pointer border-gray-200 bg-gray-50/60 hover:bg-gray-100/70' : 'cursor-pointer border-gray-200 hover:bg-gray-50'}`}
         >
           <input
             type="checkbox"
@@ -2214,26 +2209,19 @@ export default function ClientDetailContent({ client, allClients, representative
               })
               if (addVisitModalOpen) manualVisitTaskChoices.current.set(visitTaskAssignmentKey(token), e.target.checked)
             }}
-            className="mt-1 rounded border-gray-300"
+            className="shrink-0 rounded border-gray-300"
           />
-          <div className="min-w-0 flex-1">
-            <div className="font-medium text-gray-900">{t.name}</div>
-            {assigned && <div className="text-xs text-gray-600">Already assigned to another visit on this date</div>}
-            <div className="text-xs text-gray-500 mt-0.5">{t.category}</div>
-            <div className="flex flex-wrap gap-1 mt-1.5 items-center">
-              <span
-                className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs text-gray-600 border border-gray-100 ${skilledTaskBadgeClassByCategory(t.category)}`}
-              >
-                {t.category}
-              </span>
-              {badgeLabels.map((b) => (
-                <span key={b} className={periodBadgeClass}>
-                  <Clock className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
-                  {b}
-                </span>
-              ))}
-            </div>
-          </div>
+          <span className="min-w-0 flex-1 truncate font-medium text-gray-900" title={t.name}>{t.name}</span>
+          {assigned && <span className="sr-only">Already assigned to another visit on this date.</span>}
+          <span className="inline-block max-w-28 shrink-0 truncate rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600" title={t.category}>
+            {t.category}
+          </span>
+          {badgeLabels.map((b) => (
+            <span key={b} className={`${periodBadgeClass} shrink-0 whitespace-nowrap`}>
+              <Clock className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+              {b}
+            </span>
+          ))}
         </label>
       )
     }
@@ -2252,10 +2240,10 @@ export default function ClientDetailContent({ client, allClients, representative
     const assignedRows = rowEntries.filter((item) => item.assigned)
     const renderRows = (rows: typeof rowEntries) => rows.map((item) => renderRow(item.task, item.rowKey, [item.periodLabel], item.storageSlot, item.timesPerDay, item.ordinal, item.assigned))
     return (
-      <div className="space-y-4">
-        <section aria-label="Selected skilled visit tasks"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Selected ({selectedRows.length})</h4><div className="space-y-2">{selectedRows.length ? renderRows(selectedRows) : <p className="text-sm text-gray-500 py-2">No tasks selected.</p>}</div></section>
-        {otherRows.length > 0 && <section aria-label="Other skilled visit tasks"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Other ({otherRows.length})</h4><div className="space-y-2">{renderRows(otherRows)}</div></section>}
-        {assignedRows.length > 0 && <section aria-label="Skilled tasks already assigned to another visit"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Already assigned ({assignedRows.length})</h4><div className="space-y-2">{renderRows(assignedRows)}</div></section>}
+      <div className="space-y-6">
+        <section aria-label="Selected skilled visit tasks"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Selected ({selectedRows.length})</h4><div className="space-y-1">{selectedRows.length ? renderRows(selectedRows) : <p className="text-sm text-gray-500 py-2">No tasks selected.</p>}</div></section>
+        {otherRows.length > 0 && <section aria-label="Other skilled visit tasks" className="border-t border-gray-200 pt-4"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Other ({otherRows.length})</h4><div className="space-y-1">{renderRows(otherRows)}</div></section>}
+        {assignedRows.length > 0 && <section aria-label="Skilled tasks already assigned to another visit" className="border-t border-gray-200 pt-4"><h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Already assigned ({assignedRows.length})</h4><div className="space-y-1">{renderRows(assignedRows)}</div></section>}
       </div>
     )
   }

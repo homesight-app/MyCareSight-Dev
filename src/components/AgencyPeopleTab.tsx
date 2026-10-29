@@ -182,7 +182,6 @@ function GiveAccessModal({ isOpen, onClose, agencyId, person, onSuccess }: GiveA
   const [lastName, setLastName]   = useState(person.lastName)
   const [email, setEmail]         = useState(person.email ?? '')
   const [role, setRole]           = useState<'company_owner' | 'care_coordinator'>('company_owner')
-  const [tempPassword, setTempPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [emailError, setEmailError] = useState<string | null>(null)
@@ -193,23 +192,18 @@ function GiveAccessModal({ isOpen, onClose, agencyId, person, onSuccess }: GiveA
       setLastName(person.lastName)
       setEmail(person.email ?? '')
       setRole('company_owner')
-      setTempPassword('')
       setError(null)
       setEmailError(null)
     }
   }, [isOpen, person])
 
   const handleSubmit = async () => {
-    if (!firstName.trim() || !email.trim() || !tempPassword.trim()) {
-      setError('First name, email, and temporary password are required.')
+    if (!firstName.trim() || !email.trim()) {
+      setError('First name and email are required.')
       return
     }
     if (!isValidEmail(email)) {
       setEmailError(EMAIL_ERROR)
-      return
-    }
-    if (tempPassword.length < 8) {
-      setError('Temporary password must be at least 8 characters.')
       return
     }
     setSubmitting(true)
@@ -218,7 +212,6 @@ function GiveAccessModal({ isOpen, onClose, agencyId, person, onSuccess }: GiveA
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       email: email.trim(),
-      tempPassword,
     })
     setSubmitting(false)
     if (result.error) { setError(result.error); return }
@@ -230,7 +223,7 @@ function GiveAccessModal({ isOpen, onClose, agencyId, person, onSuccess }: GiveA
     <Modal isOpen={isOpen} onClose={onClose} title="Give System Access" size="md">
       <div className="space-y-4">
         <p className="text-sm text-gray-600">
-          Create a login account for this person. They will be able to sign in with their email and the temporary password you set.
+          Create a login account for this person. We will email them a secure, one-time link to set their password.
         </p>
         <div className="grid grid-cols-2 gap-3">
           <FieldInput label="First Name" value={firstName} onChange={setFirstName} required />
@@ -269,8 +262,7 @@ function GiveAccessModal({ isOpen, onClose, agencyId, person, onSuccess }: GiveA
           </div>
         </div>
         <div>
-          <FieldInput label="Temporary Password" type="password" value={tempPassword} onChange={setTempPassword} placeholder="Min. 8 characters" required />
-          <p className="text-xs text-gray-400 mt-1">Share this with the user — they should change it after first login.</p>
+          <p className="text-xs text-gray-500">A secure account setup link will be sent to this email address.</p>
         </div>
         {error && <p className="text-xs text-red-600">{error}</p>}
         <div className="flex gap-2 pt-1">
@@ -310,7 +302,6 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
   const [email, setEmail]         = useState('')
   const [createLogin, setCreateLogin] = useState(false)
   const [credential, setCredential]   = useState<'company_owner' | 'care_coordinator'>('company_owner')
-  const [tempPassword, setTempPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [phoneError, setPhoneError] = useState<string | null>(null)
@@ -320,7 +311,7 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
     if (!isOpen) return
     setFirstName(''); setLastName(''); setOfficerRoles([]); setOwnershipPct('')
     setPhone(''); setEmail(''); setCreateLogin(false)
-    setCredential('company_owner'); setTempPassword(''); setError(null)
+    setCredential('company_owner'); setError(null)
     setPhoneError(null); setEmailError(null)
   }, [isOpen])
 
@@ -333,7 +324,6 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
   const handleSubmit = async () => {
     if (!firstName.trim() || !lastName.trim()) { setError('First and last name are required.'); return }
     if (createLogin && !email.trim()) { setError('Email is required when creating a login.'); return }
-    if (createLogin && tempPassword.length < 8) { setError('Temporary password must be at least 8 characters.'); return }
     const newPhoneError = phone.trim() && !isValidUSPhone(phone) ? PHONE_ERROR : null
     const newEmailError = email.trim() && !isValidEmail(email) ? EMAIL_ERROR : null
     if (newPhoneError || newEmailError) {
@@ -365,7 +355,6 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           email: email.trim(),
-          tempPassword,
         })
         if (res.error) { setError(res.error); setSubmitting(false); return }
       } else {
@@ -424,7 +413,9 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Email{createLogin && <span className="text-red-500 ml-0.5">*</span>}
+            </label>
             <EmailInput
               value={email}
               onChange={e => { setEmail(e.target.value); if (emailError) setEmailError(null) }}
@@ -467,8 +458,7 @@ function AddPersonModal({ isOpen, onClose, agencyId, onSuccess }: AddPersonModal
                 ))}
               </div>
             </div>
-            <FieldInput label="Temporary Password" type="password" value={tempPassword} onChange={setTempPassword} placeholder="Min. 8 characters" required />
-            <p className="text-xs text-gray-400">Share this with the user — they should change it after first login.</p>
+            <p className="text-xs text-gray-500">A secure, one-time account setup link will be emailed to this person.</p>
           </div>
         )}
 

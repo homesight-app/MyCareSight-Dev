@@ -66,7 +66,9 @@ function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
     fax_number: data.faxNumber?.trim() || null,
     date_of_formation: data.dateOfFormation || null,
     npi: data.npi?.trim() || null,
-    state_specific_data: data.stateSpecificData ?? undefined,
+    ...(data.stateSpecificData === undefined
+      ? {}
+      : { state_specific_data: data.stateSpecificData }),
     phone_number: data.phoneNumber?.trim() || null,
     email: data.agencyEmail?.trim() || null,
     region_service_area: data.regionServiceArea?.trim() || null,
@@ -89,6 +91,15 @@ function buildAgencyPayload(data: Omit<AgencyFormData, 'agencyAdminIds'>) {
 }
 
 export async function createAgency(data: AgencyFormData) {
+  const session = await getSession()
+  if (!session) {
+    return { success: false as const, error: 'Not authenticated', data: null }
+  }
+  const role = session.profile?.role
+  if (role !== 'admin' && role !== 'expert') {
+    return { success: false as const, error: 'Forbidden', data: null }
+  }
+
   const parsed = agencyFormSchema.safeParse(data)
   if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
   const validData = parsed.data
@@ -100,7 +111,7 @@ export async function createAgency(data: AgencyFormData) {
     })
 
     if (error) {
-      return { error: error.message, data: null }
+      return { success: false as const, error: 'Failed to create agency. Please try again.', data: null }
     }
 
     const agencyId = newAgency?.id
@@ -117,8 +128,8 @@ export async function createAgency(data: AgencyFormData) {
     revalidatePath('/pages/expert/agencies')
     revalidateAgencyListCaches()
     return { success: true as const, error: null, data: { success: true } }
-  } catch (err: any) {
-    return { success: false as const, error: err?.message || 'Failed to create agency', data: null }
+  } catch {
+    return { success: false as const, error: 'Failed to create agency. Please try again.', data: null }
   }
 }
 

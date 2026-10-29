@@ -1,10 +1,12 @@
 'use server'
 
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { requirePlatformStaffOrAgencyRole } from '@/lib/permissions'
-import { hashPassword } from '@/lib/auth/password'
-import { sendInvitationEmail } from '@/lib/email'
+import { sendAccountSetupEmail } from '@/lib/email'
+import { getAuthOrigin } from '@/lib/auth/url'
+import { createPasswordReset } from '@/lib/repositories/auth-identity'
+import { agencyLoginProvisioningSchema } from '@/lib/schemas/agency-login'
 import sql, { withUserContext } from '@/db'
 import * as q from '@/lib/supabase/query'
 import { getAgencyAllowedCapabilities } from '@/lib/feature-access'
@@ -174,27 +176,26 @@ async function createUserForAgency(
   agencyId: string,
   role: 'company_owner' | 'care_coordinator' | 'staff_member',
   opts: { firstName: string; lastName: string; email: string; phone?: string }
-): Promise<{ userId: string; error?: never } | { error: string; userId?: never }> {
-  const normalizedEmail = opts.email.toLowerCase().trim()
-  const fullName = `${opts.firstName} ${opts.lastName}`
-  const tempPassword = randomBytes(16).toString('hex')
+): Promise<
+  | { userId: string; setupEmailSent: boolean; error?: never }
+  | { error: string; userId?: never; setupEmailSent?: never }
+> {
+  const parsed = agencyLoginProvisioningSchema.safeParse(opts)
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? 'Invalid account information.' }
+  }
+  const { firstName, lastName, email: normalizedEmail, phone } = parsed.data
+  const fullName = `${firstName} ${lastName}`.trim()
 
   const [existingProfile] = await sql<{ id: string }[]>`
-    SELECT id FROM user_profiles WHERE email = ${normalizedEmail} LIMIT 1
+    SELECT id FROM user_profiles WHERE lower(email) = ${normalizedEmail} LIMIT 1
   `
 
   if (existingProfile) {
-    const passwordHash = await hashPassword(tempPassword)
-    await sql`
-      UPDATE user_profiles SET password_hash = ${passwordHash}, role = ${role}, agency_id = ${agencyId}, updated_at = ${new Date().toISOString()}
-      WHERE id = ${existingProfile.id}
-    `
-    await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
-    return { userId: existingProfile.id }
+    return { error: 'An account with this email address already exists.' }
   }
 
   const userId = randomUUID()
-  const passwordHash = await hashPassword(tempPassword)
 
   try {
     await sql`INSERT INTO user_profiles ${sql({
@@ -202,7 +203,7 @@ async function createUserForAgency(
       email: normalizedEmail,
       role,
       full_name: fullName,
-      password_hash: passwordHash,
+      password_hash: null,
       is_active: true,
       agency_id: agencyId,
       created_at: new Date().toISOString(),
@@ -217,8 +218,8 @@ async function createUserForAgency(
       await sql`INSERT INTO care_coordinators ${sql({
         user_id: userId,
         agency_id: agencyId,
-        first_name: opts.firstName,
-        last_name: opts.lastName,
+        first_name: firstName,
+        last_name: lastName,
         email: normalizedEmail,
         status: 'active',
       })}`
@@ -235,8 +236,8 @@ async function createUserForAgency(
         user_id: userId,
         company_owner_id: adminRow?.id ?? null,
         agency_id: agencyId,
-        first_name: opts.firstName,
-        last_name: opts.lastName,
+        first_name: firstName,
+        last_name: lastName,
         email: normalizedEmail,
         role: 'Caregiver',
         status: 'active',
@@ -253,7 +254,7 @@ async function createUserForAgency(
         company_owner_id: userId,
         contact_name: fullName,
         contact_email: normalizedEmail,
-        contact_phone: opts.phone ?? null,
+        contact_phone: phone ?? null,
         status: 'active',
         agency_id: agencyId,
       })}`
@@ -268,8 +269,21 @@ async function createUserForAgency(
     await sql`UPDATE agencies SET agency_admin_ids = ${[...adminIds, userId]}, updated_at = ${new Date().toISOString()} WHERE id = ${agencyId}`
   }
 
-  await sendInvitationEmail(normalizedEmail, fullName, tempPassword)
-  return { userId }
+  const setupEmailSent = await sendAccountSetupLink(normalizedEmail, fullName)
+  return { userId, setupEmailSent }
+}
+
+async function sendAccountSetupLink(email: string, fullName: string): Promise<boolean> {
+  try {
+    const reset = await createPasswordReset({ email })
+    if (!reset) return false
+    const setupLink = new URL('/pages/auth/reset-password', getAuthOrigin())
+    setupLink.hash = `token=${encodeURIComponent(reset.token)}`
+    const result = await sendAccountSetupEmail(reset.email, fullName, setupLink.toString())
+    return result.success
+  } catch {
+    return false
+  }
 }
 
 // ——— Status toggles ——————————————————————————————————————
@@ -411,6 +425,9 @@ export async function addCaregiverForAgency(
   })
 
   revalidateAgencyDetailPages(agencyId)
+  if (!result.setupEmailSent) {
+    return { error: 'The account was created, but the setup email could not be sent. Ask the user to use Forgot password.' }
+  }
   return { error: null }
 }
 
@@ -434,6 +451,9 @@ export async function addCareCoordinatorForAgency(
   })
 
   revalidateAgencyDetailPages(agencyId)
+  if (!result.setupEmailSent) {
+    return { error: 'The account was created, but the setup email could not be sent. Ask the user to use Forgot password.' }
+  }
   return { error: null }
 }
 
@@ -457,6 +477,9 @@ export async function createAndLinkAgencyAdmin(
   })
 
   revalidateAgencyDetailPages(agencyId)
+  if (!result.setupEmailSent) {
+    return { error: 'The account was created, but the setup email could not be sent. Ask the user to use Forgot password.' }
+  }
   return { error: null }
 }
 
@@ -560,15 +583,23 @@ export async function promoteKeyStaffToUser(
   keyStaffId: string,
   agencyId: string,
   role: 'company_owner' | 'care_coordinator',
-  opts: { firstName: string; lastName: string; email: string; tempPassword: string }
+  opts: { firstName: string; lastName: string; email: string }
 ): Promise<{ error: string | null }> {
   const { error: authErr, session } = await requirePlatformStaffOrAgencyRole(agencyId)
   if (authErr || !session) return { error: authErr ?? 'Forbidden' }
 
-  const normalizedEmail = opts.email.toLowerCase().trim()
-  const fullName = `${opts.firstName} ${opts.lastName}`.trim()
+  const parsed = agencyLoginProvisioningSchema.safeParse(opts)
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? 'Invalid account information.' }
+  }
+  const { firstName, lastName, email: normalizedEmail } = parsed.data
+  const fullName = `${firstName} ${lastName}`.trim()
+  const [existingProfile] = await sql<{ id: string }[]>`
+    SELECT id FROM public.user_profiles WHERE lower(email) = ${normalizedEmail} LIMIT 1
+  `
+  if (existingProfile) return { error: 'An account with this email address already exists.' }
+
   const userId = randomUUID()
-  const passwordHash = await hashPassword(opts.tempPassword)
   const actorRole = session.profile?.role ?? ''
   const canManageSensitive = actorRole === 'admin' || actorRole === 'company_owner'
   const [keyStaff] = await sql<{
@@ -618,7 +649,7 @@ export async function promoteKeyStaffToUser(
       email: normalizedEmail,
       role,
       full_name: fullName,
-      password_hash: passwordHash,
+      password_hash: null,
       is_active: true,
       agency_id: agencyId,
       created_at: new Date().toISOString(),
@@ -650,8 +681,8 @@ export async function promoteKeyStaffToUser(
       await sql`INSERT INTO care_coordinators ${sql({
         user_id: userId,
         agency_id: agencyId,
-        first_name: opts.firstName,
-        last_name: opts.lastName,
+        first_name: firstName,
+        last_name: lastName,
         email: normalizedEmail,
         status: 'active',
       })}`
@@ -660,8 +691,6 @@ export async function promoteKeyStaffToUser(
       return { error: `Failed to create coordinator record: ${err instanceof Error ? err.message : 'Unknown'}` }
     }
   }
-
-  await sendInvitationEmail(normalizedEmail, fullName, opts.tempPassword)
 
   try {
     await withUserContext(session.user.id, actorRole, session.profile?.agency_id ?? null, async () => {
@@ -698,7 +727,11 @@ export async function promoteKeyStaffToUser(
     details: { credential: role, user_profile_id: userId, key_staff_id: keyStaffId },
   })
 
+  const setupEmailSent = await sendAccountSetupLink(normalizedEmail, fullName)
   revalidateAgencyDetailPages(agencyId)
+  if (!setupEmailSent) {
+    return { error: 'The account was created, but the setup email could not be sent. Ask the user to use Forgot password.' }
+  }
   return { error: null }
 }
 

@@ -11,6 +11,14 @@ export function toYmdFromUtcDate(d: Date): string {
   return formatYmd(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate())
 }
 
+/** Anchor a new recurring series to the visit date selected by the scheduler. */
+export function recurrenceDateDefaults(visitDate: string, frequency: 'daily' | 'weekly') {
+  return {
+    repeatStart: visitDate,
+    repeatEnd: frequency === 'daily' ? visitDate : '',
+  }
+}
+
 function formatYmd(y: number, m: number, d: number): string {
   return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }

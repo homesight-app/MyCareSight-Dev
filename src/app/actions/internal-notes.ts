@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { readInternalNotesPanel, readApplicationNoteCounts, auditInternalNoteSearch } from '@/lib/repositories/internal-note-reads'
 import { createInternalNote, updateInternalNote, deleteInternalNote } from '@/lib/repositories/internal-note-writes'
 import type {
-  NotePanelReadInput, NoteCountReadInput, NoteCreateInput, NoteUpdateInput,
+  NotePanelDataReadInput, NoteCountReadInput, NoteCreateInput, NoteUpdateInput,
   NoteDeleteInput, InternalNoteSubjectType,
 } from '@/lib/schemas/internal-notes'
 
@@ -33,7 +33,7 @@ function refresh(
   }
 }
 
-export async function getInternalNotesPanelDataAction(input:NotePanelReadInput){return readInternalNotesPanel(input)}
+export async function getInternalNotesPanelDataAction(input:NotePanelDataReadInput){return readInternalNotesPanel(input)}
 export async function getApplicationNoteCountsAction(input:NoteCountReadInput){return readApplicationNoteCounts(input)}
 export async function logNoteSearchAction(input:Parameters<typeof auditInternalNoteSearch>[0]){return auditInternalNoteSearch(input)}
 

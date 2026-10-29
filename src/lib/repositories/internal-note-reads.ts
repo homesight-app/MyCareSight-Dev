@@ -4,8 +4,8 @@ import { z } from 'zod'
 import sql, { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import {
-  notePanelReadSchema, noteCountReadSchema, noteSearchAuditSchema, internalNoteSubjectSchema,
-  type NotePanelReadInput, type NoteCountReadInput, type InternalNoteSubjectType,
+  notePanelDataReadSchema, noteCountReadSchema, noteSearchAuditSchema, internalNoteSubjectSchema,
+  type NotePanelReadInput, type NotePanelDataReadInput, type NoteCountReadInput, type InternalNoteSubjectType,
 } from '@/lib/schemas/internal-notes'
 
 export type NotePerson = { id: string; first_name: string; last_name: string }
@@ -106,10 +106,10 @@ async function audit(actor: Actor, table: string, ids: string[], operation: stri
       ${JSON.stringify({operation,resource_ids:ids,...extra})}::jsonb)`
 }
 
-export async function readInternalNotesPanel(input: NotePanelReadInput) {
+export async function readInternalNotesPanel(input: NotePanelDataReadInput) {
   const empty = { notes: [] as InternalNoteReadRow[], associatedNotes: [] as InternalNoteReadRow[], patients: [] as NotePerson[], caregivers: [] as NotePerson[] }
   try {
-    const parsed=notePanelReadSchema.safeParse(input)
+    const parsed=notePanelDataReadSchema.safeParse(input)
     if (!parsed.success) throw new AccessError('Invalid note request')
     const data=await withNoteActor(async actor => {
       const scope=parsed.data
@@ -122,13 +122,14 @@ export async function readInternalNotesPanel(input: NotePanelReadInput) {
           AND ((${scope.subjectType}='patient' AND n.tagged_patient_id=${scope.subjectId}::uuid)
             OR (${scope.subjectType}='caregiver' AND n.tagged_caregiver_id=${scope.subjectId}::uuid))`)
       if (notes.length>500 || associatedNotes.length>500) throw new AccessError('This note list is too large to load')
-      const patients = platform(actor) ? [] : await sql<NotePerson[]>`SELECT id,first_name,last_name FROM public.patients
+      const includeTagOptions = scope.includeTagOptions !== false
+      const patients = !includeTagOptions || platform(actor) ? [] : await sql<NotePerson[]>`SELECT id,first_name,last_name FROM public.patients
         WHERE agency_id=${scope.agencyId}::uuid ORDER BY last_name,id`
-      const caregivers = platform(actor) ? [] : await sql<NotePerson[]>`SELECT id,first_name,last_name FROM public.caregiver_members
+      const caregivers = !includeTagOptions || platform(actor) ? [] : await sql<NotePerson[]>`SELECT id,first_name,last_name FROM public.caregiver_members
         WHERE agency_id=${scope.agencyId}::uuid ORDER BY last_name,id`
       await audit(actor,'internal_notes',[...notes,...associatedNotes].map(n=>n.id),'read_note_panel',scope.agencyId,
         {subject_type:scope.subjectType,subject_id:scope.subjectId})
-      if (!platform(actor)) {
+      if (!platform(actor) && includeTagOptions) {
         await audit(actor,'patients',patients.map(p=>p.id),'read_note_tag_options',scope.agencyId)
         await audit(actor,'caregiver_members',caregivers.map(c=>c.id),'read_note_tag_options',scope.agencyId)
       }

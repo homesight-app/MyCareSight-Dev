@@ -150,6 +150,18 @@ test('caregiver and visit panels resolve correct subject and associated notes',a
   expect((await readInternalNotesPanel(panel('caregiver',CAREGIVER))).associatedNotes.map(n=>n.id)).toEqual([notes.visit])
   expect((await readInternalNotesPanel(panel('visit',VISIT))).notes.map(n=>n.id)).toEqual([notes.visit])
 })
+test('visit note list can defer tag choices and their audits until editing',async()=>{
+  const deferred=await readInternalNotesPanel({...panel('visit',VISIT),includeTagOptions:false})
+  expect(deferred.error).toBeNull()
+  expect(deferred.notes.map(note=>note.id)).toEqual([notes.visit])
+  expect(deferred.patients).toEqual([])
+  expect(deferred.caregivers).toEqual([])
+  expect((await mockDb.query<{table_name:string}>('SELECT table_name FROM audit_log')).rows.map(row=>row.table_name))
+    .toEqual(['internal_notes'])
+  const forEditing=await readInternalNotesPanel({...panel('visit',VISIT),includeTagOptions:true})
+  expect(forEditing.patients.map(patient=>patient.id)).toEqual([PATIENT])
+  expect(forEditing.caregivers.map(caregiver=>caregiver.id)).toEqual([CAREGIVER])
+})
 test.each(['admin','expert'])('active platform %s reads all four application note types but not agency notes',async(role)=>{
   login(role==='admin'?ADMIN:EXPERT)
   for(const [type,subject,note] of [

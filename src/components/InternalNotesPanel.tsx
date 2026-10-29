@@ -85,6 +85,8 @@ interface InternalNotesPanelProps {
   agencyId: string
   canManage: boolean
   applicationId?: string | null
+  /** Defer agency-wide tag choices until an add or edit form opens. */
+  deferTagOptions?: boolean
 }
 
 function formatTimestamp(iso: string) {
@@ -118,12 +120,15 @@ export default function InternalNotesPanel({
   agencyId,
   canManage,
   applicationId,
+  deferTagOptions = false,
 }: InternalNotesPanelProps) {
   const isAppNote = APPLICATION_SUBJECT_TYPES.has(subjectType)
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [associatedNotes, setAssociatedNotes] = useState<AssociatedNoteRow[]>([])
   const [tagPatients, setTagPatients] = useState<PatientTagOption[]>([])
   const [tagCaregivers, setTagCaregivers] = useState<CaregiverTagOption[]>([])
+  const [tagOptionsLoaded, setTagOptionsLoaded] = useState(false)
+  const [tagOptionsLoading, setTagOptionsLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const fetchGeneration=useRef(0)
@@ -228,14 +233,19 @@ export default function InternalNotesPanel({
     setAssociatedNotes([])
     setTagPatients([])
     setTagCaregivers([])
+    setTagOptionsLoaded(false)
     setLoading(true)
     setFetchError(null)
 
     try {
-      const panelData=await getInternalNotesPanelDataAction({subjectType,subjectId,agencyId,applicationId:applicationId ?? null})
+      const panelData=await getInternalNotesPanelDataAction({subjectType,subjectId,agencyId,applicationId:applicationId ?? null,
+        ...(deferTagOptions ? {includeTagOptions:false} : {})})
       if(generation !== fetchGeneration.current) return
-      setTagPatients(panelData.patients)
-      setTagCaregivers(panelData.caregivers)
+      if (!deferTagOptions) {
+        setTagPatients(panelData.patients)
+        setTagCaregivers(panelData.caregivers)
+        setTagOptionsLoaded(!panelData.error)
+      }
       setNotes(panelData.notes)
       setAssociatedNotes(panelData.associatedNotes)
       if(panelData.error) setFetchError(panelData.error)
@@ -249,7 +259,24 @@ export default function InternalNotesPanel({
     } finally {
       if(generation === fetchGeneration.current) setLoading(false)
     }
-  }, [subjectType,subjectId,agencyId,applicationId])
+  }, [subjectType,subjectId,agencyId,applicationId,deferTagOptions])
+
+  const loadTagOptions = useCallback(async () => {
+    if (!deferTagOptions || tagOptionsLoaded || tagOptionsLoading) return
+    setTagOptionsLoading(true)
+    try {
+      const result = await getInternalNotesPanelDataAction({subjectType,subjectId,agencyId,applicationId:applicationId ?? null,
+        includeTagOptions:true})
+      if (result.error) { toast.error(result.error); return }
+      setTagPatients(result.patients)
+      setTagCaregivers(result.caregivers)
+      setTagOptionsLoaded(true)
+    } catch {
+      toast.error('Unable to load note tag choices.')
+    } finally {
+      setTagOptionsLoading(false)
+    }
+  }, [deferTagOptions,tagOptionsLoaded,tagOptionsLoading,subjectType,subjectId,agencyId,applicationId])
 
   useEffect(() => {
     const generationRef=fetchGeneration
@@ -276,6 +303,7 @@ export default function InternalNotesPanel({
   }
 
   const startEdit = (note: UnifiedNote) => {
+    void loadTagOptions()
     setEditingId(note.id)
     editForm.reset({content:note.content,taggedPatientId:note.tagged_patient_id ?? '',taggedCaregiverId:note.tagged_caregiver_id ?? ''})
   }
@@ -379,7 +407,7 @@ export default function InternalNotesPanel({
         </div>
         {canManage && !showAddForm && (
           <button
-            onClick={() => { addForm.reset(); setShowAddForm(true) }}
+            onClick={() => { addForm.reset(); setShowAddForm(true); void loadTagOptions() }}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -406,9 +434,10 @@ export default function InternalNotesPanel({
                 caregiverVal={addTagCaregiver}
                 onPatientChange={value=>addForm.setValue('taggedPatientId',value,{shouldValidate:true})}
                 onCaregiverChange={value=>addForm.setValue('taggedCaregiverId',value,{shouldValidate:true})}
-                disabled={addLoading}
+                disabled={addLoading || tagOptionsLoading}
               />
             )}
+            {tagOptionsLoading && <p className="mt-1 text-xs text-gray-500">Loading tag choices...</p>}
             {addError && <p className="mt-1.5 text-sm text-red-600">{addError}</p>}
             <div className="flex items-center justify-end gap-2 mt-3">
               <button
@@ -624,9 +653,10 @@ export default function InternalNotesPanel({
                     caregiverVal={editTagCaregiver}
                     onPatientChange={value=>editForm.setValue('taggedPatientId',value,{shouldValidate:true})}
                     onCaregiverChange={value=>editForm.setValue('taggedCaregiverId',value,{shouldValidate:true})}
-                    disabled={editLoading}
+                    disabled={editLoading || tagOptionsLoading}
                   />
                 )}
+                {tagOptionsLoading && <p className="mt-1 text-xs text-gray-500">Loading tag choices...</p>}
                 {editError && <p className="mt-1 text-sm text-red-600">{editError}</p>}
                 <div className="flex items-center justify-end gap-2 mt-2">
                   <button

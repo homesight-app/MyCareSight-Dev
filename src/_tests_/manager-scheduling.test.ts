@@ -10,6 +10,7 @@ import {
   managerReplaceSchedules,
   managerUpdateRecurringSchedules,
   managerUpdateSchedule,
+  managerDeleteRecurringSchedule,
 } from '@/lib/repositories/manager-scheduling'
 
 jest.mock('server-only',()=>({}),{virtual:true})
@@ -58,8 +59,13 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
   CREATE TABLE patient_skill_requirement_items(patient_id uuid,agency_id uuid,credential_id uuid,requirement_level text);
   CREATE TABLE patient_service_contracts(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid);
   CREATE TABLE patient_addresses(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid);
+  CREATE TABLE visit_series(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid,status text);
   CREATE TABLE scheduled_visits(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid,visit_series_id uuid,status text,
-    caregiver_member_id uuid,visit_date date,scheduled_start_time time,scheduled_end_time time,scheduled_end_date date);
+    caregiver_member_id uuid,visit_date date,scheduled_start_time time,scheduled_end_time time,scheduled_end_date date,
+    status_reason text,updated_at timestamptz);
+  CREATE TABLE visit_time_entries(scheduled_visit_id uuid);
+  CREATE TABLE visit_approvals(scheduled_visit_id uuid);
+  CREATE TABLE visit_financials(scheduled_visit_id uuid);
   CREATE TABLE caregiver_availability_slots(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),caregiver_member_id uuid,
     agency_id uuid,label text,is_recurring boolean,start_time time,end_time time,repeat_frequency text,
     days_of_week integer[],repeat_start date,repeat_end date,specific_date date);
@@ -71,6 +77,7 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
   INSERT INTO user_profiles VALUES('${USER}','company_owner','${AGENCY}',true);
   INSERT INTO user_agency_roles VALUES('${USER}','${AGENCY}','company_owner','active');
   INSERT INTO patients VALUES('${PATIENT}','${AGENCY}'),('${FOREIGN_PATIENT}','${FOREIGN}');
+  INSERT INTO visit_series VALUES('${SERIES}','${AGENCY}','${PATIENT}','active');
   INSERT INTO scheduled_visits(id,agency_id,patient_id,visit_series_id,status,visit_date,scheduled_start_time,scheduled_end_time)
     VALUES('${VISIT}','${AGENCY}','${PATIENT}','${SERIES}','scheduled','2026-09-22','10:00','12:00');`)
   jest.mocked(getSession).mockResolvedValue({user:{id:USER},profile:{role:'admin',agency_id:FOREIGN}} as Awaited<ReturnType<typeof getSession>>)
@@ -183,9 +190,44 @@ test('audit failure rolls back a schedule update',async()=>{
   expect((await db.query<{status:string}>('SELECT status FROM scheduled_visits WHERE id=$1',[VISIT])).rows[0].status).toBe('scheduled')
 })
 
+test('removing one recurring occurrence leaves later visits and the series active',async()=>{
+  await db.exec(`INSERT INTO scheduled_visits(id,agency_id,patient_id,visit_series_id,status,visit_date)
+    VALUES('${id(20)}','${AGENCY}','${PATIENT}','${SERIES}','scheduled','2026-09-29')`)
+  const result=await managerDeleteRecurringSchedule({seed_schedule_id:VISIT,scope:'this_visit'})
+  expect(result.error).toBeNull()
+  expect(result.deleted_ids).toEqual([VISIT])
+  const visits=await db.query<{id:string;status:string}>('SELECT id,status FROM scheduled_visits ORDER BY visit_date')
+  expect(visits.rows.map(row=>row.status)).toEqual(['voided','scheduled'])
+  expect((await db.query<{status:string}>('SELECT status FROM visit_series WHERE id=$1',[SERIES])).rows[0].status).toBe('active')
+  expect((await db.query<{action:string}>('SELECT action FROM audit_log WHERE record_id=$1',[VISIT])).rows).toEqual([{action:'UPDATE'}])
+})
+
+test('removing this and future recurring visits preserves earlier visits and cancels refill',async()=>{
+  await db.exec(`INSERT INTO scheduled_visits(id,agency_id,patient_id,visit_series_id,status,visit_date)
+    VALUES('${id(19)}','${AGENCY}','${PATIENT}','${SERIES}','scheduled','2026-09-15'),
+      ('${id(20)}','${AGENCY}','${PATIENT}','${SERIES}','scheduled','2026-09-29')`)
+  const result=await managerDeleteRecurringSchedule({seed_schedule_id:VISIT,scope:'this_and_future'})
+  expect(result.error).toBeNull()
+  expect(result.deleted_ids).toHaveLength(2)
+  const visits=await db.query<{status:string}>('SELECT status FROM scheduled_visits ORDER BY visit_date')
+  expect(visits.rows.map(row=>row.status)).toEqual(['scheduled','voided','voided'])
+  expect((await db.query<{status:string}>('SELECT status FROM visit_series WHERE id=$1',[SERIES])).rows[0].status).toBe('cancelled')
+  expect((await db.query<{table_name:string}>('SELECT table_name FROM audit_log ORDER BY table_name')).rows)
+    .toEqual([{table_name:'scheduled_visits'},{table_name:'scheduled_visits'},{table_name:'visit_series'}])
+})
+
+test('time records block recurring deletion without changing any visit or series',async()=>{
+  await db.exec(`INSERT INTO visit_time_entries VALUES('${VISIT}')`)
+  const result=await managerDeleteRecurringSchedule({seed_schedule_id:VISIT,scope:'this_and_future'})
+  expect(result.error?.message).toMatch(/time or billing/i)
+  expect((await db.query<{status:string}>('SELECT status FROM scheduled_visits WHERE id=$1',[VISIT])).rows[0].status).toBe('scheduled')
+  expect((await db.query<{status:string}>('SELECT status FROM visit_series WHERE id=$1',[SERIES])).rows[0].status).toBe('active')
+  expect((await db.query('SELECT 1 FROM audit_log')).rows).toHaveLength(0)
+})
+
 test('014 installs forced RLS, scoped grants, exact policy counts, and indexes',async()=>{
   await db.exec(`ALTER TABLE caregiver_members ADD COLUMN user_id uuid;
-  DROP TABLE scheduled_visits;CREATE TABLE visit_series(
+  DROP TABLE scheduled_visits;DROP TABLE visit_series;CREATE TABLE visit_series(
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),agency_id uuid,patient_id uuid,primary_caregiver_member_id uuid,
     contract_id uuid,service_type text,series_name text,repeat_frequency text,days_of_week smallint[],repeat_start date,
     repeat_end date,repeat_monthly_rules jsonb,notes text,status text,legacy_schedule_id uuid,created_at timestamptz DEFAULT now(),
@@ -228,4 +270,12 @@ test('014 installs forced RLS, scoped grants, exact policy counts, and indexes',
       set_config('app.current_agency_id','${AGENCY}',true),set_config('app.current_caregiver_id','${own}',true);`)
     return (await tx.query<{id:string}>('SELECT id FROM scheduled_visits ORDER BY id')).rows.map(row=>row.id)})
   expect(visible).toEqual([own,open])
+  expect((await db.query<{allowed:boolean}>("SELECT has_column_privilege('mycaresight_app','public.visit_series','status','UPDATE') allowed")).rows[0].allowed).toBe(false)
+  await db.exec(readFileSync(join(process.cwd(),'scripts/migrations/035-recurring-visit-series-cancellation.sql'),'utf8'))
+  const grant=(await db.query<{status_update:boolean;end_update:boolean}>(`SELECT
+    has_column_privilege('mycaresight_app','public.visit_series','status','UPDATE') status_update,
+    has_column_privilege('mycaresight_app','public.visit_series','repeat_end','UPDATE') end_update`)).rows[0]
+  expect(grant).toEqual({status_update:true,end_update:false})
+  expect((await db.query<{policy_count:number}>(`SELECT count(*)::integer policy_count FROM pg_policies
+    WHERE schemaname='public' AND tablename='visit_series' AND policyname='visit_series_manager_update_status'`)).rows[0].policy_count).toBe(1)
 })

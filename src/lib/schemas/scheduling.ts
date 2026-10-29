@@ -69,6 +69,10 @@ export const scheduleReplacementSchema = z.discriminatedUnion('kind', [
 ])
 
 export const scheduleIdSchema = uuid
+export const recurringScheduleDeleteSchema = z.object({
+  seed_schedule_id: uuid,
+  scope: z.enum(['this_visit', 'this_and_future']),
+}).strict()
 export const scheduleDateRangeSchema = z.object({ startDate: date, endDate: date })
   .refine(value => value.endDate >= value.startDate, { path:['endDate'], message:'End date cannot precede start date' })
 

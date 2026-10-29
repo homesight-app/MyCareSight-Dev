@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Bell,
   BellRing,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Clock,
   MapPin,
@@ -18,10 +20,12 @@ import {
   XCircle,
 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
+import Tabs from '@/components/ui/Tabs'
+import VisitWeeklyCalendar from '@/components/VisitWeeklyCalendar'
+import VisitDetailsDrawer from '@/components/VisitDetailsDrawer'
+import VisitDetailsPanel, { type VisitDetailsActions } from '@/components/VisitDetailsPanel'
 import Modal from './Modal'
 import DeclineAssignmentModal from './DeclineAssignmentModal'
-import InternalNotesPanel from './InternalNotesPanel'
 import {
   approveScheduleAssignmentRequestAction,
   approveScheduleUnassignmentRequestAction,
@@ -49,8 +53,10 @@ import type {
   UnassignmentRequestListItemDTO,
 } from '@/lib/visit-assignment-dashboard'
 import type { AllVisitCardDTO } from '@/lib/visit-all-visits-dashboard'
-import { visitStatusBadgeClass, visitStatusLeftBorderClass } from '@/lib/visit-status-styles'
+import type { VisitStatus } from '@/lib/visit-status'
 import { formatVisitTime, formatVisitTimeRangeLabel } from '@/lib/visit-time-display'
+import { addCalendarDays, todayPacificDate } from '@/lib/pct-week-horizon'
+import { calendarRangeLabel } from '@/lib/visit-week-calendar'
 
 export type VisitManagementContentProps = {
   visits: AssignmentVisitCardDTO[]
@@ -75,6 +81,16 @@ function formatDistance(miles: number): string {
   return `${Math.round(miles)} mi`
 }
 
+/** List-only presentation: assignment is shown separately from visit lifecycle. */
+function visitListStatus(status: VisitStatus, label: string) {
+  if (status === 'completed') return { label, border: 'border-l-emerald-500', dot: 'bg-emerald-600', text: 'text-emerald-800' }
+  if (status === 'missed') return { label, border: 'border-l-rose-400', dot: 'bg-rose-500', text: 'text-rose-800' }
+  if (status === 'on_hold') return { label, border: 'border-l-amber-400', dot: 'bg-amber-500', text: 'text-amber-800' }
+  if (status === 'in_progress') return { label, border: 'border-l-blue-500', dot: 'bg-blue-600', text: 'text-blue-800' }
+  if (status === 'cancelled') return { label, border: 'border-l-slate-400', dot: 'bg-slate-500', text: 'text-slate-700' }
+  return { label: status === 'unassigned' ? 'Scheduled' : label, border: 'border-l-slate-400', dot: 'bg-slate-500', text: 'text-slate-700' }
+}
+
 function ProgressRow({ label, value, barClass }: { label: string; value: number; barClass: string }) {
   return (
     <div>
@@ -89,7 +105,8 @@ function ProgressRow({ label, value, barClass }: { label: string; value: number;
   )
 }
 
-function dateFilterMatch(date: string, dateFilter: string): boolean {
+function dateFilterMatch(date: string, dateFilter: string, weekStart: string): boolean {
+  if (dateFilter === 'week') return date >= weekStart && date <= addCalendarDays(weekStart, 6)
   if (dateFilter === 'all') return true
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -205,6 +222,9 @@ export default function VisitManagementContent({
     kind: 'assignment' | 'unassignment'
   } | null>(null)
   const [detailVisit, setDetailVisit] = useState<AllVisitCardDTO | null>(null)
+  useEffect(() => {
+    setDetailVisit(current => current ? allVisits.find(visit => visit.id === current.id) ?? current : null)
+  }, [allVisits])
   const [correctionVisit, setCorrectionVisit] = useState<AllVisitCardDTO | null>(null)
   const [correctionHistory, setCorrectionHistory] = useState<VisitCorrectionHistoryItem[]>([])
   const [correctionHistoryLoading, setCorrectionHistoryLoading] = useState(false)
@@ -223,10 +243,12 @@ export default function VisitManagementContent({
   const [holdReason, setHoldReason] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [dateFilter, setDateFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('week')
   const [clientFilter, setClientFilter] = useState('all')
   const [caregiverFilter, setCaregiverFilter] = useState('all')
   const [sortOrder, setSortOrder] = useState<'oldest' | 'newest'>('oldest')
+  const [visitView, setVisitView] = useState<'calendar' | 'list'>('calendar')
+  const [calendarStartDate, setCalendarStartDate] = useState(() => todayPacificDate())
 
   const pendingAssignmentCount = useMemo(() => visits.reduce((sum, v) => sum + v.requests.length, 0), [visits])
   const pendingUnassignmentCount = unassignmentItems.length
@@ -306,7 +328,7 @@ export default function VisitManagementContent({
     const q = search.trim().toLowerCase()
     const rows = allVisits.filter((v) => {
       if (statusFilter !== 'all' && v.status !== statusFilter) return false
-      if (!dateFilterMatch(v.date, dateFilter)) return false
+      if (!dateFilterMatch(v.date, dateFilter, calendarStartDate)) return false
       if (clientFilter !== 'all' && v.clientId !== clientFilter) return false
       if (caregiverFilter !== 'all' && (v.caregiverId ?? 'none') !== caregiverFilter) return false
       if (q) {
@@ -322,7 +344,7 @@ export default function VisitManagementContent({
       const bv = `${b.date} ${b.timeLabel}`
       return sortOrder === 'oldest' ? av.localeCompare(bv) : bv.localeCompare(av)
     })
-  }, [allVisits, search, statusFilter, dateFilter, clientFilter, caregiverFilter, sortOrder])
+  }, [allVisits, search, statusFilter, dateFilter, clientFilter, caregiverFilter, sortOrder, calendarStartDate])
 
   const groupedVisits = useMemo(() => {
     const map = new Map<string, { label: string; visits: AllVisitCardDTO[] }>()
@@ -334,11 +356,16 @@ export default function VisitManagementContent({
     return Array.from(map.entries()).map(([date, v]) => ({ date, ...v }))
   }, [filteredAllVisits])
 
+  const calendarVisitCount = useMemo(() => {
+    const endDate = addCalendarDays(calendarStartDate, 6)
+    return filteredAllVisits.filter(visit => visit.date >= calendarStartDate && visit.date <= endDate).length
+  }, [filteredAllVisits, calendarStartDate])
+
   const hasActiveFilters = useMemo(
     () =>
       search.trim() !== '' ||
       statusFilter !== 'all' ||
-      dateFilter !== 'all' ||
+      dateFilter !== 'week' ||
       clientFilter !== 'all' ||
       caregiverFilter !== 'all' ||
       sortOrder !== 'oldest',
@@ -348,7 +375,7 @@ export default function VisitManagementContent({
   const clearAllFilters = () => {
     setSearch('')
     setStatusFilter('all')
-    setDateFilter('all')
+    setDateFilter('week')
     setClientFilter('all')
     setCaregiverFilter('all')
     setSortOrder('oldest')
@@ -446,6 +473,29 @@ export default function VisitManagementContent({
     })
   }
 
+  const closeVisitDetails = useCallback(() => {
+    correctionHistoryRequestRef.current += 1
+    setDetailVisit(null)
+  }, [])
+
+  const detailsActionsFor = (visit: AllVisitCardDTO): VisitDetailsActions => {
+    if (!canCorrectVisits) return {}
+    const canManage = !isPastVisitDate(visit.date) &&
+      visit.status !== 'completed' && visit.status !== 'missed' && visit.status !== 'cancelled'
+    return {
+      onAssign: canManage ? () => { void openReassignModal(visit) } : undefined,
+      onAdvertise: canManage && !visit.caregiverId ? () => { void openAdvertiseModal(visit) } : undefined,
+      onUnassign: canManage && !!visit.caregiverId ? () => { handleUnassign(visit) } : undefined,
+      onMiss: canManage ? () => { setMissVisit(visit) } : undefined,
+      onHold: canManage && visit.status !== 'on_hold' ? () => { setHoldVisit(visit) } : undefined,
+      onCancel: canManage ? () => { setCancelVisit(visit) } : undefined,
+      onReinstate: visit.status === 'cancelled' || visit.status === 'on_hold'
+        ? () => { handleReinstate(visit) } : undefined,
+      onCorrect: visit.status === 'missed' || visit.status === 'completed'
+        ? () => { setCorrectionVisit(visit) } : undefined,
+    }
+  }
+
   const requestActionBusy = (requestId: string, kind: 'assignment' | 'unassignment' = 'assignment') => {
     if (kind === 'unassignment') {
       return (
@@ -533,8 +583,8 @@ export default function VisitManagementContent({
 
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Visit Management</h1>
-          <p className="text-sm text-gray-600 mt-1">View, sort, and manage all care visits. Assign caregivers and track visit status.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Visit Schedule</h1>
+          <p className="text-sm text-gray-600 mt-1">View and manage client visits, caregiver assignments, and requests.</p>
         </div>
         <div className="inline-flex rounded-lg border border-gray-200 bg-gray-100/80 p-1 shadow-inner">
           <button
@@ -567,6 +617,17 @@ export default function VisitManagementContent({
             <button type="button" onClick={() => goToVisitTab('requests')} className="text-amber-700 font-semibold hover:underline">Click to review</button>
           </div>
 
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" size="sm" type="button" icon={ChevronLeft} iconOnly aria-label="Previous week" onClick={() => setCalendarStartDate(date => addCalendarDays(date, -7))} />
+              <span className="min-w-[155px] text-center text-sm font-semibold text-gray-800" aria-live="polite">{calendarRangeLabel(calendarStartDate)}</span>
+              <Button variant="secondary" size="sm" type="button" icon={ChevronRight} iconOnly aria-label="Next week" onClick={() => setCalendarStartDate(date => addCalendarDays(date, 7))} />
+              <Button variant="secondary" size="sm" type="button" onClick={() => setCalendarStartDate(todayPacificDate())}>Today</Button>
+            </div>
+            <Tabs variant="pill" items={[{ key: 'calendar', label: 'Calendar' }, { key: 'list', label: 'List' }]}
+              active={visitView} onChange={key => setVisitView(key as 'calendar' | 'list')} />
+          </div>
+
           <div className="bg-white border border-gray-200 rounded-xl p-3 flex flex-wrap gap-2 items-center">
             <div className="relative grow min-w-[220px]">
               <Search className="h-4 w-4 text-gray-400 absolute left-3 top-2.5" />
@@ -582,7 +643,8 @@ export default function VisitManagementContent({
               <option value="on_hold">On Hold</option>
               <option value="unassigned">Unassigned</option>
             </select>
-            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} aria-label="Visit dates" className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+              <option value="week">Selected Week</option>
               <option value="all">All Dates</option>
               <option value="today">Today</option>
               <option value="past">Past Visits</option>
@@ -605,7 +667,7 @@ export default function VisitManagementContent({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-gray-600">Showing {filteredAllVisits.length} of {allVisits.length} visits</p>
+            <p className="text-sm text-gray-600">Showing {visitView === 'calendar' ? calendarVisitCount : filteredAllVisits.length} of {allVisits.length} visits</p>
             {hasActiveFilters ? (
               <button
                 type="button"
@@ -617,6 +679,9 @@ export default function VisitManagementContent({
             ) : null}
           </div>
 
+          {visitView === 'calendar' ? (
+            <VisitWeeklyCalendar visits={filteredAllVisits} startDate={calendarStartDate} onOpenVisit={openVisitDetails} />
+          ) : (
           <div className="space-y-6">
             {groupedVisits.map((group) => {
               const unassignedCount = group.visits.filter((v) => v.status === 'unassigned').length
@@ -628,90 +693,38 @@ export default function VisitManagementContent({
                     {unassignedCount > 0 ? <span className="text-xs text-red-700 bg-red-100 border border-red-200 rounded-full px-2 py-0.5">{unassignedCount} unassigned</span> : null}
                   </div>
                   {group.visits.map((visit) => {
-                    const isPastVisit = isPastVisitDate(visit.date)
-                    const isLockedStatus = visit.status === 'completed' || visit.status === 'missed' || visit.status === 'cancelled'
-                    const canManageVisit = !isPastVisit && !isLockedStatus
-                    const isVisitBusy = pendingActionKey?.endsWith(`:${visit.id}`) ?? false
+                    const presentation = visitListStatus(visit.status, visit.statusLabel)
                     return (
-                    <div key={visit.id} className={`bg-white border rounded-xl border-l-4 px-3 py-2.5 shadow-sm ${visitStatusLeftBorderClass(visit.status)} ${visit.status === 'unassigned' ? 'border-red-200' : 'border-gray-200'}`}>
-                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
-                        <div className="shrink-0 text-sm lg:w-[82px]">
-                          <div className="text-xs text-gray-500">{visit.date.slice(5).replace('-', ' / ')}</div>
-                          <div className="font-semibold text-gray-900">{formatVisitTime(visit.timeLabel.split(' - ')[0]) || '-'}</div>
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="min-w-0 max-w-full truncate text-sm font-semibold text-gray-900" title={visit.adlTasks.join(', ')}>{visit.adlTasks.length ? visit.adlTasks.join(', ') : 'No ADL tasks'}</span>
-                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${visitStatusBadgeClass(visit.status)}`}>{visit.statusLabel}</span>
-                            {visit.correctionCount > 0 ? <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">Corrected</span> : null}
-                            <span className="inline-flex items-center rounded-full border border-blue-200 text-blue-700 text-xs px-2 py-0.5">{visit.typeLabel}</span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
-                            <span className="inline-flex items-center gap-1"><User className="h-3.5 w-3.5" /> {visit.clientName}</span>
-                            <span className="inline-flex min-w-0 max-w-48 items-center gap-1 truncate" title={visit.locationLabel}><MapPin className="h-3.5 w-3.5 shrink-0" /> {visit.locationLabel}</span>
-                            <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {formatVisitTimeRangeLabel(visit.timeLabel)}</span>
-                            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${visit.caregiverName ? 'border-blue-200 text-blue-700' : 'border-red-200 text-red-700'}`}>
-                              {visit.caregiverName ?? 'No caregiver assigned'}
-                            </span>
-                            {visit.shiftOffer ? (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-700">
-                                <BellRing className="h-3.5 w-3.5" aria-hidden />
-                                {visit.shiftOffer.notifiedCount} notified · {visit.shiftOffer.interestedCount} interested · {visit.shiftOffer.declinedCount} declined
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1.5 lg:ml-auto">
-                          <Button variant="secondary" size="sm" type="button" onClick={() => openVisitDetails(visit)}>Details</Button>
-                          {visit.status === 'cancelled' || visit.status === 'on_hold' ? (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              type="button"
-                              disabled={isVisitBusy}
-                              onClick={() => handleReinstate(visit)}
-                            >
-                              Reinstate
-                            </Button>
-                          ) : null}
-                          {canManageVisit ? (
-                            <>
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                type="button"
-                                disabled={isVisitBusy}
-                                onClick={() => void openReassignModal(visit)}
-                              >
-                                {visit.caregiverId ? 'Reassign' : 'Assign'}
-                              </Button>
-                              {isVisitBusy ? (
-                                <button type="button" disabled aria-label="Visit actions pending" className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-50"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /></button>
-                              ) : (
-                                <div className="rounded-lg border border-gray-200">
-                                  <RecordActionsMenu
-                                    label={`More actions for ${visit.clientName}'s visit`}
-                                    actions={[
-                                      ...(!visit.caregiverId ? [{ label: 'Advertise shift', icon: BellRing, onClick: () => void openAdvertiseModal(visit) }] : []),
-                                      ...(visit.caregiverId ? [{ label: 'Unassign caregiver', icon: User, onClick: () => handleUnassign(visit), destructive: true }] : []),
-                                      { label: 'Mark missed', icon: XCircle, onClick: () => setMissVisit(visit) },
-                                      { label: 'Place on hold', icon: Clock, onClick: () => setHoldVisit(visit) },
-                                      { label: 'Cancel visit', icon: XCircle, onClick: () => setCancelVisit(visit), destructive: true },
-                                    ]}
-                                  />
-                                </div>
-                              )}
-                            </>
-                          ) : null}
-                        </div>
+                      <div key={visit.id} className={`flex min-h-20 items-stretch rounded-lg border border-gray-200 border-l-4 bg-white shadow-sm transition-colors hover:bg-slate-50 ${presentation.border}`}>
+                        <button type="button" onClick={() => openVisitDetails(visit)}
+                          aria-label={`View visit details for ${visit.clientName}, ${visit.dateLabel}, ${formatVisitTimeRangeLabel(visit.timeLabel)}`}
+                          className="grid min-w-0 flex-1 cursor-pointer grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-l-lg px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-600 lg:grid-cols-[6rem_minmax(11rem,1.6fr)_minmax(8rem,1fr)_minmax(8rem,0.85fr)] lg:gap-x-4">
+                          <span className="row-span-3 self-start pt-0.5 leading-tight lg:row-span-1 lg:self-center lg:pt-0">
+                            <span className="block text-sm font-semibold text-gray-900">{formatVisitTime(visit.timeLabel.split(' - ')[0]) || 'Time not set'}</span>
+                            <span className="block text-xs text-gray-500">{formatVisitTime(visit.timeLabel.split(' - ')[1]) ? `to ${formatVisitTime(visit.timeLabel.split(' - ')[1])}` : ''}</span>
+                          </span>
+                          <span className="min-w-0 self-end lg:self-center">
+                            <span className="block truncate text-sm font-semibold text-gray-950">{visit.clientName}</span>
+                            <span className="block truncate text-xs text-gray-600" title={visit.adlTasks.join(', ')}>{visit.adlTasks.length ? visit.adlTasks.join(', ') : 'No care tasks listed'}</span>
+                            {visit.shiftOffer ? <span className="block truncate text-xs text-gray-500">Shift offer: {visit.shiftOffer.notifiedCount} notified · {visit.shiftOffer.interestedCount} interested · {visit.shiftOffer.declinedCount} declined</span> : null}
+                          </span>
+                          <span className="col-start-2 inline-flex min-w-0 items-center gap-1.5 text-xs text-gray-600 lg:col-start-3" title={visit.locationLabel}>
+                            <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden /><span className="truncate">{visit.locationLabel}</span>
+                          </span>
+                          <span className="col-start-2 min-w-0 space-y-0.5 lg:col-start-4">
+                            <span className={`flex items-center gap-1.5 text-xs font-medium ${presentation.text}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${presentation.dot}`} aria-hidden />{presentation.label}{visit.correctionCount > 0 ? <span className="font-normal text-gray-500">· Corrected</span> : null}</span>
+                            <span className={`flex items-center gap-1.5 truncate text-xs ${visit.caregiverName ? 'text-gray-600' : 'text-amber-700'}`}><User className="h-3.5 w-3.5 shrink-0" aria-hidden />{visit.caregiverName ?? 'Unassigned'}</span>
+                          </span>
+                        </button>
                       </div>
-                    </div>
-                  )})}
+                    )
+                  })}
                 </div>
               )
             })}
             {groupedVisits.length === 0 ? <div className="rounded-xl border border-gray-200 bg-white p-10 text-center text-gray-500">No visits found for current filters.</div> : null}
           </div>
+          )}
         </>
       ) : (
         <>
@@ -1012,76 +1025,20 @@ export default function VisitManagementContent({
         variant={declineModal?.kind === 'unassignment' ? 'unassignment' : 'assignment'}
       />
 
-      <Modal isOpen={!!detailVisit} onClose={() => { correctionHistoryRequestRef.current += 1; setDetailVisit(null) }} title="Visit Details" size="md">
-        {detailVisit ? (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span>{detailVisit.clientName}</span>
-              <span>-</span>
-              <span>{detailVisit.dateLabel}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`rounded-full border px-2 py-0.5 text-xs ${visitStatusBadgeClass(detailVisit.status)}`}>{detailVisit.statusLabel}</span>
-              {detailVisit.correctionCount > 0 ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">Corrected</span> : null}
-              <span className="rounded-full border border-blue-200 text-blue-700 px-2 py-0.5 text-xs">{detailVisit.typeLabel}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Client</div><div className="font-semibold">{detailVisit.clientName}</div></div>
-              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Location</div><div className="font-semibold">{detailVisit.locationLabel}</div></div>
-              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Time</div><div className="font-semibold">{formatVisitTimeRangeLabel(detailVisit.timeLabel)}</div></div>
-              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Caregiver</div><div className="font-semibold">{detailVisit.caregiverName ?? '-'}</div></div>
-            </div>
-            <div><div className="text-xs text-gray-500 mb-1">ADL Tasks</div><div className="flex flex-wrap gap-2">{detailVisit.adlTasks.length ? detailVisit.adlTasks.map((task) => <span key={task} className="rounded-full border border-blue-200 text-blue-700 bg-blue-50 px-2 py-0.5 text-xs">{task}</span>) : <span className="text-sm text-gray-500">No ADL tasks</span>}</div></div>
-            {canCorrectVisits && (detailVisit.status === 'missed' || detailVisit.status === 'completed') ? (
-              <div className="flex justify-end">
-                <Button variant="secondary" type="button" onClick={() => {
-                  correctionHistoryRequestRef.current += 1
-                  setDetailVisit(null)
-                  setCorrectionVisit(detailVisit)
-                }}>Correct Visit</Button>
-              </div>
-            ) : null}
-            {canCorrectVisits ? (
-              <div className="border-t border-gray-200 pt-3">
-                <h3 className="text-sm font-semibold text-gray-900">Correction history</h3>
-                {correctionHistoryLoading ? <p className="mt-2 text-sm text-gray-500">Loading history...</p>
-                  : correctionHistory.length === 0 ? <p className="mt-2 text-sm text-gray-500">No corrections recorded.</p>
-                    : <ol className="mt-2 space-y-3">
-                      {correctionHistory.map(item => <li key={item.id} className="rounded-lg border border-gray-200 p-3 text-sm">
-                        <div className="font-medium text-gray-900">{item.previousStatus} → {item.correctedStatus}</div>
-                        <div className="text-xs text-gray-500">{new Date(item.createdAt).toLocaleString()} · Changed by user {item.correctedByUserId}</div>
-                        <p className="mt-2 whitespace-pre-wrap text-gray-700">{item.reason}</p>
-                        {item.actualStartTime && item.actualEndTime ? <p className="mt-1 text-xs text-gray-600">
-                          Manually verified: {new Date(item.actualStartTime).toLocaleString()} – {new Date(item.actualEndTime).toLocaleString()}
-                        </p> : null}
-                      </li>)}
-                    </ol>}
-              </div>
-            ) : null}
-            {detailVisit.status !== 'completed' && detailVisit.status !== 'missed' && !isPastVisitDate(detailVisit.date) ? (
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setMissVisit(detailVisit)} className="rounded-lg border border-orange-200 text-orange-700 px-3 py-2 text-sm font-medium hover:bg-orange-50">Mark Missed</button>
-                {!detailVisit.caregiverId ? (
-                  <Button variant="secondary" type="button" icon={BellRing} onClick={() => void openAdvertiseModal(detailVisit)}>
-                    Advertise Shift
-                  </Button>
-                ) : null}
-                <Button variant="primary" type="button" onClick={() => void openReassignModal(detailVisit)}>{detailVisit.caregiverId ? 'Reassign Caregiver' : 'Assign Caregiver'}</Button>
-              </div>
-            ) : null}
-            {canManageNotes && agencyId && (
-              <div className="pt-2">
-                <InternalNotesPanel
-                  subjectType="visit"
-                  subjectId={detailVisit.id}
-                  agencyId={agencyId}
-                  canManage={canManageNotes}
-                />
-              </div>
-            )}
-          </div>
-        ) : null}
-      </Modal>
+      <VisitDetailsDrawer isOpen={!!detailVisit} onClose={closeVisitDetails} visit={detailVisit}
+        actions={detailVisit ? detailsActionsFor(detailVisit) : undefined}
+        actionsBusy={pendingActionKey?.endsWith(`:${detailVisit?.id}`) ?? false}
+        actionDialogOpen={!!(correctionVisit || advertiseVisit || reassignVisit || missVisit || cancelVisit || holdVisit)}>
+        {detailVisit ? <VisitDetailsPanel
+          key={detailVisit.id}
+          visit={detailVisit}
+          canManageNotes={canManageNotes}
+          agencyId={agencyId}
+          canSeeHistory={canCorrectVisits}
+          correctionHistory={correctionHistory}
+          correctionHistoryLoading={correctionHistoryLoading}
+        /> : null}
+      </VisitDetailsDrawer>
 
       {correctionVisit ? <VisitCorrectionModal key={correctionVisit.id} visit={correctionVisit}
         caregivers={allCaregivers} onClose={() => setCorrectionVisit(null)}

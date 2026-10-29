@@ -148,6 +148,12 @@ test('writes identifier-only download evidence as a read without storing the obj
 })
 
 test('generates server-owned upload scopes and denies cross-agency resources', async () => {
+  expect(await authorizeStorageUpload('patient-document', PATIENT)).toMatchObject({
+    bucket: STORAGE_BUCKET.PATIENT,
+    pathPrefix: `${PATIENT}/`,
+    recordId: PATIENT,
+    tableName: 'patients',
+  })
   expect(await authorizeStorageUpload('application-document', APP)).toMatchObject({
     bucket: STORAGE_BUCKET.APPLICATION,
     pathPrefix: `${APP}/`,
@@ -160,8 +166,13 @@ test('generates server-owned upload scopes and denies cross-agency resources', a
   })
 
   login(OTHER)
+  expect(await authorizeStorageUpload('patient-document', PATIENT)).toBeNull()
   expect(await authorizeStorageUpload('application-document', APP)).toBeNull()
   expect(await authorizeStorageUpload('patient-incident', INCIDENT)).toBeNull()
+
+  await db.query(`INSERT INTO user_agency_roles VALUES ($1,$2,'staff_member','active')`, [STAFF, AGENCY])
+  login(STAFF)
+  expect(await authorizeStorageUpload('patient-document', PATIENT)).toBeNull()
 })
 
 test('allows a caregiver to scope only their own certification and license uploads', async () => {

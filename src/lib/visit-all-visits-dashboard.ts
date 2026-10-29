@@ -233,7 +233,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
     }
   }
 
-  const allVisits: AllVisitCardDTO[] = schedules.map((s) => {
+  const allVisits: AllVisitCardDTO[] = schedules.filter((s) => visitStatusFromScheduleRow(s) !== 'voided').map((s) => {
     const patient = patientById.get(s.patient_id)
     const currentCaregiver = s.caregiver_id ? staffById.get(s.caregiver_id) : undefined
     const skillRequirements = requirementsByPatient.get(s.patient_id) ?? { required: [], preferred: [] }

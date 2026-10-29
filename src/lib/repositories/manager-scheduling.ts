@@ -6,6 +6,7 @@ import * as schedules from '@/lib/supabase/query/schedules'
 import {
   recurringScheduleCreateSchema,
   recurringScheduleUpdateSchema,
+  recurringScheduleDeleteSchema,
   scheduleCreateSchema,
   scheduleDateRangeSchema,
   scheduleIdSchema,
@@ -28,7 +29,7 @@ async function requirePatient(actor:{agencyId:string},patientId:string){
   if(!row)throw new SchedulingError('Patient not found in your agency.')
 }
 async function requireVisit(actor:{agencyId:string},visitId:string){
-  const [row]=await sql<{id:string;patient_id:string;visit_series_id:string|null;caregiver_member_id:string|null;status:string}[]>`SELECT id,patient_id,visit_series_id,caregiver_member_id,status
+  const [row]=await sql<{id:string;patient_id:string;visit_series_id:string|null;caregiver_member_id:string|null;status:string;visit_date:string}[]>`SELECT id,patient_id,visit_series_id,caregiver_member_id,status,visit_date
     FROM public.scheduled_visits WHERE id=${visitId}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`
   if(!row)throw new SchedulingError('Visit not found in your agency.')
   return row
@@ -221,4 +222,56 @@ export async function managerDeleteSchedule(id:string){
     if(visit.status==='completed')throw new SchedulingError('Completed visits require an audited correction before removal.')
     const result=ensure(await schedules.deleteSchedule(id));await audit(actor,id,'DELETE','delete_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
+}
+
+/** Void a recurring occurrence so refill cannot recreate it; optionally stop and void future occurrences. */
+export async function managerDeleteRecurringSchedule(input:unknown):Promise<{deleted_ids:string[];error:Error|null}>{
+  const parsed=recurringScheduleDeleteSchema.safeParse(input)
+  if(!parsed.success)return {deleted_ids:[],error:new Error('Invalid recurring visit deletion.')}
+  try{return await withCareOperationsManager(async actor=>{
+    const {seed_schedule_id:seedId,scope}=parsed.data
+    const [reference]=await sql<{visit_series_id:string|null}[]>`SELECT visit_series_id FROM public.scheduled_visits
+      WHERE id=${seedId}::uuid AND agency_id=${actor.agencyId}::uuid LIMIT 1`
+    if(!reference?.visit_series_id)throw new SchedulingError('This visit is not part of a recurring series.')
+    const seriesId=reference.visit_series_id
+    const [series]=await sql<{id:string;status:string}[]>`SELECT id,status FROM public.visit_series
+      WHERE id=${seriesId}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`
+    if(!series)throw new SchedulingError('Visit series was not found in your agency.')
+    if(scope==='this_and_future' && series.status!=='active')throw new SchedulingError('This recurring series is no longer active.')
+    const seed=await requireVisit(actor,seedId)
+    if(seed.visit_series_id!==seriesId)throw new SchedulingError('Visit series changed. Refresh and try again.')
+
+    const candidates=scope==='this_and_future'
+      ? await sql<{id:string;status:string}[]>`SELECT id,status FROM public.scheduled_visits
+          WHERE agency_id=${actor.agencyId}::uuid AND visit_series_id=${seriesId}::uuid
+            AND visit_date>=${seed.visit_date}::date ORDER BY id FOR UPDATE`
+      : [{id:seed.id,status:seed.status}]
+    if(candidates.length===0)throw new SchedulingError('No visits were found to remove.')
+    if(candidates.some(row=>!['scheduled','unassigned','on_hold'].includes(row.status))){
+      throw new SchedulingError('Completed, missed, cancelled, or active visits require an individual correction.')
+    }
+    const ids=candidates.map(row=>row.id)
+    const [linked]=await sql<{has_links:boolean}[]>`SELECT
+      EXISTS(SELECT 1 FROM public.visit_time_entries WHERE scheduled_visit_id=ANY(${ids}::uuid[]))
+      OR EXISTS(SELECT 1 FROM public.visit_approvals WHERE scheduled_visit_id=ANY(${ids}::uuid[]))
+      OR EXISTS(SELECT 1 FROM public.visit_financials WHERE scheduled_visit_id=ANY(${ids}::uuid[])) AS has_links`
+    if(linked?.has_links)throw new SchedulingError('Visits with time or billing records require an audited correction.')
+
+    const changed=await sql<{id:string}[]>`UPDATE public.scheduled_visits SET status='voided',
+      status_reason='Removed from recurring series',updated_at=now()
+      WHERE agency_id=${actor.agencyId}::uuid AND id=ANY(${ids}::uuid[]) RETURNING id`
+    if(changed.length!==ids.length)throw new SchedulingError('Some visits could not be removed. Refresh and try again.')
+    for(const visitId of ids){
+      await audit(actor,visitId,'UPDATE',scope==='this_visit'?'void_recurring_occurrence':'void_recurring_future')
+    }
+    if(scope==='this_and_future'){
+      const stopped=await sql<{id:string}[]>`UPDATE public.visit_series SET status='cancelled'
+        WHERE id=${seriesId}::uuid AND agency_id=${actor.agencyId}::uuid RETURNING id`
+      if(stopped.length!==1)throw new SchedulingError('Could not stop the recurring series. No visits were removed.')
+      await sql`INSERT INTO public.audit_log(agency_id,table_name,record_id,action,performed_by_user_id,details)
+        VALUES(${actor.agencyId}::uuid,'visit_series',${seriesId}::uuid,'UPDATE',${actor.id}::uuid,
+          ${JSON.stringify({operation:'cancel_series_after_visit',voided_count:ids.length})}::jsonb)`
+    }
+    return {deleted_ids:ids,error:null}
+  })}catch(error){return {deleted_ids:[],error:asError(error)}}
 }

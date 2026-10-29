@@ -1,5 +1,6 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
@@ -7,98 +8,69 @@ import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { readPatientDocuments } from '@/lib/patient-document-metadata'
+import { commitPatientDocumentSchema } from '@/lib/schemas/patient-documents'
 import { STORAGE_BUCKET } from '@/lib/storage'
-import { uploadFile, removeFiles } from '@/lib/storage/client'
+import { removeFiles } from '@/lib/storage/client'
+import { readStorageCleanupToken } from '@/lib/storage/cleanup-token'
 
 function revalidatePatientPages(patientId: string) {
   revalidatePath('/pages/agency/clients')
   revalidatePath(`/pages/agency/clients/${patientId}`)
 }
 
-/**
- * Upload one or more patient documents. Files are appended to the locked database list and persisted in
- * the patients.documents JSONB column. Accepts files via FormData field 'file' (repeatable).
- */
-export async function uploadPatientDocumentsAction(
-  patientId: string,
-  formData: FormData
+/** Commit a file uploaded through the authorized storage API to the patient document list. */
+export async function commitPatientDocumentUploadAction(
+  input: unknown
 ): Promise<{ error: string | null; data: PatientDocument[] | null }> {
+  const parsed = commitPatientDocumentSchema.safeParse(input)
+  if (!parsed.success) return { error: 'Invalid document upload', data: null }
+
+  const { patientId, upload, name, size } = parsed.data
   const session = await getSession()
   if (!session) return { error: 'Not authenticated', data: null }
+  const claim = readStorageCleanupToken(upload.cleanupToken)
+  if (
+    !claim || claim.actorId !== session.user.id
+    || claim.bucket !== STORAGE_BUCKET.PATIENT
+    || claim.tableName !== 'patients'
+    || claim.recordId !== patientId
+    || claim.path !== upload.path
+    || !claim.path.startsWith(`${patientId}/`)
+  ) return { error: 'Invalid document upload', data: null }
+
   const role = session.profile?.role ?? ''
   const agencyId = session.profile?.agency_id ?? null
-
-  const files = formData.getAll('file') as File[]
-  if (files.length === 0) return { error: 'No files provided', data: null }
-
-  // Authorize: verify patient belongs to viewer's agency BEFORE touching storage.
-  // withUserContext + patients RLS enforces agency isolation here.
-  const authorized = await withUserContext(session.user.id, role, agencyId, async () => {
-    const [row] = await sql<{ agency_id: string }[]>`
-      SELECT agency_id
-      FROM patients
-      WHERE id = ${patientId}
-      LIMIT 1
+  const result = await withUserContext(session.user.id, role, agencyId, async () => {
+    const [row] = await sql<{ agency_id: string; documents: unknown }[]>`
+      SELECT agency_id, documents FROM patients WHERE id = ${patientId} LIMIT 1 FOR UPDATE
     `
-    return row ? { agencyId: row.agency_id } : null
-  })
-  if (!authorized) return { error: 'Patient not found or not authorized', data: null }
+    if (!row || row.agency_id !== claim.agencyId) return null
 
-  const uploadedPaths: string[] = []
-  const newDocs: PatientDocument[] = []
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    const docId = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const path = `${patientId}/${docId}_${safeName}`
-
-    const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.PATIENT, path, file)
-    if (uploadErr) {
-      await removeFiles(STORAGE_BUCKET.PATIENT, uploadedPaths)
-      return { error: uploadErr.message, data: null }
+    const current = readPatientDocuments(row.documents)
+    if (current.some((doc) => doc.path === upload.path)) return null
+    const document: PatientDocument = {
+      id: randomUUID(), name, path: upload.path, uploaded_at: new Date().toISOString(), size,
     }
-    uploadedPaths.push(path)
-    newDocs.push({ id: docId, name: file.name, path, uploaded_at: new Date().toISOString(), size: file.size })
-  }
-
-  const updateResult = await withUserContext(session.user.id, role, agencyId, async () => {
-    const [row] = await sql<{ documents: unknown }[]>`
-      SELECT documents
-      FROM patients
-      WHERE id = ${patientId}
-      LIMIT 1
-      FOR UPDATE
-    `
-    if (!row) return { error: 'Patient not found or not authorized', data: null as PatientDocument[] | null }
-
-    const nextDocs = [...readPatientDocuments(row.documents), ...newDocs]
+    const nextDocs = [...current, document]
     const { data: updated, error } = await q.updatePatientDocuments(patientId, nextDocs)
-    if (error) return { error: error.message, data: null as PatientDocument[] | null }
+    if (error) throw new Error('Document metadata update failed')
     const savedDocs = readPatientDocuments(updated?.documents)
-    if (savedDocs.length !== nextDocs.length || newDocs.some((doc) => !savedDocs.some((saved) => saved.id === doc.id))) {
-      throw new Error('Document list was not saved')
+    if (savedDocs.length !== nextDocs.length || !savedDocs.some((doc) => doc.path === upload.path)) {
+      throw new Error('Document metadata verification failed')
     }
-    return { error: null, data: savedDocs }
-  }).catch(() => ({ error: 'Could not save document metadata', data: null as PatientDocument[] | null }))
-  if (updateResult.error || !updateResult.data) {
-    await removeFiles(STORAGE_BUCKET.PATIENT, uploadedPaths)
-    return { error: updateResult.error ?? 'Update failed', data: null }
-  }
-
-  // Audit: log only metadata — never log filenames or paths (PHI)
-  const { error: auditErr } = await q.insertAuditLog({
-    agency_id: authorized.agencyId,
-    table_name: 'patients',
-    record_id: patientId,
-    action: 'UPDATE',
-    performed_by_user_id: session.user.id,
-    details: { field: 'documents', added: newDocs.length, total: updateResult.data.length },
-  })
-  if (auditErr) console.error('[patient-documents/upload] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
+    const { error: auditError } = await q.insertAuditLog({
+      agency_id: row.agency_id,
+      table_name: 'patients', record_id: patientId, action: 'UPDATE',
+      performed_by_user_id: session.user.id,
+      details: { field: 'documents', added: 1, total: savedDocs.length },
+    })
+    if (auditError) throw new Error('Document audit failed')
+    return savedDocs
+  }).catch(() => null)
+  if (!result) return { error: 'Could not save document metadata', data: null }
 
   revalidatePatientPages(patientId)
-  return { error: null, data: updateResult.data }
+  return { error: null, data: result }
 }
 
 /** Remove a single patient document from storage and persist the updated document list. */
@@ -156,7 +128,7 @@ export async function deletePatientDocumentAction(
     performed_by_user_id: session.user.id,
     details: { field: 'documents', operation: 'delete', remaining: updateResult.remaining },
   })
-  if (auditErr) console.error('[patient-documents/delete] Audit log failed. patientId=%s err=%s', patientId, auditErr.message)
+  if (auditErr) console.error('[patient-documents/delete] Audit log failed')
 
   revalidatePatientPages(patientId)
   return { error: null, data: updateResult.data }

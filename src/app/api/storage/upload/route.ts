@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { getSession } from '@/lib/auth'
+import { withUserContext } from '@/db'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
 import { auditStoredObjectAccess, authorizeStorageUpload } from '@/lib/storage/authorization'
 import { createStorageCleanupToken, readStorageCleanupToken } from '@/lib/storage/cleanup-token'
@@ -8,6 +9,7 @@ import { STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/cont
 const MAX_MULTIPART_REQUEST_BYTES = STORAGE_UPLOAD_MAX_BYTES + 256 * 1024
 const PURPOSES = new Set<UploadPurpose>([
   'application-document',
+  'patient-document',
   'caregiver-certification',
   'license-document',
   'license-requirement-template',
@@ -54,9 +56,12 @@ export async function POST(request: Request) {
   const extension = FILE_EXTENSIONS[file.type.toLowerCase()]
   if (!extension) return Response.json({ error: 'Unsupported file type' }, { status: 400 })
 
-  const authorized = await authorizeStorageUpload(
-    purpose as UploadPurpose,
-    typeof resourceId === 'string' && resourceId ? resourceId : null
+  const authorized = await withUserContext(
+    session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null,
+    () => authorizeStorageUpload(
+      purpose as UploadPurpose,
+      typeof resourceId === 'string' && resourceId ? resourceId : null
+    )
   )
   if (!authorized) return Response.json({ error: 'Not found' }, { status: 404 })
 
@@ -65,7 +70,10 @@ export async function POST(request: Request) {
   if (error) return Response.json({ error: 'File upload failed' }, { status: 500 })
 
   try {
-    await auditStoredObjectAccess(session.user.id, authorized, 'UPLOAD')
+    await withUserContext(
+      session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null,
+      () => auditStoredObjectAccess(session.user.id, authorized, 'UPLOAD')
+    )
   } catch {
     await removeFiles(authorized.bucket, [path])
     return Response.json({ error: 'File upload could not be recorded' }, { status: 500 })
@@ -98,6 +106,9 @@ export async function DELETE(request: Request) {
 
   const { error } = await removeFiles(claim.bucket, [claim.path])
   if (error) return Response.json({ error: 'File cleanup failed' }, { status: 500 })
-  await auditStoredObjectAccess(session.user.id, claim, 'DELETE')
+  await withUserContext(
+    session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null,
+    () => auditStoredObjectAccess(session.user.id, claim, 'DELETE')
+  )
   return Response.json({ success: true })
 }

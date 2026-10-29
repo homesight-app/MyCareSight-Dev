@@ -52,6 +52,7 @@ async function refillSeries(db: Db, work: Work) {
         LIMIT 1
       ) template ON true
       WHERE series.id=${work.subject_id} AND series.status='active'
+      FOR UPDATE OF series
     `
     const series=rows[0]
     if (!series || (series.repeat_end && target>String(series.repeat_end).slice(0,10))) {
@@ -61,7 +62,7 @@ async function refillSeries(db: Db, work: Work) {
     }
     const conflicts=await tx<{id:string}[]>`SELECT id FROM scheduled_visits
       WHERE agency_id=${series.agency_id} AND patient_id=${series.patient_id} AND visit_date=${target}::date
-        AND status NOT IN ('completed','missed')
+        AND status NOT IN ('completed','missed','cancelled','voided')
         AND scheduled_start_time < ${series.scheduled_end_time}::time
         AND scheduled_end_time > ${series.scheduled_start_time}::time LIMIT 1`
     if (conflicts.length) {

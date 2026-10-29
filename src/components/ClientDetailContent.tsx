@@ -43,10 +43,10 @@ import Button from '@/components/ui/PrimaryButton'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
-import { expandSeriesOccurrences } from '@/lib/recurrence-dates'
+import { expandSeriesOccurrences, recurrenceDateDefaults } from '@/lib/recurrence-dates'
 import * as q from '@/app/actions/query-bridge'
 import type { PatientAddress } from '@/lib/supabase/query/patient-addresses'
-import { uploadPatientDocumentsAction, deletePatientDocumentAction } from '@/app/actions/patient-documents'
+import { commitPatientDocumentUploadAction, deletePatientDocumentAction } from '@/app/actions/patient-documents'
 import { markScheduleMissedAction, markScheduleCancelledAction, markScheduleOnHoldAction, reinstateScheduleAction } from '@/app/actions/schedule-assignment-requests'
 import { addPatientAddressAction, updatePatientAddressAction, deletePatientAddressAction, setPrimaryPatientAddressAction } from '@/app/actions/patient-addresses'
 import { getActiveBillingCodesAction } from '@/app/actions/billing'
@@ -59,6 +59,7 @@ import type { PatientAdl, PatientAdlDaySchedule } from '@/lib/supabase/query/pat
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
 import type { CaregiverAvailabilitySlotRow } from '@/lib/supabase/query/caregiver-availability'
 import { visitStatusBadgeClass, visitStatusFromScheduleRow } from '@/lib/visit-status-styles'
+import { visitStatusForScheduleCalendar } from '@/lib/visit-status'
 import { computeCaregiverMatches } from '@/lib/caregiver-matching'
 import { CaregiverAssignmentList } from '@/components/CaregiverAssignmentList'
 import type { PatientContractedHoursRow } from '@/lib/supabase/query/patient-contracted-hours'
@@ -509,6 +510,8 @@ export default function ClientDetailContent({ client, allClients, representative
   const [editVisitModalOpen, setEditVisitModalOpen] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<ScheduleRow | null>(null)
   const [visitStatusModal, setVisitStatusModal] = useState<'missed' | 'cancelled' | 'on_hold' | null>(null)
+  const [deleteVisitModalOpen, setDeleteVisitModalOpen] = useState(false)
+  const [deleteVisitScope, setDeleteVisitScope] = useState<'this_visit' | 'this_and_future'>('this_visit')
   const [visitStatusReason, setVisitStatusReason] = useState('')
   const [editRecurringApplyScope, setEditRecurringApplyScope] = useState<
     'this_visit' | 'this_and_future' | 'all_in_series' | 'weekday_in_series'
@@ -626,7 +629,7 @@ export default function ClientDetailContent({ client, allClients, representative
     if (activeTab !== 'schedule') return
     setScheduleLoading(true)
     q.getSchedulesByPatientIdAndDateRange(localClient.id, scheduleWeekStartStr, scheduleWeekEndStr)
-      .then(({ data }) => { setWeekSchedules(data ?? []) })
+      .then(({ data }) => { setWeekSchedules((data ?? []).filter((s) => s.status !== 'voided')) })
       .finally(() => setScheduleLoading(false))
   }, [activeTab, localClient.id, scheduleWeekStartStr, scheduleWeekEndStr])
 
@@ -1102,11 +1105,23 @@ export default function ClientDetailContent({ client, allClients, representative
     setDocumentUploadError(null)
     setIsUploadingDocument(true)
     try {
-      const formData = new FormData()
-      for (const file of filesArray) formData.append('file', file)
-      const { error, data: nextDocs } = await uploadPatientDocumentsAction(localClient.id, formData)
-      if (error) throw new Error(error)
-      setLocalClient((c) => ({ ...c, documents: nextDocs ?? c.documents }))
+      // Send file bytes through the storage API; the action receives signed metadata only.
+      for (const file of filesArray) {
+        const uploaded = await uploadStoredFile(file, 'patient-document', localClient.id)
+        try {
+          const { error, data: nextDocs } = await commitPatientDocumentUploadAction({
+            patientId: localClient.id,
+            upload: uploaded,
+            name: file.name,
+            size: file.size,
+          })
+          if (error) throw new Error(error)
+          setLocalClient((c) => ({ ...c, documents: nextDocs ?? c.documents }))
+        } catch (error) {
+          await cleanupStoredFile(uploaded)
+          throw error
+        }
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed'
       setDocumentUploadError(message)
@@ -3075,7 +3090,7 @@ export default function ClientDetailContent({ client, allClients, representative
           scheduleWeekStartStr,
           scheduleWeekEndStr
         )
-        setWeekSchedules(data ?? [])
+        setWeekSchedules((data ?? []).filter((s) => s.status !== 'voided'))
       }
       setAddVisitModalOpen(false)
       router.refresh()
@@ -3173,7 +3188,7 @@ export default function ClientDetailContent({ client, allClients, representative
           scheduleWeekStartStr,
           scheduleWeekEndStr
         )
-        setWeekSchedules(data ?? [])
+        setWeekSchedules((data ?? []).filter((s) => s.status !== 'voided'))
       }
       setEditVisitModalOpen(false)
       setEditingSchedule(null)
@@ -3190,7 +3205,7 @@ export default function ClientDetailContent({ client, allClients, representative
       scheduleWeekStartStr,
       scheduleWeekEndStr
     )
-    setWeekSchedules(data ?? [])
+    setWeekSchedules((data ?? []).filter((s) => s.status !== 'voided'))
   }
 
   const handleConfirmVisitStatusChange = async () => {
@@ -3247,15 +3262,18 @@ export default function ClientDetailContent({ client, allClients, representative
 
   const handleDeleteVisit = async () => {
     if (!editingSchedule) return
-    if (!confirm('Delete this visit? This cannot be undone.')) return
     setIsSavingVisit(true)
     try {
-      const { error: delErr } = await q.deleteSchedule(editingSchedule.id)
+      const { error: delErr } = editingSchedule.is_recurring
+        ? await q.deleteRecurringSchedule({ seed_schedule_id: editingSchedule.id, scope: deleteVisitScope })
+        : await q.deleteSchedule(editingSchedule.id)
       if (delErr) {
         setVisitError(delErr.message ?? 'Could not delete this visit.')
+        setDeleteVisitModalOpen(false)
         return
       }
-      setWeekSchedules((prev) => prev.filter((s) => s.id !== editingSchedule.id))
+      await refreshWeekSchedules()
+      setDeleteVisitModalOpen(false)
       setEditVisitModalOpen(false)
       setEditingSchedule(null)
       router.refresh()
@@ -3382,19 +3400,7 @@ export default function ClientDetailContent({ client, allClients, representative
    * render it as missed immediately (without waiting for DB cron sync).
    */
   const getEffectiveScheduleStatus = (s: ScheduleRow): ReturnType<typeof visitStatusFromScheduleRow> => {
-    const base = visitStatusFromScheduleRow(s)
-    if (base === 'completed' || base === 'missed' || base === 'in_progress') return base
-
-    const date = String(s.date ?? '').trim()
-    const endTimeRaw = String(s.end_time ?? s.start_time ?? '').trim()
-    const time = endTimeRaw.slice(0, 5)
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return base
-
-    const endAt = new Date(`${date}T${time}:00`)
-    if (Number.isNaN(endAt.getTime())) return base
-
-    const now = new Date(scheduleNowTick)
-    return endAt.getTime() < now.getTime() ? 'missed' : base
+    return visitStatusForScheduleCalendar(s, new Date(scheduleNowTick))
   }
 
   const scheduleStatusLabel = (status: ReturnType<typeof visitStatusFromScheduleRow>) =>
@@ -3404,7 +3410,7 @@ export default function ClientDetailContent({ client, allClients, representative
     if (activeTab !== 'schedule' || weekSchedules.length === 0) return
 
     const candidates = weekSchedules.filter((s) => {
-      const effective = getEffectiveScheduleStatus(s)
+      const effective = visitStatusForScheduleCalendar(s, new Date(scheduleNowTick))
       if (effective !== 'missed') return false
       const raw = String(s.status ?? '').trim().toLowerCase()
       if (raw === 'missed') return false
@@ -5186,18 +5192,6 @@ export default function ClientDetailContent({ client, allClients, representative
                                 const seg = getSegment(block)!
                                 const { segStartH: sh, rowSpan } = seg
                                 const endHourExclusive = sh + rowSpan
-                                const isFirst = block.date === dateStr
-                                const startParts = (block.start_time ?? '0:0').split(':').slice(0, 2).map(Number)
-                                const endParts = (block.end_time ?? '0:0').split(':').slice(0, 2).map(Number)
-                                const sm = isFirst ? (startParts[1] || 0) : 0
-                                const eh = endParts[0] || 0
-                                const em = endParts[1] || 0
-                                const isLast = (block.end_date ?? block.date) === dateStr
-                                const segDurationMins = isFirst && isLast
-                                  ? Math.max(0, (eh * 60 + em) - (sh * 60 + sm))
-                                  : isFirst ? (24 * 60 - (sh * 60 + sm))
-                                  : isLast ? (eh * 60 + em)
-                                  : 24 * 60
                                 return (
                                   <td
                                     key={dateStr}
@@ -5214,7 +5208,7 @@ export default function ClientDetailContent({ client, allClients, representative
                                           onClick={() => openEditVisitModal(block)}
                                           onMouseEnter={() => setScheduleHover({ dateStr, startHour: sh, endHourExclusive })}
                                           onMouseLeave={() => setScheduleHover(null)}
-                                          className="relative w-full flex flex-col rounded border-l-4 p-2 pr-24 text-left focus:outline-none focus:ring-2 box-border"
+                                          className="relative w-full flex flex-col justify-center overflow-hidden rounded border-l-4 p-1.5 pr-24 text-left focus:outline-none focus:ring-2 box-border"
                                           style={{
                                             backgroundColor: colors.bg,
                                             borderLeftColor: colors.border,
@@ -5223,26 +5217,19 @@ export default function ClientDetailContent({ client, allClients, representative
                                             minHeight: '100%',
                                           }}
                                         >
-                                          <div className="min-w-0 flex-1 flex flex-col">
-                                            <div className="font-medium">
+                                          <div className="min-w-0 flex flex-col justify-center gap-0.5">
+                                            <div className="font-medium leading-tight">
                                               {formatVisitTimeRange(block.start_time, block.end_time)}
                                             </div>
                                             {seg.totalDays > 1 && (
                                               <div className="text-xs opacity-70">Day {seg.dayIndex} of {seg.totalDays}</div>
                                             )}
-                                            <div className="flex min-w-0 items-center gap-2 text-xs" style={{ color: colors.text }}>
-                                              <span className="truncate">{block.type || 'Routine'}</span>
-                                              <span className="inline-flex shrink-0 items-center gap-1 opacity-90">
-                                                <Clock className="h-3 w-3" />
-                                                {segDurationMins >= 60 ? `${Math.floor(segDurationMins / 60)}h` : `${segDurationMins}m`}
-                                              </span>
-                                            </div>
                                             <div
-                                              className="mt-0.5 min-w-0 truncate text-xs"
+                                              className="min-w-0 truncate text-xs leading-tight"
                                               style={{ color: colors.text }}
                                               title={block.caregiver_id ? caregiverNamesById.get(block.caregiver_id) || 'Caregiver name unavailable' : 'Unassigned'}
                                             >
-                                              Caregiver: {block.caregiver_id ? caregiverNamesById.get(block.caregiver_id) || 'Name unavailable' : 'Unassigned'}
+                                              {block.caregiver_id ? caregiverNamesById.get(block.caregiver_id) || 'Name unavailable' : 'Unassigned'}
                                             </div>
                                           </div>
                                           <span
@@ -6552,7 +6539,12 @@ export default function ClientDetailContent({ client, allClients, representative
                 <input
                   type="date"
                   value={visitForm.date}
-                  onChange={(e) => setVisitForm((p) => ({ ...p, date: e.target.value, endDate: p.endDate < e.target.value ? e.target.value : p.endDate }))}
+                  onChange={(e) => setVisitForm((p) => ({
+                    ...p,
+                    date: e.target.value,
+                    endDate: p.endDate < e.target.value ? e.target.value : p.endDate,
+                    repeatStart: p.isRecurring ? p.repeatStart : e.target.value,
+                  }))}
                   className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500"
                   disabled={isSavingVisit || visitForm.isRecurring}
                 />
@@ -6748,14 +6740,9 @@ export default function ClientDetailContent({ client, allClients, representative
                       setVisitForm((p) => {
                         const next = { ...p, repeatFrequency: v }
                         if (v === 'daily') {
-                          const today = toLocalDateString(new Date())
-                          next.repeatStart = today
-                          next.repeatEnd = today
+                          Object.assign(next, recurrenceDateDefaults(p.date, 'daily'))
                         } else if (v === 'weekly') {
-                          const mon = getMonday(new Date())
-                          next.repeatStart = toLocalDateString(mon)
-                          /** Open-ended by default; first batch uses 21-day Pacific window. User may set End Date for a fixed range. */
-                          next.repeatEnd = ''
+                          Object.assign(next, recurrenceDateDefaults(p.date, 'weekly'))
                         } 
                         // else if (v === 'monthly') {
                         //   const d = new Date()
@@ -7010,7 +6997,12 @@ export default function ClientDetailContent({ client, allClients, representative
                 <input
                   type="date"
                   value={visitForm.date}
-                  onChange={(e) => setVisitForm((p) => ({ ...p, date: e.target.value, endDate: p.endDate < e.target.value ? e.target.value : p.endDate }))}
+                  onChange={(e) => setVisitForm((p) => ({
+                    ...p,
+                    date: e.target.value,
+                    endDate: p.endDate < e.target.value ? e.target.value : p.endDate,
+                    repeatStart: p.isRecurring ? p.repeatStart : e.target.value,
+                  }))}
                   className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500"
                   disabled={isSavingVisit || visitForm.isRecurring}
                 />
@@ -7172,14 +7164,9 @@ export default function ClientDetailContent({ client, allClients, representative
                       setVisitForm((p) => {
                         const next = { ...p, repeatFrequency: v }
                         if (v === 'daily') {
-                          const today = toLocalDateString(new Date())
-                          next.repeatStart = today
-                          next.repeatEnd = today
+                          Object.assign(next, recurrenceDateDefaults(p.date, 'daily'))
                         } else if (v === 'weekly') {
-                          const mon = getMonday(new Date())
-                          next.repeatStart = toLocalDateString(mon)
-                          /** Open-ended by default; first batch uses 21-day Pacific window. User may set End Date for a fixed range. */
-                          next.repeatEnd = ''
+                          Object.assign(next, recurrenceDateDefaults(p.date, 'weekly'))
                         } 
                         // else if (v === 'monthly') {
                         //   const d = new Date()
@@ -7434,7 +7421,7 @@ export default function ClientDetailContent({ client, allClients, representative
           <Button
             variant="danger"
             type="button"
-            onClick={handleDeleteVisit}
+            onClick={() => { setDeleteVisitScope('this_visit'); setDeleteVisitModalOpen(true) }}
             disabled={isSavingVisit}
             icon={Trash2}
           >
@@ -7457,6 +7444,46 @@ export default function ClientDetailContent({ client, allClients, representative
           >
             {editingSchedule?.is_recurring && editRecurringApplyScope !== 'this_visit' ? 'Update Visits' : 'Update Visit'}
           </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={deleteVisitModalOpen}
+        onClose={() => { if (!isSavingVisit) setDeleteVisitModalOpen(false) }}
+        title="Delete Visit"
+        size="md"
+        overlayClassName="z-[100]"
+        lockBodyScroll={false}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700">
+            {editingSchedule?.is_recurring
+              ? 'Choose how much of this recurring schedule to remove. Removed visits stay in the audit history.'
+              : 'Delete this visit? This cannot be undone.'}
+          </p>
+          {editingSchedule?.is_recurring && (
+            <fieldset className="space-y-2">
+              <legend className="sr-only">Delete scope</legend>
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 text-sm">
+                <input type="radio" name="delete-visit-scope" value="this_visit"
+                  checked={deleteVisitScope === 'this_visit'}
+                  onChange={() => setDeleteVisitScope('this_visit')} className="mt-0.5" />
+                <span><span className="block font-medium">This visit only</span>
+                  <span className="block text-gray-500">Other visits in the series continue.</span></span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 text-sm">
+                <input type="radio" name="delete-visit-scope" value="this_and_future"
+                  checked={deleteVisitScope === 'this_and_future'}
+                  onChange={() => setDeleteVisitScope('this_and_future')} className="mt-0.5" />
+                <span><span className="block font-medium">This and future visits</span>
+                  <span className="block text-gray-500">Remove this visit and later visits, and stop the series from creating more.</span></span>
+              </label>
+            </fieldset>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" type="button" onClick={() => setDeleteVisitModalOpen(false)} disabled={isSavingVisit}>Keep Visit</Button>
+            <Button variant="danger" type="button" onClick={handleDeleteVisit} disabled={isSavingVisit} loading={isSavingVisit}>Delete Visit</Button>
+          </div>
         </div>
       </Modal>
 

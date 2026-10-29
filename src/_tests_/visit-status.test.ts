@@ -3,6 +3,7 @@ import {
   canCaregiverStartVisit,
   isVisitTerminal,
   visitStatusFromScheduleRow,
+  visitStatusForScheduleCalendar,
 } from '@/lib/visit-status'
 import {
   canCaregiverActOnVisit,
@@ -12,6 +13,26 @@ import {
 } from '@/lib/caregiver-care-visits-shared'
 
 describe('scheduled visit lifecycle', () => {
+  it('shows a future unassigned visit as upcoming when an automatic status was premature', () => {
+    expect(visitStatusForScheduleCalendar({
+      status: 'missed', caregiver_id: null, date: '2026-10-28',
+      start_time: '16:00', end_time: '17:00',
+    }, new Date('2026-10-28T12:48:00'))).toBe('unassigned')
+  })
+
+  it('keeps a deliberate missed decision and holds intact', () => {
+    const future = { date: '2026-10-28', start_time: '16:00', end_time: '17:00' }
+    const now = new Date('2026-10-28T12:48:00')
+    expect(visitStatusForScheduleCalendar({ ...future, status: 'missed', status_reason: 'Confirmed no show' }, now)).toBe('missed')
+    expect(visitStatusForScheduleCalendar({ ...future, status: 'on_hold' }, now)).toBe('on_hold')
+  })
+
+  it('waits until an overnight visit ends before calling it missed', () => {
+    const row = { date: '2026-10-28', start_time: '23:00', end_time: '01:00', status: 'scheduled' }
+    expect(visitStatusForScheduleCalendar(row, new Date('2026-10-29T00:30:00'))).toBe('scheduled')
+    expect(visitStatusForScheduleCalendar(row, new Date('2026-10-29T01:30:00'))).toBe('missed')
+  })
+
   it.each(['cancelled', 'voided', 'on_hold'] as const)(
     'preserves %s instead of converting it to an assigned caregiver visit',
     status => {

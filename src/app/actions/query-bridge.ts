@@ -1,11 +1,13 @@
 'use server'
 
+import { revalidatePath, revalidateTag } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
 import * as managerSchedules from '@/lib/repositories/manager-scheduling'
 import { PLATFORM_OR_AGENCY_MANAGER_ROLES } from '@/lib/role-capabilities'
 import { withAuthorizedApplication } from '@/lib/repositories/application-access'
+import { CACHE_TAG_AGENCY_CLIENT_DETAIL } from '@/lib/cache-tags'
 
 export type {
   PatientAdlDayScheduleUpsert,
@@ -364,6 +366,16 @@ export async function deleteRepresentative(...args: Parameters<typeof q.deleteRe
 
 export async function deleteSchedule(...args: Parameters<typeof q.deleteSchedule>) {
   return managerSchedules.managerDeleteSchedule(...args)
+}
+
+export async function deleteRecurringSchedule(input: Parameters<typeof managerSchedules.managerDeleteRecurringSchedule>[0]) {
+  const result = await managerSchedules.managerDeleteRecurringSchedule(input)
+  if (!result.error) {
+    revalidatePath('/pages/agency/clients')
+    revalidatePath('/pages/agency/care-visits')
+    revalidateTag(CACHE_TAG_AGENCY_CLIENT_DETAIL)
+  }
+  return result
 }
 
 export async function deleteSkilledTaskPlanRowsBatch(...args: Parameters<typeof q.deleteSkilledTaskPlanRowsBatch>) {

@@ -32,6 +32,22 @@ test('passes subject/agency/application scope to the authorized panel boundary',
   await screen.findByText('No internal notes yet.')
   expect(getInternalNotesPanelDataAction).toHaveBeenCalledWith({subjectType:'application',subjectId:SUBJECT,agencyId:AGENCY,applicationId:SUBJECT})
 })
+test('visit notes defer agency tag choices until Add Note opens',async()=>{
+  jest.mocked(getInternalNotesPanelDataAction)
+    .mockResolvedValueOnce(empty)
+    .mockResolvedValueOnce({...empty,patients:[{id:OTHER,first_name:'Synthetic',last_name:'Client'}]})
+  render(<InternalNotesPanel subjectType="visit" subjectId={SUBJECT} agencyId={AGENCY} canManage deferTagOptions />)
+  await screen.findByText('No internal notes yet.')
+  expect(getInternalNotesPanelDataAction).toHaveBeenCalledTimes(1)
+  expect(getInternalNotesPanelDataAction).toHaveBeenCalledWith({
+    subjectType:'visit',subjectId:SUBJECT,agencyId:AGENCY,applicationId:null,includeTagOptions:false,
+  })
+  fireEvent.click(screen.getByRole('button',{name:'Add Note'}))
+  await screen.findByRole('option',{name:'Synthetic Client'})
+  expect(getInternalNotesPanelDataAction).toHaveBeenCalledWith({
+    subjectType:'visit',subjectId:SUBJECT,agencyId:AGENCY,applicationId:null,includeTagOptions:true,
+  })
+})
 test('drops a late response for a previous subject and clears notes after a denied reload',async()=>{
   let finishFirst!:(value:PanelResult)=>void
   jest.mocked(getInternalNotesPanelDataAction).mockImplementationOnce(()=>new Promise(resolve=>{finishFirst=resolve}))

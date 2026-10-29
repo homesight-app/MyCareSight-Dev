@@ -1,4 +1,5 @@
 import { getSession } from '@/lib/auth'
+import { withUserContext } from '@/db'
 import { auditStoredObjectAccess, authorizeStoredObject } from '@/lib/storage/authorization'
 import { getSignedUrl } from '@/lib/storage/client'
 
@@ -19,12 +20,18 @@ export async function GET(request: Request) {
   }
 
   try {
-    const object = await authorizeStoredObject(bucket, path)
+    const object = await withUserContext(
+      session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null,
+      () => authorizeStoredObject(bucket, path)
+    )
     if (!object) return Response.json({ error: 'Document not found' }, { status: 404 })
 
     const url = await getSignedUrl(bucket, path, expiresIn)
     if (!url) return Response.json({ error: 'Unable to issue document URL' }, { status: 503 })
-    await auditStoredObjectAccess(session.user.id, object, 'SIGNED_URL')
+    await withUserContext(
+      session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null,
+      () => auditStoredObjectAccess(session.user.id, object, 'SIGNED_URL')
+    )
     return Response.json({ url })
   } catch {
     return Response.json({ error: 'Unable to issue document URL' }, { status: 500 })

@@ -15,6 +15,10 @@ export const notePanelReadSchema = z.object({
   applicationId: z.uuid().nullable().optional(),
 }).strict()
 export type NotePanelReadInput = z.infer<typeof notePanelReadSchema>
+export const notePanelDataReadSchema = notePanelReadSchema.extend({
+  includeTagOptions: z.boolean().optional(),
+}).strict()
+export type NotePanelDataReadInput = z.infer<typeof notePanelDataReadSchema>
 export const noteCountReadSchema = z.object({
   subjectIds: z.array(z.uuid()).max(500).transform(ids => [...new Set(ids)]),
   subjectType: applicationNoteSubjectSchema.optional(),

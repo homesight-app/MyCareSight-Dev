@@ -27,7 +27,8 @@ BEGIN
     FROM public.scheduled_visit_tasks task
     JOIN public.scheduled_visits visit ON visit.id = task.scheduled_visit_id
       AND visit.agency_id = task.agency_id
-    WHERE task.legacy_task_code ~ '^any::.+::[2-4]$'
+    WHERE task.legacy_task_code ~ '^any::[^:]+::[2-4]$'
+      AND cardinality(string_to_array(task.legacy_task_code, '::')) = 3
       AND task.completed_at IS NULL
       AND visit.status NOT IN ('completed', 'missed', 'cancelled', 'voided')
     ORDER BY task.scheduled_visit_id, task.sort_order, task.id

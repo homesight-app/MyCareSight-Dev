@@ -84,6 +84,49 @@ export async function sendPasswordResetEmail(to: string, resetLink: string) {
   }
 }
 
+export async function sendAccountSetupEmail(to: string, fullName: string, setupLink: string) {
+  const displayName = fullName.replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character] ?? character)
+  try {
+    await send({
+      to,
+      subject: 'Set up your MyCareSight account',
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #0F172A; padding: 24px 30px; border-radius: 10px 10px 0 0; text-align: center;">
+              <h1 style="color: #22C55E; margin: 0; font-size: 22px;">MyCareSight</h1>
+            </div>
+            <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb;">
+              <p style="font-size: 16px;">Hi ${displayName},</p>
+              <p style="font-size: 16px;">A MyCareSight account has been created for you.</p>
+              <p style="font-size: 16px;">Use the secure link below to set your password. This one-time link expires in <strong>1 hour</strong>.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${setupLink}" style="display: inline-block; background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+                  Set Up Account
+                </a>
+              </div>
+              <p style="font-size: 14px; color: #6b7280;">If you were not expecting this invitation, contact the organization that invited you.</p>
+            </div>
+          </body>
+        </html>
+      `,
+      text: `Hi ${fullName},\n\nA MyCareSight account has been created for you. Set your password using this one-time link (expires in 1 hour):\n${setupLink}\n\nIf you were not expecting this invitation, contact the organization that invited you.`,
+    })
+    return { success: true }
+  } catch (error) {
+    console.error('sendAccountSetupEmail error:', error)
+    return { success: false, error }
+  }
+}
+
 export async function sendInvitationEmail(
   to: string,
   fullName: string,

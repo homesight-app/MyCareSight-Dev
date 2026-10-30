@@ -1,0 +1,30 @@
+{
+  "manifestVersion": 1,
+  "legacyBaseline": {
+    "recordId": "037-baseline-legacy-state",
+    "through": "037",
+    "inventoryChecksumSha256": "f8bd230efe6008edae5e0e34854fb4f4204f64b56e7862844f65a0db98f327ac",
+    "excludedFiles": [
+      "000-schema-preflight.sql",
+      "003-seed-synthetic-credentials.sql"
+    ],
+    "notes": "The digest inventories legacy SQL; it does not assert that every environment-specific or corrective script ran on every branch. Live verifiers remain required before baselining."
+  },
+  "managedMigrations": [
+    {
+      "id": "038",
+      "name": "database-migration-ledger",
+      "file": "038-database-migration-ledger.sql",
+      "verifier": "038-verify-database-migration-ledger.sql",
+      "checksumSha256": "a2953840586e677388e262aca5c2071885738b0f720d955a058bd17c5233fdb0",
+      "transactional": true,
+      "environments": [
+        "development",
+        "uat",
+        "production-staging",
+        "production",
+        "environment-base"
+      ]
+    }
+  ]
+}

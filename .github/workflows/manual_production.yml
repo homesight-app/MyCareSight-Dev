@@ -1,0 +1,217 @@
+name: Manual production deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full 40-character commit SHA already deployed successfully to production staging
+        required: true
+        type: string
+      confirmation:
+        description: Type DEPLOY PRODUCTION to confirm the production release
+        required: true
+        type: string
+
+concurrency:
+  group: mycaresight-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  validate-build-and-deploy:
+    name: Validate, build, and deploy production
+    if: github.repository == 'homesight-app/MyCareSight-Dev' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Production
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+
+    steps:
+      - name: Validate release confirmation and SHA
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRMATION" != 'DEPLOY PRODUCTION' ]; then
+            echo '::error::Production confirmation text did not match.'
+            exit 1
+          fi
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo '::error::release_sha must be a full 40-character Git commit SHA.'
+            exit 1
+          fi
+
+      - name: Check out the approved release commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release commit belongs to main
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [ "${checked_out_sha,,}" != "${RELEASE_SHA,,}" ]; then
+            echo '::error::The checked-out commit does not match release_sha.'
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$checked_out_sha" origin/main; then
+            echo '::error::The selected release commit is not contained in main.'
+            exit 1
+          fi
+
+      - name: Verify the exact commit passed production staging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          successful_runs="$(gh api \
+            --method GET \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/manual_production-staging.yml/runs?head_sha=${RELEASE_SHA}&status=completed&per_page=100" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success" and .event == "workflow_dispatch" and .head_branch == "main")] | length')"
+          if [ "$successful_runs" -lt 1 ]; then
+            echo '::error::The exact release SHA does not have a successful manual production-staging workflow run from main.'
+            exit 1
+          fi
+
+      - name: Verify production build configuration
+        shell: bash
+        env:
+          PRODUCTION_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+          PRODUCTION_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          PRODUCTION_AUTH_URL: ${{ vars.PRODUCTION_AUTH_URL }}
+          PRODUCTION_TURNSTILE_SITE_KEY: ${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          PRODUCTION_AUTH_SECRET: ${{ secrets.PRODUCTION_AUTH_SECRET }}
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ vars.AZURE_STORAGE_ACCOUNT_NAME }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          for name in PRODUCTION_APP_URL PRODUCTION_SITE_URL PRODUCTION_AUTH_URL PRODUCTION_TURNSTILE_SITE_KEY PRODUCTION_AUTH_SECRET PRODUCTION_DATABASE_URL AZURE_STORAGE_ACCOUNT_NAME AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing Production GitHub environment value: ${name}"
+              exit 1
+            fi
+          done
+          for name in PRODUCTION_APP_URL PRODUCTION_SITE_URL PRODUCTION_AUTH_URL; do
+            if [[ "${!name}" != https://* ]]; then
+              echo "::error::${name} must use HTTPS."
+              exit 1
+            fi
+            if [[ "${!name,,}" == *staging* ]]; then
+              echo "::error::${name} must not reference staging."
+              exit 1
+            fi
+          done
+          if [ "$PRODUCTION_AUTH_URL" != "$PRODUCTION_APP_URL" ]; then
+            echo '::error::PRODUCTION_AUTH_URL must match NEXT_PUBLIC_APP_URL.'
+            exit 1
+          fi
+          echo "Building approved commit ${RELEASE_SHA} for the production slot."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Build standalone production app
+        env:
+          NEXT_PUBLIC_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          AUTH_URL: ${{ vars.PRODUCTION_AUTH_URL }}
+          AUTH_SECRET: ${{ secrets.PRODUCTION_AUTH_SECRET }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ vars.AZURE_STORAGE_ACCOUNT_NAME }}
+        run: npm run build
+
+      - name: Prepare standalone artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir deploy
+          cp -R .next/standalone/. deploy/
+          mkdir -p deploy/.next
+          cp -R .next/static deploy/.next/static
+          if [ -d public ]; then cp -R public deploy/public; fi
+          test -f deploy/server.js
+          test -f deploy/.next/BUILD_ID
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify the production deployment target
+        shell: bash
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          active_subscription_id="$(az account show --query id --output tsv)"
+          if [ "$active_subscription_id" != "$EXPECTED_SUBSCRIPTION_ID" ]; then
+            echo '::error::Azure login selected a different subscription.'
+            exit 1
+          fi
+          site_id="$(az webapp show \
+            --resource-group rg-mycaresight-prod \
+            --name mycaresight-prod-web \
+            --query id --output tsv)"
+          expected_site_id="/subscriptions/${EXPECTED_SUBSCRIPTION_ID}/resourceGroups/rg-mycaresight-prod/providers/Microsoft.Web/sites/mycaresight-prod-web"
+          if [ "${site_id,,}" != "${expected_site_id,,}" ]; then
+            echo '::error::The expected production App Service was not found.'
+            exit 1
+          fi
+
+      - name: Deploy only to the production slot
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: mycaresight-prod-web
+          package: deploy
+          startup-command: node server.js
+
+      - name: Verify production health
+        shell: bash
+        env:
+          PRODUCTION_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+        run: |
+          set -euo pipefail
+          health_url="${PRODUCTION_APP_URL%/}/api/health"
+          for attempt in $(seq 1 18); do
+            if curl --fail --silent --show-error --max-time 15 --output /dev/null "$health_url"; then
+              echo 'Production health check passed.'
+              exit 0
+            fi
+            echo "Health check attempt ${attempt} of 18 did not pass yet."
+            sleep 10
+          done
+          echo '::error::Production health check did not return success after deployment.'
+          exit 1

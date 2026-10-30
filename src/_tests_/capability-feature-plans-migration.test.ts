@@ -12,6 +12,10 @@ const verification = readFileSync(
   join(process.cwd(), 'scripts/migrations/025-verify-capability-based-feature-plans.sql'),
   'utf8'
 )
+const catalogReseed = readFileSync(
+  join(process.cwd(), 'scripts/migrations/025a-reseed-capability-catalog.sql'),
+  'utf8'
+)
 
 const PLAN = '95000000-0000-4000-8000-000000000001'
 const AGENCY = '95000000-0000-4000-8000-000000000002'
@@ -97,5 +101,32 @@ describe('capability-based feature plan migration 025', () => {
       const rows = await tx.query('SELECT capability_key FROM plan_capabilities ORDER BY capability_key')
       expect(rows.rows).toHaveLength(2)
     })
+  })
+
+  test('restores capability reference rows omitted by a schema-only copy', async () => {
+    await db.exec(`
+      UPDATE capability_catalog
+      SET label = 'Drifted', description = 'Drifted', is_active = false;
+      DELETE FROM capability_catalog
+      WHERE key NOT IN (SELECT capability_key FROM plan_capabilities);
+    `)
+
+    await db.exec(catalogReseed)
+
+    const catalog = (await db.query<{
+      key: string
+      label: string
+      is_active: boolean
+    }>('SELECT key, label, is_active FROM capability_catalog ORDER BY sort_order')).rows
+    expect(catalog).toHaveLength(6)
+    expect(catalog.every(row => row.is_active)).toBe(true)
+    expect(catalog.find(row => row.key === 'care_operations')?.label).toBe('Care Operations')
+
+    const results = await db.exec(verification)
+    expect(results.flatMap(result => result.rows)[0]).toEqual(expect.objectContaining({
+      catalog_seed_ok: true,
+      care_operations_ok: true,
+      caregiver_management_separate: true,
+    }))
   })
 })

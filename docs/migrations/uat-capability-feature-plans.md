@@ -35,6 +35,12 @@ The migration stops before making changes when it finds duplicate case-insensiti
 6. Apply 025 to the schema-only `environment-base` so newly created environments have the same capability model.
 7. Deploy the matching application build only after the database migration succeeds in that environment.
 
+Schema-only branch copies can preserve the catalog table while omitting its six
+reference rows. If the 025 verifier reports the three catalog booleans as false
+while its structural and security checks pass, apply
+`scripts/migrations/025a-reseed-capability-catalog.sql` and rerun the verifier.
+Do not rerun destructive migration 025.
+
 Do not deploy this application code before migration 025 because it reads `capability_catalog` and `plan_capabilities`. Production remains unchanged and outside this UAT migration slice.
 
 ## Synthetic acceptance

@@ -2,6 +2,18 @@
 
 Status: Phase 1 validation and read-only status tooling. Database-writing automation is intentionally disabled until every Neon branch has an approved baseline.
 
+Development ownership-bootstrap acceptance completed on 2026-11-03. The final verifier passed every role, membership, ownership, extension, and runtime-isolation assertion. A direct `psql` login as `mycaresight_migrator` successfully used explicit `SET LOCAL ROLE mycaresight_schema_owner`, and the synthetic application smoke test passed. Migration 038 remains unapplied, and GitHub database-writing automation remains disabled.
+
+The Neon Functions deployment guide is not the schema-migration mechanism for this application. The relevant Neon pattern is isolated branch testing through GitHub Actions. MyCareSight adds environment-scoped credentials, immutable checksums, an append-only ledger, exact target validation, and gated staging/production promotion. A Neon API key is needed only if later automation creates or deletes preview branches; fixed-environment migrations use the dedicated PostgreSQL migrator connection.
+
+## One-time ownership bootstrap
+
+`scripts/database-bootstrap/001-schema-owner-bootstrap.sql` is an owner-run prerequisite, not a managed application migration. It creates the `NOLOGIN` shared owner `mycaresight_schema_owner`, grants membership only to `neondb_owner` and the restricted `mycaresight_migrator`, and transfers non-extension application relations and routines in `public`. It deliberately leaves the database, `public` schema, and extension objects under their existing Neon ownership. Run its verifier before and after a Development rehearsal. Do not run migration 038 until the verifier passes and the security-definer regression checks succeed.
+
+Future migration transactions must use `SET LOCAL ROLE mycaresight_schema_owner`. The ledger records `session_user` as the credential identity and `current_user` as the execution role.
+
+If the Development rehearsal reveals a regression after commit, run `001-rollback-schema-owner-bootstrap.sql` as `neondb_owner`. It reverses only the scoped application-object ownership and migrator membership; it leaves the inert shared role available for diagnosis and retry.
+
 ## Purpose
 
 The migration-control boundary replaces manual guesses about missing SQL with an ordered, checksummed manifest and an append-only database ledger. It is provider-neutral and uses the existing PostgreSQL driver. It must never log connection strings, database contents, PHI, or SQL result data beyond migration metadata.

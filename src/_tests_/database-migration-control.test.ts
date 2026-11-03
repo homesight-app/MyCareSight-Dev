@@ -26,10 +26,32 @@ describe('database migration control', () => {
     expect(migration).toContain('CREATE TABLE public.schema_migrations')
     expect(migration).toContain('BEFORE UPDATE OR DELETE ON public.schema_migrations')
     expect(migration).toContain('REVOKE ALL ON TABLE public.schema_migrations FROM PUBLIC')
+    expect(migration).toContain('applied_by text NOT NULL DEFAULT session_user')
+    expect(migration).toContain('executed_as text NOT NULL DEFAULT current_user')
     expect(migration).toContain("rolname = 'mycaresight_app'")
     expect(migration).toContain("rolname = 'mycaresight_jobs'")
     expect(verifier).toContain('append_only_trigger_exists')
     expect(verifier).toContain('runtime_roles_have_no_grants')
+  })
+
+  test('keeps the ownership bootstrap least-privilege and extension-safe', () => {
+    const bootstrap = read('scripts/database-bootstrap/001-schema-owner-bootstrap.sql')
+    const verifier = read('scripts/database-bootstrap/001-verify-schema-owner-bootstrap.sql')
+    const rollback = read('scripts/database-bootstrap/001-rollback-schema-owner-bootstrap.sql')
+
+    expect(bootstrap).toContain("session_user <> 'neondb_owner'")
+    expect(bootstrap).toContain("pg_has_role('mycaresight_migrator','neon_superuser','MEMBER')")
+    expect(bootstrap).toContain("d.deptype='e'")
+    expect(bootstrap).toContain("linked.deptype IN ('a','i')")
+    expect(bootstrap).not.toContain('ALTER DATABASE')
+    expect(bootstrap).not.toContain('ALTER SCHEMA public OWNER')
+    expect(verifier).toContain('no_untransferred_application_objects')
+    expect(verifier).toContain('app_not_owner_member')
+    expect(verifier).toContain('jobs_not_owner_member')
+    expect(rollback).not.toContain('REASSIGN OWNED')
+    expect(rollback).not.toContain('DROP ROLE')
+    expect(rollback).toContain("linked.deptype IN ('a','i')")
+    expect(rollback).toContain('OWNER TO neondb_owner')
   })
 
   test('creates a verified ledger that rejects mutation', async () => {

@@ -31,13 +31,13 @@ SELECT
       AND grantee IN ('mycaresight_app', 'mycaresight_jobs')
   ) AS runtime_roles_have_no_grants,
   COALESCE((
-    SELECT count(*) = 11
+    SELECT count(*) = 12
     FROM information_schema.columns
     WHERE table_schema = 'public'
       AND table_name = 'schema_migrations'
       AND column_name IN (
         'migration_id', 'file_name', 'checksum_sha256', 'release_sha',
-        'target_environment', 'applied_at', 'applied_by', 'execution_ms',
+        'target_environment', 'applied_at', 'applied_by', 'executed_as', 'execution_ms',
         'verifier_file', 'is_baseline', 'metadata'
       )
   ), false) AS expected_columns_exist;

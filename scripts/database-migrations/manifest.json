@@ -16,7 +16,7 @@
       "name": "database-migration-ledger",
       "file": "038-database-migration-ledger.sql",
       "verifier": "038-verify-database-migration-ledger.sql",
-      "checksumSha256": "a2953840586e677388e262aca5c2071885738b0f720d955a058bd17c5233fdb0",
+      "checksumSha256": "d4e26cc89efa3911452856fdb5b55236962f451b99a3b250d6b958667c768a64",
       "transactional": true,
       "environments": [
         "development",

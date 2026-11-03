@@ -1222,3 +1222,17 @@ and auditors.
 - **Relevant safeguards:** Supports 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, and 164.312(c)(1) Integrity by separating runtime and migration authority and detecting migration-file or applied-checksum drift.
 - **Files:** `scripts/database-migrations/`, migration 038 and its verifier, `.github/workflows/database-migration-validation.yml`, `src/_tests_/database-migration-control.test.ts`, `docs/operations/database-migration-control.md`, `package.json`, and this log.
 - **Validation and remaining gap:** Offline manifest validation passed for 43 legacy files and one managed migration. Four focused tests passed, including an isolated PostgreSQL execution that verifies the ledger and rejects UPDATE. Workflow YAML parsed successfully. Before Phase 2, generate and review read-only status/baseline evidence for Development, UAT, production-staging, production, and environment-base; provision a dedicated migrator role; document recovery handling; and obtain explicit approval before enabling any GitHub database write.
+
+### Database Migrator Shared-Ownership Bootstrap (2026-10-30)
+
+- **What:** Added a Development-first, owner-run bootstrap and verifier for the restricted `mycaresight_migrator` and a `NOLOGIN`, `NOINHERIT` shared schema owner. It transfers only non-extension application relations and routines in `public`, leaving Neon database, schema, and extension ownership unchanged. Runtime roles are excluded from membership. The unapplied migration ledger now distinguishes the login credential (`session_user`) from the shared execution owner (`current_user`). No database command was executed.
+- **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, and 164.312(c)(1) Integrity.
+- **Files:** `scripts/database-bootstrap/`, migration 038 and its verifier, migration-control documentation and tests, and this log.
+- **Remaining gap:** Rehearse and verify in Development, then regression-test the 16 live `SECURITY DEFINER` routines before promotion. Do not enable GitHub database writes or apply migration 038 until that evidence is reviewed.
+
+#### Development acceptance evidence (2026-11-03)
+
+- The first two bootstrap attempts failed closed and were rolled back: the first exposed an unexpected `INHERIT` attribute on the migrator; the second exposed a PostgreSQL ownership rule for table-linked sequences. The migrator was changed to `NOINHERIT`, and the bootstrap and rollback scripts were corrected to let linked sequences follow their parent table while still handling standalone sequences.
+- The final verifier returned true for all assertions: restricted migrator and shared owner, no `neon_superuser` membership, required owner memberships, complete application-object transfer, unchanged database/schema/extension ownership, and no runtime-role owner membership.
+- All 16 live `SECURITY DEFINER` routines remained security-definer, were owned by `mycaresight_schema_owner`, and retained controlled function settings. A direct `psql` login confirmed `session_user=mycaresight_migrator`; explicit `SET LOCAL ROLE` changed only `current_user` to `mycaresight_schema_owner` with the required schema privileges.
+- Synthetic Development smoke tests covering authentication, feature plans, agency-role management, caregiver skills, and visit workflows completed without database permission errors. Migration 038 and GitHub database writes remain intentionally disabled pending the separate controlled-runner phase.

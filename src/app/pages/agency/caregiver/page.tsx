@@ -8,6 +8,7 @@ import FeatureGate from '@/components/FeatureGate'
 import { normalizeCaregiverDirectoryStatus } from '@/lib/caregiver-directory-filters'
 import { requireAgencyCapability } from '@/lib/feature-access'
 import FeatureLockedPage from '@/components/FeatureLockedPage'
+import { withUserContext } from '@/db'
 
 const PAGE_SIZE = 50
 
@@ -73,7 +74,12 @@ export default async function StaffPage({
       ? readCaregiverPayRates({ caregiverIds: staffMemberIds, agencyId, effectiveOn: todayYmd })
       : Promise.resolve({ data: [] as { caregiver_member_id: string; pay_rate: number; service_type: string | null; effective_start: string }[], error: null }),
     staffMemberIds.length > 0
-      ? q.getStaffLicensesByStaffMemberIds(staffMemberIds)
+      ? withUserContext(
+          session.user.id,
+          role,
+          agencyId,
+          () => q.getStaffLicensesByStaffMemberIds(staffMemberIds)
+        )
       : Promise.resolve({ data: [], error: null }),
   ])
 
@@ -104,8 +110,11 @@ export default async function StaffPage({
       license_type: license.license_type,
       license_number: license.license_number || 'N/A',
       state: license.state,
+      issue_date: license.issue_date,
       status: license.status,
       expiry_date: license.expiry_date,
+      issuing_authority: license.issuing_authority,
+      document_url: license.document_url,
       days_until_expiry: license.days_until_expiry,
     })) ?? []
 

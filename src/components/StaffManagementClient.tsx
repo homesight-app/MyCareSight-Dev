@@ -54,8 +54,11 @@ interface StaffLicense {
   license_type: string
   license_number: string
   state?: string | null
+  issue_date?: string | null
   status: string
   expiry_date?: string | null
+  issuing_authority?: string | null
+  document_url?: string | null
   days_until_expiry?: number | null
 }
 
@@ -580,8 +583,11 @@ export default function StaffManagementClient({
               license_type: l.license_type,
               license_number: l.license_number,
               state: l.state,
+              issue_date: l.issue_date,
               status: l.status,
               expiry_date: l.expiry_date,
+              issuing_authority: l.issuing_authority,
+              document_url: l.document_url,
               days_until_expiry: l.days_until_expiry,
             }))}
             onSuccess={() => {

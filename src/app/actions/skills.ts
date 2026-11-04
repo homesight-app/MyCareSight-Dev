@@ -139,8 +139,7 @@ export async function saveCaregiverSkillsAction(
         && (actor.role === 'company_owner' || actor.role === 'care_coordinator')
         && Boolean(membership)
       const manager = actor.role === 'admin' || agencyManager
-      const self = target.user_id === actor.id && actor.role === 'staff_member' && Boolean(membership)
-      if (!manager && !self) throw new Error('Forbidden')
+      if (!manager) throw new Error('Forbidden')
       if (agencyManager) await assertAgencyCapability(target.agency_id, 'caregiver_management')
 
       const skillIds = parsed.data.skillIds
@@ -159,33 +158,19 @@ export async function saveCaregiverSkillsAction(
           AND NOT (credential_id = ANY(${skillIds}::uuid[]))
       `
       if (skillIds.length > 0) {
-        if (manager) {
-          await sql`
-            INSERT INTO public.caregiver_skill_assignments (
-              agency_id, caregiver_member_id, credential_id, verification_status,
-              added_by_user_id, verified_by_user_id, verified_at
-            )
-            SELECT ${target.agency_id}::uuid, ${target.id}::uuid, selected.id,
-              'verified', ${actor.id}::uuid, ${actor.id}::uuid, now()
-            FROM unnest(${skillIds}::uuid[]) selected(id)
-            ON CONFLICT (caregiver_member_id, credential_id)
-            DO UPDATE SET verification_status = 'verified',
-              verified_by_user_id = EXCLUDED.verified_by_user_id,
-              verified_at = EXCLUDED.verified_at, updated_at = now()
-          `
-        } else {
-          await sql`
-            INSERT INTO public.caregiver_skill_assignments (
-              agency_id, caregiver_member_id, credential_id, verification_status,
-              added_by_user_id
-            )
-            SELECT ${target.agency_id}::uuid, ${target.id}::uuid, selected.id,
-              'self_reported', ${actor.id}::uuid
-            FROM unnest(${skillIds}::uuid[]) selected(id)
-            ON CONFLICT (caregiver_member_id, credential_id)
-            DO NOTHING
-          `
-        }
+        await sql`
+          INSERT INTO public.caregiver_skill_assignments (
+            agency_id, caregiver_member_id, credential_id, verification_status,
+            added_by_user_id, verified_by_user_id, verified_at
+          )
+          SELECT ${target.agency_id}::uuid, ${target.id}::uuid, selected.id,
+            'verified', ${actor.id}::uuid, ${actor.id}::uuid, now()
+          FROM unnest(${skillIds}::uuid[]) selected(id)
+          ON CONFLICT (caregiver_member_id, credential_id)
+          DO UPDATE SET verification_status = 'verified',
+            verified_by_user_id = EXCLUDED.verified_by_user_id,
+            verified_at = EXCLUDED.verified_at, updated_at = now()
+        `
       }
 
       const [verified] = await sql<{ names: string[] }[]>`
@@ -207,7 +192,7 @@ export async function saveCaregiverSkillsAction(
           ${target.agency_id}::uuid, 'caregiver_skill_assignments', ${target.id}::uuid,
           'REPLACE', ${actor.id}::uuid,
           ${JSON.stringify({
-            operation: manager ? 'manager_replace_caregiver_skills' : 'caregiver_replace_self_reported_skills',
+            operation: 'manager_replace_caregiver_skills',
             selected_count: skillIds.length,
           })}::jsonb
         )

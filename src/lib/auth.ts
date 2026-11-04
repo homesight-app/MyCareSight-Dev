@@ -9,6 +9,10 @@ import {
   readCurrentIdentity,
   updateUserPassword,
 } from '@/lib/repositories/auth-identity'
+import {
+  reportSessionVerificationFailure,
+  SessionVerificationUnavailableError,
+} from '@/lib/auth/session-diagnostics'
 
 function isDynamicServerUsageError(error: unknown): boolean {
   return (
@@ -49,7 +53,8 @@ export const getSession = cache(async () => {
     }
   } catch (error) {
     if (isDynamicServerUsageError(error)) throw error
-    return null
+    reportSessionVerificationFailure('current-identity')
+    throw new SessionVerificationUnavailableError()
   }
 })
 

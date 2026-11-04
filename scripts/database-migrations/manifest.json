@@ -25,6 +25,21 @@
         "production",
         "environment-base"
       ]
+    },
+    {
+      "id": "039",
+      "name": "scope-membership-session-revocation",
+      "file": "039-scope-membership-session-revocation.sql",
+      "verifier": "039-verify-scope-membership-session-revocation.sql",
+      "checksumSha256": "ba230db1f8bb2c0190edc51eb2b2887e74a539ea32833787c769d11865499661",
+      "transactional": true,
+      "environments": [
+        "development",
+        "uat",
+        "production-staging",
+        "production",
+        "environment-base"
+      ]
     }
   ]
 }

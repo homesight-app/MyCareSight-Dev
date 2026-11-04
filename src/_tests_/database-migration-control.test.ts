@@ -16,7 +16,7 @@ describe('database migration control', () => {
       { cwd: root, encoding: 'utf8' }
     )
 
-    expect(output).toMatch(/Migration control valid: 43 legacy files, 1 managed migration/)
+    expect(output).toMatch(/Migration control valid: 43 legacy files, 2 managed migration/)
   })
 
   test('keeps the ledger append-only and unavailable to runtime roles', () => {
@@ -32,6 +32,19 @@ describe('database migration control', () => {
     expect(migration).toContain("rolname = 'mycaresight_jobs'")
     expect(verifier).toContain('append_only_trigger_exists')
     expect(verifier).toContain('runtime_roles_have_no_grants')
+  })
+
+  test('registers session-revocation hardening as an immutable managed migration', () => {
+    const migration = read('scripts/migrations/039-scope-membership-session-revocation.sql')
+    const verifier = read('scripts/migrations/039-verify-scope-membership-session-revocation.sql')
+    const rollback = read('scripts/database-rollbacks/039-rollback-scope-membership-session-revocation.sql')
+
+    expect(migration).toContain('UPDATE OF user_id, agency_id, status')
+    expect(migration).toContain('WHERE user_agency_roles.status IS DISTINCT FROM EXCLUDED.status')
+    expect(migration).toContain('NEW.status IS NOT DISTINCT FROM OLD.status')
+    expect(verifier).toContain('source_triggers_are_scoped')
+    expect(verifier).toContain('revocation_function_skips_noop')
+    expect(rollback).toContain('AFTER INSERT OR UPDATE OR DELETE ON public.caregiver_members')
   })
 
   test('keeps the ownership bootstrap least-privilege and extension-safe', () => {

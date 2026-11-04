@@ -23,6 +23,7 @@ The migration-control boundary replaces manual guesses about missing SQL with an
 - `scripts/database-migrations/manifest.json` records the immutable legacy inventory digest and managed migrations beginning with 038.
 - `scripts/migrations/038-database-migration-ledger.sql` creates the append-only ledger.
 - `scripts/migrations/038-verify-database-migration-ledger.sql` verifies the ledger structure and least-privilege grants.
+- `scripts/migrations/039-scope-membership-session-revocation.sql` is the first post-ledger application migration. It scopes agency-role synchronization and session revocation to actual authorization changes; its verifier and emergency rollback are documented in `docs/migrations/uat-membership-session-revocation.md`.
 - `npm run db:migrations:validate` performs offline filename, manifest, checksum, target-scope, verifier, and transaction-control checks.
 - `npm run db:migrations:status` performs the same validation and then reads only database identity and migration-ledger metadata.
 
@@ -66,6 +67,11 @@ Beginning with migration 038:
 - keep synthetic fixtures and environment-only seed data outside the managed production sequence;
 - use expand-and-contract releases for destructive changes; and
 - verify RLS, grants, constraints, and reference-data integrity without returning PHI.
+
+Migration 039 is registered but must remain pending until migration 038 and the
+approved legacy baseline have been recorded in the target environment. Its
+presence in the manifest is not authorization to skip that gate or apply it to
+all branches simultaneously.
 
 ## Phase 2 gate
 

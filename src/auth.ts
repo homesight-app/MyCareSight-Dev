@@ -7,6 +7,10 @@ import {
   revokeOpaqueSession,
 } from '@/lib/repositories/auth-identity'
 import type { UserRole } from '@/types/auth'
+import {
+  reportSessionVerificationFailure,
+  SessionVerificationUnavailableError,
+} from '@/lib/auth/session-diagnostics'
 
 declare module 'next-auth' {
   interface Session {
@@ -52,7 +56,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async decode({ token }): Promise<JWT | null> {
       if (!token) return null
-      const identity = await readOpaqueSession(token)
+      let identity: Awaited<ReturnType<typeof readOpaqueSession>>
+      try {
+        identity = await readOpaqueSession(token)
+      } catch {
+        reportSessionVerificationFailure('opaque-session')
+        throw new SessionVerificationUnavailableError()
+      }
       if (!identity) return null
       return {
         sub: identity.userId,

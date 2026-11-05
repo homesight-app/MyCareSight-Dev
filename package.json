@@ -28,7 +28,9 @@
 
     "db:migrations:validate": "node scripts/database-migrations/cli.mjs validate",
 
-    "db:migrations:status": "node scripts/database-migrations/cli.mjs status"
+    "db:migrations:status": "node scripts/database-migrations/cli.mjs status",
+
+    "db:migrations:apply": "node scripts/database-migrations/cli.mjs apply"
 
   },
 

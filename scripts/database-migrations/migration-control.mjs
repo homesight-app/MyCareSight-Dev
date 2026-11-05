@@ -87,6 +87,12 @@ export async function validateMigrationControl() {
     if (!Array.isArray(migration.environments) || migration.environments.length === 0) {
       throw new Error(`Migration ${migration.id} must declare target environments`)
     }
+    if (migration.verifierExpectations?.allBooleansTrue !== true) {
+      throw new Error(`Migration ${migration.id} verifier must require all boolean assertions to be true`)
+    }
+    if (!Array.isArray(migration.verifierExpectations?.zeroColumns)) {
+      throw new Error(`Migration ${migration.id} verifier must declare zeroColumns`)
+    }
     for (const environment of migration.environments) {
       if (!allowedEnvironments.has(environment)) {
         throw new Error(`Migration ${migration.id} has unsupported environment ${environment}`)
@@ -117,6 +123,8 @@ export function readTargetConfiguration(environment = process.env) {
   const databaseUrl = environment.DATABASE_MIGRATION_URL
   const expectedHost = environment.MIGRATION_EXPECTED_HOST
   const expectedDatabase = environment.MIGRATION_EXPECTED_DATABASE
+  const expectedBranchId = environment.MIGRATION_EXPECTED_BRANCH_ID
+  const releaseSha = environment.MIGRATION_RELEASE_SHA || null
 
   if (!allowedEnvironments.has(migrationEnvironment)) {
     throw new Error('MIGRATION_ENVIRONMENT is missing or unsupported')
@@ -124,6 +132,13 @@ export function readTargetConfiguration(environment = process.env) {
   requireString(databaseUrl, 'DATABASE_MIGRATION_URL')
   requireString(expectedHost, 'MIGRATION_EXPECTED_HOST')
   requireString(expectedDatabase, 'MIGRATION_EXPECTED_DATABASE')
+  requireString(expectedBranchId, 'MIGRATION_EXPECTED_BRANCH_ID')
+  if (!/^br-[a-z0-9-]+$/.test(expectedBranchId)) {
+    throw new Error('MIGRATION_EXPECTED_BRANCH_ID must be a Neon branch id')
+  }
+  if (releaseSha !== null && !/^[0-9a-f]{40}$/.test(releaseSha)) {
+    throw new Error('MIGRATION_RELEASE_SHA must be a full lowercase Git commit SHA')
+  }
 
   const parsedUrl = new URL(databaseUrl)
   if (parsedUrl.protocol !== 'postgres:' && parsedUrl.protocol !== 'postgresql:') {
@@ -141,5 +156,39 @@ export function readTargetConfiguration(environment = process.env) {
     databaseUrl,
     expectedHost,
     expectedDatabase,
+    expectedBranchId,
+    releaseSha,
+  }
+}
+
+export function validateVerifierRows(rows, expectations, migrationId) {
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    throw new Error(`Migration ${migrationId} verifier must return exactly one row`)
+  }
+
+  const row = rows[0]
+  const booleanEntries = Object.entries(row).filter(([, value]) => typeof value === 'boolean')
+  if (expectations.allBooleansTrue) {
+    if (booleanEntries.length === 0) {
+      throw new Error(`Migration ${migrationId} verifier returned no boolean assertions`)
+    }
+    const failed = booleanEntries.filter(([, value]) => value !== true).map(([column]) => column)
+    if (failed.length > 0) {
+      throw new Error(`Migration ${migrationId} verifier failed: ${failed.join(', ')}`)
+    }
+  }
+
+  for (const column of expectations.zeroColumns) {
+    if (!(column in row)) {
+      throw new Error(`Migration ${migrationId} verifier omitted ${column}`)
+    }
+    const value = row[column]
+    const isNumericValue =
+      typeof value === 'number' ||
+      typeof value === 'bigint' ||
+      (typeof value === 'string' && /^\d+$/.test(value))
+    if (!isNumericValue || Number(value) !== 0) {
+      throw new Error(`Migration ${migrationId} verifier expected ${column} to be zero`)
+    }
   }
 }

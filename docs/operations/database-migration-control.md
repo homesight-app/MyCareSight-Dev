@@ -1,8 +1,8 @@
 # Database Migration Control
 
-Status: Phase 1 validation and read-only status tooling. Database-writing automation is intentionally disabled until every Neon branch has an approved baseline.
+Status: Phase 2 transactional apply runner prepared locally. It is not connected to a GitHub environment or enabled in any deployment workflow.
 
-Development ownership-bootstrap acceptance completed on 2026-11-03. The final verifier passed every role, membership, ownership, extension, and runtime-isolation assertion. A direct `psql` login as `mycaresight_migrator` successfully used explicit `SET LOCAL ROLE mycaresight_schema_owner`, and the synthetic application smoke test passed. Migration 038 remains unapplied, and GitHub database-writing automation remains disabled.
+Development ownership-bootstrap acceptance completed on 2026-11-03. The final verifier passed every role, membership, ownership, extension, and runtime-isolation assertion. A direct `psql` login as `mycaresight_migrator` successfully used explicit `SET LOCAL ROLE mycaresight_schema_owner`, and the synthetic application smoke test passed. Migrations 038 through 040 were subsequently applied and verified manually in Development and UAT; GitHub database-writing automation remains disabled.
 
 The Neon Functions deployment guide is not the schema-migration mechanism for this application. The relevant Neon pattern is isolated branch testing through GitHub Actions. MyCareSight adds environment-scoped credentials, immutable checksums, an append-only ledger, exact target validation, and gated staging/production promotion. A Neon API key is needed only if later automation creates or deletes preview branches; fixed-environment migrations use the dedicated PostgreSQL migrator connection.
 
@@ -26,9 +26,10 @@ The migration-control boundary replaces manual guesses about missing SQL with an
 - `scripts/migrations/039-scope-membership-session-revocation.sql` is the first post-ledger application migration. It scopes agency-role synchronization and session revocation to actual authorization changes; its verifier and emergency rollback are documented in `docs/migrations/uat-membership-session-revocation.md`.
 - `scripts/migrations/040-agency-managed-caregiver-credentials.sql` is Development/UAT-only. It auto-verifies synthetic pending skill rows, removes caregiver write policies, and adds manager-scoped RLS to caregiver certifications while retaining caregiver self-read access.
 - `npm run db:migrations:validate` performs offline filename, manifest, checksum, target-scope, verifier, and transaction-control checks.
-- `npm run db:migrations:status` performs the same validation and then reads only database identity and migration-ledger metadata.
+- `npm run db:migrations:status` performs the same validation, verifies the exact Neon branch and restricted login role, assumes the shared owner only inside a transaction, and reads migration-ledger metadata.
+- `npm run db:migrations:apply` runs approved pending migrations and their verifiers in one transaction, under the shared schema owner. It serializes concurrent runners, fails on target or checksum drift, and records ledger evidence before commit.
 
-There is deliberately no `apply` or `baseline` command in Phase 1.
+The apply command is available for controlled operator rehearsal but is not yet called by GitHub Actions. There is no automatic baseline command: legacy baseline evidence requires human review and a separately approved insert.
 
 ## Legacy boundary
 
@@ -52,8 +53,18 @@ Set these values only in the intended shell or protected GitHub environment:
 - `MIGRATION_ENVIRONMENT`: `development`, `uat`, `production-staging`, `production`, or `environment-base`.
 - `MIGRATION_EXPECTED_HOST`: the exact hostname from the approved target connection.
 - `MIGRATION_EXPECTED_DATABASE`: the expected PostgreSQL database name.
+- `MIGRATION_EXPECTED_BRANCH_ID`: the exact `br-...` Neon branch identifier from the approved target.
+- `MIGRATION_RELEASE_SHA`: full lowercase 40-character Git commit SHA required by `apply` and recorded with newly applied rows.
 
-The command compares the URL hostname and database before connecting, verifies `current_database()`, and prints only counts, migration IDs, and checksum state. The target branch still requires operator verification because PostgreSQL database names can be identical across Neon branches.
+The command compares the URL hostname and database before connecting, then verifies `current_database()`, `neon.branch_id`, and `session_user=mycaresight_migrator`. It prints only counts, migration IDs, and checksum state; it does not print credentials, SQL text, verifier row content, or application data.
+
+## Controlled apply behavior
+
+The runner opens one database transaction, takes a transaction-scoped advisory lock, and uses `SET LOCAL ROLE mycaresight_schema_owner`. For each pending migration it executes the immutable SQL, evaluates its declared verifier expectations, and inserts the ledger row in that same transaction. Any SQL error, false verifier assertion, nonzero required count, checksum mismatch, target mismatch, or ledger error rolls back the entire run.
+
+If the ledger does not exist, the runner applies only migration 038 and stops. The reviewed `037-baseline-legacy-state` record must exist before it will apply 039 or later migrations. This prevents an automated job from treating the repository inventory checksum as proof that every legacy change ran in a target.
+
+Ledgers that were created manually before this runner may still be owned by `neondb_owner`. Run `scripts/database-bootstrap/002-ledger-owner-repair.sql` once as `neondb_owner`, then require every assertion in `002-verify-ledger-owner-repair.sql` to be true. New ledgers created by the runner are already owned by `mycaresight_schema_owner` because migration 038 executes after the local role change.
 
 ## Managed migration rules
 
@@ -74,14 +85,16 @@ approved legacy baseline have been recorded in the target environment. Its
 presence in the manifest is not authorization to skip that gate or apply it to
 all branches simultaneously.
 
-## Phase 2 gate
+## GitHub enablement gate
 
-Do not add `db:migrations:apply`, automatic UAT migration, or protected staging/production migration jobs until:
+Do not call `db:migrations:apply` from automatic UAT or protected staging/production jobs until:
 
-1. the Phase 1 validation workflow passes;
-2. Development, UAT, production-staging, production, and environment-base baseline reports are reviewed;
-3. the dedicated migrator role and separate environment secret names are approved;
-4. recovery points and failure handling are documented; and
-5. production reviewer controls are revisited after cutover.
+1. the runner tests and offline validation pass;
+2. the ledger ownership repair is verified where an existing ledger needs it;
+3. a no-op status/apply rehearsal succeeds first in Development and then UAT with exact branch IDs;
+4. each GitHub environment has a separate migrator URL secret and non-secret expected host, database, and branch ID;
+5. the workflow proves database migration completes before deployment of the same SHA;
+6. recovery points and failure handling are exercised; and
+7. production reviewer controls are revisited after cutover.
 
 The intended promotion policy remains automatic UAT migration after merge, manual environment-gated staging migration, and protected manual production migration. Database migration must complete and verify before the matching application SHA is deployed.

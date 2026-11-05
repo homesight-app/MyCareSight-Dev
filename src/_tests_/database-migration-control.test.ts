@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { PGlite } from '@electric-sql/pglite'
 
 const root = process.cwd()
@@ -96,16 +97,84 @@ describe('database migration control', () => {
     }
   })
 
-  test('does not expose a database apply command before baseline approval', () => {
+  test('exposes a fail-closed transactional apply command after baseline approval', () => {
     const cli = read('scripts/database-migrations/cli.mjs')
     const packageJson = JSON.parse(read('package.json')) as {
       scripts: Record<string, string>
     }
 
-    expect(cli).toContain('<validate|status>')
-    expect(cli).not.toMatch(/command === ['"]apply['"]/)
+    expect(cli).toContain('<validate|status|apply>')
+    expect(cli).toMatch(/command === ['"]apply['"]/)
+    expect(cli).toContain("current_setting('neon.branch_id', true)")
+    expect(cli).toContain('pg_advisory_xact_lock')
+    expect(cli).toContain('SET LOCAL ROLE')
+    expect(cli).toContain('Legacy baseline must be reviewed and recorded')
+    expect(cli).toContain('MIGRATION_RELEASE_SHA is required when applying migrations')
+    expect(cli).toContain('validateVerifierRows')
     expect(packageJson.scripts['db:migrations:validate']).toBeDefined()
     expect(packageJson.scripts['db:migrations:status']).toBeDefined()
-    expect(packageJson.scripts['db:migrations:apply']).toBeUndefined()
+    expect(packageJson.scripts['db:migrations:apply']).toBeDefined()
+  })
+
+  test('keeps the ledger ownership repair owner-run and runtime-inaccessible', () => {
+    const repair = read('scripts/database-bootstrap/002-ledger-owner-repair.sql')
+    const verifier = read('scripts/database-bootstrap/002-verify-ledger-owner-repair.sql')
+
+    expect(repair).toContain("session_user <> 'neondb_owner'")
+    expect(repair).toContain('ALTER TABLE public.schema_migrations OWNER TO mycaresight_schema_owner')
+    expect(repair).toContain(
+      'ALTER FUNCTION public.prevent_schema_migration_mutation() OWNER TO mycaresight_schema_owner'
+    )
+    expect(repair).toContain('REVOKE ALL ON TABLE public.schema_migrations FROM PUBLIC')
+    expect(verifier).toContain('ledger_owner_ok')
+    expect(verifier).toContain('runtime_roles_have_no_ledger_access')
+  })
+
+  test('validates exact target configuration and verifier outcomes', async () => {
+    const moduleUrl = pathToFileURL(
+      join(root, 'scripts/database-migrations/migration-control.mjs')
+    ).href
+    const script = `
+      import { readTargetConfiguration, validateVerifierRows } from ${JSON.stringify(moduleUrl)};
+      const environment = {
+        MIGRATION_ENVIRONMENT: 'uat',
+        DATABASE_MIGRATION_URL: 'postgresql://migrator:secret@expected.example/neondb',
+        MIGRATION_EXPECTED_HOST: 'expected.example',
+        MIGRATION_EXPECTED_DATABASE: 'neondb',
+        MIGRATION_EXPECTED_BRANCH_ID: 'br-approved-branch',
+        MIGRATION_RELEASE_SHA: '${'a'.repeat(40)}'
+      };
+      const target = readTargetConfiguration(environment);
+      if (target.expectedBranchId !== 'br-approved-branch') throw new Error('branch validation failed');
+      try {
+        readTargetConfiguration({ ...environment, MIGRATION_EXPECTED_BRANCH_ID: 'wrong' });
+        throw new Error('invalid branch accepted');
+      } catch (error) {
+        if (!String(error.message).includes('Neon branch id')) throw error;
+      }
+      validateVerifierRows(
+        [{ assertion_ok: true, pending_count: '0' }],
+        { allBooleansTrue: true, zeroColumns: ['pending_count'] },
+        '999'
+      );
+      try {
+        validateVerifierRows(
+          [{ assertion_ok: false, pending_count: '0' }],
+          { allBooleansTrue: true, zeroColumns: ['pending_count'] },
+          '999'
+        );
+        throw new Error('false verifier accepted');
+      } catch (error) {
+        if (!String(error.message).includes('assertion_ok')) throw error;
+      }
+      process.stdout.write('ok');
+    `
+
+    expect(
+      execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
+        cwd: root,
+        encoding: 'utf8',
+      })
+    ).toBe('ok')
   })
 })

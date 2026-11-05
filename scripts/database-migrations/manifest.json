@@ -18,6 +18,10 @@
       "verifier": "038-verify-database-migration-ledger.sql",
       "checksumSha256": "d4e26cc89efa3911452856fdb5b55236962f451b99a3b250d6b958667c768a64",
       "transactional": true,
+      "verifierExpectations": {
+        "allBooleansTrue": true,
+        "zeroColumns": []
+      },
       "environments": [
         "development",
         "uat",
@@ -33,6 +37,10 @@
       "verifier": "039-verify-scope-membership-session-revocation.sql",
       "checksumSha256": "ba230db1f8bb2c0190edc51eb2b2887e74a539ea32833787c769d11865499661",
       "transactional": true,
+      "verifierExpectations": {
+        "allBooleansTrue": true,
+        "zeroColumns": []
+      },
       "environments": [
         "development",
         "uat",
@@ -48,6 +56,12 @@
       "verifier": "040-verify-agency-managed-caregiver-credentials.sql",
       "checksumSha256": "7d8da1cb3c19bd4512a8cbc9ddf53816bcf1007a7b6ca6c67d701ac07eb208a6",
       "transactional": true,
+      "verifierExpectations": {
+        "allBooleansTrue": true,
+        "zeroColumns": [
+          "pending_skill_count"
+        ]
+      },
       "environments": [
         "development",
         "uat"

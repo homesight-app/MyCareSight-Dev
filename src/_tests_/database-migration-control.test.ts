@@ -177,4 +177,20 @@ describe('database migration control', () => {
       })
     ).toBe('ok')
   })
+
+  test('gates the UAT application deployment on the same-SHA database migration', () => {
+    const workflow = read('.github/workflows/main_mycaresight-uat.yml')
+    const migrationStep = workflow.indexOf('Apply verified UAT database migrations')
+    const deploymentStep = workflow.indexOf("name: 'Deploy to Azure Web App'")
+
+    expect(workflow).toContain('environment: uat')
+    expect(workflow).toContain('DATABASE_MIGRATION_URL: ${{ secrets.UAT_DATABASE_MIGRATION_URL }}')
+    expect(workflow).toContain(
+      'MIGRATION_EXPECTED_BRANCH_ID: ${{ vars.UAT_MIGRATION_EXPECTED_BRANCH_ID }}'
+    )
+    expect(workflow).toContain('MIGRATION_RELEASE_SHA: ${{ github.sha }}')
+    expect(workflow).toContain('npm run db:migrations:apply')
+    expect(migrationStep).toBeGreaterThan(-1)
+    expect(deploymentStep).toBeGreaterThan(migrationStep)
+  })
 })

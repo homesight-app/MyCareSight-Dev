@@ -18,6 +18,7 @@ jobs:
     name: Validate and deploy
     if: github.repository == 'homesight-app/MyCareSight-Dev'
     runs-on: ubuntu-latest
+    environment: uat
     permissions:
       id-token: write
       contents: read
@@ -92,6 +93,20 @@ jobs:
             echo "::error::Deployment is restricted to the MyCareSight-Dev-UAT subscription."
             exit 1
           fi
+
+      - name: Apply verified UAT database migrations
+        shell: bash
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.UAT_DATABASE_MIGRATION_URL }}
+          MIGRATION_ENVIRONMENT: uat
+          MIGRATION_EXPECTED_HOST: ${{ vars.UAT_MIGRATION_EXPECTED_HOST }}
+          MIGRATION_EXPECTED_DATABASE: ${{ vars.UAT_MIGRATION_EXPECTED_DATABASE }}
+          MIGRATION_EXPECTED_BRANCH_ID: ${{ vars.UAT_MIGRATION_EXPECTED_BRANCH_ID }}
+          MIGRATION_RELEASE_SHA: ${{ github.sha }}
+        run: |
+          npm run db:migrations:status
+          npm run db:migrations:apply
+          npm run db:migrations:status
 
       - name: Enable web Application Insights agent
         shell: bash

@@ -1,6 +1,6 @@
 # Database Migration Control
 
-Status: Phase 2 transactional apply runner prepared locally. It is not connected to a GitHub environment or enabled in any deployment workflow.
+Status: Phase 3 UAT workflow gate prepared locally. Development and UAT operator rehearsals passed; the workflow change is not deployed until its environment configuration is completed and the reviewed branch is merged.
 
 Development ownership-bootstrap acceptance completed on 2026-11-03. The final verifier passed every role, membership, ownership, extension, and runtime-isolation assertion. A direct `psql` login as `mycaresight_migrator` successfully used explicit `SET LOCAL ROLE mycaresight_schema_owner`, and the synthetic application smoke test passed. Migrations 038 through 040 were subsequently applied and verified manually in Development and UAT; GitHub database-writing automation remains disabled.
 
@@ -29,7 +29,20 @@ The migration-control boundary replaces manual guesses about missing SQL with an
 - `npm run db:migrations:status` performs the same validation, verifies the exact Neon branch and restricted login role, assumes the shared owner only inside a transaction, and reads migration-ledger metadata.
 - `npm run db:migrations:apply` runs approved pending migrations and their verifiers in one transaction, under the shared schema owner. It serializes concurrent runners, fails on target or checksum drift, and records ledger evidence before commit.
 
-The apply command is available for controlled operator rehearsal but is not yet called by GitHub Actions. There is no automatic baseline command: legacy baseline evidence requires human review and a separately approved insert.
+The UAT workflow now calls the apply command after application validation/build and Azure subscription verification, but before deploying the matching application SHA. There is no automatic baseline command: legacy baseline evidence requires human review and a separately approved insert.
+
+## UAT GitHub environment configuration
+
+Before merging the UAT workflow gate, create or review the GitHub environment named `uat`. It should allow deployment only from `main`. Add these values directly to that environment; do not paste their values into issues, pull requests, workflow logs, or repository files:
+
+- Environment secret `UAT_DATABASE_MIGRATION_URL`: the direct Neon connection for `mycaresight_migrator`, distinct from the application runtime URL.
+- Environment variable `UAT_MIGRATION_EXPECTED_HOST`: the exact hostname in that migrator URL.
+- Environment variable `UAT_MIGRATION_EXPECTED_DATABASE`: `neondb`, unless the approved UAT database is explicitly renamed.
+- Environment variable `UAT_MIGRATION_EXPECTED_BRANCH_ID`: the exact UAT `br-...` identifier verified during rehearsal.
+
+Existing UAT application and Azure deployment secrets must remain available to the `uat` environment. Environment secrets override repository secrets with the same name. UAT is intentionally automatic after merge and therefore does not require a reviewer; staging and production retain their manual/protected promotion boundaries.
+
+On a `main` push the single UAT job checks out one commit, tests and builds it, authenticates to the approved Azure UAT subscription, runs migration `status`, `apply`, and `status` with `MIGRATION_RELEASE_SHA=${{ github.sha }}`, then deploys that already-built artifact. If target validation, migration SQL, verifier evaluation, or ledger recording fails, the application deployment step is not reached.
 
 ## Legacy boundary
 
@@ -87,14 +100,15 @@ all branches simultaneously.
 
 ## GitHub enablement gate
 
-Do not call `db:migrations:apply` from automatic UAT or protected staging/production jobs until:
+Do not extend `db:migrations:apply` to protected staging or production jobs until:
 
 1. the runner tests and offline validation pass;
 2. the ledger ownership repair is verified where an existing ledger needs it;
-3. a no-op status/apply rehearsal succeeds first in Development and then UAT with exact branch IDs;
-4. each GitHub environment has a separate migrator URL secret and non-secret expected host, database, and branch ID;
-5. the workflow proves database migration completes before deployment of the same SHA;
-6. recovery points and failure handling are exercised; and
-7. production reviewer controls are revisited after cutover.
+3. a no-op status/apply rehearsal succeeds first in Development and then UAT with exact branch IDs (completed 2026-11-05);
+4. the UAT GitHub environment is configured and its first automated no-op run is accepted;
+5. each later GitHub environment has a separate migrator URL secret and non-secret expected host, database, and branch ID;
+6. each workflow proves database migration completes before deployment of the same SHA;
+7. recovery points and failure handling are exercised; and
+8. production reviewer controls are revisited after cutover.
 
 The intended promotion policy remains automatic UAT migration after merge, manual environment-gated staging migration, and protected manual production migration. Database migration must complete and verify before the matching application SHA is deployed.

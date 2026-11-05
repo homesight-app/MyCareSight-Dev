@@ -12,6 +12,10 @@ The versioned SQL under `scripts/migrations/` is the schema and access-control h
 
 ## Current impact register
 
+### Agency-managed caregiver credentials (Development/UAT only, 2026-11-04)
+
+Migration 040 makes caregiver skills and certifications read-only for caregivers and manager-maintained by active agency owners and care coordinators. It automatically verifies existing pending skill rows only because the current Development/UAT records are synthetic. This migration is not authorized for production. A future production cutover must inspect live skill claims and caregiver certifications, decide which claims can be verified, and review the target RLS policies without automatically approving source data.
+
 | Area | UAT change | Future production-data impact | Current disposition |
 |---|---|---|---|
 | Core application schema | Migrations 001–014 added indexes, missing tables, constraints, triggers, RLS, and scoped runtime grants. | Create and verify the target schema before importing rows. Do not replay UAT rows. Compare live production columns, constraints, functions, and policies first. | Schema recreation required; row transformations unresolved until live comparison. |

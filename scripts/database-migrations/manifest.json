@@ -40,6 +40,18 @@
         "production",
         "environment-base"
       ]
+    },
+    {
+      "id": "040",
+      "name": "agency-managed-caregiver-credentials",
+      "file": "040-agency-managed-caregiver-credentials.sql",
+      "verifier": "040-verify-agency-managed-caregiver-credentials.sql",
+      "checksumSha256": "7d8da1cb3c19bd4512a8cbc9ddf53816bcf1007a7b6ca6c67d701ac07eb208a6",
+      "transactional": true,
+      "environments": [
+        "development",
+        "uat"
+      ]
     }
   ]
 }

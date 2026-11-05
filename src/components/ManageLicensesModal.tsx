@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Modal from './Modal'
-import { Plus } from 'lucide-react'
+import { Pencil, Plus } from 'lucide-react'
 import AddCaregiverLicenseModal, { type CaregiverLicenseRow } from './AddCaregiverLicenseModal'
 
 interface ManageLicensesModalProps {
@@ -23,15 +23,20 @@ export default function ManageLicensesModal({
   onSuccess,
 }: ManageLicensesModalProps) {
   const [isAddOpen, setIsAddOpen] = useState(false)
+  const [editingCredential, setEditingCredential] = useState<CaregiverLicenseRow | null>(null)
 
   useEffect(() => {
-    if (!isOpen) setIsAddOpen(false)
+    if (!isOpen) {
+      setIsAddOpen(false)
+      setEditingCredential(null)
+    }
   }, [isOpen])
 
 
   const handleMainModalClose = () => {
-    if (isAddOpen) {
+    if (isAddOpen || editingCredential) {
       setIsAddOpen(false)
+      setEditingCredential(null)
       return
     }
     onClose()
@@ -100,6 +105,13 @@ export default function ManageLicensesModal({
                           ) : null}
                         </div>
                       ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setEditingCredential(license)}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                      >
+                        <Pencil className="h-3.5 w-3.5" /> Edit
+                      </button>
                     </li>
                   )
                 })}
@@ -129,11 +141,14 @@ export default function ManageLicensesModal({
       </Modal>
 
       <AddCaregiverLicenseModal
-        isOpen={isOpen && isAddOpen}
-        onClose={() => setIsAddOpen(false)}
+        isOpen={isOpen && (isAddOpen || Boolean(editingCredential))}
+        onClose={() => {
+          setIsAddOpen(false)
+          setEditingCredential(null)
+        }}
         staffId={staffId}
         staffName={staffName}
-        existingLicenses={existingLicenses}
+        credential={editingCredential}
         onSuccess={() => {
           onSuccess?.()
         }}

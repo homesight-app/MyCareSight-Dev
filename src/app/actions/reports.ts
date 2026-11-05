@@ -2,7 +2,7 @@
 
 import { getSession } from '@/lib/auth'
 import { formatDate } from '@/lib/format-date'
-import sql from '@/db'
+import sql, { withUserContext } from '@/db'
 
 type ReportCaregiverScope =
   | { mode: 'ownerOnly'; adminId: string }
@@ -135,13 +135,18 @@ export async function getStaffCertificationsReport() {
     if (members.length === 0) return { error: null, data: [] }
 
     const staffIds = members.map(m => m.id)
-    const credentials = await sql<CredentialRow[]>`
-      SELECT id, caregiver_member_id, user_id, source_credential_name, credential_number,
-             state, issuing_authority, issue_date, expiration_date, status, document_url
-      FROM caregiver_credentials
-      WHERE caregiver_member_id = ANY(${staffIds}::uuid[])
-      ORDER BY expiration_date ASC
-    `
+    const credentials = await withUserContext(
+      session.user.id,
+      session.profile?.role ?? '',
+      session.profile?.agency_id ?? null,
+      () => sql<CredentialRow[]>`
+        SELECT id, caregiver_member_id, user_id, source_credential_name, credential_number,
+               state, issuing_authority, issue_date, expiration_date, status, document_url
+        FROM caregiver_credentials
+        WHERE caregiver_member_id = ANY(${staffIds}::uuid[])
+        ORDER BY expiration_date ASC
+      `
+    )
 
     const staffMap = new Map(members.map(m => [m.user_id, m]))
     const staffById = new Map(members.map(m => [m.id, m]))
@@ -197,13 +202,18 @@ export async function getExpiringCertificationsReport() {
     if (members.length === 0) return { error: null, data: [] }
 
     const staffIds = members.map(m => m.id)
-    const credentials = await sql<CredentialRow[]>`
-      SELECT id, caregiver_member_id, user_id, source_credential_name, credential_number,
-             expiration_date, status, document_url
-      FROM caregiver_credentials
-      WHERE caregiver_member_id = ANY(${staffIds}::uuid[])
-      ORDER BY expiration_date ASC
-    `
+    const credentials = await withUserContext(
+      session.user.id,
+      session.profile?.role ?? '',
+      session.profile?.agency_id ?? null,
+      () => sql<CredentialRow[]>`
+        SELECT id, caregiver_member_id, user_id, source_credential_name, credential_number,
+               expiration_date, status, document_url
+        FROM caregiver_credentials
+        WHERE caregiver_member_id = ANY(${staffIds}::uuid[])
+        ORDER BY expiration_date ASC
+      `
+    )
 
     const staffMap = new Map(members.map(m => [m.user_id, m]))
     const staffById = new Map(members.map(m => [m.id, m]))

@@ -24,6 +24,7 @@ The migration-control boundary replaces manual guesses about missing SQL with an
 - `scripts/migrations/038-database-migration-ledger.sql` creates the append-only ledger.
 - `scripts/migrations/038-verify-database-migration-ledger.sql` verifies the ledger structure and least-privilege grants.
 - `scripts/migrations/039-scope-membership-session-revocation.sql` is the first post-ledger application migration. It scopes agency-role synchronization and session revocation to actual authorization changes; its verifier and emergency rollback are documented in `docs/migrations/uat-membership-session-revocation.md`.
+- `scripts/migrations/040-agency-managed-caregiver-credentials.sql` is Development/UAT-only. It auto-verifies synthetic pending skill rows, removes caregiver write policies, and adds manager-scoped RLS to caregiver certifications while retaining caregiver self-read access.
 - `npm run db:migrations:validate` performs offline filename, manifest, checksum, target-scope, verifier, and transaction-control checks.
 - `npm run db:migrations:status` performs the same validation and then reads only database identity and migration-ledger metadata.
 

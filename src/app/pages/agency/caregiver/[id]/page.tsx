@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { readCaregiverPayRates } from '@/lib/repositories/caregiver-pay-rates'
 import * as q from '@/lib/supabase/query'
 import CaregiverProfileContent from '@/components/CaregiverProfileContent'
+import { withUserContext } from '@/db'
 
 export default async function CaregiverProfilePage({
   params,
@@ -41,19 +42,27 @@ export default async function CaregiverProfilePage({
     if (Number.isFinite(n)) currentPayRate = n
   }
 
-  const { data: staffLicensesData } = await q.getStaffLicensesByStaffMemberIds([staffId])
+  const role = session.profile?.role ?? ''
+  const { data: staffLicensesData } = await withUserContext(
+    session.user.id,
+    role,
+    agencyId,
+    () => q.getStaffLicensesByStaffMemberIds([staffId])
+  )
   const allStaffLicenses = (staffLicensesData ?? []).map((license: any) => ({
     id: license.id,
     caregiver_member_id: license.caregiver_member_id,
     license_type: license.license_type,
     license_number: license.license_number || 'N/A',
     state: license.state,
+    issue_date: license.issue_date,
     status: license.status,
     expiry_date: license.expiry_date,
+    issuing_authority: license.issuing_authority,
+    document_url: license.document_url,
     days_until_expiry: license.days_until_expiry,
   }))
 
-  const role = session.profile?.role ?? ''
   const canManageNotes =
     role === 'company_owner' || role === 'care_coordinator'
 

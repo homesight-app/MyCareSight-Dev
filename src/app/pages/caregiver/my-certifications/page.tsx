@@ -3,16 +3,12 @@
 import { useState, useEffect, useCallback, Suspense, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useRouter, useSearchParams } from 'next/navigation'
-import AddCertificationModal from '@/components/AddCertificationModal'
-import EditCertificationModal from '@/components/EditCertificationModal'
-import EditCaregiverSkillsModal from '@/components/EditCaregiverSkillsModal'
-import { getCertificationTypes } from '@/app/actions/certifications'
 import { getCaregiverSkillCatalogAction } from '@/app/actions/reference-data'
 import { getMyStaffCertifications } from '@/app/actions/staff-member-certifications'
 import { useSession } from 'next-auth/react'
 import { CAREGIVER_SKILL_POINTS } from '@/lib/constants'
 import { normalizeCaregiverSkillsList } from '@/lib/caregiver-skills'
-import { Plus, Edit, Eye, Award, Loader2, Sparkles } from 'lucide-react'
+import { Eye, Award, Loader2, Sparkles } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import PageHeader from '@/components/ui/PageHeader'
 
@@ -97,25 +93,11 @@ function MyCertificationsContent() {
   type Column = 'type' | 'status' | 'license_number' | 'issue_date' | 'expiration_date' | 'state'
   const [sortBy, setSortBy] = useState<Column>('expiration_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [selectedCertification, setSelectedCertification] = useState<Certification | null>(null)
   const [hasStaffProfile, setHasStaffProfile] = useState(true)
   const [loadingCertificationId, setLoadingCertificationId] = useState<string | null>(null)
 
   const [activeTab, setActiveTab] = useState<'skills' | 'certifications'>('skills')
   const [caregiverSelf, setCaregiverSelf] = useState<CaregiverSelf | null>(null)
-  const [skillsModalOpen, setSkillsModalOpen] = useState(false)
-
-  const { data: certificationTypes = [] } = useQuery({
-    queryKey: ['certification-types'],
-    queryFn: async () => {
-      const r = await getCertificationTypes()
-      if (r.error) throw new Error(r.error)
-      return (r.data ?? []) as Array<{ id: string; name: string }>
-    },
-    staleTime: 5 * 60 * 1000,
-  })
 
   const { data: skillCatalog = [] } = useQuery({
     queryKey: ['caregiver-skill-catalog'],
@@ -128,10 +110,7 @@ function MyCertificationsContent() {
   })
 
   useEffect(() => {
-    if (action === 'add') {
-      setIsModalOpen(true)
-      setActiveTab('certifications')
-    }
+    if (action === 'add') setActiveTab('certifications')
   }, [action])
 
   const loadData = useCallback(async () => {
@@ -170,7 +149,7 @@ function MyCertificationsContent() {
     loadData()
   }, [loadData])
 
-  const skillNames = caregiverSelf?.skills ?? []
+  const skillNames = useMemo(() => caregiverSelf?.skills ?? [], [caregiverSelf?.skills])
   const groupedSkills = useMemo(
     () => groupSkillsForDisplay(skillNames, skillCatalog),
     [skillNames, skillCatalog]
@@ -178,26 +157,6 @@ function MyCertificationsContent() {
 
   const skillsCount = skillNames.length
   const certCount = certifications.length
-
-  const handleAddSuccess = () => {
-    loadData()
-  }
-
-  const handleEditClick = (cert: Certification) => {
-    setSelectedCertification(cert)
-    setIsEditModalOpen(true)
-  }
-
-  const handleEditSuccess = () => {
-    loadData()
-    setIsEditModalOpen(false)
-    setSelectedCertification(null)
-  }
-
-  const handleSkillsSaveSuccess = () => {
-    loadData()
-    setSkillsModalOpen(false)
-  }
 
   const handleViewDetails = (certId: string) => {
     setLoadingCertificationId(certId)
@@ -285,7 +244,7 @@ function MyCertificationsContent() {
     <div className="space-y-5 mt-20">
         <PageHeader
           title="My Skills & Certifications"
-          subtitle="Showcase your skills and manage your professional licenses"
+          subtitle="View the skills and professional credentials maintained by your agency"
         />
 
         {/* Tabs */}
@@ -346,16 +305,6 @@ function MyCertificationsContent() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    icon={Edit}
-                    onClick={() => caregiverSelf && setSkillsModalOpen(true)}
-                    disabled={!caregiverSelf}
-                    className="shrink-0"
-                  >
-                    Edit Skills
-                  </Button>
                 </div>
 
                 {!hasStaffProfile || !caregiverSelf ? (
@@ -365,8 +314,7 @@ function MyCertificationsContent() {
                   </div>
                 ) : groupedSkills.length === 0 ? (
                   <p className="mt-6 text-sm text-gray-500">
-                    No skills selected yet. Click <span className="font-medium text-gray-700">Edit Skills</span> to add
-                    skills that help match you with visits.
+                    No skills have been recorded yet. Contact your agency administrator or care coordinator to update them.
                   </p>
                 ) : (
                   <div className="mt-8 space-y-8">
@@ -404,15 +352,9 @@ function MyCertificationsContent() {
                   </div>
                 )}
 
-                <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    icon={Plus}
-                    onClick={() => setIsModalOpen(true)}
-                  >
-                    Add New Certification
-                  </Button>
-                </div>
+                <p className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                  Skills and certifications are maintained by your agency. Contact your agency administrator or care coordinator to request a correction.
+                </p>
 
                 {certifications.length > 0 ? (
                   <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
@@ -494,14 +436,6 @@ function MyCertificationsContent() {
                                 <Button
                                   variant="secondary"
                                   size="sm"
-                                  icon={Edit}
-                                  onClick={() => handleEditClick(cert)}
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
                                   icon={loadingCertificationId === cert.id ? Loader2 : Eye}
                                   onClick={() => handleViewDetails(cert.id)}
                                   disabled={loadingCertificationId === cert.id}
@@ -520,14 +454,7 @@ function MyCertificationsContent() {
                   <div className="bg-white rounded-xl p-12 text-center shadow-md border border-gray-100">
                     <Award className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                     <h3 className="text-base font-semibold text-gray-900 mb-2">No certifications yet</h3>
-                    <p className="text-sm text-gray-600 mb-6">Get started by adding your first certification</p>
-                    <Button
-                      variant="primary"
-                      icon={Plus}
-                      onClick={() => setIsModalOpen(true)}
-                    >
-                      Add New Certification
-                    </Button>
+                    <p className="text-sm text-gray-600">Contact your agency administrator or care coordinator to add one.</p>
                   </div>
                 )}
               </div>
@@ -536,41 +463,6 @@ function MyCertificationsContent() {
         </div>
       </div>
 
-      {caregiverSelf && (
-        <EditCaregiverSkillsModal
-          isOpen={skillsModalOpen}
-          onClose={() => setSkillsModalOpen(false)}
-          caregiver={{
-            id: caregiverSelf.id,
-            first_name: caregiverSelf.first_name,
-            last_name: caregiverSelf.last_name,
-            skills: caregiverSelf.skills,
-          }}
-          onSuccess={handleSkillsSaveSuccess}
-          verificationMode="self"
-          subtitle="Choose the skills that describe your experience. They are used to match you with the right clients and open visits."
-        />
-      )}
-
-      <AddCertificationModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={handleAddSuccess}
-        certificationTypes={certificationTypes}
-      />
-
-      {selectedCertification && (
-        <EditCertificationModal
-          isOpen={isEditModalOpen}
-          onClose={() => {
-            setIsEditModalOpen(false)
-            setSelectedCertification(null)
-          }}
-          onSuccess={handleEditSuccess}
-          certificationTypes={certificationTypes}
-          certification={selectedCertification}
-        />
-      )}
     </>
   )
 }

@@ -1,90 +1,165 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import sql, { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
-import sql from '@/db'
-import * as q from '@/lib/supabase/query'
+import { assertAgencyCapability } from '@/lib/feature-access'
+import {
+  caregiverCredentialInputSchema,
+  type CaregiverCredentialInput,
+} from '@/lib/schemas/caregiver-credential'
 
-export type InsertCaregiverLicenseInput = {
-  staffMemberId: string
-  licenseType: string
-  licenseNumber: string
-  state: string
-  expiryDate: string | null
-  issueDate?: string | null
+type ManagerActor = { id: string; role: string; agency_id: string | null }
+type CaregiverTarget = { id: string; agency_id: string; user_id: string | null }
+
+function credentialStatus(expiryDate: string | null): 'active' | 'expiring' | 'expired' {
+  if (!expiryDate) return 'active'
+  const end = new Date(`${expiryDate}T00:00:00Z`).getTime()
+  const today = new Date()
+  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+  const days = Math.ceil((end - todayUtc) / 86_400_000)
+  if (days <= 0) return 'expired'
+  if (days <= 30) return 'expiring'
+  return 'active'
+}
+
+async function withCredentialManager<T>(
+  staffMemberId: string,
+  run: (actor: ManagerActor, target: CaregiverTarget) => Promise<T>
+): Promise<T> {
+  const session = await getSession()
+  if (!session?.user?.id) throw new Error('You must be signed in.')
+
+  return withUserContext(
+    session.user.id,
+    session.profile?.role ?? '',
+    session.profile?.agency_id ?? null,
+    async () => {
+      const [actor] = await sql<ManagerActor[]>`
+        SELECT id, role, agency_id
+        FROM public.user_profiles
+        WHERE id = ${session.user.id}::uuid AND is_active = true
+      `
+      if (!actor) throw new Error('You do not have permission to manage caregiver credentials.')
+
+      const [target] = await sql<CaregiverTarget[]>`
+        SELECT id, agency_id, user_id
+        FROM public.caregiver_members
+        WHERE id = ${staffMemberId}::uuid
+      `
+      if (!target) throw new Error('Caregiver not found.')
+
+      const platformAdmin = actor.role === 'admin'
+      const [membership] = platformAdmin ? [{ allowed: true }] : await sql<{ allowed: boolean }[]>`
+        SELECT true AS allowed
+        FROM public.user_agency_roles
+        WHERE user_id = ${actor.id}::uuid
+          AND agency_id = ${target.agency_id}::uuid
+          AND role = ${actor.role}
+          AND status = 'active'
+          AND role IN ('company_owner', 'care_coordinator')
+        LIMIT 1
+      `
+      if (!platformAdmin && (!membership || actor.agency_id !== target.agency_id)) {
+        throw new Error('You do not have permission to manage caregiver credentials.')
+      }
+      if (!platformAdmin) await assertAgencyCapability(target.agency_id, 'caregiver_management')
+      return run(actor, target)
+    }
+  )
+}
+
+function revalidateCaregiverCredentials(staffMemberId: string) {
+  revalidatePath('/pages/agency/user-management')
+  revalidatePath(`/pages/agency/caregiver/${staffMemberId}`)
+  revalidatePath('/pages/caregiver/my-certifications')
 }
 
 export async function insertCaregiverLicenseApplicationAction(
-  input: InsertCaregiverLicenseInput
+  input: CaregiverCredentialInput
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const session = await getSession()
-  if (!session?.user?.id) return { ok: false, error: 'You must be signed in.' }
-
-  const { data: up } = await q.getAgencyIdFromProfile(session.user.id)
-  const viewerAgencyId = up?.agency_id ?? null
-  if (!viewerAgencyId) return { ok: false, error: 'No organization scope found for this user.' }
-
-  const [staff] = await sql<{ id: string; agency_id: string; user_id: string | null }[]>`
-    SELECT id, agency_id, user_id FROM caregiver_members WHERE id = ${input.staffMemberId} LIMIT 1
-  `
-  if (!staff) return { ok: false, error: 'Caregiver not found or you do not have access.' }
-  if (!staff.agency_id) return { ok: false, error: 'Caregiver has no agency; cannot attach a credential.' }
-  if (staff.agency_id !== viewerAgencyId) {
-    return { ok: false, error: 'You can only add licenses for caregivers in your organization.' }
-  }
-
-  const today = new Date()
-  const todayStr = today.toISOString().split('T')[0]
-  const issueDate = input.issueDate || todayStr
-  const expiryDate = input.expiryDate || todayStr
-
-  let daysUntilExpiry: number | null = null
-  if (expiryDate) {
-    const expiryDateObj = new Date(expiryDate)
-    daysUntilExpiry = Math.ceil((expiryDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-  }
-
-  let status: 'active' | 'expiring' | 'expired' = 'active'
-  if (daysUntilExpiry !== null && daysUntilExpiry <= 0) status = 'expired'
-  else if (daysUntilExpiry !== null && daysUntilExpiry <= 30) status = 'expiring'
+  const parsed = caregiverCredentialInputSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid certification.' }
 
   try {
-    const [inserted] = await sql<{ id: string }[]>`
-      INSERT INTO caregiver_credentials (
-        agency_id, caregiver_member_id, user_id,
-        source_credential_name, credential_number, state, status,
-        issue_date, expiration_date
-      ) VALUES (
-        ${staff.agency_id}, ${input.staffMemberId}, ${staff.user_id},
-        ${input.licenseType.trim()}, ${input.licenseNumber.trim()},
-        ${input.state.trim() || '—'}, ${status},
-        ${issueDate}, ${expiryDate}
-      )
-      RETURNING id
-    `
-    if (!inserted?.id) return { ok: false, error: 'License was not saved. Please try again.' }
-
-    const { error: auditErr } = await q.insertAuditLog({
-      agency_id: staff.agency_id,
-      table_name: 'caregiver_credentials',
-      record_id: inserted.id,
-      action: 'INSERT',
-      performed_by_user_id: session.user.id,
-      details: {
-        caregiver_member_id: input.staffMemberId,
-        license_type:        input.licenseType.trim(),
-        state:               input.state.trim() || '—',
-        status,
-        issue_date:          issueDate,
-        expiry_date:         expiryDate,
-      },
+    const id = await withCredentialManager(parsed.data.staffMemberId, async (actor, target) => {
+      const status = credentialStatus(parsed.data.expiryDate)
+      const [inserted] = await sql<{ id: string }[]>`
+        INSERT INTO public.caregiver_credentials (
+          agency_id, caregiver_member_id, user_id, source_credential_name,
+          credential_number, state, status, issue_date, expiration_date,
+          issuing_authority, verified
+        ) VALUES (
+          ${target.agency_id}::uuid, ${target.id}::uuid, ${target.user_id}::uuid,
+          ${parsed.data.licenseType}, ${parsed.data.licenseNumber},
+          ${parsed.data.state || null}, ${status}, ${parsed.data.issueDate}::date,
+          ${parsed.data.expiryDate}::date, ${parsed.data.issuingAuthority || null}, true
+        )
+        RETURNING id
+      `
+      if (!inserted) throw new Error('Certification was not saved.')
+      await sql`
+        INSERT INTO public.audit_log (
+          agency_id, table_name, record_id, action, performed_by_user_id, details
+        ) VALUES (
+          ${target.agency_id}::uuid, 'caregiver_credentials', ${inserted.id}::uuid,
+          'INSERT', ${actor.id}::uuid,
+          ${JSON.stringify({ operation: 'manager_add_caregiver_credential' })}::jsonb
+        )
+      `
+      return inserted.id
     })
-    if (auditErr) console.error('[caregiver-licenses/insert] Audit log failed. credentialId=%s err=%s', inserted.id, auditErr.message)
+    revalidateCaregiverCredentials(parsed.data.staffMemberId)
+    return { ok: true, id }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Unable to save certification.' }
+  }
+}
 
-    revalidatePath(`/pages/agency/caregiver/${input.staffMemberId}`)
-    revalidatePath('/pages/agency/caregiver')
-    return { ok: true, id: inserted.id }
-  } catch (err: any) {
-    return { ok: false, error: err.message || 'Failed to save license.' }
+export async function updateCaregiverLicenseAction(
+  input: CaregiverCredentialInput
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsed = caregiverCredentialInputSchema.safeParse(input)
+  if (!parsed.success || !parsed.data.credentialId) {
+    return { ok: false, error: parsed.success ? 'Certification is required.' : parsed.error.issues[0]?.message ?? 'Invalid certification.' }
+  }
+  const data = parsed.data
+  const credentialId = data.credentialId!
+
+  try {
+    await withCredentialManager(data.staffMemberId, async (actor, target) => {
+      const status = credentialStatus(data.expiryDate)
+      const [updated] = await sql<{ id: string }[]>`
+        UPDATE public.caregiver_credentials
+        SET source_credential_name = ${data.licenseType},
+            credential_number = ${data.licenseNumber},
+            state = ${data.state || null}, status = ${status},
+            issue_date = ${data.issueDate}::date,
+            expiration_date = ${data.expiryDate}::date,
+            issuing_authority = ${data.issuingAuthority || null},
+            verified = true, updated_at = now()
+        WHERE id = ${credentialId}::uuid
+          AND caregiver_member_id = ${target.id}::uuid
+          AND agency_id = ${target.agency_id}::uuid
+        RETURNING id
+      `
+      if (!updated) throw new Error('Certification not found or unavailable.')
+      await sql`
+        INSERT INTO public.audit_log (
+          agency_id, table_name, record_id, action, performed_by_user_id, details
+        ) VALUES (
+          ${target.agency_id}::uuid, 'caregiver_credentials', ${updated.id}::uuid,
+          'UPDATE', ${actor.id}::uuid,
+          ${JSON.stringify({
+            operation: 'manager_update_caregiver_credential',
+            changed_fields: ['type', 'number', 'state', 'status', 'issue_date', 'expiration_date', 'issuing_authority'],
+          })}::jsonb
+        )
+      `
+    })
+    revalidateCaregiverCredentials(data.staffMemberId)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Unable to update certification.' }
   }
 }

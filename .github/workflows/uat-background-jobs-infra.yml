@@ -19,6 +19,7 @@ concurrency:
 jobs:
   infrastructure:
     runs-on: ubuntu-latest
+    environment: uat
     permissions:
       id-token: write
       contents: read

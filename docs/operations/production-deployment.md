@@ -21,6 +21,7 @@ Environment secrets:
 
 - `PRODUCTION_AUTH_SECRET`
 - `PRODUCTION_DATABASE_URL`
+- `PRODUCTION_DATABASE_MIGRATION_URL` (direct, non-pooled restricted migrator connection)
 
 Environment variables:
 
@@ -31,6 +32,9 @@ Environment variables:
 - `NEXT_PUBLIC_APP_URL`
 - `NEXT_PUBLIC_SITE_URL`
 - `PRODUCTION_AUTH_URL`
+- `PRODUCTION_MIGRATION_EXPECTED_HOST`
+- `PRODUCTION_MIGRATION_EXPECTED_DATABASE`
+- `PRODUCTION_MIGRATION_EXPECTED_BRANCH_ID`
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
 
 The environment must remain restricted to `main`. Keep administrator bypass disabled. The configured wait timer is an intentional final pause before the job can access Production credentials.
@@ -45,9 +49,10 @@ The environment must remain restricted to `main`. Keep administrator bypass disa
 6. Enter the exact SHA as `release_sha`.
 7. Enter `DEPLOY PRODUCTION` as the confirmation text.
 8. Review the environment wait period, then allow the workflow to finish.
-9. Confirm the workflow's production health check succeeds before any broader acceptance testing.
+9. Confirm the database migration status/apply/status step succeeds before the deployment step.
+10. Confirm the workflow's production health check succeeds before any broader acceptance testing.
 
-The workflow fails closed when the SHA is not on `main`, the exact SHA lacks a successful manual staging deployment, Production configuration is missing or points to staging, Azure selects a different subscription, or the expected App Service cannot be resolved.
+The workflow fails closed when the SHA is not on `main`, the exact SHA lacks a successful manual staging deployment, Production configuration is missing or points to staging, Azure selects a different subscription, the expected App Service cannot be resolved, or the database target, checksum, baseline, migration, verifier, or ledger checks fail.
 
 Do not put credentials, connection strings, patient data, or other PHI into workflow inputs, names, annotations, or logs.
 
@@ -62,4 +67,4 @@ Enter that prior full SHA and the same confirmation text. Database recovery is a
 
 ## Current hold point
 
-Creating this workflow does not authorize a production release or data migration. Keep it unexecuted until production reference data, schema, custom-domain/auth URLs, monitoring, backup evidence, and the explicit cutover checklist are complete.
+Creating this workflow does not authorize production data migration. A specifically approved pre-cutover rehearsal may target only the isolated Azure Production endpoint and empty/synthetic Production database. Do not direct real users, PHI, the production custom domain, or source-system data to it until reference data, monitoring, recovery evidence, and the explicit cutover checklist are complete.

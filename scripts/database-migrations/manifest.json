@@ -66,6 +66,25 @@
         "development",
         "uat"
       ]
+    },
+    {
+      "id": "041",
+      "name": "production-safe-caregiver-credential-policies",
+      "file": "041-production-safe-caregiver-credential-policies.sql",
+      "verifier": "041-verify-production-safe-caregiver-credential-policies.sql",
+      "checksumSha256": "ec9e9e5f857d9821ad8a1de78a98a85c7668c7237ce829f0ebcad9a5c0b5a122",
+      "transactional": true,
+      "verifierExpectations": {
+        "allBooleansTrue": true,
+        "zeroColumns": []
+      },
+      "environments": [
+        "development",
+        "uat",
+        "production-staging",
+        "production",
+        "environment-base"
+      ]
     }
   ]
 }

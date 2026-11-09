@@ -218,4 +218,32 @@ describe('database migration control', () => {
     expect(migrationStep).toBeGreaterThan(targetVerificationStep)
     expect(deploymentStep).toBeGreaterThan(migrationStep)
   })
+
+  test('gates the protected Production deployment on the approved release SHA migration', () => {
+    const workflow = read('.github/workflows/manual_production.yml')
+    const stagingProofStep = workflow.indexOf('Verify the exact commit passed production staging')
+    const targetVerificationStep = workflow.indexOf('Verify the production deployment target')
+    const migrationStep = workflow.indexOf('Apply verified Production database migrations')
+    const deploymentStep = workflow.indexOf('Deploy only to the production slot')
+    const healthStep = workflow.indexOf('Verify production health')
+
+    expect(workflow).toContain('workflow_dispatch:')
+    expect(workflow).toContain("github.ref == 'refs/heads/main'")
+    expect(workflow).toContain('environment: Production')
+    expect(workflow).toContain(
+      'DATABASE_MIGRATION_URL: ${{ secrets.PRODUCTION_DATABASE_MIGRATION_URL }}'
+    )
+    expect(workflow).toContain('MIGRATION_ENVIRONMENT: production')
+    expect(workflow).toContain(
+      'MIGRATION_EXPECTED_BRANCH_ID: ${{ vars.PRODUCTION_MIGRATION_EXPECTED_BRANCH_ID }}'
+    )
+    expect(workflow).toContain('MIGRATION_RELEASE_SHA: ${{ inputs.release_sha }}')
+    expect(workflow).not.toContain('MIGRATION_RELEASE_SHA: ${{ github.sha }}')
+    expect(workflow).toContain('npm run db:migrations:apply')
+    expect(stagingProofStep).toBeGreaterThan(-1)
+    expect(targetVerificationStep).toBeGreaterThan(stagingProofStep)
+    expect(migrationStep).toBeGreaterThan(targetVerificationStep)
+    expect(deploymentStep).toBeGreaterThan(migrationStep)
+    expect(healthStep).toBeGreaterThan(deploymentStep)
+  })
 })

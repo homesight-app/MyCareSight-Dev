@@ -72,6 +72,30 @@ should show migration 041 as pending, apply it with the workflow commit SHA,
 verify it, and deploy that same SHA. A later no-op run must report no pending
 migrations and no checksum mismatches.
 
+## Production GitHub environment configuration
+
+The protected `Production` environment must keep its existing `main`
+restriction, wait timer, Azure OIDC values, and application secrets. Add these
+database migration values directly to that environment:
+
+- Environment secret `PRODUCTION_DATABASE_MIGRATION_URL`: the direct,
+  non-pooled Neon connection for the Production `mycaresight_migrator` login.
+- Environment variable `PRODUCTION_MIGRATION_EXPECTED_HOST`: the exact hostname
+  in that migrator URL.
+- Environment variable `PRODUCTION_MIGRATION_EXPECTED_DATABASE`: `neondb`,
+  unless the approved database has explicitly been renamed.
+- Environment variable `PRODUCTION_MIGRATION_EXPECTED_BRANCH_ID`: the exact
+  Production Neon branch identifier (`br-raspy-sound-akbjvszs` at the time of
+  the controlled bootstrap).
+
+The manual Production workflow takes an approved `release_sha`, proves that
+exact SHA is on `main` and passed the manual production-staging workflow, builds
+it, verifies the Azure Production target, runs migration `status`, `apply`, and
+`status` with `MIGRATION_RELEASE_SHA` set to that input SHA, and only then
+deploys and health-checks the application. Do not substitute `github.sha` for
+the approved input: a manual run can be launched from a newer `main` commit than
+the release being promoted.
+
 ## Legacy boundary
 
 Migrations through 037 predate the ledger and were applied manually. The legacy inventory checksum proves whether those repository files change after this baseline; it does not claim that every optional corrective or environment seed ran in every branch.

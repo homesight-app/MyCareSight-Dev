@@ -32,6 +32,12 @@ The migration-control boundary replaces manual guesses about missing SQL with an
 
 The UAT workflow now calls the apply command after application validation/build and Azure subscription verification, but before deploying the matching application SHA. There is no automatic baseline command: legacy baseline evidence requires human review and a separately approved insert.
 
+The manual production-staging workflow uses the same fail-closed ordering. It
+validates and builds the selected `main` commit, verifies the Azure subscription
+and exact App Service staging slot, applies and verifies database migrations for
+that same SHA, and only then deploys the prepared artifact. The workflow remains
+manual and bound to the protected `production-staging` GitHub environment.
+
 ## UAT GitHub environment configuration
 
 Before merging the UAT workflow gate, create or review the GitHub environment named `uat`. It should allow deployment only from `main`. Add these values directly to that environment; do not paste their values into issues, pull requests, workflow logs, or repository files:
@@ -44,6 +50,27 @@ Before merging the UAT workflow gate, create or review the GitHub environment na
 Existing UAT application and Azure deployment secrets must remain available to the `uat` environment. Environment secrets override repository secrets with the same name. UAT is intentionally automatic after merge and therefore does not require a reviewer; staging and production retain their manual/protected promotion boundaries.
 
 On a `main` push the single UAT job checks out one commit, tests and builds it, authenticates to the approved Azure UAT subscription, runs migration `status`, `apply`, and `status` with `MIGRATION_RELEASE_SHA=${{ github.sha }}`, then deploys that already-built artifact. If target validation, migration SQL, verifier evaluation, or ledger recording fails, the application deployment step is not reached.
+
+## Production-staging GitHub environment configuration
+
+The `production-staging` environment must retain its `main`-only deployment
+branch restriction and existing Azure/App Service values. Add the following
+database migration values directly to that environment:
+
+- Environment secret `STAGING_DATABASE_MIGRATION_URL`: the direct, non-pooled
+  Neon connection for the production-staging `mycaresight_migrator` login.
+- Environment variable `STAGING_MIGRATION_EXPECTED_HOST`: the exact hostname in
+  that migrator URL.
+- Environment variable `STAGING_MIGRATION_EXPECTED_DATABASE`: `neondb`, unless
+  the approved database has explicitly been renamed.
+- Environment variable `STAGING_MIGRATION_EXPECTED_BRANCH_ID`: the exact
+  production-staging Neon branch identifier (`br-cool-math-akloyox0` at the
+  time of the controlled rehearsal).
+
+Do not reuse the UAT or production migrator credential. The first accepted run
+should show migration 041 as pending, apply it with the workflow commit SHA,
+verify it, and deploy that same SHA. A later no-op run must report no pending
+migrations and no checksum mismatches.
 
 ## Legacy boundary
 

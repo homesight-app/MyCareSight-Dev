@@ -193,4 +193,29 @@ describe('database migration control', () => {
     expect(migrationStep).toBeGreaterThan(-1)
     expect(deploymentStep).toBeGreaterThan(migrationStep)
   })
+
+  test('gates the manual production-staging deployment on the same-SHA database migration', () => {
+    const workflow = read('.github/workflows/manual_production-staging.yml')
+    const targetVerificationStep = workflow.indexOf('Verify deployment target')
+    const migrationStep = workflow.indexOf(
+      'Apply verified production-staging database migrations'
+    )
+    const deploymentStep = workflow.indexOf('Deploy only to the staging slot')
+
+    expect(workflow).toContain('workflow_dispatch:')
+    expect(workflow).toContain("github.ref == 'refs/heads/main'")
+    expect(workflow).toContain('environment: production-staging')
+    expect(workflow).toContain(
+      'DATABASE_MIGRATION_URL: ${{ secrets.STAGING_DATABASE_MIGRATION_URL }}'
+    )
+    expect(workflow).toContain('MIGRATION_ENVIRONMENT: production-staging')
+    expect(workflow).toContain(
+      'MIGRATION_EXPECTED_BRANCH_ID: ${{ vars.STAGING_MIGRATION_EXPECTED_BRANCH_ID }}'
+    )
+    expect(workflow).toContain('MIGRATION_RELEASE_SHA: ${{ github.sha }}')
+    expect(workflow).toContain('npm run db:migrations:apply')
+    expect(targetVerificationStep).toBeGreaterThan(-1)
+    expect(migrationStep).toBeGreaterThan(targetVerificationStep)
+    expect(deploymentStep).toBeGreaterThan(migrationStep)
+  })
 })

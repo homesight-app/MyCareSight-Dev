@@ -122,6 +122,21 @@ jobs:
             exit 1
           fi
 
+      - name: Apply verified production-staging database migrations
+        shell: bash
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.STAGING_DATABASE_MIGRATION_URL }}
+          MIGRATION_ENVIRONMENT: production-staging
+          MIGRATION_EXPECTED_HOST: ${{ vars.STAGING_MIGRATION_EXPECTED_HOST }}
+          MIGRATION_EXPECTED_DATABASE: ${{ vars.STAGING_MIGRATION_EXPECTED_DATABASE }}
+          MIGRATION_EXPECTED_BRANCH_ID: ${{ vars.STAGING_MIGRATION_EXPECTED_BRANCH_ID }}
+          MIGRATION_RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          npm run db:migrations:status
+          npm run db:migrations:apply
+          npm run db:migrations:status
+
       - name: Deploy only to the staging slot
         uses: azure/webapps-deploy@v3
         with:

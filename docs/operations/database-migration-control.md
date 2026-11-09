@@ -25,6 +25,7 @@ The migration-control boundary replaces manual guesses about missing SQL with an
 - `scripts/migrations/038-verify-database-migration-ledger.sql` verifies the ledger structure and least-privilege grants.
 - `scripts/migrations/039-scope-membership-session-revocation.sql` is the first post-ledger application migration. It scopes agency-role synchronization and session revocation to actual authorization changes; its verifier and emergency rollback are documented in `docs/migrations/uat-membership-session-revocation.md`.
 - `scripts/migrations/040-agency-managed-caregiver-credentials.sql` is Development/UAT-only. It auto-verifies synthetic pending skill rows, removes caregiver write policies, and adds manager-scoped RLS to caregiver certifications while retaining caregiver self-read access.
+- `scripts/migrations/041-production-safe-caregiver-credential-policies.sql` converges every environment on caregiver self-read and agency-manager-only writes without approving, deleting, or otherwise rewriting skill or credential rows. It is the production-safe policy counterpart to the synthetic data conversion in migration 040.
 - `npm run db:migrations:validate` performs offline filename, manifest, checksum, target-scope, verifier, and transaction-control checks.
 - `npm run db:migrations:status` performs the same validation, verifies the exact Neon branch and restricted login role, assumes the shared owner only inside a transaction, and reads migration-ledger metadata.
 - `npm run db:migrations:apply` runs approved pending migrations and their verifiers in one transaction, under the shared schema owner. It serializes concurrent runners, fails on target or checksum drift, and records ledger evidence before commit.
@@ -97,6 +98,12 @@ Migration 039 is registered but must remain pending until migration 038 and the
 approved legacy baseline have been recorded in the target environment. Its
 presence in the manifest is not authorization to skip that gate or apply it to
 all branches simultaneously.
+
+Migration 041 is safe to apply after migration 040 or on an environment where
+040 was intentionally skipped. It drops both legacy and manager policy names
+before recreating one exact policy set, forces RLS on both qualification tables,
+and makes no application-data changes. Existing `self_reported` rows remain
+pending until an authorized agency manager reviews them.
 
 ## GitHub enablement gate
 

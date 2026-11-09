@@ -16,6 +16,8 @@ The versioned SQL under `scripts/migrations/` is the schema and access-control h
 
 Migration 040 makes caregiver skills and certifications read-only for caregivers and manager-maintained by active agency owners and care coordinators. It automatically verifies existing pending skill rows only because the current Development/UAT records are synthetic. This migration is not authorized for production. A future production cutover must inspect live skill claims and caregiver certifications, decide which claims can be verified, and review the target RLS policies without automatically approving source data.
 
+Migration 041 separates the production-safe access-control state from that synthetic conversion. It preserves all caregiver skill and credential rows, retains caregiver self-read, limits writes to authorized platform or agency managers, validates caregiver/agency and active skill-catalog relationships on skill writes, and forces RLS. Apply and verify 041 on the target before enabling manager maintenance; do not use migration 040 to approve production claims.
+
 | Area | UAT change | Future production-data impact | Current disposition |
 |---|---|---|---|
 | Core application schema | Migrations 001–014 added indexes, missing tables, constraints, triggers, RLS, and scoped runtime grants. | Create and verify the target schema before importing rows. Do not replay UAT rows. Compare live production columns, constraints, functions, and policies first. | Schema recreation required; row transformations unresolved until live comparison. |
@@ -107,6 +109,7 @@ When production migration planning is authorized, record evidence for:
 - `027`: ADL/IADL patient day-key integrity.
 - `028`: exact-duplicate system-settings reconciliation and composite primary-key restoration.
 - `029`: three source-equivalent keys for agency configuration, agency lead stage, and patient lead detail upserts.
+- `038`â€“`041`: controlled migration ledger and runner prerequisites, scoped session revocation, Development/UAT-only synthetic caregiver-skill approval, and the data-preserving production-safe caregiver qualification policy set.
 
 Update this register whenever a new migration, provider-boundary change, or application data contract changes what a future production import must create, transform, exclude, or verify.
 

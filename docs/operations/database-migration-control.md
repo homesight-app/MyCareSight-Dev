@@ -26,6 +26,7 @@ The migration-control boundary replaces manual guesses about missing SQL with an
 - `scripts/migrations/039-scope-membership-session-revocation.sql` is the first post-ledger application migration. It scopes agency-role synchronization and session revocation to actual authorization changes; its verifier and emergency rollback are documented in `docs/migrations/uat-membership-session-revocation.md`.
 - `scripts/migrations/040-agency-managed-caregiver-credentials.sql` is Development/UAT-only. It auto-verifies synthetic pending skill rows, removes caregiver write policies, and adds manager-scoped RLS to caregiver certifications while retaining caregiver self-read access.
 - `scripts/migrations/041-production-safe-caregiver-credential-policies.sql` converges every environment on caregiver self-read and agency-manager-only writes without approving, deleting, or otherwise rewriting skill or credential rows. It is the production-safe policy counterpart to the synthetic data conversion in migration 040.
+- `scripts/migrations/042-production-reference-data.sql` seeds only reviewed, non-tenant platform reference data in production-staging and Production: six capabilities, 15 task categories, 80 care tasks, four configuration types with 35 values, 27 system skills, 10 unrated billing codes, and six validation rules. It excludes license types, pricing, task-credential links, test credentials, Feature Plans, tenant records, authentication state, operational history, and environment configuration.
 - `npm run db:migrations:validate` performs offline filename, manifest, checksum, target-scope, verifier, and transaction-control checks.
 - `npm run db:migrations:status` performs the same validation, verifies the exact Neon branch and restricted login role, assumes the shared owner only inside a transaction, and reads migration-ledger metadata.
 - `npm run db:migrations:apply` runs approved pending migrations and their verifiers in one transaction, under the shared schema owner. It serializes concurrent runners, fails on target or checksum drift, and records ledger evidence before commit.
@@ -155,6 +156,15 @@ Migration 041 is safe to apply after migration 040 or on an environment where
 before recreating one exact policy set, forces RLS on both qualification tables,
 and makes no application-data changes. Existing `self_reported` rows remain
 pending until an authorized agency manager reviews them.
+
+Migration 042 is intentionally scoped to `production-staging` and `production`.
+It reuses the canonical identifiers rehearsed in staging but separates safe
+platform defaults from staging-only business/test configuration. Existing
+canonical identifiers must match exactly or the migration rolls back. Missing
+canonical rows are inserted, unrelated additional rows are not overwritten,
+and a second execution is a no-op. License offerings, platform pricing, Feature
+Plans, agencies, users, and operational records require separate business or
+cutover decisions.
 
 ## GitHub enablement gate
 

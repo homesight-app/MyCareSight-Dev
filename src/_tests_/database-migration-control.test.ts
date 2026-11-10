@@ -17,7 +17,7 @@ describe('database migration control', () => {
       { cwd: root, encoding: 'utf8' }
     )
 
-    expect(output).toMatch(/Migration control valid: 43 legacy files, 4 managed migration/)
+    expect(output).toMatch(/Migration control valid: 43 legacy files, 5 managed migration/)
   })
 
   test('keeps the ledger append-only and unavailable to runtime roles', () => {

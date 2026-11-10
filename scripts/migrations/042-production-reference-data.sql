@@ -29,6 +29,12 @@ BEGIN
 END
 $preflight$;
 
+-- The controlled runner executes as the restricted owner role. FORCE RLS also
+-- applies to table owners, so temporarily restore owner maintenance access only
+-- inside this transaction. A failure rolls these changes back automatically.
+ALTER TABLE public.capability_catalog NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.credential_catalog NO FORCE ROW LEVEL SECURITY;
+
 CREATE TEMP TABLE _seed_capability_catalog
   (LIKE public.capability_catalog INCLUDING DEFAULTS) ON COMMIT DROP;
 INSERT INTO _seed_capability_catalog (key, label, description, sort_order, is_active)
@@ -1997,4 +2003,8 @@ BEGIN
   END LOOP;
 END
 $postflight$;
+
+-- Reinstate defense-in-depth before the runner executes the verifier or commits.
+ALTER TABLE public.capability_catalog FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.credential_catalog FORCE ROW LEVEL SECURITY;
 

@@ -15,6 +15,7 @@ describe('production-safe reference-data migration 042', () => {
     db = new PGlite()
     await db.exec(`
       CREATE ROLE mycaresight_app LOGIN NOSUPERUSER NOBYPASSRLS;
+      CREATE ROLE mycaresight_schema_owner NOLOGIN NOSUPERUSER NOBYPASSRLS;
       CREATE TABLE capability_catalog(
         key text PRIMARY KEY,label text NOT NULL,description text NOT NULL,sort_order integer NOT NULL DEFAULT 0,
         is_active boolean NOT NULL DEFAULT true,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now()
@@ -62,7 +63,25 @@ describe('production-safe reference-data migration 042', () => {
       GRANT USAGE ON SCHEMA public TO mycaresight_app;
       GRANT SELECT ON capability_catalog,task_categories,task_catalog,configuration_types,
         configuration_values,credential_catalog,billing_codes,validation_rules TO mycaresight_app;
+      ALTER TABLE capability_catalog OWNER TO mycaresight_schema_owner;
+      ALTER TABLE task_categories OWNER TO mycaresight_schema_owner;
+      ALTER TABLE task_catalog OWNER TO mycaresight_schema_owner;
+      ALTER TABLE configuration_types OWNER TO mycaresight_schema_owner;
+      ALTER TABLE configuration_values OWNER TO mycaresight_schema_owner;
+      ALTER TABLE credential_catalog OWNER TO mycaresight_schema_owner;
+      ALTER TABLE billing_codes OWNER TO mycaresight_schema_owner;
+      ALTER TABLE validation_rules OWNER TO mycaresight_schema_owner;
+      ALTER TABLE audit_log OWNER TO mycaresight_schema_owner;
+      ALTER TABLE capability_catalog ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE capability_catalog FORCE ROW LEVEL SECURITY;
+      ALTER TABLE credential_catalog ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE credential_catalog FORCE ROW LEVEL SECURITY;
+      CREATE POLICY capability_catalog_runtime_read ON capability_catalog
+        FOR SELECT TO mycaresight_app USING (true);
+      CREATE POLICY credential_catalog_runtime_read ON credential_catalog
+        FOR SELECT TO mycaresight_app USING (true);
       BEGIN;
+      SET LOCAL ROLE mycaresight_schema_owner;
       ${migration}
       COMMIT;
     `)
@@ -82,7 +101,7 @@ describe('production-safe reference-data migration 042', () => {
   })
 
   test('is repeatable without adding a second audit event', async () => {
-    await db.exec(`BEGIN; ${migration} COMMIT;`)
+    await db.exec(`BEGIN; SET LOCAL ROLE mycaresight_schema_owner; ${migration} COMMIT;`)
     const audit = await db.query<{ count: number }>(
       "SELECT count(*)::int AS count FROM audit_log WHERE action='SEED_REFERENCE_DATA'"
     )
@@ -95,6 +114,7 @@ describe('production-safe reference-data migration 042', () => {
       SET name = 'Bilingual ' || chr(226) || chr(8364) || chr(8221) || ' Mandarin'
       WHERE code = 'task_cg_bilingual_mandarin';
       BEGIN;
+      SET LOCAL ROLE mycaresight_schema_owner;
       ${migration}
       COMMIT;
     `)
@@ -109,7 +129,7 @@ describe('production-safe reference-data migration 042', () => {
       'SELECT name FROM task_catalog ORDER BY code LIMIT 1'
     )
     await db.exec("UPDATE task_catalog SET name='Drifted' WHERE code=(SELECT min(code) FROM task_catalog)")
-    await expect(db.exec(`BEGIN; ${migration} COMMIT;`)).rejects.toThrow(/conflicting canonical row/)
+    await expect(db.exec(`BEGIN; SET LOCAL ROLE mycaresight_schema_owner; ${migration} COMMIT;`)).rejects.toThrow(/conflicting canonical row/)
     await db.exec('ROLLBACK')
     const drifted = await db.query<{ name: string }>(
       'SELECT name FROM task_catalog ORDER BY code LIMIT 1'
@@ -123,5 +143,14 @@ describe('production-safe reference-data migration 042', () => {
     expect(migration).not.toContain('public.pricing')
     expect(migration).not.toContain('public.task_required_credentials')
     expect(migration).not.toMatch(/INSERT INTO public\.(agencies|user_profiles|patients|caregiver_members|scheduled_visits)/)
+  })
+
+  test('restores forced RLS after owner-scoped maintenance', async () => {
+    const result = await db.query<{ capability_forced: boolean; credential_forced: boolean }>(`
+      SELECT
+        (SELECT relforcerowsecurity FROM pg_class WHERE oid='capability_catalog'::regclass) AS capability_forced,
+        (SELECT relforcerowsecurity FROM pg_class WHERE oid='credential_catalog'::regclass) AS credential_forced
+    `)
+    expect(result.rows[0]).toEqual({ capability_forced: true, credential_forced: true })
   })
 })

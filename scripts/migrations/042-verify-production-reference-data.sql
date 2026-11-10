@@ -74,6 +74,27 @@ SELECT
   (SELECT count(*) = 10 AND count(*) FILTER (WHERE rate IS NULL) = 10
     FROM public.billing_codes) AS billing_codes_ok,
   (SELECT count(*) = 6 FROM public.validation_rules) AS validation_rules_ok,
+  (
+    SELECT count(*) = 2
+      AND bool_and(cmd = 'ALL')
+      AND bool_and(cardinality(roles) = 1 AND 'mycaresight_schema_owner' = ANY(roles))
+      AND bool_and(lower(COALESCE(qual, '')) = 'true')
+      AND bool_and(lower(COALESCE(with_check, '')) = 'true')
+    FROM pg_catalog.pg_policies
+    WHERE schemaname = 'public'
+      AND policyname IN (
+        'capability_catalog_schema_owner_maintenance',
+        'credential_catalog_schema_owner_maintenance'
+      )
+  )
+  AND (
+    SELECT bool_and(relforcerowsecurity)
+    FROM pg_catalog.pg_class
+    WHERE oid IN (
+      'public.capability_catalog'::regclass,
+      'public.credential_catalog'::regclass
+    )
+  ) AS owner_maintenance_is_explicit_and_rls_remains_forced,
   orphan_counts.orphan_count = 0 AS foreign_keys_ok,
   runtime_reads.allowed AS app_reference_reads_granted
 FROM task_counts, category_counts, configuration_counts, orphan_counts, runtime_reads;

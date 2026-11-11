@@ -29,6 +29,26 @@ BEGIN
 END
 $preflight$;
 
+-- The controlled runner executes as the restricted owner role. FORCE RLS also
+-- applies to table owners, so temporarily restore owner maintenance access only
+-- inside this transaction. A failure rolls these changes back automatically.
+ALTER TABLE public.capability_catalog NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.credential_catalog NO FORCE ROW LEVEL SECURITY;
+
+-- FORCE RLS requires an explicit policy even for the owner. Keep maintenance
+-- authority limited to the NOLOGIN shared owner assumed by the migrator.
+DROP POLICY IF EXISTS capability_catalog_schema_owner_maintenance
+  ON public.capability_catalog;
+CREATE POLICY capability_catalog_schema_owner_maintenance
+  ON public.capability_catalog FOR ALL TO mycaresight_schema_owner
+  USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS credential_catalog_schema_owner_maintenance
+  ON public.credential_catalog;
+CREATE POLICY credential_catalog_schema_owner_maintenance
+  ON public.credential_catalog FOR ALL TO mycaresight_schema_owner
+  USING (true) WITH CHECK (true);
+
 CREATE TEMP TABLE _seed_capability_catalog
   (LIKE public.capability_catalog INCLUDING DEFAULTS) ON COMMIT DROP;
 INSERT INTO _seed_capability_catalog (key, label, description, sort_order, is_active)
@@ -1997,4 +2017,8 @@ BEGIN
   END LOOP;
 END
 $postflight$;
+
+-- Reinstate defense-in-depth before the runner executes the verifier or commits.
+ALTER TABLE public.capability_catalog FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.credential_catalog FORCE ROW LEVEL SECURITY;
 

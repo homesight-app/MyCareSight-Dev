@@ -91,7 +91,7 @@
       "name": "production-reference-data",
       "file": "042-production-reference-data.sql",
       "verifier": "042-verify-production-reference-data.sql",
-      "checksumSha256": "ea76db145b39268f8c14d1f63e7ff4bb5fc27706d8232d11aef0890649a286ac",
+      "checksumSha256": "742c3e3c9f771f8fe8c383230a3be44c3908886808aa6e16e820a5ad47ab7ef3",
       "transactional": true,
       "verifierExpectations": {
         "allBooleansTrue": true,

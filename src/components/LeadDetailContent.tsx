@@ -1050,7 +1050,12 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
           <LeadDocumentsTab
             leadId={lead.id}
             initialDocuments={documents}
-            canUpload={currentUserRole === 'admin' || currentUserRole === 'expert'}
+            canUpload={
+              currentUserRole === 'admin'
+              || currentUserRole === 'expert'
+              || currentUserRole === 'company_owner'
+              || currentUserRole === 'care_coordinator'
+            }
           />
         )}
       </div>

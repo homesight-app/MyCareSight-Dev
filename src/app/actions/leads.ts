@@ -1,11 +1,19 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import sql from '@/db'
+import sql, { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { STORAGE_BUCKET } from '@/lib/storage'
-import { uploadFile, removeFiles } from '@/lib/storage/client'
+import { removeFiles } from '@/lib/storage/client'
+import { readStorageCleanupToken } from '@/lib/storage/cleanup-token'
+import { commitLeadDocumentSchema } from '@/lib/schemas/lead-documents'
+import {
+  deleteLeadDocument,
+  getManageableLead,
+  getManageableLeadDocument,
+  insertLeadDocument,
+} from '@/lib/repositories/lead-documents'
 import { readAdminLeadPlatformStaff } from '@/lib/repositories/platform-application-dashboard'
 
 function revalidateLeadPaths() {
@@ -356,59 +364,101 @@ export async function unlinkLeadFromAgency(leadId: string) {
   return { error: null }
 }
 
-export async function uploadLeadDocument(
-  leadId: string,
-  formData: FormData
-): Promise<{ error: string | null; doc?: { id: string; document_name: string; file_url: string } }> {
-  const { error: authErr, session } = await requirePlatformStaff()
-  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
+export async function commitLeadDocumentUploadAction(input: unknown) {
+  const parsed = commitLeadDocumentSchema.safeParse(input)
+  if (!parsed.success) return { error: 'Invalid document upload', doc: null }
 
-  const file = formData.get('file') as File | null
-  const documentName = formData.get('document_name') as string | null
-  const documentType = formData.get('document_type') as string | null
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', doc: null }
+  const { leadId, upload, name, originalFileName, documentType } = parsed.data
+  const claim = readStorageCleanupToken(upload.cleanupToken)
+  if (
+    !claim || claim.actorId !== session.user.id
+    || claim.bucket !== STORAGE_BUCKET.LEAD
+    || claim.tableName !== 'leads'
+    || claim.recordId !== leadId
+    || claim.path !== upload.path
+    || !claim.path.startsWith(`${leadId}/`)
+  ) return { error: 'Invalid document upload', doc: null }
 
-  if (!file || !documentName?.trim()) return { error: 'File and document name are required' }
+  const role = session.profile?.role ?? ''
+  const agencyId = session.profile?.agency_id ?? null
+  const result = await withUserContext(session.user.id, role, agencyId, async () => {
+    const lead = await getManageableLead(leadId, session.user.id)
+    if (!lead || lead.agency_id !== claim.agencyId) return null
+    const document = await insertLeadDocument({
+      leadId,
+      name,
+      path: upload.path,
+      originalFileName,
+      documentType,
+      uploadedBy: session.user.id,
+    })
+    if (!document) throw new Error('Lead document insert failed')
+    const { error: auditError } = await q.insertAuditLog({
+      agency_id: lead.agency_id,
+      table_name: 'lead_documents',
+      record_id: document.id,
+      action: 'CREATE',
+      performed_by_user_id: session.user.id,
+      details: { lead_id: leadId, operation: 'upload' },
+    })
+    if (auditError) throw new Error('Lead document audit failed')
+    return { document, patientId: lead.converted_client_id }
+  }).catch(() => null)
 
-  const ext = file.name.split('.').pop()
-  const filePath = `${leadId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-
-  const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.LEAD, filePath, file)
-  if (uploadErr) return { error: uploadErr.message }
-
-  const { data, error: insertErr } = await q.insertLeadDocument({
-    lead_id: leadId,
-    document_name: documentName.trim(),
-    file_url: filePath,
-    file_name: file.name,
-    document_type: documentType ?? null,
-    uploaded_by: session.user.id,
-  })
-
-  if (insertErr) {
-    const { error: cleanupErr } = await removeFiles(STORAGE_BUCKET.LEAD, [filePath])
-    if (cleanupErr) console.error('[leads/uploadLeadDocument] Storage cleanup failed. path=%s err=%s', filePath, cleanupErr.message)
-    return { error: insertErr.message }
-  }
-
+  if (!result) return { error: 'Could not save document metadata', doc: null }
   revalidateLeadDetail(leadId)
-  return { error: null, doc: { id: data!.id, document_name: documentName.trim(), file_url: filePath } }
+  if (result.patientId) revalidatePath(`/pages/agency/clients/${result.patientId}`)
+  return { error: null, doc: result.document }
 }
 
-export async function deleteLeadDocumentAction(leadId: string, docId: string, filePath: string) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
-  const { error: storageErr } = await removeFiles(STORAGE_BUCKET.LEAD, [filePath])
-  if (storageErr) console.error('[leads/deleteLeadDocument] Storage delete failed. path=%s err=%s', filePath, storageErr.message)
-  const { error } = await q.deleteLeadDocument(docId)
-  if (error) return { error: error.message }
+export async function deleteLeadDocumentAction(leadId: string, docId: string) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
+  const role = session.profile?.role ?? ''
+  const agencyId = session.profile?.agency_id ?? null
+
+  const deleted = await withUserContext(session.user.id, role, agencyId, async () => {
+    const managed = await getManageableLeadDocument(leadId, docId, session.user.id)
+    if (!managed) return null
+    const removed = await deleteLeadDocument(docId)
+    if (!removed) return null
+    const { error: auditError } = await q.insertAuditLog({
+      agency_id: managed.lead.agency_id,
+      table_name: 'lead_documents',
+      record_id: docId,
+      action: 'DELETE',
+      performed_by_user_id: session.user.id,
+      details: { lead_id: leadId, operation: 'delete' },
+    })
+    if (auditError) throw new Error('Lead document audit failed')
+    return {
+      path: managed.document.file_url,
+      patientId: managed.lead.converted_client_id,
+    }
+  }).catch(() => null)
+  if (!deleted) return { error: 'Document not found or not authorized' }
+
+  const { error: storageError } = await removeFiles(STORAGE_BUCKET.LEAD, [deleted.path])
+  if (storageError) console.error('[leads/deleteLeadDocument] Orphaned Blob cleanup required')
   revalidateLeadDetail(leadId)
+  if (deleted.patientId) revalidatePath(`/pages/agency/clients/${deleted.patientId}`)
   return { error: null }
 }
 
 // ——— On-demand reads (called from client components) ——————————————————————
 
 export async function fetchLeadDocumentsAction(leadId: string) {
-  const { data, error } = await q.getLeadDocuments(leadId)
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', data: null }
+  const role = session.profile?.role ?? ''
+  const agencyId = session.profile?.agency_id ?? null
+  const authorized = await withUserContext(session.user.id, role, agencyId, () =>
+    getManageableLead(leadId, session.user.id)
+  )
+  if (!authorized) return { error: 'Not found or not authorized', data: null }
+  const { data, error } = await withUserContext(session.user.id, role, agencyId, () => q.getLeadDocuments(leadId))
   if (error) return { error: error.message, data: null }
   return { error: null, data: data ?? [] }
 }
@@ -511,29 +561,59 @@ export async function linkLeadToPatient(leadId: string, patientId: string) {
   const agencyId = session.profile?.agency_id
   if (!agencyId) return { error: 'No agency found for this user' }
 
-  const [lead] = await sql<{ id: string; lead_type: string; agency_id: string | null; stage: string }[]>`
-    SELECT id, lead_type, agency_id, stage FROM leads WHERE id = ${leadId} LIMIT 1
-  `
-  if (!lead) return { error: 'Lead not found' }
-  if (lead.lead_type !== 'patient') return { error: 'Not a patient lead' }
-  if (lead.agency_id !== agencyId) return { error: 'Forbidden' }
-
-  const [wonStage] = await sql<{ key: string }[]>`
-    SELECT key FROM agency_lead_stages WHERE agency_id = ${agencyId} AND is_won = true LIMIT 1
-  `
-  if (wonStage && lead.stage !== wonStage.key) {
-    return { error: `Lead must be at the "${wonStage.key}" stage before converting to a client` }
-  }
-
-  const now = new Date().toISOString()
   try {
-    await sql`
-      UPDATE leads SET converted_client_id = ${patientId}, converted_at = ${now}, updated_at = ${now}
-      WHERE id = ${leadId}
-    `
-  } catch (err: any) {
-    return { error: err.message }
+    const outcome = await withUserContext(session.user.id, session.profile?.role ?? '', agencyId, async () => {
+      const [lead] = await sql<{ id: string; lead_type: string; agency_id: string | null; stage: string }[]>`
+        SELECT id, lead_type, agency_id, stage
+        FROM public.leads
+        WHERE id = ${leadId}::uuid AND agency_id = ${agencyId}::uuid
+        LIMIT 1
+      `
+      if (!lead) return { error: 'Lead not found' }
+      if (lead.lead_type !== 'patient') return { error: 'Not a patient lead' }
+      const [patient] = await sql<{ id: string }[]>`
+        SELECT id FROM public.patients
+        WHERE id = ${patientId}::uuid AND agency_id = ${agencyId}::uuid
+        LIMIT 1
+      `
+      if (!patient) return { error: 'Client not found' }
+      const [wonStage] = await sql<{ key: string }[]>`
+        SELECT key FROM public.agency_lead_stages
+        WHERE agency_id = ${agencyId}::uuid AND is_won = true
+        LIMIT 1
+      `
+      if (wonStage && lead.stage !== wonStage.key) {
+        return { error: `Lead must be at the "${wonStage.key}" stage before converting to a client` }
+      }
+      const [documentCount] = await sql<{ count: number }[]>`
+        SELECT count(*)::integer AS count
+        FROM public.lead_documents
+        WHERE lead_id = ${leadId}::uuid
+      `
+      await sql`
+        UPDATE public.leads
+        SET converted_client_id = ${patientId}::uuid,
+            converted_at = clock_timestamp(),
+            updated_at = clock_timestamp()
+        WHERE id = ${leadId}::uuid AND agency_id = ${agencyId}::uuid
+      `
+      await sql`
+        INSERT INTO public.audit_log (
+          agency_id, patient_id, table_name, record_id, action,
+          performed_by_user_id, details
+        ) VALUES (
+          ${agencyId}::uuid, ${patientId}::uuid, 'leads', ${leadId}::uuid,
+          'CONVERT_TO_CLIENT', ${session.user.id}::uuid,
+          ${sql.json({ document_count: documentCount?.count ?? 0 })}::jsonb
+        )
+      `
+      return { error: null }
+    })
+    if (outcome.error) return outcome
+  } catch {
+    return { error: 'Unable to link lead to client' }
   }
   revalidateLeadDetail(leadId)
+  revalidatePath(`/pages/agency/clients/${patientId}`)
   return { error: null }
 }

@@ -166,7 +166,7 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
     setDeletingId(doc.id)
     let result: { error: string | null }
     if (doc.source === 'lead' && doc.lead_id) {
-      result = await deleteLeadDocumentAction(doc.lead_id, doc.id, doc.file_url)
+      result = await deleteLeadDocumentAction(doc.lead_id, doc.id)
     } else {
       result = await deleteAgencyDocumentAction(agencyId, doc.id, doc.file_url)
     }

@@ -63,7 +63,7 @@ export async function authorizeStoredObject(
       JOIN public.applications application ON application.id = document.application_id
       WHERE document.document_url = ${path}
         AND (
-          ${actor.role} = 'admin'
+          ${actor.role} IN ('admin', 'expert')
           OR (${actor.role} = 'expert' AND application.assigned_expert_id = ${actor.id}::uuid)
           OR application.company_owner_id = ${actor.id}::uuid
           OR ${agencyAccess(actor, sql`application.agency_id`)}
@@ -167,12 +167,12 @@ export async function authorizeStoredObject(
 
   if (bucket === STORAGE_BUCKET.LEAD) {
     const rows = await sql<AuthorizedObject[]>`
-      SELECT document.lead_id AS "recordId", lead.agency_id AS "agencyId",
+      SELECT document.id AS "recordId", lead.agency_id AS "agencyId",
         'lead_documents'::text AS "tableName"
       FROM public.lead_documents document
       JOIN public.leads lead ON lead.id = document.lead_id
       WHERE document.file_url = ${path}
-        AND (${actor.role} = 'admin' OR ${agencyAccess(actor, sql`lead.agency_id`)})
+        AND (${actor.role} IN ('admin', 'expert') OR ${agencyAccess(actor, sql`lead.agency_id`)})
       LIMIT 1
     `
     return rows[0] ?? null
@@ -281,6 +281,27 @@ export async function authorizeStorageUpload(
       recordId: resourceId,
       tableName: 'patients',
       bucket: STORAGE_BUCKET.PATIENT,
+      pathPrefix: `${resourceId}/`,
+    } : null
+  }
+
+  if (purpose === 'lead-document') {
+    const rows = await sql<{ agencyId: string | null }[]>`
+      SELECT lead.agency_id AS "agencyId"
+      FROM public.leads lead
+      WHERE lead.id = ${resourceId}::uuid
+        AND (
+          ${actor.role} = 'admin'
+          OR ${agencyAccess(actor, sql`lead.agency_id`)}
+        )
+      LIMIT 1
+    `
+    const row = rows[0]
+    return row ? {
+      agencyId: row.agencyId,
+      recordId: resourceId,
+      tableName: 'leads',
+      bucket: STORAGE_BUCKET.LEAD,
       pathPrefix: `${resourceId}/`,
     } : null
   }

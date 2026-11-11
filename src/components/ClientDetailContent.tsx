@@ -52,6 +52,7 @@ import { addPatientAddressAction, updatePatientAddressAction, deletePatientAddre
 import { getActiveBillingCodesAction } from '@/app/actions/billing'
 import type { PatientRepresentative } from '@/lib/supabase/query/patients-representatives'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
+import type { LeadDocumentRecord } from '@/lib/repositories/lead-documents'
 import type { CaregiverRequirement } from '@/lib/supabase/query/caregiver-requirements'
 import type { PatientSkillSelection } from '@/lib/skill-catalog'
 import type { PatientIncident } from '@/lib/supabase/query/patient-incidents'
@@ -265,6 +266,7 @@ interface ClientDetailContentProps {
   canManageNotes?: boolean
   agencyId?: string
   canSchedule?: boolean
+  convertedLeadDocuments?: LeadDocumentRecord[]
 }
 
 export default function ClientDetailContent({ client, allClients, representatives = [], caregiverRequirements: initialCaregiverRequirements = null,
@@ -277,7 +279,8 @@ export default function ClientDetailContent({ client, allClients, representative
   initialAddresses = [],
   canManageNotes = false,
   agencyId,
-  canSchedule = true }: ClientDetailContentProps) {
+  canSchedule = true,
+  convertedLeadDocuments = [] }: ClientDetailContentProps) {
   const initialSkilledSchedules = skilledSchedulesProp ?? EMPTY_SKILLED_SCHEDULES
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1165,6 +1168,23 @@ export default function ClientDetailContent({ client, allClients, representative
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(objectUrl)
+    } catch {
+      setDocumentUploadError('Could not download this document. Try again.')
+    } finally {
+      setDownloadingDocId(null)
+    }
+  }
+
+  const downloadConvertedLeadDocument = async (doc: LeadDocumentRecord) => {
+    setDownloadingDocId(doc.id)
+    setDocumentUploadError(null)
+    try {
+      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LEAD, doc.file_url)
+      if (!signedUrl) throw new Error('Could not generate download link')
+      const anchor = document.createElement('a')
+      anchor.href = signedUrl
+      anchor.download = sanitizeDownloadFilename(doc.file_name ?? doc.document_name)
+      anchor.click()
     } catch {
       setDocumentUploadError('Could not download this document. Try again.')
     } finally {
@@ -4644,6 +4664,44 @@ export default function ClientDetailContent({ client, allClients, representative
                   ))}
                 </ul>
               ) : ''}
+              {convertedLeadDocuments.length > 0 && (
+                <div className={patientDocuments.length > 0 ? 'mt-4' : ''}>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+                    Documents from lead
+                  </p>
+                  <ul className="divide-y divide-gray-200 rounded-lg border border-gray-200">
+                    {convertedLeadDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-4 bg-white px-4 py-3 hover:bg-gray-50">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <FileText className="h-5 w-5 shrink-0 text-gray-400" />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-medium text-gray-900">{doc.document_name}</p>
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">From lead</span>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              {doc.document_type ? `${doc.document_type} · ` : ''}
+                              {new Date(doc.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => downloadConvertedLeadDocument(doc)}
+                          disabled={downloadingDocId === doc.id}
+                          className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 disabled:opacity-50"
+                          aria-label={`Download ${doc.document_name}`}
+                        >
+                          {downloadingDocId === doc.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {patientDocuments.length === 0 && convertedLeadDocuments.length === 0 && (
+                <p className="mt-2 text-center text-sm text-gray-500">No documents yet.</p>
+              )}
             </div>
           )}
 

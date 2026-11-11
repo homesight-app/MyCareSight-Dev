@@ -5,6 +5,7 @@ import * as q from '@/lib/supabase/query'
 import LeadDetailContent from '@/components/LeadDetailContent'
 import { ADMIN_LEAD_CONTEXT } from '@/lib/constants/lead-configs'
 import type { ComponentProps } from 'react'
+import { withUserContext } from '@/db'
 
 type LeadDetailProps = ComponentProps<typeof LeadDetailContent>
 
@@ -13,16 +14,16 @@ export default async function AdminLeadDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { profile } = await requireAdmin()
+  const { user, profile } = await requireAdmin()
   const { id } = await params
   const [{ data: lead }, { data: notes }, { data: tasks }, { data: documents }, { data: platformStaff }] =
-    await Promise.all([
+    await withUserContext(user.id, profile.role, profile.agency_id ?? null, () => Promise.all([
       q.getLeadById(id),
       q.getLeadNotes(id),
       q.getLeadTasks(id),
       q.getLeadDocuments(id),
       readAdminLeadPlatformStaff(),
-    ])
+    ]))
 
   if (!lead) redirect('/pages/admin/leads')
 

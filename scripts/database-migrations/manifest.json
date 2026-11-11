@@ -101,6 +101,25 @@
         "production-staging",
         "production"
       ]
+    },
+    {
+      "id": "043",
+      "name": "agency-lead-documents",
+      "file": "043-agency-lead-documents.sql",
+      "verifier": "043-verify-agency-lead-documents.sql",
+      "checksumSha256": "2de5a91c36abcd8e6463034d47d1edc6c9f72dd14bbfd341771a592058e098c0",
+      "transactional": true,
+      "verifierExpectations": {
+        "allBooleansTrue": true,
+        "zeroColumns": []
+      },
+      "environments": [
+        "development",
+        "uat",
+        "production-staging",
+        "production",
+        "environment-base"
+      ]
     }
   ]
 }

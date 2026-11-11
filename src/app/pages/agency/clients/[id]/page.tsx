@@ -68,6 +68,7 @@ export default async function ClientDetailPage({
       canManageNotes={canManageNotes}
       agencyId={agencyId ?? undefined}
       canSchedule={canSchedule}
+      convertedLeadDocuments={bundle.convertedLeadDocuments}
     />
   )
 }

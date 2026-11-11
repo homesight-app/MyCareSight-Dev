@@ -9,6 +9,7 @@ import { STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/cont
 const MAX_MULTIPART_REQUEST_BYTES = STORAGE_UPLOAD_MAX_BYTES + 256 * 1024
 const PURPOSES = new Set<UploadPurpose>([
   'application-document',
+  'lead-document',
   'patient-document',
   'caregiver-certification',
   'license-document',

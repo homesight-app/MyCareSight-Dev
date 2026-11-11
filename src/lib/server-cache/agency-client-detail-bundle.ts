@@ -1,5 +1,6 @@
 import * as q from '@/lib/supabase/query'
 import { getCachedNonSkilledTasks } from '@/lib/server-cache/reference-lists'
+import { getConvertedLeadDocumentsForPatient } from '@/lib/repositories/lead-documents'
 
 export type AgencyClientDetailTab =
   | 'overview'
@@ -60,6 +61,7 @@ async function loadAgencyClientDetailBundleUncached(
     skilledSchedulesList,
     adlTaskCatalog,
     skilledTaskCatalog,
+    convertedLeadDocuments,
   ] = await Promise.all([
     dataOrThrow(q.getPatientsByAgencyIdMinimal(agencyId), []),
     requestedTab === 'representatives'
@@ -87,6 +89,9 @@ async function loadAgencyClientDetailBundleUncached(
         })
       : Promise.resolve([]),
     needsSkilled ? dataOrThrow(q.getTaskCatalogSkilledTasks(), []) : Promise.resolve([]),
+    requestedTab === 'documents'
+      ? getConvertedLeadDocumentsForPatient(patientId, agencyId)
+      : Promise.resolve([]),
   ])
 
   return {
@@ -104,6 +109,7 @@ async function loadAgencyClientDetailBundleUncached(
     skilledSchedulesList,
     adlTaskCatalog,
     skilledTaskCatalog,
+    convertedLeadDocuments,
   }
 }
 

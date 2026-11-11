@@ -9,21 +9,22 @@ and auditors.
 
 ## Provision Reference
 
-| Provision | Requirement |
-|-----------|-------------|
-| § 164.312(a)(1) | Access Control — implement technical policies to allow only authorized persons or software programs to access ePHI |
-| § 164.312(a)(2)(i) | Unique User Identification — assign a unique name or number to identify and track user identity |
-| § 164.312(a)(2)(ii) | Emergency Access Procedure — establish procedures for obtaining ePHI during an emergency |
-| § 164.312(b) | Audit Controls — implement hardware, software, and procedural mechanisms to record and examine activity in systems that contain or use ePHI |
-| § 164.312(c)(1) | Integrity — implement policies and procedures to protect ePHI from improper alteration or destruction |
-| § 164.312(d) | Person/Entity Authentication — implement procedures to verify that a person seeking access is the one claimed |
-| § 164.312(e)(1) | Transmission Security — implement technical security measures to guard against unauthorized access to ePHI transmitted over electronic communications networks |
+| Provision           | Requirement                                                                                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| § 164.312(a)(1)     | Access Control — implement technical policies to allow only authorized persons or software programs to access ePHI                                             |
+| § 164.312(a)(2)(i)  | Unique User Identification — assign a unique name or number to identify and track user identity                                                                |
+| § 164.312(a)(2)(ii) | Emergency Access Procedure — establish procedures for obtaining ePHI during an emergency                                                                       |
+| § 164.312(b)        | Audit Controls — implement hardware, software, and procedural mechanisms to record and examine activity in systems that contain or use ePHI                    |
+| § 164.312(c)(1)     | Integrity — implement policies and procedures to protect ePHI from improper alteration or destruction                                                          |
+| § 164.312(d)        | Person/Entity Authentication — implement procedures to verify that a person seeking access is the one claimed                                                  |
+| § 164.312(e)(1)     | Transmission Security — implement technical security measures to guard against unauthorized access to ePHI transmitted over electronic communications networks |
 
 ---
 
 ## § 164.312(a)(1) — Access Control
 
 ### UAT Neon Regional Target and Runtime-Role Validation (2026-10-06–07)
+
 - **What:** Prepared and validated a new UAT Neon branch in AWS US West 2 for the Azure West US 2 application tier. The PostgreSQL 18.6 source was copied while both Azure UAT applications were stopped. Validation compared extension versions, 83 application tables, per-table row counts, sequence state, schema-object counts, RLS flags, complete RLS policy definitions, restricted-role attributes and memberships, and table, sequence, column, function, default, database, and schema grants. All comparisons passed.
 - **Access controls:** `mycaresight_app` and `mycaresight_jobs` authenticate successfully through the target pooled endpoint with `LOGIN` and without `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `INHERIT`, or `BYPASSRLS`. Runtime checks confirmed expected application access, isolated job-table access, column-limited notification access, denial of job access to password hashes and website-integration credentials, and denial of application access to background-job tables. Explicit `CONNECT` grants were added for both runtime roles because database-level grants are not transferred by a normal `pg_dump` restore.
 - **Migration safety:** Restore omitted only source-project Neon platform ACL records owned by `cloud_admin` or `neon_superuser`; application ACLs were retained. The retry used one PostgreSQL transaction so a restore error would roll back. Validation scripts accept credentials through hidden prompts, do not print connection strings, and do not query application-record contents. Production Supabase/Vercel and production data were not changed.
@@ -33,6 +34,7 @@ and auditors.
 - **Remaining gap:** Keep the old East-region UAT database available during the post-cutover observation window. Retirement requires a separate verified rollback decision. Production remains unchanged, and this evidence does not authorize PHI or establish HIPAA readiness.
 
 ### Neon RLS + Query Bridge — patients Table Agency Data Isolation (Phase 4.5, 2026-09-15)
+
 - **What:** Prepared and audited the application changes and checked-in Neon SQL needed to enable PostgreSQL Row Level Security on the `patients` table, the first table in the Phase 4.5 pilot. Once `scripts/rls-patients-enable.sql` is run and verified in Neon under a non-`BYPASSRLS` runtime role, policy `patients_agency_rls` will enforce that agency-scoped roles (`company_owner`, `care_coordinator`, `staff_member`) can only read and write patients belonging to their own agency. `admin` and `expert` roles retain full access. `FORCE ROW LEVEL SECURITY` protects against ordinary table-owner bypass, but not against roles granted `BYPASSRLS`.
 - **Session variable injection:** `withUserContext` (`src/db/index.ts`) opens a `postgres.js` transaction, sets `app.current_user_role` and `app.current_agency_id` via `SET LOCAL` (transaction-scoped — safe with connection pooling), and runs the query inside `AsyncLocalStorage`. All `sql\`...\`` calls inside propagate through the Proxy automatically.
 - **Policy SQL:** `NULLIF(current_setting('app.current_agency_id', true), '')::uuid` — single expression, safe when the variable is empty.
@@ -40,16 +42,19 @@ and auditors.
 - **Status:** The Neon database change is pending manual execution and verification. Append a separate evidence entry after the enable script and verification queries have been run.
 
 **Server actions updated to call `withUserContext`:**
+
 - `src/app/actions/visit-candidates.ts` — **critical gap fixed**: action had no session check at all; added auth, agency ownership verification for the visit, and agency-scoped `caregiver_members` filter
-- `src/app/actions/patient-documents.ts` — **auth-before-storage ordering fixed**: now authorizes patient ownership via `withUserContext` + RLS *before* touching Azure Blob Storage; path traversal guard added; `deleted_path` (PHI filename) removed from audit log
+- `src/app/actions/patient-documents.ts` — **auth-before-storage ordering fixed**: now authorizes patient ownership via `withUserContext` + RLS _before_ touching Azure Blob Storage; path traversal guard added; `deleted_path` (PHI filename) removed from audit log
 - `src/app/actions/patient-addresses.ts` — cross-patient address edit prevented by verifying `address.patient_id` server-side before update; PHI payload spread (`...payload`) removed from update audit log; all 4 functions wrapped
 - `src/app/actions/payroll-billing-report.ts` — removed redundant `getViewerAgencyId()` helper (was calling `getSession()` twice + extra DB round-trip); wrapped patient-querying functions in `withUserContext`
 - `src/app/actions/caregiver-visit-execution.ts` — `getCaregiverPastVisitSummaryAction` wrapped
 
 **`unstable_cache` + AsyncLocalStorage fix:**
-- `src/lib/server-cache/caregiver-visit-execution-detail.ts` — `withUserContext` called *inside* the `unstable_cache` callback; `viewerRole` added as cache-key param so each user gets their own cached result and RLS context is set on every cache miss
+
+- `src/lib/server-cache/caregiver-visit-execution-detail.ts` — `withUserContext` called _inside_ the `unstable_cache` callback; `viewerRole` added as cache-key param so each user gets their own cached result and RLS context is set on every cache miss
 
 **Pages updated (add `withUserContext` wrapping, remove dead `createClient` imports):**
+
 - `src/app/pages/agency/clients/page.tsx`
 - `src/app/pages/agency/clients/[id]/page.tsx`
 - `src/app/pages/agency/time-billing/page.tsx`
@@ -58,10 +63,12 @@ and auditors.
 - `src/app/pages/caregiver/my-care-visits/[visitId]/page.tsx`
 
 **Dashboard agency scoping:**
+
 - `src/lib/visit-assignment-dashboard.ts`, `src/lib/visit-all-visits-dashboard.ts`, `src/lib/supabase/query/schedule-assignment-requests.ts`, and `src/app/actions/care-visits-badge.ts` now explicitly scope scheduled visits, caregiver lists, assignment/unassignment requests, aggregate counts, and the sidebar pending badge by agency.
 - `src/lib/time-billing-dashboard.ts` — added `agencyId` parameter to filter `scheduled_visits` by `agency_id`, preventing cross-agency visit data leakage in the time-billing report
 
 **Legacy browser Supabase client paths converted to server actions:**
+
 - `src/components/CaregiverProfileContent.tsx:208` — replaced `supabase.from('patients').select(...)` with `getPatientNamesByIdsAction` server action
 - `src/components/InternalNotesPanel.tsx:249` — replaced `supabase.from('patients').select(...)` with `getAgencyPatientNamesAction` server action
 - Both new actions are in `src/app/actions/patients.ts` and use `withUserContext` for RLS enforcement
@@ -73,6 +80,7 @@ and auditors.
 ## § 164.312(b) — Audit Controls
 
 ### Azure Blob Storage Target Recorded (2026-09-03)
+
 - **What:** The approved target for private document storage changed from Cloudflare R2 to Azure Blob Storage. This is a migration-design decision only; no application storage code, access path, or live data changed.
 - **Required design:** The future Azure adapter remains behind `src/lib/storage/`; private containers, server-authorized short-lived SAS URLs, database-backed ownership and agency checks, and audit events for upload, download, URL issuance, deletion, and denied access are required before PHI/ePHI is introduced.
 - **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, 164.312(c)(1) Integrity, and 164.312(e)(1) Transmission Security.
@@ -80,18 +88,21 @@ and auditors.
 - **Gap and remediation:** A BAA/contractual eligibility review, Azure account and tenant configuration, encryption/key-management decisions, private networking, retention, recovery, monitoring, and incident-response controls remain unverified. They are required before Azure Blob Storage may contain PHI/ePHI.
 
 ### Public Self-Service Registration Disabled (2026-09-03)
+
 - **What:** Disabled public self-service registration. Middleware no longer treats `/pages/auth/signup` or legacy `/signup` as public paths, and the signup route returns `notFound()`. The unused shared Supabase `signUp` helper was removed. All six remaining administrative magic-link sends now set `shouldCreateUser: false`, preventing them from creating a user. The former page allowed a visitor to submit `admin`, `expert`, or `company_owner` role metadata.
 - **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control and 164.312(d) Person or Entity Authentication.
 - **Files changed:** `src/app/pages/auth/signup/page.tsx`, `src/lib/auth.ts`, `src/lib/supabase/middleware.ts`, `src/app/actions/users.ts`, `docs/migrations/step-1-migration-control.md`, `docs/hipaa/compliance-log.md`.
 - **Gap and remediation:** A browser can call Supabase Auth directly with the public key until the project-level **Allow new users to sign up** setting is disabled. The project owner must disable that setting and **Allow anonymous sign-ins** in Supabase Dashboard, then verify existing administrator login and admin-created magic links. Step 6 must replace the remaining Supabase administrative and magic-link mechanisms with invite-only Auth.js provisioning, durable rate limits, MFA enrollment, revocable database sessions, and authentication audit events.
 
 ### Internal Note Search Audit (pre-existing, date unknown)
+
 - **What:** Every search of `internal_notes` ≥ 3 characters triggers a debounced audit log entry.
 - **Files:** `src/app/actions/internal-notes.ts` → `logNoteSearchAction`
 - **Audit row:** `action='SEARCH'`, `table_name='internal_notes'`, `details: { search_term, results_returned, subject_type, subject_id }`
 - **Why it matters:** Allows auditors to reconstruct who searched for what PHI and what was returned (HIPAA investigation traceability).
 
 ### People Tab — Permission Change Audit (2026-08-19)
+
 - **What:** Every permission-change and access-grant operation in the Unified Agency People Table writes an `audit_log` row.
 - **Covered operations:**
   - Add key staff / officer → `action: 'CREATE_KEY_STAFF'`
@@ -105,18 +116,21 @@ and auditors.
 - **Audit row shape:** `{ agency_id, table_name, record_id, action, performed_by_user_id, details: { old_status?, new_status?, credential?, officer_role?, full_legal_name?, changed_fields? } }`
 
 ### Login Audit Trail — `last_login_at` (2026-08-19)
+
 - **What:** `user_profiles.last_login_at` (timestamptz, nullable) added to the schema. Updated to the current timestamp on every successful `signIn()` call.
 - **Files changed:** `supabase/migrations/phase_two/162_user_agency_roles_phase_a.sql` (ADD COLUMN), `src/lib/auth.ts` (update on sign-in)
 - **Audit row:** Column on `user_profiles` — no separate log row needed; the value is an authoritative, server-written timestamp that cannot be set by the user.
 - **Why it matters:** Provides an auditable record of when each user last authenticated, enabling investigation of unauthorized access and session anomalies.
 
 ### Patient Lead Details PHI Audit — `patient_lead_details` (2026-08-26)
+
 - **What:** `updatePatientLeadDetailsAction` in `src/app/actions/leads.ts` now writes an `audit_log` row on every upsert of patient lead detail records. This table stores ePHI: `reason_for_care`, `medical_conditions`, `mobility_status`, `cognitive_status`, `insurance_carrier`, and `insurance_policy_number`.
 - **Audit row:** `action='UPSERT'`, `table_name='patient_lead_details'`, `record_id=<row id>`, `details: { lead_id, agency_id }`
 - **Files changed:** `src/app/actions/leads.ts`, `supabase/migrations/phase_two/166_patient_lead_details.sql`
 - **Why it matters:** All mutations to ePHI must be auditable so investigators can reconstruct who changed what and when.
 
 ### Agency Notes and Documents Audit (2026-08-27)
+
 - **What:** Four functions in `src/app/actions/agencies.ts` that were missing audit log entries now write `audit_log` rows on every mutation.
 - **Covered operations:**
   - `addAgencyNote` → `action: 'CREATE'`, `table_name: 'agency_notes'`
@@ -126,6 +140,7 @@ and auditors.
 - **Files changed:** `src/app/actions/agencies.ts`
 
 ### Playbook Item Mutations Audit (2026-08-27)
+
 - **What:** Three core playbook item mutations and one program item mutation previously had zero audit coverage. All now write `audit_log` rows.
 - **Covered operations:**
   - `addPlaybookItem` → `action: 'CREATE'`, `table_name: 'playbook_items'`, `details: { playbook_id, item_type, name }`
@@ -135,17 +150,20 @@ and auditors.
 - **Files changed:** `src/app/actions/playbooks.ts`
 
 ### Caregiver Availability — Server Action Migration (2026-08-27)
+
 - **What:** `CaregiverMyCalendarContent.tsx` was calling `supabase.from('caregiver_availability_slots')` INSERT/UPDATE/DELETE directly from the browser client component. These mutations had no audit trail and no RLS enforcement on the mutation path. Moved all three mutations to a new server action file with authentication, authorization, audit logging, and cache revalidation.
 - **Files changed:** `src/components/CaregiverMyCalendarContent.tsx` (removed direct mutations), `src/app/actions/caregiver-availability.ts` (new), `src/lib/supabase/query/caregiver-availability.ts` (added mutation query functions)
 - **Audit row:** `action: 'CREATE'/'UPDATE'/'DELETE'`, `table_name: 'caregiver_availability_slots'`, `agency_id` resolved from `caregiver_members`, `details: { is_recurring, specific_date }`
 - **Authorization gate:** Server action verifies `caregiver_members.user_id = session.user.id` — caregivers can only manage their own availability slots.
 
 ### Application Progress — Server Action Migration (2026-08-27)
+
 - **What:** `ExpertProgramView.tsx` was calling `supabase.from('applications').update({ progress_percentage })` directly from a browser `useEffect` with no audit trail. Moved to `updateApplicationProgressAction` in `src/app/actions/applications.ts`.
 - **Files changed:** `src/components/ExpertProgramView.tsx`, `src/app/actions/applications.ts`
 - **Audit row:** `action: 'UPDATE'`, `table_name: 'applications'`, `details: { field: 'progress_percentage', value }`, `agency_id` resolved from applications table.
 
 ### Document Storage — Server Action Migration (2026-08-27)
+
 - **What:** Five client components were calling `supabase.storage.*` directly from the browser. These mutations had no audit trail, bypassed the `src/lib/storage/` wrapper, and were exposed to browser-level network interception. Moved all upload and delete operations to three new server action files. Also updated four existing server actions (`agencies.ts`, `leads.ts`, `licenses.ts`, `playbooks.ts`) to route storage calls through the wrapper rather than calling the SDK directly.
 - **Covered client violations fixed:**
   - `UploadDocumentModal.tsx` + `UploadDocumentButton.tsx` → `uploadApplicationDocumentsAction` in `application-documents.ts`
@@ -162,6 +180,7 @@ and auditors.
 ## § 164.312(d) — Person/Entity Authentication
 
 ### Auth.js v5 Migration — Password-Based Authentication (2026-09-09)
+
 - **What:** Replaced Supabase Auth (closed password storage in `auth.users`, inaccessible) with Auth.js v5 Credentials provider. Passwords are now stored as bcrypt hashes (cost factor 12) in `user_profiles.password_hash` under the application's direct control. `password_hash` is never selected in any query returned to the client.
 - **Existing user impact:** Supabase passwords were not exportable. All existing users are required to reset their password on first login after cutover. A pre-cutover notification email is sent via Mailgun. Users with `password_hash IS NULL` are rejected at login with a prompt to reset.
 - **Invited user flow:** Admin-created users receive a temporary bcrypt-hashed password via Mailgun invitation email. They must change it on first login.
@@ -174,6 +193,7 @@ and auditors.
 ## § 164.312(e)(1) — Transmission Security
 
 ### Auth.js v5 Migration — Session Cookie Security (2026-09-09)
+
 - **What:** Auth.js v5 issues JWT sessions in HTTP-only, Secure, SameSite=Strict signed cookies using `AUTH_SECRET`. Supabase Auth cookies are removed. The new cookies are not accessible to JavaScript (XSS protection) and are not sent cross-origin (CSRF protection). All server actions using `createAdminClient()` are now protected by explicit `getSession()` calls rather than relying on implicit Supabase Auth cookie context.
 - **Relevant safeguard:** 45 CFR § 164.312(e)(1) Transmission Security — prevents session token interception via XSS and CSRF.
 - **Files changed:** `src/auth.ts`, `src/middleware.ts`, all `src/app/actions/*.ts` (switched to `createAdminClient()` + explicit `getSession()`)
@@ -183,50 +203,59 @@ and auditors.
 ## § 164.312(a)(1) — Access Control
 
 ### Permission Centralization — `requirePlatformStaffOrAgencyRole` (2026-08-19)
+
 - **What:** Replaced three separate copy-pasted inline permission helpers in `agency-users.ts`, `agency-onboarding.ts`, and `agency-people.ts` with a single authoritative function in `src/lib/permissions.ts`. All agency-scoped server actions now go through one audit point.
 - **Files changed:** `src/lib/permissions.ts` (new), `src/app/actions/agency-users.ts`, `src/app/actions/agency-onboarding.ts`, `src/app/actions/agency-people.ts`
 - **Why it matters:** A single permission function means access-control logic can be audited, tested, and corrected in one place rather than across N files that may drift out of sync.
 
 ### Account Lockout — `is_active` (2026-08-19)
+
 - **What:** `user_profiles.is_active` (boolean NOT NULL DEFAULT true) added to schema. When set to `false`: (1) `requirePlatformStaffOrAgencyRole` returns Forbidden before any DB query executes, (2) `is_platform_staff()` RLS function denies all table access, (3) `has_agency_role()` RLS function denies all agency-scoped access. Deactivation takes effect immediately with no login session invalidation needed.
 - **Files changed:** `supabase/migrations/phase_two/162_user_agency_roles_phase_a.sql` (ADD COLUMN, update `has_agency_role()`), `supabase/migrations/phase_two/163_rls_functions_phase_b.sql` (update `is_platform_staff()`), `src/lib/permissions.ts` (application-layer check)
 - **Gap fixed:** Prior to this, deactivating a user required updating status in each of `agency_admins`, `care_coordinators`, and `caregiver_members` separately — none of which blocked login or prevented API access.
 - **Why it matters:** Satisfies the requirement to revoke ePHI access immediately when a workforce member's authorization changes or employment ends.
 
 ### Patient Lead Details — Intentional Platform Staff Exclusion (2026-08-26)
+
 - **What:** The `patient_lead_details` table (ePHI) grants RLS access to agency members only via `is_agency_member()`. Platform staff (admin/expert roles) are intentionally excluded from all RLS policies on this table.
 - **Rationale:** Platform staff are licensing consultants with no clinical or care-coordination role. Granting them standing access to patient ePHI would violate the HIPAA Minimum Necessary Standard (§ 164.514(d)). Any legitimate break-glass access by a platform admin must go through a one-time manual operation with an explicit audit log entry.
 - **Files changed:** `supabase/migrations/phase_two/166_patient_lead_details.sql`
 - **Note:** Insurance policy numbers are stored as plain text. No UI masking applied — intentional design decision for internal agency use only.
 
 ### Storage Boundary — Server-Side Auth Enforcement for Document Operations (2026-08-27)
+
 - **What:** All document upload and delete operations for patient records (`patient-documents` bucket), caregiver records (`staff-member-documents` bucket), and application documents (`application-documents` bucket) now require server-side authentication before any storage SDK call is made. Browser clients can no longer reach the storage buckets without a valid server-authenticated session.
 - **Mechanism:** Three new server action files enforce `supabase.auth.getUser()` on every mutation. The `src/lib/storage/client.ts` wrapper is the sole point of contact with the Supabase Storage SDK — all upload, remove, and signed URL generation goes through it.
 - **Platform migration note:** When Azure Blob Storage replaces Supabase Storage, only `src/lib/storage/client.ts` changes; no components or server actions need modification.
 - **Files changed:** `src/app/actions/application-documents.ts`, `src/app/actions/patient-documents.ts`, `src/app/actions/caregiver-documents.ts`, `src/lib/storage/client.ts`
 
 ### Agency People Self-Management (2026-08-19)
+
 - **What:** `requireAdminOrAgencyOwner(agencyId)` helper added to `agency-users.ts` and `agency-onboarding.ts`. All people-management server actions now enforce that callers are either platform staff (admin/expert) or the `company_owner` of that specific agency. Cross-agency access returns Forbidden.
 - **Files changed:** `src/app/actions/agency-users.ts`, `src/app/actions/agency-onboarding.ts`
 - **RLS policies added:** `agency_key_staff_agency_admin_select`, `agency_key_staff_agency_admin_insert`, `agency_key_staff_agency_admin_update`, `care_coordinators_agency_admin_select`, `care_coordinators_agency_admin_update` — all scoped via `hs_is_agency_admin(agency_id)`.
 - **Why it matters:** Ensures agency owners can self-manage their own team without platform-admin involvement while preventing any cross-agency data access.
 
 ### Admin Account — Cascade Deactivation Independence (2026-09-08)
+
 - **What:** Agency deactivation cascade (`setAgencyStatus` in `src/app/actions/agencies.ts`) only touches accounts with roles `['company_owner', 'care_coordinator', 'staff_member']`. Admin accounts are never deactivated by an agency cascade, even if that admin is associated with the agency. Manual disable from User Management remains available for admin accounts when explicitly needed.
 - **Relevant safeguard:** 45 CFR § 164.312(a)(2)(ii) Emergency Access Procedure — ensures platform administrators retain access for emergency and break-glass operations even when an agency is deactivated.
 - **Files changed:** `src/app/actions/agencies.ts` (cascade role filter — confirmed correct), `src/app/actions/users.ts` (removed erroneous admin disable guard), `src/components/UserManagementTabs.tsx`
 
 ### People Tab — Key Staff Active Status Source of Truth (2026-09-08)
+
 - **What:** Fixed a bug where key staff members linked to a user account were still displayed as Active in the Agency People tab after the agency was deactivated. Root cause: `buildPeopleRows` was reading `agency_key_staff.status` (never updated by the cascade) instead of `user_profiles.is_active` (the single source of truth). The fix fetches `is_active` for all linked user accounts in one bulk query and maps it onto key staff records.
 - **Relevant safeguard:** 45 CFR § 164.312(a)(1) Access Control — ensures ePHI access state is accurately represented in the UI, allowing admins to trust what they see without a false sense of active access.
 - **Files changed:** `src/app/actions/agency-people.ts`, `src/components/AgencyPeopleTab.tsx`
 
 ### Auth.js v5 Migration — `is_active` Real-Time Enforcement (2026-09-09)
+
 - **What:** `user_profiles.is_active` is fetched fresh from the DB on every server request inside `getSession()` (wrapped with `React.cache()` so only one DB query fires per request). It is never embedded in the JWT. An admin disabling a user takes effect on the user's next server request — there is no stale-JWT window where a deactivated account retains ePHI access.
 - **Relevant safeguard:** 45 CFR § 164.312(a)(1) Access Control — ensures revocation of ePHI access is immediate and cannot be bypassed by a cached token.
 - **Files changed:** `src/lib/auth.ts` (internals replaced — exported API unchanged)
 
 ### Edit User Modal — Admin User Profile Editing (2026-09-10)
+
 - **What:** Admin can edit any user's full name, email address, and role from the User Management page via the "Edit User" modal. The `updateUserProfileAction` server action in `src/app/actions/users.ts` replaces the narrower `changeUserRoleAction`.
 - **Auth enforcement:** `getSession()` + admin role check on every call. Self-role-change returns an error server-side; self name/email edit is permitted.
 - **Audit trail:** All changed fields are recorded in a single `audit_log` insert with `details.changes` as an array of `{ field, old, new }` objects. `details.affected_user_email` records the user's pre-change email so the log remains interpretable after an email change.
@@ -238,9 +267,10 @@ and auditors.
 - **Files changed:** `src/app/actions/users.ts` (`updateUserProfileAction` replaces `changeUserRoleAction`), `src/components/UserManagementTabs.tsx` (`EditUserModal` replaces `ChangeRoleModal`)
 
 ### Neon RLS + Query Bridge — Agency Data Isolation Infrastructure (Phase 4, 2026-09-12)
+
 - **What:** Replaced Supabase RLS (`auth.uid()`) infrastructure with standard PostgreSQL RLS using `current_setting('app.current_user_id')`, `current_setting('app.current_user_role')`, and `current_setting('app.current_agency_id')` session variables set via `SET LOCAL` inside transactions. All client component DB calls now route through `src/app/actions/query-bridge.ts`, which verifies the Auth.js session and calls `withUserContext` before any query executes. Unauthenticated calls return `{ error: 'Unauthorized', data: null }` without touching the DB.
 - **Query bridge architecture:** `src/app/actions/query-bridge.ts` exports ~122 explicit async wrappers (one per query function). Each wrapper calls a shared `ctx()` helper that: (1) verifies the Auth.js session via `getSession()`, (2) returns `{ data: null, error: 'Unauthorized' }` without touching the DB if no session, (3) opens a postgres.js transaction via `withUserContext`, (4) catches infrastructure failures that query functions' own try/catch cannot see. Client components import from the bridge; server-only `postgres.js` code never crosses the client/server boundary.
-- **`withUserContext` mechanism:** `src/db/index.ts` adds an `AsyncLocalStorage` store and an apply-only Proxy over the postgres.js `sql` client. The Proxy intercepts tagged-template calls (`sql\`...\``) and routes them through the active transaction `tx` when inside `withUserContext`. All ~122 query functions route through `tx` automatically — zero changes to the query functions themselves. The apply-only Proxy (no `get` trap) ensures `sql.begin`, `sql.unsafe`, and all other methods fall through to the real client, preventing accidental transaction nesting.
+- **`withUserContext` mechanism:** `src/db/index.ts` adds an `AsyncLocalStorage` store and an apply-only Proxy over the postgres.js `sql` client. The Proxy intercepts tagged-template calls (`sql\`...\``) and routes them through the active transaction `tx`when inside`withUserContext`. All ~122 query functions route through `tx`automatically — zero changes to the query functions themselves. The apply-only Proxy (no`get`trap) ensures`sql.begin`, `sql.unsafe`, and all other methods fall through to the real client, preventing accidental transaction nesting.
 - **Connection-pool safety:** `SET LOCAL` (not `SET`) scopes session variables to the current transaction. They are automatically cleared on commit, preventing context bleed across pooled connections. This is the HIPAA-correct choice; session-scoped `SET` would be a security bug in a pooled environment.
 - **`FORCE ROW LEVEL SECURITY` requirement (Phase 4.5):** When RLS policies are applied table by table, each table requires `ALTER TABLE <t> FORCE ROW LEVEL SECURITY` so ordinary table-owner bypass is subject to the policies. `FORCE` does not apply to roles granted `BYPASSRLS`; the application runtime connection must use a dedicated non-`BYPASSRLS` role.
 - **RLS application deferred (Phase 4.5):** Enabling RLS on any table requires that ALL server actions touching that table also call `withUserContext`. The bridge covers client-component paths; `src/app/actions/*.ts` server actions are audited table by table before RLS is enabled for each table. Applying RLS before this audit is complete would silently return 0 rows from server-rendered pages.
@@ -248,6 +278,7 @@ and auditors.
 - **Files changed:** `src/db/index.ts` (AsyncLocalStorage + apply-only Proxy + `withUserContext` export), `src/app/actions/query-bridge.ts` (~122 explicit async wrappers replace `export *` re-exports), `src/app/actions/messages.ts` (added `withUserContext` to all 23 wrappers via `ctx` helper)
 
 ### Query Bridge Hardening + Browser Supabase Removal Follow-up (2026-09-16)
+
 - **What:** Hardened the Phase 4/4.5 query bridge follow-up before enabling `patients` RLS. `src/db/index.ts` now routes `sql.unsafe(...)` through the active `withUserContext` transaction when one exists, so direct unsafe query execution does not escape the `SET LOCAL` RLS context. `src/app/actions/query-bridge.ts` now role-gates patient, representative, schedule, ADL, incident, service-contract, and skilled-care mutation wrappers to agency-management/platform roles.
 - **Browser Supabase paths remediated:** `src/components/CaregiverProfileContent.tsx` no longer reads `caregiver_pay_rates` or `scheduled_visits` through the browser Supabase client. The reads now go through `src/app/actions/caregiver-profile.ts`, which authenticates the user, verifies caregiver/agency ownership, and runs the queries inside `withUserContext`.
 - **Internal notes remediation:** `src/components/InternalNotesPanel.tsx` no longer reads `internal_notes` or `caregiver_members` through the browser Supabase client. Reads now go through `getInternalNotesPanelDataAction`, which verifies role, agency, subject ownership, and tag ownership before returning notes and tag options. Add/edit/delete/search note actions now validate agency/subject access before mutation or audit insertion.
@@ -257,6 +288,7 @@ and auditors.
 - **Remaining gap:** The production/runtime Neon connection must not use a role with `BYPASSRLS` before RLS is treated as an effective control. Full Supabase removal remains a larger migration phase; this entry covers the RLS-blocking PHI paths reviewed for the `patients` rollout.
 
 ### Neon Runtime Role Gate for patients RLS (2026-09-16)
+
 - **What:** Added `scripts/neon-runtime-role-setup.sql` to create and grant the dedicated `mycaresight_app` Neon runtime role with `rolbypassrls=false`. Updated `scripts/rls-patients-enable.sql` to fail closed unless that runtime role exists, can log in, and cannot bypass RLS.
 - **Policy hardening:** `patients_agency_rls` is now scoped `TO mycaresight_app`; only `admin`/`expert` or the known agency-scoped roles (`company_owner`, `care_coordinator`, `staff_member`) can match the policy. The verification steps explicitly test no-context denial, unexpected-role denial, same-agency visibility, cross-agency denial, and platform-role visibility under `SET LOCAL ROLE mycaresight_app`.
 - **Correction:** The previous script comments over-relied on `FORCE ROW LEVEL SECURITY`; `FORCE` does not protect against a role that has `BYPASSRLS`. The app runtime connection string must use `mycaresight_app`, not `neondb_owner`.
@@ -265,12 +297,14 @@ and auditors.
 - **Remaining gap:** The scripts are prepared but not applied to Neon in this repository change. After applying, update the deployed app `DATABASE_URL` to the `mycaresight_app` connection string and run the verification queries from the enable script.
 
 ### Auth Email Provider Initialization Hardening (2026-09-16)
+
 - **What:** Moved Mailgun client creation from module import time to email send time. Missing Mailgun configuration now fails the specific send operation with a clear error instead of preventing the Next.js application from building or loading routes that import the email helper.
 - **Relevant safeguards:** 45 CFR 164.312(d) Person or Entity Authentication, because password reset and invitation email flows depend on the email helper.
 - **Files changed:** `src/lib/email.ts`, `docs/hipaa/compliance-log.md`.
 - **Remaining gap:** UAT and production still require valid Mailgun settings before password reset, invitation, notification, or contact-confirmation emails can be delivered.
 
 ### UAT Supabase Removal Preparation and Deployment Isolation (2026-09-20)
+
 - **What:** Recorded the user-approved UAT-only Azure/Neon/Blob scope and separate production repository. Removed 40 unused Supabase client constructions and 42 imports from 40 page files that already obtain their data elsewhere. Existing page queries and authorization checks are preserved; active Supabase readers retain their clients.
 - **Deployment boundary:** Added repository guards to the UAT build/deploy jobs and an Azure subscription check before deployment, restricted to MyCareSight-Dev-UAT (a268ab63-b7ec-490d-a858-0de0be69ed4f). These are local changes; no deployment or cloud configuration change was performed.
 - **Relevant safeguards:** Supports the existing 45 CFR 164.312(a)(1) Access Control and 164.312(c)(1) Integrity controls through controlled environment separation. This entry does not assert HIPAA readiness.
@@ -279,6 +313,7 @@ and auditors.
 - **Remaining gaps and remediation:** Live Supabase/Neon metadata verification is unavailable pending connections; live Azure resource verification failed TLS certificate verification. Database-specific replacements, unread-count function fixes, record-authorized storage signing, session/recovery migration, and cross-agency tests remain pending. Keep Supabase settings and dependencies until full UAT verification passes; production resources and shared credentials remain untouched.
 
 ### Live Supabase and Neon UAT Schema Verification (2026-09-20)
+
 - **What:** Used the read-only Supabase MCP source and explicitly selected Neon dev/uat branch IDs to compare catalog metadata. Verified project steep-sky-59385366, dev br-bitter-dust-axfgiziy, and uat br-empty-mouse-axnk8fbc. No application records were queried or copied; no remote writes, deployments, or credential changes occurred.
 - **Evidence:** The inspected dev/uat schemas match, but seven application tables are absent. Neither branch has application functions or non-internal triggers. Source check/unique constraints and many foreign-key/delete behaviors are missing or differ. The missing unread-count functions are confirmed.
 - **Access controls:** mycaresight_app exists with LOGIN and without SUPERUSER/BYPASSRLS on both branches; neondb_owner has BYPASSRLS. Only patients has RLS enabled/forced. Runtime DATABASE_URL identity and active-membership/cross-agency behavior remain unverified.
@@ -287,6 +322,7 @@ and auditors.
 - **Remediation:** Prepare reviewed, versioned repair migrations for manual execution on dev before uat; reconcile trigger/RPC behavior, tenant authorization, and integrity constraints before final Supabase removal. The new preflight script is metadata-only and does not repair or mutate a database.
 
 ### Neon Message Read-State Repository (2026-09-20)
+
 - **What:** Replaced six missing message RPC dependencies and the invalid boolean read-state update with a server-only Neon repository, preserving existing export names. Total unread count now returns a scalar; read receipts remain per-user UUID arrays.
 - **Authorization:** Every migrated operation validates the authenticated reader and a current active Neon profile. Agency conversation access requires active membership; platform admin/expert scope matches inspected source policies. Caller-supplied IDs only narrow the authorized set. Other legacy message/notification operations remain outside this completed slice.
 - **Audit/integrity:** Read and update audit records contain actor/resource identifiers without message content. Audit and mutations share a transaction; audit failure rolls back changes. Generic errors prevent leaking database parameters. The unsafe source timestamp heuristic for clearing notifications was not copied because source notifications lack an exact message reference.
@@ -296,12 +332,14 @@ and auditors.
 - **Remaining gaps:** Supabase-backed session/profile helpers, other message/notification authorization paths, Realtime, missing tables/constraints/triggers, and live two-account acceptance remain pending. This change does not establish HIPAA readiness or full Supabase independence.
 
 ### Message Index Migration Application Verification (2026-09-20)
+
 - **What:** The user reported applying 001-message-read-state-indexes.sql to Neon dev and uat. Read-only MCP checks independently confirmed all three indexes are valid, ready, and match the expected definitions on each branch.
 - **Scope:** Catalog metadata only; the agent performed no remote writes or application-record queries. Production was not queried or changed. Application code remains local and live workflow acceptance is pending.
 - **Relevant safeguard:** Supports the controlled migration evidence for 45 CFR 164.312(c)(1) Integrity; no authorization policy or PHI content was changed by the index script.
 - **Files changed:** docs/migrations/uat-supabase-removal.md, docs/migrations/uat-message-read-state.md, docs/hipaa/compliance-log.md.
 
 ### Missing Application Table Staging Scripts (2026-09-21)
+
 - **What:** Prepared manual Neon migrations for seven missing application tables using live Supabase column/constraint/index/trigger metadata and independently verified Dev/UAT parent keys, runtime-role flags, and default grants. Added a metadata verification script and optional four-row synthetic credential seed; no production records were copied.
 - **Access controls:** New tables enable/force RLS with no permissive policies, and revoke PUBLIC/mycaresight_app privileges that would otherwise be inherited from default grants. The migration requires an independent migration owner and a non-superuser, non-BYPASSRLS runtime role. Runtime workflow grants remain deferred until reviewed caller/context/policy changes are ready. Local DATABASE_URL is configured with the mycaresight_app username; Azure identity remains unverified.
 - **Integrity:** Preserved inspected structures with three explicit foreign-key corrections: required note authors use RESTRICT rather than SET NULL, and adjustment-history agency/time-entry parents use RESTRICT rather than CASCADE. Portable timestamp triggers use a SECURITY INVOKER helper with a fixed search path. Existing application tables/data are not rewritten.
@@ -311,6 +349,7 @@ and auditors.
 - **Remaining gaps:** Scripts are prepared but not applied by the agent. The user must execute and verify on Dev before UAT. Existing callers still require business-function replacement, transaction-local context, active membership/record authorization, audit hardening, and final RLS policies before these workflows can use the staged tables. Production remains unchanged.
 
 ### Dev/UAT Table Staging and RLS Readiness Verification (2026-09-21)
+
 - **What:** Following user execution of 002 and 003, read-only checks on explicitly selected Neon Dev/UAT branches returned seven passing staging rows and four matching reserved synthetic credential fixtures on each branch. The agent made no remote writes and did not query production.
 - **Access state:** All seven new tables enable/force RLS, have no policies, and have no mycaresight_app table privileges. The runtime role is LOGIN without SUPERUSER/BYPASSRLS. Patients remains the sole table with an access policy; its policy uses role/agency context without independently verifying active membership or caregiver assignment.
 - **Relevant safeguards:** Evidence concerns 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, and 164.312(c)(1) Integrity. No claim of HIPAA readiness or complete authorization coverage is made.
@@ -319,6 +358,7 @@ and auditors.
 - **Validation:** Executed the existing staging verification SELECT against both branches and checked synthetic fixture equality, runtime role flags, table counts, and live policy definitions. Documentation-only changes require no application test/build rerun.
 
 ### Credential Reference Read Boundary and RLS Migration (2026-09-21)
+
 - **What:** Prepared migration 004 granting only credential_catalog SELECT to the restricted runtime role, with a policy requiring a current active Neon user and active matching membership for agency roles. Global reference labels are shared; no caregiver/patient records or content are read. The source authenticated-read policy and live source/Dev/UAT columns were inspected through read-only MCP.
 - **Authorization:** Added a server-only repository using transaction-local actor context; session role/agency values do not grant access. Legacy exports route to this boundary. Removed the credential unstable_cache wrapper so all entry points recheck current authorization; no caller accepts client-provided actor IDs. The other six staged tables remain closed.
 - **Relevant safeguards:** Supports 45 CFR 164.312(a)(1) Access Control and 164.312(c)(1) Integrity. No PHI audit event is introduced for this reference-only read, and this change does not establish HIPAA readiness.
@@ -327,6 +367,7 @@ and auditors.
 - **Remaining gaps:** 004 awaits manual Dev-first application and verification. Full reference catalog reconciliation, other workflow policies, live account acceptance, and Azure runtime identity checks remain pending. Supabase-backed getSession remains transitional. No remote writes, push, deployment, or production record access occurred.
 
 ### Credential Policy Verification and Pay-Rate Read Boundary (2026-09-21)
+
 - **Live evidence:** Read-only checks confirm 004 in Dev/UAT: credential RLS enabled/forced, the expected active-reference SELECT policy for mycaresight_app, SELECT granted, and no runtime write privileges. Pay-rate staging remains closed in both branches. No remote writes or production record access occurred.
 - **What:** Prepared migration 005 for scoped caregiver_pay_rates SELECT and moved all known pay-rate readers into an application-owned server-only Neon repository, including three Supabase page reads. Active matching memberships are required for agency roles; staff are limited to their own active caregiver record; every rate must match its caregiver's agency. Existing platform profile-read scope is retained.
 - **Audit/integrity:** Read audits contain only actor/resource identifiers and commit with reads. Audit failures return no rates. Shared withActorContext verifies an existing transaction actor before reuse, preserving context and avoiding nested pool acquisition. Financial callers propagate access failure rather than calculating from partial/unauthorized selections.
@@ -336,6 +377,7 @@ and auditors.
 - **Remaining gaps:** 005 awaits manual Dev-first application. Pay-rate writes still depend on a missing function and need concurrency/history/audit and form-schema remediation before grants. Other payroll, schedule, contract, visit/financial access and mutation paths remain unaudited/incomplete; five staged tables remain closed. Supabase session/profile dependencies and live UAT runtime identity checks remain pending.
 
 ### Caregiver Pay-Rate Writes and Atomic Forms (2026-09-21)
+
 - **Live evidence:** Read-only checks confirmed the expected 005 SELECT-only policy/grants and enabled/forced RLS on Dev/UAT. Relevant source and target columns were rechecked; no source records were queried or copied.
 - **What:** Prepared 006 with manager-only INSERT/UPDATE policies, column-limited grants, amount/period checks, active-start uniqueness, and an invoker timeline guard. Replaced the missing append RPC with a server-only Neon repository using current active manager membership, deterministic advisory-lock ordering, and owned transactions.
 - **Integrity/audit:** Backdated insertion respects neighboring periods; same-day corrections preserve the prior amount in zero-duration history. The resolver now uses exclusive end dates. Rate batches and combined profile/rate edits commit with identifier-only audits; failures roll back changes. Runtime cannot overwrite historical amounts/ownership/start/unit or delete rate history.
@@ -347,6 +389,7 @@ and auditors.
 - **Final validation (2026-09-22):** All 117 tests across nine suites passed, including five form tests and fifteen additional write/schema/atomicity database tests. TypeScript, focused lint, whitespace checks, and the final production build passed. Standard lint still fails on the pre-existing ESLint 9 configuration issue. Build service settings were synthetic; the artifact is not deployable. Independent-connection Neon contention and live role acceptance remain pending manual Dev execution.
 
 ### Pay-Rate Write Migration Application Verification (2026-09-22)
+
 - **Evidence:** After user execution of 006, read-only catalog checks on explicit Neon Dev/UAT branches returned write_access_pass=true. Verified forced RLS, SELECT/INSERT/UPDATE policies and active-membership scopes, column-limited INSERT/period-close UPDATE, denied historical amount UPDATE, enabled guard trigger, and valid/ready active-start index.
 - **Remaining isolation:** Internal notes and four visit/financial staged tables retain forced RLS, zero policies, and no runtime table or column privileges.
 - **Relevant safeguards:** Supports the existing migration evidence for 45 CFR 164.312(a)(1) Access Control and 164.312(c)(1) Integrity. This verification does not establish live authorization behavior or HIPAA readiness.
@@ -355,15 +398,17 @@ and auditors.
 - **Remaining gaps:** Live synthetic edits, denial cases, independent-connection concurrency, and Azure runtime identity need acceptance. Next internal-note schema/policy work is paused because Supabase source MCP tools are unavailable; restore read-only source access to satisfy AGENTS.md live-schema requirements.
 
 ### Internal-Note Read Boundary and SELECT Migration (2026-09-22)
+
 - **Live evidence:** Restored Supabase read-only tools; used list_tables, information_schema and policy/function catalogs. Inspected 253 source columns with matching types/nullability on explicit Neon Dev/UAT branches, plus audit metadata. Notes remain staged/closed before manual 007. No source records were queried or copied.
 - **Access controls:** Prepared SELECT-only policy with current active Neon profile, active matching agency membership, actual subject-to-agency linkage and same-agency tags. Platform application notes and their counts are separated from agency patient/caregiver/visit notes. Source invited/pending acceptance and the application_playbook_item exclusion gap are not copied. Runtime receives no note writes.
 - **Audit:** Panel, legacy reads, counts and tag lists have identifier-only audits in the same owned transaction; failures return no data. SEARCH validates scope and records only non-content trace metadata. Existing 600 ms debounce/three-character threshold is preserved. Stale panel responses and failed reload data are cleared.
 - **Relevant safeguards:** 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, 164.312(c)(1) Integrity, and 164.312(d) Person or Entity Authentication. This does not establish full HIPAA readiness.
-- **Files changed:** src/lib/repositories/internal-note-reads.ts; src/lib/schemas/internal-notes.ts; src/app/actions/internal-notes.ts; src/app/actions/playbooks.ts; src/lib/supabase/query/internal-notes.ts; src/components/InternalNotesPanel.tsx; src/components/ApplicationDetailContent.tsx; src/components/ExpertStepsPanel.tsx; internal-note database/panel tests; scripts/migrations/007-*; docs/migrations/uat-internal-note-reads.md; main/RLS migration docs; docs/hipaa/compliance-log.md.
+- **Files changed:** src/lib/repositories/internal-note-reads.ts; src/lib/schemas/internal-notes.ts; src/app/actions/internal-notes.ts; src/app/actions/playbooks.ts; src/lib/supabase/query/internal-notes.ts; src/components/InternalNotesPanel.tsx; src/components/ApplicationDetailContent.tsx; src/components/ExpertStepsPanel.tsx; internal-note database/panel tests; scripts/migrations/007-\*; docs/migrations/uat-internal-note-reads.md; main/RLS migration docs; docs/hipaa/compliance-log.md.
 - **Validation:** Twenty database-policy/authorization/audit tests and three panel/debounce/race tests pass alongside 117 existing tests (140 total). TypeScript and focused lint pass with existing unrelated hook warnings. Standard lint retains the ESLint configuration failure. Final TypeScript and the 23 focused note tests passed after returning plain arrays from the panel boundary; the production build passed with synthetic service settings and existing hook warnings. The synthetic artifact is not deployable; rebuild with UAT configuration.
 - **Remaining gaps:** Manual 007 execution and live role/runtime acceptance; legacy add/edit/delete forms lack shared RHF/Zod/noValidate and complete field-error/Sonner handling. Application-status and playbook note writers remain non-atomic/incomplete; keep write grants closed and main deployment held. Shared requirement-template IDs are not application-owned subjects and remain unreadable until reviewed reconciliation. Four visit/financial tables, other providers/authentication, Azure runtime identity and broader audit coverage remain pending.
 
 ### Internal-Note Read Application and Write Boundary (2026-09-22)
+
 - **Live evidence:** After user execution of 007, read-only checks on explicit Neon Dev/UAT branches confirmed forced RLS, runtime SELECT, no INSERT/UPDATE/DELETE, and exactly `internal_notes_scoped_select`. No records, production branch, or remote writes were accessed.
 - **What:** Prepared 008 and moved panel mutations, application status notes, and playbook note copying to a server-only repository. It reloads the active Neon actor, requires active matching memberships, validates actual subject/agency and tag ownership, separates platform from agency notes, and rejects shared template identifiers.
 - **Integrity/audit:** Each note mutation and its identifier-only audit commit together; audit failure rolls back the note. Runtime scope/authorship columns remain immutable. Content is excluded from logs. Delete retains an immutable audit event but remains a hard delete under the existing data model.
@@ -377,6 +422,7 @@ and auditors.
 - **Remaining gaps:** Live synthetic note acceptance remains. Four visit/financial tables, Realtime, storage, session migration, and final environment cleanup remain pending; deployment/main push remains held.
 
 ### Visit and Financial Cutover Discovery (2026-09-22)
+
 - **Live evidence:** Compared the four staged visit/financial tables with the live Supabase source and inspected source policies/constraints. No source rows, production branch, or remote writes were accessed.
 - **Finding and correction:** The approval/void helper attempted to insert nonexistent `visit_adjustment_history.comment`. It now uses the source-defined previous/current actual and billable hour fields plus `note`. No access grant accompanies this correction.
 - **Access findings:** Existing page/actions trust session-derived agency/role, one sidebar badge still queries Supabase in the browser, caregiver clock functions are absent from Neon, and multi-table approval/void/backfill paths do not yet own complete transactions.
@@ -385,12 +431,14 @@ and auditors.
 - **Remaining remediation:** Implement the documented 009 read boundary, 010 caregiver execution writes, 011 coordinator approval/void transaction, and 012 financial maintenance workflow before opening runtime access.
 
 ### Manager Visit-Financial Read Boundary (2026-09-22)
+
 - **What:** Prepared 009 SELECT-only access for active company owners/care coordinators with active matching membership and linked visit/time-entry ownership. Time & Billing reloads the current Neon actor and agency; the sidebar badge no longer queries Supabase from the browser.
 - **Audit:** Dashboard resource identifiers and pending-count metadata are written in the same transaction before data/counts return. Audit failure fails closed.
 - **Safeguards:** Supports 45 CFR 164.312(a)(1), 164.312(b), 164.312(c)(1), and 164.312(d). Caregiver reads and every mutation remain denied.
 - **Validation:** Fifteen disposable staging/policy tests execute 002/009 and cover exact policies, active membership, invited denial, and write denial. The full 147-test/11-suite run, TypeScript, focused lint, whitespace checks, and a production build pass with existing unrelated warnings.
 
 ### Manager Read Verification and Caregiver Visit Execution Boundary (2026-09-22)
+
 - **Live evidence:** The user applied 009 to Neon Dev/UAT. Read-only catalog checks confirmed forced RLS, exact manager SELECT policies, runtime SELECT, denied runtime writes, and `read_access_pass=true` for all four visit/financial tables on both branches. The live Supabase function definitions and source/target visit, task, caregiver, time-entry, and financial columns were inspected without reading application records.
 - **What:** Prepared 010 and replaced three missing Supabase caregiver RPC calls plus the direct note update with an application-owned Neon repository. It reloads the current active caregiver/profile/membership, locks and verifies the assigned visit, validates UUID/note/coordinate input, and owns each transaction. Caregiver list, detail, and summary reads now use the same current-identity boundary; the shared detail cache was removed so revocation and audit checks run on every request.
 - **Access and integrity:** Assigned-caregiver time-entry SELECT/INSERT/UPDATE policies and column grants exclude ownership, approval, adjustment, and rate fields. Task UPDATE is reduced to completion timestamp fields. A migration-owned trigger derives the pending financial record on the first clock-out, while the runtime role retains no financial writes. Scheduled visit/task table-wide RLS remains a documented follow-up because those legacy tables serve several unaudited cross-role workflows.
@@ -400,21 +448,24 @@ and auditors.
 - **Validation and remaining gaps:** All 149 tests across 11 suites, TypeScript, focused legacy-config lint, whitespace checks, and a clean production build pass. After the user applied 010 to Dev and UAT, read-only verification confirmed every expected RLS, grant, helper, trigger, and denial flag with `access_pass=true` on both branches; the first-run missing-trigger notice was the expected result of `DROP TRIGGER IF EXISTS`. Live synthetic role acceptance, scheduled visit/task RLS, coordinator financial mutations, Azure runtime identity, and wider provider removal remain pending. No agent remote write, push, deployment, production access, or PHI access occurred.
 
 ### Manager Approval and Void Boundary (2026-09-22)
+
 - **What:** Prepared migration 011 and moved Time & Billing approval/void decisions to a server-only repository. It reloads the current active manager profile and matching active agency membership, validates shared input, locks linked visit/time-entry/approval/financial rows, and commits adjustment history, approval, frozen financial calculations, time-entry state, and audit events atomically. The former non-atomic helper has no callers and now fails closed if invoked.
 - **Access and integrity:** RLS permits only active `company_owner` and `care_coordinator` actors with matching active membership and linked records. Runtime grants are column-limited; scope and ownership columns remain immutable; adjustment history is insert-only; DELETE remains denied. Existing approved rates are frozen when a decision is revised.
 - **Audit:** Each successful decision records identifier-only events for the time entry, approval, and financial row in the same transaction. Audit details contain decision state and booleans for changed hours and note presence; they exclude note text and financial amounts.
 - **Relevant safeguards:** Supports 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, 164.312(c)(1) Integrity, and 164.312(d) Person or Entity Authentication. This does not establish HIPAA readiness.
-- **Files changed:** src/lib/schemas/time-billing.ts; src/lib/repositories/visit-financial-writes.ts; src/app/actions/time-billing.ts; retired legacy approval helper; scripts/migrations/011-*; focused database tests; visit-financial/main migration docs; this log.
+- **Files changed:** src/lib/schemas/time-billing.ts; src/lib/repositories/visit-financial-writes.ts; src/app/actions/time-billing.ts; retired legacy approval helper; scripts/migrations/011-\*; focused database tests; visit-financial/main migration docs; this log.
 - **Validation:** All 151 tests across 11 suites, TypeScript, focused legacy-config lint, whitespace checks, and the production build pass. The build retains existing unrelated React-hook and Browserslist warnings. Standard lint retains the pre-existing ESLint 9 flat-config gap.
 - **Live verification and correction:** Read-only inspection confirmed the user had applied the initial 011 draft to Dev/UAT: all seven policies, expected INSERT grants, and immutable-history denials are present. The two manager UPDATE policies use the earlier agency-only old-row predicate while retaining linked-record new-row checks. Prepared 011a to replace only those two policies with linked-record checks on both old and new row states; no table data or grants change.
 - **Remaining gaps:** Migration 011a and live synthetic acceptance remain manual Dev/UAT gates. Migration 012 financial maintenance, scheduled visit/task RLS, Azure runtime identity, storage, Realtime, remaining database callers, Auth.js completion, deployment, and environment cleanup remain pending. No agent remote write, push, deployment, production access, or PHI access occurred.
 
 ### 009/010 Live Definition Reconciliation (2026-09-22)
+
 - **Evidence:** At the user's request, read-only catalog inspection compared Neon Dev and UAT with the final local 009/010 definitions. Both branches match the current manager/caregiver policy predicates, active-profile and active-membership helper bodies, caregiver membership linkage, clock-out trigger body and trigger event, function visibility, and 010-specific column grants/denials. All four financial tables retain enabled and forced RLS.
 - **Result:** No 009 or 010 corrective migration is required. Later 011 grants explain the additional manager time-entry UPDATE columns visible in the cumulative live state; agency/ownership UPDATE remains denied. The pre-existing scheduled-task INSERT privilege is outside 010's caregiver completion grant and remains part of the documented scheduled visit/task RLS follow-up.
 - **Scope:** No application rows, PHI, remote writes, deployment, push, or production resources were accessed. This was a read-only policy/function/grant reconciliation; tests and build were not rerun.
 
 ### Financial Maintenance Boundary (2026-09-22)
+
 - **Live evidence:** Read-only verification returned `policy_hardening_pass=true` for both 011a policies on Neon Dev/UAT. Source and target metadata for contracts, visits, financial snapshots, and audits match for the columns used by 012; no application records were read.
 - **What:** Contract bill-rate batches, visit mileage, payroll/billing report reads, and Rate Manager reads now reload the active manager and active matching agency membership. Contract batches lock deterministically and commit with audits. Report and rate reads are agency-scoped and audited in their transaction.
 - **Integrity/audit:** Contract rate changes no longer insert or update historical `visit_financials`; frozen approved/voided snapshots remain unchanged. Mileage and rate audit failure rolls back the mutation. Audit details contain identifiers, operation names, counts, field names, and state booleans without names, notes, mileage values, or monetary values.
@@ -423,6 +474,7 @@ and auditors.
 - **Remaining gaps:** The bill-rate table is not yet React Hook Form and does not map batch errors inline. Read-only catalog inspection confirmed the four Supabase contract lifecycle functions called by the transitional query layer are absent from Neon Dev/UAT; replace that lifecycle with an owned server repository next. Legacy scheduled visit/task/contract RLS, explicit historical correction workflow, Azure runtime identity, storage, Realtime, remaining callers, Auth.js completion, deployment, and environment cleanup remain pending. No agent remote write, push, deployment, production access, or PHI access occurred.
 
 ### Patient Service-Contract Lifecycle Discovery (2026-09-22)
+
 - **Evidence:** Read-only function catalogs confirm four source Supabase lifecycle functions and zero matching functions on Neon Dev/UAT. The local append callers use a positional order that differs from the live source signature. No application rows were accessed.
 - **Risk:** Contract and weekly-hour mutations currently depend on absent functions, broad non-RLS table privileges, session-profile authorization in the generic bridge, and multi-step error handling that can commit partial work without audit rollback.
 - **Decision:** The discovery hold was satisfied by the prepared lifecycle boundary recorded below. Frozen visit-financial snapshots remain unchanged.
@@ -832,6 +884,7 @@ and auditors.
 - **Relevant safeguards:** Supports 45 CFR 164.312(a)(1) Access Control and 164.312(c)(1) Integrity by preserving server-enforced recipient eligibility while making the authorized scheduling view accurately reflect caregiver availability states.
 - **Files:** `src/components/CaregiverAssignmentList.tsx`, `src/components/VisitShiftOfferModal.tsx`, `src/components/VisitManagementContent.tsx`, `src/components/ClientDetailContent.tsx`, `src/_tests_/visit-shift-offer-modal.test.tsx`, and this log.
 - **Validation and remaining gap:** The component regression covers preferred-skill non-exclusion, all-status visibility, status filtering, and disabled selection for booked or unavailable caregivers. UAT still needs a synthetic browser check against caregivers with configured availability and conflicts.
+
 ### Capability-Based Agency Access Plans (2026-10-14)
 
 - **What:** Agency plans now assign stable business capabilities instead of sidebar item keys. Care Operations is a single entitlement covering scheduling, shift creation, matching, advertising, assignment, caregiver visit execution, pay and bill rates, time, billing, and payroll preparation. Caregiver account and profile management remains a separate capability. Existing role permissions remain authoritative for baseline routes; an agency without an assigned plan receives no paid capabilities.
@@ -1308,6 +1361,14 @@ and auditors.
 - **Relevant safeguards:** Supports 45 CFR 164.312(b) Audit Controls and 164.312(c)(1) Integrity through checksummed source control, stable-key conflict detection, transactional verification, foreign-key validation, and non-content audit evidence. It does not expand tenant access or introduce production identity data.
 - **Files:** Migration 042 and verifier, isolated PostgreSQL regression tests, migration manifest/control tests, database migration operations guide, future production impact register, and this log.
 - **Remaining gap:** Promote the reviewed migration through production-staging first, validate the task/configuration libraries with synthetic access, then allow the protected Production workflow to apply the same checksum. Real Feature Plans, license offerings, platform pricing, Production administrator provisioning, and any tenant/data population remain separately approved steps.
+
+### Agency Lead Document Management Prepared (2026-11-10)
+
+- **What:** Enabled authorized agency owners and care coordinators, while preserving existing platform-staff access, to upload, download, and delete documents on same-agency leads. Upload bytes now use the application-owned private storage endpoint and a signed cleanup claim; the metadata action validates the actor, lead, agency, object key, file size, and claim before committing. Deletes load the authoritative object key server-side rather than trusting a browser-supplied path. When a lead is converted, its existing private documents remain on the lead and are displayed from the linked client Documents tab without duplicating the Blob or losing lead history.
+- **Access, integrity, and privacy impact:** Managed migration 043 adds forced RLS with an exact SELECT/INSERT/DELETE policy set for platform staff and active same-agency managers, denies PUBLIC and runtime UPDATE access, and adds a partial converted-client lookup index. Uploads, deletes, and lead-to-client conversion write identifier-only audit evidence; filenames, object keys, and document contents are excluded from audit details and operational logs. Conversion now validates that both lead and client belong to the authenticated agency and updates the link and audit record transactionally.
+- **Relevant safeguards:** Supports 45 CFR 164.312(a)(1) Access Control, 164.312(b) Audit Controls, 164.312(c)(1) Integrity, and 164.312(e)(1) Transmission Security.
+- **Files:** Lead document UI/actions/schema/repository, storage upload authorization, client document integration, agency/admin lead detail loaders, migration 043 and verifier, migration manifest/control and storage authorization tests, production impact register, and this log.
+- **Remaining gap:** Malware scanning/quarantine remains a pre-PHI acceptance gate for uploaded documents. Migration 043 must be promoted and verified before matching application code in each environment, followed by synthetic cross-agency denial, conversion, download, and delete acceptance. No live database, storage object, deployment, or production data was changed by this repository batch.
 
 #### Forced-RLS runner correction (2026-11-10)
 

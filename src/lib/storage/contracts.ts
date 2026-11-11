@@ -12,6 +12,7 @@ export type StorageBucket = typeof STORAGE_BUCKET[keyof typeof STORAGE_BUCKET]
 
 export type UploadPurpose =
   | 'application-document'
+  | 'lead-document'
   | 'patient-document'
   | 'caregiver-certification'
   | 'license-document'

@@ -15,6 +15,8 @@ import {
   insertLeadDocument,
 } from '@/lib/repositories/lead-documents'
 import { readAdminLeadPlatformStaff } from '@/lib/repositories/platform-application-dashboard'
+import { leadConversionSchema, patientLeadDetailsSchema } from '@/lib/schemas/patient-lead'
+import { zodErrorToFieldErrors } from '@/lib/validation'
 
 function revalidateLeadPaths() {
   revalidatePath('/pages/admin/leads')
@@ -471,149 +473,166 @@ export async function fetchLeadNotesAction(leadId: string) {
 
 export async function updatePatientLeadDetailsAction(
   leadId: string,
-  data: {
-    pocName?: string | null
-    pocPhone?: string | null
-    pocRelationship?: string | null
-    pocEmail?: string | null
-    reasonForCare?: string | null
-    mobilityStatus?: string | null
-    cognitiveStatus?: string | null
-    medicalConditions?: string | null
-    gender?: string | null
-    dateOfBirth?: string | null
-    startDate?: string | null
-    scheduleType?: string | null
-    livingSituation?: string | null
-    paymentMethod?: string | null
-    insuranceCarrier?: string | null
-    insurancePolicyNumber?: string | null
-  }
+  data: Record<string, unknown>
 ): Promise<{ success: boolean; error?: string; fieldErrors?: Record<string, string[]> }> {
   const { error: authErr, session } = await requireAgencyMember()
   if (authErr || !session) return { success: false, error: authErr ?? 'Forbidden' }
 
-  const agencyId = session.profile?.agency_id
+  const parsed = patientLeadDetailsSchema.safeParse(data)
+  if (!parsed.success) return { success: false, fieldErrors: zodErrorToFieldErrors(parsed.error) }
+  const agencyId = session.profile?.agency_id ?? null
+  if (!agencyId) return { success: false, error: 'No agency found for this user' }
 
-  const [lead] = await sql<{ id: string; lead_type: string; agency_id: string | null }[]>`
-    SELECT id, lead_type, agency_id FROM leads WHERE id = ${leadId} LIMIT 1
-  `
-  if (!lead) return { success: false, error: 'Lead not found' }
-  if (lead.lead_type !== 'patient') return { success: false, error: 'Not a patient lead' }
-  if (lead.agency_id !== agencyId) return { success: false, error: 'Forbidden' }
-
-  const { data: upserted, error } = await q.upsertPatientLeadDetails(leadId, {
-    poc_name: data.pocName ?? null,
-    poc_phone: data.pocPhone ?? null,
-    poc_relationship: data.pocRelationship ?? null,
-    poc_email: data.pocEmail ?? null,
-    reason_for_care: data.reasonForCare ?? null,
-    mobility_status: data.mobilityStatus ?? null,
-    cognitive_status: data.cognitiveStatus ?? null,
-    medical_conditions: data.medicalConditions ?? null,
-    gender: data.gender ?? null,
-    date_of_birth: data.dateOfBirth ?? null,
-    start_date: data.startDate ?? null,
-    schedule_type: data.scheduleType ?? null,
-    living_situation: data.livingSituation ?? null,
-    payment_method: data.paymentMethod ?? null,
-    insurance_carrier: data.insuranceCarrier ?? null,
-    insurance_policy_number: data.insurancePolicyNumber ?? null,
-  })
-  if (error) return { success: false, error: error.message }
-
-  const { error: auditErr } = await q.insertAuditLog({
-    table_name: 'patient_lead_details',
-    record_id: upserted?.id ?? leadId,
-    action: 'UPSERT',
-    performed_by_user_id: session.user.id,
-    details: { lead_id: leadId, agency_id: agencyId },
-  })
-  if (auditErr) console.error('[leads/updatePatientLeadDetails] Audit log failed. leadId=%s err=%s', leadId, auditErr.message)
+  try {
+    await withUserContext(session.user.id, session.profile?.role ?? '', agencyId, async () => {
+      const [lead] = await sql<{ id: string }[]>`
+        SELECT id FROM public.leads
+        WHERE id = ${leadId}::uuid AND agency_id = ${agencyId}::uuid AND lead_type = 'patient'
+        LIMIT 1
+      `
+      if (!lead) throw new Error('LEAD_NOT_FOUND')
+      const [upserted] = await sql<{ id: string }[]>`
+        INSERT INTO public.patient_lead_details (
+          lead_id, poc_name, poc_phone, poc_relationship, poc_email, start_date, updated_at
+        ) VALUES (
+          ${leadId}::uuid, ${parsed.data.pocName || null}, ${parsed.data.pocPhone || null},
+          ${parsed.data.pocRelationship || null}, ${parsed.data.pocEmail || null},
+          ${parsed.data.startDate || null}::date, clock_timestamp()
+        )
+        ON CONFLICT (lead_id) DO UPDATE SET
+          poc_name = EXCLUDED.poc_name, poc_phone = EXCLUDED.poc_phone,
+          poc_relationship = EXCLUDED.poc_relationship, poc_email = EXCLUDED.poc_email,
+          start_date = EXCLUDED.start_date, updated_at = clock_timestamp()
+        RETURNING id
+      `
+      await sql`
+        INSERT INTO public.audit_log (agency_id, table_name, record_id, action, performed_by_user_id, details)
+        VALUES (${agencyId}::uuid, 'patient_lead_details', ${upserted.id}::uuid, 'UPSERT',
+          ${session.user.id}::uuid, ${sql.json({ lead_id: leadId, fields: ['contact', 'desired_start_date'] })}::jsonb)
+      `
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'LEAD_NOT_FOUND') return { success: false, error: 'Lead not found or not authorized' }
+    return { success: false, error: 'Unable to save lead contact details' }
+  }
 
   revalidateLeadDetail(leadId)
   return { success: true }
 }
 
-export async function createRepresentativeFromLeadAction(leadId: string, patientId: string) {
+export async function convertPatientLeadToClientAction(input: unknown): Promise<{
+  success: boolean
+  error?: string
+  fieldErrors?: Record<string, string[]>
+  requiresDuplicateConfirmation?: boolean
+  patient?: Record<string, unknown>
+}> {
   const { error: authErr, session } = await requireAgencyMember()
-  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
-
-  const { data: details } = await q.getPatientLeadDetails(leadId)
-  if (!details?.poc_name?.trim()) return { error: null }
-
-  const { error } = await q.insertRepresentative({
-    patient_id: patientId,
-    name: details.poc_name,
-    relationship: details.poc_relationship ?? null,
-    phone_number: details.poc_phone ?? null,
-    email_address: details.poc_email ?? null,
-    display_order: 0,
-  })
-  if (error) return { error: error.message }
-  return { error: null }
-}
-
-export async function linkLeadToPatient(leadId: string, patientId: string) {
-  const { error: authErr, session } = await requireAgencyMember()
-  if (authErr || !session) return { error: authErr ?? 'Forbidden' }
-
-  const agencyId = session.profile?.agency_id
-  if (!agencyId) return { error: 'No agency found for this user' }
+  if (authErr || !session) return { success: false, error: authErr ?? 'Forbidden' }
+  const parsed = leadConversionSchema.safeParse(input)
+  if (!parsed.success) return { success: false, fieldErrors: zodErrorToFieldErrors(parsed.error) }
+  const agencyId = session.profile?.agency_id ?? null
+  if (!agencyId) return { success: false, error: 'No agency found for this user' }
 
   try {
     const outcome = await withUserContext(session.user.id, session.profile?.role ?? '', agencyId, async () => {
-      const [lead] = await sql<{ id: string; lead_type: string; agency_id: string | null; stage: string }[]>`
-        SELECT id, lead_type, agency_id, stage
+      const [lead] = await sql<{ id: string; stage: string; converted_client_id: string | null }[]>`
+        SELECT id, stage, converted_client_id
         FROM public.leads
-        WHERE id = ${leadId}::uuid AND agency_id = ${agencyId}::uuid
+        WHERE id = ${parsed.data.leadId}::uuid AND agency_id = ${agencyId}::uuid AND lead_type = 'patient'
+        FOR UPDATE
         LIMIT 1
       `
-      if (!lead) return { error: 'Lead not found' }
-      if (lead.lead_type !== 'patient') return { error: 'Not a patient lead' }
-      const [patient] = await sql<{ id: string }[]>`
-        SELECT id FROM public.patients
-        WHERE id = ${patientId}::uuid AND agency_id = ${agencyId}::uuid
-        LIMIT 1
-      `
-      if (!patient) return { error: 'Client not found' }
+      if (!lead) return { success: false, error: 'Lead not found or not authorized' }
+      if (lead.converted_client_id) {
+        const [existing] = await sql<Record<string, unknown>[]>`
+          SELECT p.*, COALESCE((SELECT json_agg(r ORDER BY r.display_order) FROM public.patients_representatives r WHERE r.patient_id = p.id), '[]') AS patients_representatives
+          FROM public.patients p WHERE p.id = ${lead.converted_client_id}::uuid AND p.agency_id = ${agencyId}::uuid
+        `
+        return existing ? { success: true, patient: existing } : { success: false, error: 'Converted client record was not found' }
+      }
       const [wonStage] = await sql<{ key: string }[]>`
         SELECT key FROM public.agency_lead_stages
         WHERE agency_id = ${agencyId}::uuid AND is_won = true
         LIMIT 1
       `
       if (wonStage && lead.stage !== wonStage.key) {
-        return { error: `Lead must be at the "${wonStage.key}" stage before converting to a client` }
+        return { success: false, error: 'Move the lead to the won stage before converting it to a client' }
+      }
+      const email = parsed.data.email?.trim() || null
+      const phone = parsed.data.phone?.trim() || null
+      const [duplicate] = await sql<{ id: string }[]>`
+        SELECT id FROM public.patients
+        WHERE agency_id = ${agencyId}::uuid
+          AND (
+            (${email}::text IS NOT NULL AND lower(email_address) = lower(${email}))
+            OR (${phone}::text IS NOT NULL AND regexp_replace(phone_number, '\\D', '', 'g') = regexp_replace(${phone}, '\\D', '', 'g'))
+          )
+        LIMIT 1
+      `
+      if (duplicate && !parsed.data.confirmPossibleDuplicate) {
+        return { success: false, requiresDuplicateConfirmation: true, error: 'A client with the same email or phone may already exist.' }
+      }
+      const [details] = await sql<{ poc_name: string | null; poc_phone: string | null; poc_relationship: string | null; poc_email: string | null; start_date: string | null }[]>`
+        SELECT poc_name, poc_phone, poc_relationship, poc_email, start_date::text
+        FROM public.patient_lead_details WHERE lead_id = ${parsed.data.leadId}::uuid LIMIT 1
+      `
+      const [patient] = await sql<Array<{ id: string } & Record<string, unknown>>>`
+        INSERT INTO public.patients (
+          agency_id, first_name, last_name, phone_number, email_address,
+          street_address, city, state, zip_code, emergency_contact_name,
+          emergency_phone, status, start_date
+        ) VALUES (
+          ${agencyId}::uuid, ${parsed.data.firstName}, ${parsed.data.lastName}, ${phone ?? ''}, ${email ?? ''},
+          ${parsed.data.streetAddress ?? ''}, ${parsed.data.city ?? ''}, ${parsed.data.state ?? ''}, ${parsed.data.zipCode ?? ''},
+          '', '', 'pending', ${details?.start_date ?? null}::date
+        ) RETURNING *
+      `
+      if (details?.poc_name?.trim()) {
+        await sql`
+          INSERT INTO public.patients_representatives (patient_id, name, relationship, phone_number, email_address, display_order)
+          VALUES (${patient.id}::uuid, ${details.poc_name}, ${details.poc_relationship}, ${details.poc_phone}, ${details.poc_email}, 0)
+        `
+      }
+      if (parsed.data.streetAddress) {
+        await sql`
+          INSERT INTO public.patient_addresses (patient_id, agency_id, label, street_address, city, state, zip_code, is_primary)
+          VALUES (${patient.id}::uuid, ${agencyId}::uuid, 'Home', ${parsed.data.streetAddress}, ${parsed.data.city ?? ''},
+            ${parsed.data.state ?? ''}, ${parsed.data.zipCode ?? ''}, true)
+        `
       }
       const [documentCount] = await sql<{ count: number }[]>`
         SELECT count(*)::integer AS count
         FROM public.lead_documents
-        WHERE lead_id = ${leadId}::uuid
+        WHERE lead_id = ${parsed.data.leadId}::uuid
       `
       await sql`
         UPDATE public.leads
-        SET converted_client_id = ${patientId}::uuid,
+        SET converted_client_id = ${patient.id}::uuid,
             converted_at = clock_timestamp(),
             updated_at = clock_timestamp()
-        WHERE id = ${leadId}::uuid AND agency_id = ${agencyId}::uuid
+        WHERE id = ${parsed.data.leadId}::uuid AND agency_id = ${agencyId}::uuid
       `
       await sql`
         INSERT INTO public.audit_log (
           agency_id, patient_id, table_name, record_id, action,
           performed_by_user_id, details
         ) VALUES (
-          ${agencyId}::uuid, ${patientId}::uuid, 'leads', ${leadId}::uuid,
+          ${agencyId}::uuid, ${patient.id}::uuid, 'leads', ${parsed.data.leadId}::uuid,
           'CONVERT_TO_CLIENT', ${session.user.id}::uuid,
-          ${sql.json({ document_count: documentCount?.count ?? 0 })}::jsonb
+          ${sql.json({ document_count: documentCount?.count ?? 0, client_status: 'pending', duplicate_override: Boolean(duplicate) })}::jsonb
         )
       `
-      return { error: null }
+      const representatives = details?.poc_name?.trim()
+        ? [{ name: details.poc_name, relationship: details.poc_relationship, phone_number: details.poc_phone, email_address: details.poc_email, display_order: 0 }]
+        : []
+      return { success: true, patient: { ...patient, patients_representatives: representatives } }
     })
-    if (outcome.error) return outcome
+    if (!outcome.success) return outcome
+    revalidateLeadDetail(parsed.data.leadId)
+    revalidatePath('/pages/agency/clients')
+    return outcome
   } catch {
-    return { error: 'Unable to link lead to client' }
+    return { success: false, error: 'Unable to convert this lead. No client was created.' }
   }
-  revalidateLeadDetail(leadId)
-  revalidatePath(`/pages/agency/clients/${patientId}`)
-  return { error: null }
 }

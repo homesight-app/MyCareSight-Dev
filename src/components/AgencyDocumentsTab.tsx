@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Upload, FileText, Loader2, Search } from 'lucide-react'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { downloadStoredFile } from '@/lib/storage/browser'
 import { uploadAgencyDocument, deleteAgencyDocumentAction } from '@/app/actions/agencies'
 import { deleteLeadDocumentAction } from '@/app/actions/leads'
 import * as q from '@/app/actions/query-bridge'
@@ -151,14 +152,9 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
     if (url) window.open(url, '_blank')
   }
 
-  const handleDownload = async (doc: UnifiedDoc) => {
+  const handleDownload = (doc: UnifiedDoc) => {
     const bucket = doc.source === 'agency' ? STORAGE_BUCKET.AGENCY : STORAGE_BUCKET.LEAD
-    const url = await createSignedStorageUrl(bucket, doc.file_url)
-    if (!url) return
-    const a = document.createElement('a')
-    a.href = url
-    a.download = doc.file_name ?? doc.document_name
-    a.click()
+    downloadStoredFile(bucket, doc.file_url)
   }
 
   const handleDelete = async (doc: UnifiedDoc) => {

@@ -33,6 +33,7 @@ import {
   Lock,
 } from 'lucide-react'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { downloadStoredFile } from '@/lib/storage/browser'
 import { updateAgency, type AgencyFormData } from '@/app/actions/agencies'
 import { isValidUSPhone, isValidEmail, PHONE_ERROR, EMAIL_ERROR } from '@/lib/validation'
 import { assignPlanToAgency } from '@/app/actions/feature-plans'
@@ -412,23 +413,8 @@ export default function AgencyDetailContent({
     if (url) window.open(url, '_blank')
   }
 
-  const handleDownloadLeadDoc = async (fileUrl: string, fileName: string) => {
-    const url = await createSignedStorageUrl(STORAGE_BUCKET.LEAD, fileUrl)
-    if (!url) return
-    try {
-      const res = await fetch(url)
-      const blob = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = fileName || 'document'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(blobUrl)
-    } catch {
-      window.open(url, '_blank')
-    }
+  const handleDownloadLeadDoc = (fileUrl: string) => {
+    downloadStoredFile(STORAGE_BUCKET.LEAD, fileUrl)
   }
 
   const leadNameMap = useMemo(() => {
@@ -1625,7 +1611,7 @@ export default function AgencyDetailContent({
                           <button
                             type="button"
                             title="Download"
-                            onClick={() => handleDownloadLeadDoc(doc.file_url, doc.file_name ?? doc.document_name)}
+                            onClick={() => handleDownloadLeadDoc(doc.file_url)}
                             className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                           >
                             <Download className="w-4 h-4" />

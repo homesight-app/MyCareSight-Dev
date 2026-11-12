@@ -92,8 +92,6 @@ const defaultValues: LeadFormData = {
   pocPhone: '',
   pocRelationship: '',
   startDate: '',
-  scheduleType: '',
-  paymentMethod: '',
 }
 
 function splitFullName(full: string | null): { first: string; last: string } {
@@ -165,8 +163,6 @@ export default function AddLeadModal({
         pocPhone: '',
         pocRelationship: '',
         startDate: '',
-        scheduleType: '',
-        paymentMethod: '',
       })
     } else {
       setContactMode('new')
@@ -318,16 +314,13 @@ export default function AddLeadModal({
 
       // Save patient details if any were provided
       if (context.leadType === 'patient' && result.leadId) {
-        const hasPatientData = data.pocName || data.pocPhone || data.pocRelationship
-          || data.startDate || data.scheduleType || data.paymentMethod
+        const hasPatientData = data.pocName || data.pocPhone || data.pocRelationship || data.startDate
         if (hasPatientData) {
           await updatePatientLeadDetailsAction(result.leadId, {
             pocName: data.pocName || null,
             pocPhone: data.pocPhone || null,
             pocRelationship: data.pocRelationship || null,
             startDate: data.startDate || null,
-            scheduleType: data.scheduleType || null,
-            paymentMethod: data.paymentMethod || null,
           })
         }
       }
@@ -551,30 +544,13 @@ export default function AddLeadModal({
           )}
         </div>
 
-        {/* Schedule & Payment — patient context only */}
+        {/* Desired start date — patient context only */}
         {context.leadType === 'patient' && (
-          <div className="grid grid-cols-3 gap-3">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="md:col-span-1">
               <label className={labelCls}>Start Date</label>
               <input type="date" className={inputCls} {...register('startDate')} />
-            </div>
-            <div>
-              <label className={labelCls}>Schedule Type</label>
-              <select className={inputCls} {...register('scheduleType')}>
-                <option value="">— Select —</option>
-                <option value="hourly">Hourly</option>
-                <option value="24_7">24/7</option>
-                <option value="live_in">Live-In</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Payment Method</label>
-              <select className={inputCls} {...register('paymentMethod')}>
-                <option value="">— Select —</option>
-                <option value="private_pay">Private Pay</option>
-                <option value="ltc_insurance">LTC Insurance</option>
-                <option value="medicaid">Medicaid</option>
-              </select>
+              <p className="mt-1 text-xs text-gray-500">Approximate requested start date; confirmed during intake.</p>
             </div>
           </div>
         )}

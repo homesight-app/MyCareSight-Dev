@@ -11,6 +11,7 @@ export type AuthorizedObject = {
   agencyId: string | null
   recordId: string
   tableName: string
+  downloadFileName?: string
 }
 
 export type AuthorizedUpload = AuthorizedObject & {
@@ -168,7 +169,8 @@ export async function authorizeStoredObject(
   if (bucket === STORAGE_BUCKET.LEAD) {
     const rows = await sql<AuthorizedObject[]>`
       SELECT document.id AS "recordId", lead.agency_id AS "agencyId",
-        'lead_documents'::text AS "tableName"
+        'lead_documents'::text AS "tableName",
+        COALESCE(NULLIF(document.file_name, ''), NULLIF(document.document_name, ''), 'document') AS "downloadFileName"
       FROM public.lead_documents document
       JOIN public.leads lead ON lead.id = document.lead_id
       WHERE document.file_url = ${path}
@@ -181,7 +183,8 @@ export async function authorizeStoredObject(
   if (bucket === STORAGE_BUCKET.AGENCY) {
     const rows = await sql<AuthorizedObject[]>`
       SELECT document.id AS "recordId", document.agency_id AS "agencyId",
-        'agency_documents'::text AS "tableName"
+        'agency_documents'::text AS "tableName",
+        COALESCE(NULLIF(document.file_name, ''), NULLIF(document.document_name, ''), 'document') AS "downloadFileName"
       FROM public.agency_documents document
       WHERE document.file_url = ${path}
         AND (${actor.role} = 'admin' OR ${agencyAccess(actor, sql`document.agency_id`)})

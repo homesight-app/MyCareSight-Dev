@@ -23,8 +23,6 @@ export const leadFormSchema = z.object({
   pocPhone: phoneZodField,
   pocRelationship: z.string().optional(),
   startDate: z.string().optional(),
-  scheduleType: z.string().optional(),
-  paymentMethod: z.string().optional(),
 })
 
 export type LeadFormData = z.infer<typeof leadFormSchema>

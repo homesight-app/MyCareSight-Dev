@@ -242,7 +242,9 @@ export default function ClientListWithFilters({
                     )
                   : 0
               const unreadCount = displayUnreadByClient[client.id] || 0
-              const statusCapitalized = client.status.charAt(0).toUpperCase() + client.status.slice(1)
+              const statusCapitalized = client.status === 'pending'
+                ? 'Intake'
+                : client.status.charAt(0).toUpperCase() + client.status.slice(1)
 
               return (
                 <div

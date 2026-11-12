@@ -41,7 +41,8 @@ import {
 import UpgradePromptModal from './UpgradePromptModal'
 import Button from '@/components/ui/PrimaryButton'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
-import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import { cleanupStoredFile, downloadStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import { sanitizeDownloadFilename } from '@/lib/download-filename'
 import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
 import { expandSeriesOccurrences, recurrenceDateDefaults } from '@/lib/recurrence-dates'
 import * as q from '@/app/actions/query-bridge'
@@ -92,12 +93,6 @@ const EditClientCaregiverSkillsModal = dynamic(
   () => import('@/components/EditClientCaregiverSkillsModal'),
   { ssr: false }
 )
-
-/** Safe filename for the browser download attribute (original name minus illegal characters). */
-function sanitizeDownloadFilename(name: string): string {
-  const base = name.trim() || 'document'
-  return base.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 255)
-}
 
 /** Order used in Add/Edit Visit → ADLs tab when ADL plan uses specific times (morning…night). */
 const ADL_VISIT_TIME_SLOTS = VISIT_TASK_TIME_WINDOWS
@@ -237,7 +232,7 @@ interface SmallClient {
   representative_2_name: string | null
   representative_2_relationship: string | null
   representative_2_phone: string | null
-  status: 'active' | 'inactive'
+  status: 'active' | 'inactive' | 'pending'
   login_access?: boolean
   documents?: PatientDocument[] | null
   created_at: string
@@ -1175,21 +1170,11 @@ export default function ClientDetailContent({ client, allClients, representative
     }
   }
 
-  const downloadConvertedLeadDocument = async (doc: LeadDocumentRecord) => {
+  const downloadConvertedLeadDocument = (doc: LeadDocumentRecord) => {
     setDownloadingDocId(doc.id)
     setDocumentUploadError(null)
-    try {
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LEAD, doc.file_url)
-      if (!signedUrl) throw new Error('Could not generate download link')
-      const anchor = document.createElement('a')
-      anchor.href = signedUrl
-      anchor.download = sanitizeDownloadFilename(doc.file_name ?? doc.document_name)
-      anchor.click()
-    } catch {
-      setDocumentUploadError('Could not download this document. Try again.')
-    } finally {
-      setDownloadingDocId(null)
-    }
+    downloadStoredFile(STORAGE_BUCKET.LEAD, doc.file_url)
+    setDownloadingDocId(null)
   }
 
   const openCaregiverReqsModal = () => {
@@ -3905,7 +3890,7 @@ export default function ClientDetailContent({ client, allClients, representative
                   ? 'bg-green-100 text-green-800' 
                   : 'bg-gray-100 text-gray-800'
               }`}>
-                {clientStatus === 'active' ? 'Active' : 'Inactive'}
+                {clientStatus === 'active' ? 'Active' : clientStatus === 'pending' ? 'Intake' : 'Inactive'}
               </span>
               {localClient.class && (
                 <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded">

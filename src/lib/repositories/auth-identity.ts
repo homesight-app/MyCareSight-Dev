@@ -239,12 +239,19 @@ export async function readOpaqueSession(sessionToken: string): Promise<OpaqueSes
   `
   if (!row?.membership_active) return null
 
-  await sql`
-    UPDATE auth_sessions
-    SET last_seen_at = now()
-    WHERE token_hash = ${sha256(sessionToken)}
-      AND last_seen_at < now() - interval '5 minutes'
-  `
+  // Session validity is established by the read above. last_seen_at is
+  // operational telemetry and must not sign out a verified user when that
+  // non-security-critical write is temporarily unavailable.
+  try {
+    await sql`
+      UPDATE auth_sessions
+      SET last_seen_at = now()
+      WHERE token_hash = ${sha256(sessionToken)}
+        AND last_seen_at < now() - interval '5 minutes'
+    `
+  } catch {
+    console.warn('[auth] Session last-seen update unavailable')
+  }
 
   return {
     sessionToken,

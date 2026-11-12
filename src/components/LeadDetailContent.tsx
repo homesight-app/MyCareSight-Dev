@@ -8,6 +8,7 @@ import Tabs from '@/components/ui/Tabs'
 import Badge, { type BadgeColor } from '@/components/ui/Badge'
 import AddLeadModal from './AddLeadModal'
 import EditPatientLeadDetailsModal from './EditPatientLeadDetailsModal'
+import AddNewClientModal from './AddNewClientModal'
 import LeadSignedModal from './LeadSignedModal'
 import LeadCollectRetainerModal from './LeadCollectRetainerModal'
 import ConvertToAgencyPromptModal from './ConvertToAgencyPromptModal'
@@ -177,6 +178,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
 
   // Patient details modal state
   const [editPatientDetailsOpen, setEditPatientDetailsOpen] = useState(false)
+  const [convertClientOpen, setConvertClientOpen] = useState(false)
 
   // Signed / retainer modal state
   const [signedPromptOpen, setSignedPromptOpen]         = useState(false)
@@ -381,7 +383,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
               {context.leadType === 'patient' && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-900">Patient Details</h3>
+                    <h3 className="text-sm font-semibold text-gray-900">Lead Contact Details</h3>
                     <button
                       type="button"
                       onClick={() => setEditPatientDetailsOpen(true)}
@@ -425,116 +427,19 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     </div>
                   )}
 
-                  {/* Demographics */}
-                  {(patientDetails?.gender || patientDetails?.date_of_birth) && (
+                  {/* Only minimum-necessary lead data is shown before intake. */}
+                  {patientDetails?.start_date && (
                     <div className="mb-3">
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Demographics</p>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Service Timing</p>
                       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                        {patientDetails?.gender && (
-                          <>
-                            <dt className="text-gray-500">Gender</dt>
-                            <dd className="text-gray-900">{patientDetails.gender}</dd>
-                          </>
-                        )}
-                        {patientDetails?.date_of_birth && (
-                          <>
-                            <dt className="text-gray-500">Date of Birth</dt>
-                            <dd className="text-gray-900">{formatDate(patientDetails.date_of_birth)}</dd>
-                          </>
-                        )}
-                      </dl>
-                    </div>
-                  )}
-
-                  {/* Care & Medical */}
-                  {(patientDetails?.reason_for_care || patientDetails?.mobility_status || patientDetails?.cognitive_status || patientDetails?.medical_conditions) && (
-                    <div className="mb-3">
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Care &amp; Medical</p>
-                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                        {patientDetails?.reason_for_care && (
-                          <>
-                            <dt className="text-gray-500">Reason</dt>
-                            <dd className="text-gray-900">{patientDetails.reason_for_care}</dd>
-                          </>
-                        )}
-                        {patientDetails?.mobility_status && (
-                          <>
-                            <dt className="text-gray-500">Mobility</dt>
-                            <dd className="text-gray-900 capitalize">{patientDetails.mobility_status.replace('_', ' ')}</dd>
-                          </>
-                        )}
-                        {patientDetails?.cognitive_status && (
-                          <>
-                            <dt className="text-gray-500">Cognitive</dt>
-                            <dd className="text-gray-900 capitalize">{patientDetails.cognitive_status.replace('_', ' ')}</dd>
-                          </>
-                        )}
-                        {patientDetails?.medical_conditions && (
-                          <>
-                            <dt className="text-gray-500">Conditions</dt>
-                            <dd className="text-gray-900">{patientDetails.medical_conditions}</dd>
-                          </>
-                        )}
-                      </dl>
-                    </div>
-                  )}
-
-                  {/* Schedule & Living */}
-                  {(patientDetails?.start_date || patientDetails?.schedule_type || patientDetails?.living_situation) && (
-                    <div className="mb-3">
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Schedule &amp; Living</p>
-                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                        {patientDetails?.start_date && (
-                          <>
-                            <dt className="text-gray-500">Start Date</dt>
-                            <dd className="text-gray-900">{formatDate(patientDetails.start_date)}</dd>
-                          </>
-                        )}
-                        {patientDetails?.schedule_type && (
-                          <>
-                            <dt className="text-gray-500">Schedule</dt>
-                            <dd className="text-gray-900 capitalize">{patientDetails.schedule_type.replace('_', ' ')}</dd>
-                          </>
-                        )}
-                        {patientDetails?.living_situation && (
-                          <>
-                            <dt className="text-gray-500">Living</dt>
-                            <dd className="text-gray-900 capitalize">{patientDetails.living_situation.replace('_', ' ')}</dd>
-                          </>
-                        )}
-                      </dl>
-                    </div>
-                  )}
-
-                  {/* Financial & Insurance */}
-                  {(patientDetails?.payment_method || patientDetails?.insurance_carrier || patientDetails?.insurance_policy_number) && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Financial &amp; Insurance</p>
-                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                        {patientDetails?.payment_method && (
-                          <>
-                            <dt className="text-gray-500">Payment</dt>
-                            <dd className="text-gray-900 capitalize">{patientDetails.payment_method.replace('_', ' ')}</dd>
-                          </>
-                        )}
-                        {patientDetails?.insurance_carrier && (
-                          <>
-                            <dt className="text-gray-500">Carrier</dt>
-                            <dd className="text-gray-900">{patientDetails.insurance_carrier}</dd>
-                          </>
-                        )}
-                        {patientDetails?.insurance_policy_number && (
-                          <>
-                            <dt className="text-gray-500">Policy #</dt>
-                            <dd className="text-gray-900">{patientDetails.insurance_policy_number}</dd>
-                          </>
-                        )}
+                        <dt className="text-gray-500">Desired Start Date</dt>
+                        <dd className="text-gray-900">{formatDate(patientDetails.start_date)}</dd>
                       </dl>
                     </div>
                   )}
 
                   {!patientDetails && (
-                    <p className="text-sm text-gray-400 italic">No patient details recorded yet.</p>
+                    <p className="text-sm text-gray-400 italic">No lead contact details recorded yet.</p>
                   )}
                 </div>
               )}
@@ -749,12 +654,13 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                         const wonStage = stages?.find(s => s.is_won)
                         const atWonStage = !wonStage || lead.stage === wonStage.key
                         return atWonStage ? (
-                          <a
-                            href={`/pages/agency/clients?lead=${lead.id}&firstName=${encodeURIComponent(lead.contact_first_name ?? '')}&lastName=${encodeURIComponent(lead.contact_last_name ?? '')}&email=${encodeURIComponent(lead.contact_email ?? '')}&phone=${encodeURIComponent(lead.contact_phone ?? '')}${patientDetails?.gender ? `&gender=${encodeURIComponent(patientDetails.gender)}` : ''}${patientDetails?.date_of_birth ? `&dateOfBirth=${encodeURIComponent(patientDetails.date_of_birth)}` : ''}`}
+                          <button
+                            type="button"
+                            onClick={() => setConvertClientOpen(true)}
                             className="block w-full px-3 py-2 text-sm font-medium text-center text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
                           >
                             {context.conversionLabel}
-                          </a>
+                          </button>
                         ) : (
                           <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-500">
                             Move this lead to <span className="font-semibold text-gray-700">{wonStage.label}</span> before converting to a client.
@@ -764,7 +670,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                       <p className="mt-2 text-xs text-gray-400">
                         {context.conversionAction === 'agency'
                           ? 'Creates a shell agency record.'
-                          : 'Opens new patient form pre-filled with contact info.'}
+                          : 'Creates an Intake client and preserves this lead history.'}
                       </p>
                     </div>
                   )}
@@ -1075,6 +981,25 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
           onSuccess={() => router.refresh()}
           leadId={lead.id}
           details={patientDetails}
+        />
+      )}
+
+      {context.leadType === 'patient' && (
+        <AddNewClientModal
+          isOpen={convertClientOpen}
+          onClose={() => setConvertClientOpen(false)}
+          conversionLeadId={lead.id}
+          prefill={{
+            firstName: lead.contact_first_name ?? '', lastName: lead.contact_last_name ?? '',
+            email: lead.contact_email ?? '', phone: lead.contact_phone ?? '',
+            streetAddress: [lead.contact_address1, lead.contact_address2].filter(Boolean).join(', '),
+            city: lead.contact_city ?? '', state: lead.contact_state ?? '', zipCode: lead.contact_zip ?? '',
+          }}
+          onSuccess={(patient) => {
+            setConvertClientOpen(false)
+            if (patient?.id) router.push(`/pages/agency/clients/${String(patient.id)}`)
+            else router.refresh()
+          }}
         />
       )}
 

@@ -14,6 +14,7 @@ import PhoneInput from '@/components/ui/PhoneInput'
 import EmailInput from '@/components/ui/EmailInput'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 import { agencyAdminFormSchema, type AgencyAdminFormData } from '@/lib/schemas/client'
+import { convertPatientLeadToClientAction } from '@/app/actions/leads'
 
 type AddNewClientModalMode = 'agency_admin' | 'care_recipient'
 
@@ -25,13 +26,25 @@ interface AddNewClientModalProps {
   /** When 'agency_admin', form targets clients table (company/contact fields). When 'care_recipient', targets patients. */
   mode?: AddNewClientModalMode
   /** Pre-fills contact fields when opening from a lead conversion. */
-  prefill?: { firstName?: string; lastName?: string; email?: string; phone?: string; gender?: string; dateOfBirth?: string }
+  prefill?: {
+    firstName?: string
+    lastName?: string
+    email?: string
+    phone?: string
+    streetAddress?: string
+    city?: string
+    state?: string
+    zipCode?: string
+  }
+  /** Enables the transactional lead conversion flow and creates the client in Intake status. */
+  conversionLeadId?: string | null
 }
 
-export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = 'care_recipient', prefill }: AddNewClientModalProps) {
+export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = 'care_recipient', prefill, conversionLeadId }: AddNewClientModalProps) {
   const router = useRouter()
   const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
 
   // ─── Agency admin form (RHF + Zod) ───────────────────────────────────────
   const {
@@ -109,20 +122,24 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
     if (!isOpen || !prefill) return
     setFormData(prev => ({
       ...prev,
-      first_name:    prefill.firstName   ?? prev.first_name,
-      last_name:     prefill.lastName    ?? prev.last_name,
-      email_address: prefill.email       ?? prev.email_address,
-      phone_number:  prefill.phone       ?? prev.phone_number,
-      gender:        prefill.gender      ?? prev.gender,
-      date_of_birth: prefill.dateOfBirth ?? prev.date_of_birth,
+      first_name:    prefill.firstName ?? '',
+      last_name:     prefill.lastName ?? '',
+      email_address: prefill.email ?? '',
+      phone_number:  prefill.phone ?? '',
+      street_address: prefill.streetAddress ?? '',
+      city: prefill.city ?? '',
+      state: prefill.state ?? '',
+      zip_code: prefill.zipCode ?? '',
     }))
+    setDuplicateWarning(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen])
+  }, [isOpen, conversionLeadId])
 
   if (!isOpen) return null
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
+    setDuplicateWarning(null)
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
@@ -145,6 +162,33 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
     setIsLoading(true)
 
     try {
+      if (conversionLeadId) {
+        const result = await convertPatientLeadToClientAction({
+          leadId: conversionLeadId,
+          firstName: formData.first_name,
+          lastName: formData.last_name,
+          phone: formData.phone_number,
+          email: formData.email_address,
+          streetAddress: formData.street_address,
+          city: formData.city,
+          state: formData.state,
+          zipCode: formData.zip_code,
+          confirmPossibleDuplicate: Boolean(duplicateWarning),
+        })
+        if (result.requiresDuplicateConfirmation) {
+          setDuplicateWarning(result.error ?? 'A possible duplicate client was found.')
+          return
+        }
+        if (!result.success || !result.patient) {
+          showValidationToast({ error: result.error ?? 'Unable to convert this lead.' })
+          return
+        }
+        showSuccessToast('Lead converted to client intake')
+        onSuccess?.(result.patient)
+        await router.refresh()
+        onClose()
+        return
+      }
       const user = session?.user
       if (!user) {
         showValidationToast({ error: 'You must be logged in to add a client' })
@@ -237,12 +281,14 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">
-              {mode === 'agency_admin' ? 'Add New Agency Admin' : 'Add New Care Recipient'}
+              {mode === 'agency_admin' ? 'Add New Agency Admin' : conversionLeadId ? 'Convert Lead to Client Intake' : 'Add New Care Recipient'}
             </h2>
             <p className="text-sm text-gray-600 mt-1">
               {mode === 'agency_admin'
                 ? 'Add an agency admin. Data is stored in user_profiles first, then in the clients table. A login link will be sent to the contact email.'
-                : 'Enter client information to create a new care recipient profile'}
+                : conversionLeadId
+                  ? 'Confirm the basic contact information. Clinical and insurance information will be collected during intake.'
+                  : 'Enter client information to create a new care recipient profile'}
             </p>
           </div>
           <button
@@ -378,6 +424,16 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
           </form>
         ) : (
           <form onSubmit={handleCareRecipientSubmit} noValidate className="p-6">
+          {conversionLeadId && (
+            <div className="mb-5 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              This creates an <strong>Intake</strong> client, links the original lead and documents, and preserves the lead history.
+            </div>
+          )}
+          {duplicateWarning && (
+            <div role="alert" className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {duplicateWarning} Review the information, then select <strong>Convert Anyway</strong> to confirm this is a different person.
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* First Name */}
             <div>
@@ -413,8 +469,8 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
               />
             </div>
 
-            {/* Date of Birth */}
-            <div>
+            {/* Date of Birth is collected during intake for converted leads. */}
+            {!conversionLeadId && <div>
               <label htmlFor="date_of_birth" className="block text-sm font-semibold text-gray-700 mb-2">
                 Date of Birth
               </label>
@@ -426,12 +482,12 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
-            </div>
+            </div>}
 
             {/* Street Address */}
             <div>
               <label htmlFor="street_address" className="block text-sm font-semibold text-gray-700 mb-2">
-                Street Address <span className="text-red-500">*</span>
+                Street Address {!conversionLeadId && <span className="text-red-500">*</span>}
               </label>
               <input
                 type="text"
@@ -440,7 +496,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 value={formData.street_address}
                 onChange={handleChange}
                 placeholder="123 Main Street"
-                required
+                required={!conversionLeadId}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -448,7 +504,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
             {/* City */}
             <div>
               <label htmlFor="city" className="block text-sm font-semibold text-gray-700 mb-2">
-                City <span className="text-red-500">*</span>
+                City {!conversionLeadId && <span className="text-red-500">*</span>}
               </label>
               <input
                 type="text"
@@ -457,7 +513,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 value={formData.city}
                 onChange={handleChange}
                 placeholder="Austin"
-                required
+                required={!conversionLeadId}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -465,14 +521,14 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
             {/* State */}
             <div>
               <label htmlFor="state" className="block text-sm font-semibold text-gray-700 mb-2">
-                State <span className="text-red-500">*</span>
+                State {!conversionLeadId && <span className="text-red-500">*</span>}
               </label>
               <select
                 id="state"
                 name="state"
                 value={formData.state}
                 onChange={handleChange}
-                required
+                required={!conversionLeadId}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">Select state</option>
@@ -485,7 +541,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
             {/* ZIP Code */}
             <div>
               <label htmlFor="zip_code" className="block text-sm font-semibold text-gray-700 mb-2">
-                ZIP Code <span className="text-red-500">*</span>
+                ZIP Code {!conversionLeadId && <span className="text-red-500">*</span>}
               </label>
               <input
                 type="text"
@@ -494,7 +550,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 value={formData.zip_code}
                 onChange={handleChange}
                 placeholder="78701"
-                required
+                required={!conversionLeadId}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -502,14 +558,14 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
             {/* Phone Number */}
             <div>
               <label htmlFor="phone_number" className="block text-sm font-semibold text-gray-700 mb-2">
-                Phone Number <span className="text-red-500">*</span>
+                Phone Number {!conversionLeadId && <span className="text-red-500">*</span>}
               </label>
               <PhoneInput
                 id="phone_number"
                 name="phone_number"
                 value={formData.phone_number}
                 onChange={handleChange}
-                required
+                required={!conversionLeadId}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -517,7 +573,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
             {/* Email Address */}
             <div>
               <label htmlFor="email_address" className="block text-sm font-semibold text-gray-700 mb-2">
-                Email Address <span className="text-red-500">*</span>
+                Email Address {!conversionLeadId && <span className="text-red-500">*</span>}
               </label>
               <input
                 type="email"
@@ -526,11 +582,12 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 value={formData.email_address}
                 onChange={handleChange}
                 placeholder="client@email.com"
-                required
+                required={!conversionLeadId}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
+            {!conversionLeadId && <>
             {/* Emergency Contact Name */}
             <div>
               <label htmlFor="emergency_contact_name" className="block text-sm font-semibold text-gray-700 mb-2">
@@ -650,6 +707,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
+            </>}
           </div>
 
           {/* Action Buttons */}
@@ -671,7 +729,7 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
               ) : (
                 <>
                   <Plus className="w-4 h-4" />
-                  Add Client
+                  {conversionLeadId ? (duplicateWarning ? 'Convert Anyway' : 'Convert to Intake') : 'Add Client'}
                 </>
               )}
             </button>

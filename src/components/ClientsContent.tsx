@@ -10,7 +10,6 @@ import AddNewClientModal from './AddNewClientModal'
 import * as q from '@/app/actions/query-bridge'
 import { mapInsertedPatientToListPatient, type ClientsListPatient } from '@/lib/map-inserted-patient-to-list-row'
 import { patientFullName } from '@/lib/patient-name'
-import { linkLeadToPatient, createRepresentativeFromLeadAction } from '@/app/actions/leads'
 
 interface ClientsContentProps {
   clients: ClientsListPatient[]
@@ -21,8 +20,6 @@ interface ClientsContentProps {
   pageSize: number
   search: string
   statusFilter: string
-  leadId?: string | null
-  prefill?: { firstName: string; lastName: string; email: string; phone: string; gender?: string; dateOfBirth?: string }
 }
 
 export default function ClientsContent({
@@ -34,16 +31,9 @@ export default function ClientsContent({
   pageSize,
   search: initialSearch,
   statusFilter: initialStatusFilter,
-  leadId,
-  prefill,
 }: ClientsContentProps) {
   const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [convertLeadId, setConvertLeadId] = useState(leadId ?? null)
-
-  useEffect(() => {
-    if (leadId) setIsModalOpen(true)
-  }, [leadId])
   const [searchQuery, setSearchQuery] = useState(initialSearch)
   const [statusFilter, setStatusFilter] = useState(initialStatusFilter)
   const [clients, setClients] = useState<ClientsListPatient[]>(initialClients)
@@ -103,7 +93,7 @@ export default function ClientsContent({
     })
   }
 
-  const toggleStatus = async (clientId: string, currentStatus: 'active' | 'inactive') => {
+  const toggleStatus = async (clientId: string, currentStatus: 'active' | 'inactive' | 'pending') => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active'
     if (statusFilter !== 'all') {
       setClients((prev) => prev.filter((c) => c.id !== clientId))
@@ -205,7 +195,7 @@ export default function ClientsContent({
             />
           </div>
           <div className="inline-flex bg-gray-100 rounded-xl p-1 gap-1">
-            {(['active', 'inactive', 'all'] as const).map(t => (
+            {(['active', 'pending', 'inactive', 'all'] as const).map(t => (
               <button
                 key={t}
                 type="button"
@@ -216,7 +206,7 @@ export default function ClientsContent({
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === 'all' ? 'All' : t === 'pending' ? 'Intake' : t.charAt(0).toUpperCase() + t.slice(1)}
               </button>
             ))}
           </div>
@@ -321,8 +311,8 @@ export default function ClientsContent({
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${client.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {client.status === 'active' ? 'Active' : 'Inactive'}
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${client.status === 'active' ? 'bg-green-100 text-green-700' : client.status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {client.status === 'active' ? 'Active' : client.status === 'pending' ? 'Intake' : 'Inactive'}
                       </span>
                     </td>
                   </tr>
@@ -374,20 +364,11 @@ export default function ClientsContent({
       {/* Add New Client Modal */}
       <AddNewClientModal
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setConvertLeadId(null) }}
-        prefill={prefill}
-        onSuccess={async (insertedRow) => {
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={(insertedRow) => {
           if (!insertedRow) return
           const next = mapInsertedPatientToListPatient(insertedRow)
           setClients((prev) => [next, ...prev.filter((c) => c.id !== next.id)])
-          if (convertLeadId && insertedRow.id) {
-            const patientId = insertedRow.id as string
-            await Promise.all([
-              linkLeadToPatient(convertLeadId, patientId),
-              createRepresentativeFromLeadAction(convertLeadId, patientId),
-            ])
-            setConvertLeadId(null)
-          }
         }}
       />
     </div>

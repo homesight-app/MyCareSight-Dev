@@ -5,8 +5,8 @@ import { Download, FileText, Loader2, Trash2, Upload } from 'lucide-react'
 import { commitLeadDocumentUploadAction, deleteLeadDocumentAction } from '@/app/actions/leads'
 import Button from '@/components/ui/PrimaryButton'
 import { LEAD_DOCUMENT_TYPES } from '@/lib/schemas/lead-documents'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
-import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import { STORAGE_BUCKET } from '@/lib/storage'
+import { cleanupStoredFile, downloadStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 
 export interface LeadDocument {
   id: string
@@ -74,13 +74,8 @@ export default function LeadDocumentsTab({ leadId, initialDocuments, canUpload }
     }
   }
 
-  const handleDownload = async (doc: LeadDocument) => {
-    const url = await createSignedStorageUrl(STORAGE_BUCKET.LEAD, doc.file_url)
-    if (!url) return
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = doc.file_name ?? doc.document_name
-    anchor.click()
+  const handleDownload = (doc: LeadDocument) => {
+    downloadStoredFile(STORAGE_BUCKET.LEAD, doc.file_url)
   }
 
   const handleDelete = async (doc: LeadDocument) => {

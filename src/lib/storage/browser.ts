@@ -1,4 +1,4 @@
-import type { StoredFileUpload, UploadPurpose } from './contracts'
+import type { StorageBucket, StoredFileUpload, UploadPurpose } from './contracts'
 
 async function responseError(response: Response, fallback: string) {
   const body = await response.json().catch(() => null) as { error?: string } | null
@@ -32,4 +32,20 @@ export async function cleanupStoredFile(upload: StoredFileUpload): Promise<void>
   } catch {
     // Cleanup is best-effort; the upload remains auditable for operational repair.
   }
+}
+
+/**
+ * Starts a same-origin, server-authorized download. The server chooses the
+ * filename from the document record and returns it in Content-Disposition.
+ */
+export function downloadStoredFile(bucket: StorageBucket, path: string): void {
+  if (!path) return
+
+  const query = new URLSearchParams({ bucket, path })
+  const anchor = document.createElement('a')
+  anchor.href = `/api/storage/download?${query.toString()}`
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
 }

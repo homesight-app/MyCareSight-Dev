@@ -30,7 +30,7 @@ export interface ClientsListPatient {
   representative_2_name: string | null
   representative_2_relationship: string | null
   representative_2_phone: string | null
-  status: 'active' | 'inactive'
+  status: 'active' | 'inactive' | 'pending'
   created_at: string
   patients_representatives: RepresentativeEmbed[]
 }
@@ -42,7 +42,7 @@ export function mapInsertedPatientToListPatient(raw: Record<string, unknown>): C
     ? databaseDate(raw.date_of_birth)
     : ''
 
-  const st = typeof raw.status === 'string' && raw.status === 'inactive' ? 'inactive' : 'active'
+  const st = raw.status === 'inactive' || raw.status === 'pending' ? raw.status : 'active'
 
   return {
     id: String(raw.id ?? ''),

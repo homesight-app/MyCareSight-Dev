@@ -120,6 +120,25 @@
         "production",
         "environment-base"
       ]
+    },
+    {
+      "id": "044",
+      "name": "client-intake-status",
+      "file": "044-client-intake-status.sql",
+      "verifier": "044-verify-client-intake-status.sql",
+      "checksumSha256": "eaa39be4fc2479efd3894f65454fe349805adcf69a6d661141bfd1659e04d323",
+      "transactional": true,
+      "verifierExpectations": {
+        "allBooleansTrue": true,
+        "zeroColumns": []
+      },
+      "environments": [
+        "development",
+        "uat",
+        "production-staging",
+        "production",
+        "environment-base"
+      ]
     }
   ]
 }

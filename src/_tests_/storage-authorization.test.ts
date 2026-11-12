@@ -42,7 +42,7 @@ const id = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, '
 const OWNER = id(1), OTHER = id(2), ADMIN = id(3), STAFF = id(4), AGENCY = id(10), OTHER_AGENCY = id(11)
 const APP = id(20), APP_DOC = id(21), PATIENT = id(30), INCIDENT = id(31), TEMPLATE = id(40)
 const CAREGIVER = id(50), LICENSE = id(60), REQUIREMENT = id(70), PLAYBOOK = id(71)
-const LEAD = id(80), LEAD_DOCUMENT = id(81)
+const LEAD = id(80), LEAD_DOCUMENT = id(81), AGENCY_DOCUMENT = id(82)
 
 function login(userId: string) {
   jest.mocked(getSession).mockResolvedValue({ user: { id: userId } } as Awaited<ReturnType<typeof getSession>>)
@@ -66,7 +66,8 @@ beforeAll(async () => {
     CREATE TABLE license_requirements(id uuid PRIMARY KEY);
     CREATE TABLE playbooks(id uuid PRIMARY KEY);
     CREATE TABLE leads(id uuid PRIMARY KEY, agency_id uuid);
-    CREATE TABLE lead_documents(id uuid PRIMARY KEY, lead_id uuid, file_url text);
+    CREATE TABLE lead_documents(id uuid PRIMARY KEY, lead_id uuid, file_url text, file_name text, document_name text);
+    CREATE TABLE agency_documents(id uuid PRIMARY KEY, agency_id uuid, file_url text, file_name text, document_name text);
     CREATE TABLE audit_log(
       id uuid DEFAULT gen_random_uuid(), agency_id uuid, table_name text, record_id uuid,
       action text, performed_by_user_id uuid, details jsonb
@@ -76,7 +77,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.exec(`
-    TRUNCATE audit_log, lead_documents, leads, playbooks, license_requirements, playbook_templates, license_requirement_templates, patient_incidents,
+    TRUNCATE audit_log, agency_documents, lead_documents, leads, playbooks, license_requirements, playbook_templates, license_requirement_templates, patient_incidents,
       patients, caregiver_credentials, license_documents, licenses, application_documents,
       applications, caregiver_members, user_agency_roles, user_profiles;
   `)
@@ -92,7 +93,8 @@ beforeEach(async () => {
   await db.query(`INSERT INTO license_requirements VALUES ($1)`, [REQUIREMENT])
   await db.query(`INSERT INTO playbooks VALUES ($1)`, [PLAYBOOK])
   await db.query(`INSERT INTO leads VALUES ($1,$2)`, [LEAD, AGENCY])
-  await db.query(`INSERT INTO lead_documents VALUES ($1,$2,'${LEAD}/synthetic.pdf')`, [LEAD_DOCUMENT, LEAD])
+  await db.query(`INSERT INTO lead_documents VALUES ($1,$2,'${LEAD}/synthetic.pdf','Original Lead File.pdf','Lead document')`, [LEAD_DOCUMENT, LEAD])
+  await db.query(`INSERT INTO agency_documents VALUES ($1,$2,'${AGENCY}/synthetic.pdf','Original Agency File.pdf','Agency document')`, [AGENCY_DOCUMENT, AGENCY])
   login(OWNER)
 })
 
@@ -179,6 +181,13 @@ test('generates server-owned upload scopes and denies cross-agency resources', a
     agencyId: AGENCY,
     recordId: LEAD_DOCUMENT,
     tableName: 'lead_documents',
+    downloadFileName: 'Original Lead File.pdf',
+  })
+  expect(await authorizeStoredObject(STORAGE_BUCKET.AGENCY, `${AGENCY}/synthetic.pdf`)).toMatchObject({
+    agencyId: AGENCY,
+    recordId: AGENCY_DOCUMENT,
+    tableName: 'agency_documents',
+    downloadFileName: 'Original Agency File.pdf',
   })
 
   login(OTHER)

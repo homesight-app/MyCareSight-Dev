@@ -51,10 +51,12 @@ interface LeadsContentProps {
   initialStageFilter?: string
   initialServiceType?: string
   initialSource?: string
+  initialOwner?: string
   initialSortKey?: string
   initialSortDir?: 'asc' | 'desc'
   stageCounts?: Record<string, number>
   allSources?: string[]
+  ownerOptions?: { id: string; full_name: string | null }[]
   context: LeadContext
   taskStatus?: Record<string, 'overdue' | 'today'>
   stages?: AgencyLeadStage[]
@@ -69,10 +71,12 @@ export default function LeadsContent({
   initialStageFilter = 'active',
   initialServiceType = 'all',
   initialSource = 'all',
+  initialOwner = 'all',
   initialSortKey = 'created_at',
   initialSortDir = 'desc',
   stageCounts: stageCountsProp,
   allSources: allSourcesProp,
+  ownerOptions = [],
   context,
   taskStatus = {},
   stages,
@@ -84,6 +88,7 @@ export default function LeadsContent({
   const [stageFilter, setStageFilter] = useState<string>(initialStageFilter)
   const [serviceTypeFilter, setServiceTypeFilter] = useState<string>(initialServiceType)
   const [sourceFilter, setSourceFilter] = useState<string>(initialSource)
+  const [ownerFilter, setOwnerFilter] = useState<string>(initialOwner)
   const [sortKey, setSortKey] = useState<SortKey>(initialSortKey as SortKey)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSortDir)
   const [modalOpen, setModalOpen] = useState(false)
@@ -131,7 +136,7 @@ export default function LeadsContent({
   const pushParams = useCallback(
     (overrides: {
       page?: number; q?: string; stage?: string; serviceType?: string
-      source?: string; sortKey?: string; sortDir?: string
+      source?: string; owner?: string; sortKey?: string; sortDir?: string
     }) => {
       const p = new URLSearchParams()
       const newPage        = overrides.page        ?? 0
@@ -139,6 +144,7 @@ export default function LeadsContent({
       const newStage       = overrides.stage       !== undefined ? overrides.stage       : stageFilter
       const newServiceType = overrides.serviceType !== undefined ? overrides.serviceType : serviceTypeFilter
       const newSource      = overrides.source      !== undefined ? overrides.source      : sourceFilter
+      const newOwner       = overrides.owner       !== undefined ? overrides.owner       : ownerFilter
       const newSortKey     = overrides.sortKey     !== undefined ? overrides.sortKey     : sortKey
       const newSortDir     = overrides.sortDir     !== undefined ? overrides.sortDir     : sortDir
       if (newPage > 0)                    p.set('page',        String(newPage))
@@ -146,11 +152,12 @@ export default function LeadsContent({
       if (newStage !== 'active')          p.set('stage',       newStage)
       if (newServiceType !== 'all')       p.set('serviceType', newServiceType)
       if (newSource !== 'all')            p.set('source',      newSource)
+      if (newOwner !== 'all')             p.set('owner',       newOwner)
       if (newSortKey !== 'created_at')    p.set('sortKey',     newSortKey)
       if (newSortDir !== 'desc')          p.set('sortDir',     newSortDir)
       router.push(`?${p.toString()}`, { scroll: false })
     },
-    [router, search, stageFilter, serviceTypeFilter, sourceFilter, sortKey, sortDir]
+    [router, search, stageFilter, serviceTypeFilter, sourceFilter, ownerFilter, sortKey, sortDir]
   )
 
   // Debounced search
@@ -365,10 +372,24 @@ export default function LeadsContent({
               ))}
             </select>
           )}
-          {(serviceTypeFilter !== 'all' || sourceFilter !== 'all') && (
+          {context.canAssign && (
+            <select
+              value={ownerFilter}
+              onChange={e => { setOwnerFilter(e.target.value); pushParams({ owner: e.target.value, page: 0 }) }}
+              aria-label="Filter leads by owner"
+              className="py-1.5 pl-2 pr-7 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-gray-600"
+            >
+              <option value="all">All Owners</option>
+              <option value="unassigned">Unassigned</option>
+              {ownerOptions.map(owner => (
+                <option key={owner.id} value={owner.id}>{owner.full_name?.trim() || 'Unnamed user'}</option>
+              ))}
+            </select>
+          )}
+          {(serviceTypeFilter !== 'all' || sourceFilter !== 'all' || ownerFilter !== 'all') && (
             <button
               type="button"
-              onClick={() => { setServiceTypeFilter('all'); setSourceFilter('all'); pushParams({ serviceType: 'all', source: 'all', page: 0 }) }}
+              onClick={() => { setServiceTypeFilter('all'); setSourceFilter('all'); setOwnerFilter('all'); pushParams({ serviceType: 'all', source: 'all', owner: 'all', page: 0 }) }}
               className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
             >
               Clear filters
@@ -475,7 +496,7 @@ export default function LeadsContent({
                     {sortKey === 'source' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
                   </span>
                 </th>
-                {context.billingVisible && (
+                {context.canAssign && (
                   <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                     Owner
                   </th>
@@ -491,7 +512,7 @@ export default function LeadsContent({
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5 + (context.leadType === 'agency' ? 2 : 0) + (context.billingVisible ? 2 : 0) + (context.canAssign ? 1 : 0)}
+                    colSpan={5 + (context.leadType === 'agency' ? 2 : 0) + (context.canAssign ? 2 : 0) + (context.billingVisible ? 1 : 0)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
                     {stageFilter === 'archived'
@@ -614,11 +635,11 @@ export default function LeadsContent({
                         </span>
                       )}
                     </td>
-                    {context.billingVisible && (
+                    {context.canAssign && (
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                         {(() => {
                           const o = Array.isArray(lead.lead_owner) ? lead.lead_owner[0] ?? null : lead.lead_owner
-                          return o?.full_name?.trim() || '—'
+                          return o?.full_name?.trim() || 'Unassigned'
                         })()}
                       </td>
                     )}

@@ -11,7 +11,7 @@ export default async function AdminLeadsPage({
 }: {
   searchParams: Promise<{
     page?: string; q?: string; stage?: string; serviceType?: string
-    source?: string; sortKey?: string; sortDir?: string
+    source?: string; owner?: string; sortKey?: string; sortDir?: string
   }>
 }) {
   await requireAdmin()
@@ -22,16 +22,20 @@ export default async function AdminLeadsPage({
   const stageFilter = params.stage ?? 'active'
   const serviceType = params.serviceType ?? 'all'
   const source      = params.source ?? 'all'
+  const ownerParam  = params.owner ?? 'all'
+  const owner       = ownerParam === 'all' || ownerParam === 'unassigned' || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerParam)
+    ? ownerParam : 'all'
   const sortKey     = params.sortKey ?? 'created_at'
   const sortDir     = (params.sortDir === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc'
 
-  const [leadsResult, stageCounts, allSources] = await Promise.all([
+  const [leadsResult, stageCounts, allSources, ownerOptionsResult] = await Promise.all([
     q.getLeadsPaginated({
       leadType: 'agency', page, pageSize: PAGE_SIZE,
-      search, stageFilter, serviceType, source, sortKey, sortDir,
+      search, stageFilter, serviceType, source, owner, sortKey, sortDir,
     }),
-    q.getLeadStageCounts({ leadType: 'agency', search, serviceType, source }),
+    q.getLeadStageCounts({ leadType: 'agency', search, serviceType, source, owner }),
     q.getLeadDistinctSources({ leadType: 'agency' }),
+    q.getLeadOwnerOptions({ leadType: 'agency' }),
   ])
 
   const leads = (leadsResult.data ?? []) as Parameters<typeof LeadsContent>[0]['leads']
@@ -53,10 +57,12 @@ export default async function AdminLeadsPage({
       initialStageFilter={stageFilter}
       initialServiceType={serviceType}
       initialSource={source}
+      initialOwner={owner}
       initialSortKey={sortKey}
       initialSortDir={sortDir}
       stageCounts={stageCounts}
       allSources={allSources}
+      ownerOptions={ownerOptionsResult.data ?? []}
       context={ADMIN_LEAD_CONTEXT}
       taskStatus={taskStatus}
     />

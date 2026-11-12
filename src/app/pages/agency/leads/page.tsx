@@ -15,7 +15,7 @@ export default async function AgencyLeadsPage({
 }: {
   searchParams: Promise<{
     page?: string; q?: string; stage?: string; serviceType?: string
-    source?: string; sortKey?: string; sortDir?: string
+    source?: string; owner?: string; sortKey?: string; sortDir?: string
   }>
 }) {
   const session = await getSession()
@@ -38,16 +38,20 @@ export default async function AgencyLeadsPage({
   const stageFilter = params.stage ?? 'active'
   const serviceType = params.serviceType ?? 'all'
   const source      = params.source ?? 'all'
+  const ownerParam  = params.owner ?? 'all'
+  const owner       = ownerParam === 'all' || ownerParam === 'unassigned' || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerParam)
+    ? ownerParam : 'all'
   const sortKey     = params.sortKey ?? 'created_at'
   const sortDir     = (params.sortDir === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc'
 
-  const [leadsResult, stageCounts, allSources, agencyStagesResult] = await Promise.all([
+  const [leadsResult, stageCounts, allSources, ownerOptionsResult, agencyStagesResult] = await Promise.all([
     q.getLeadsPaginated({
       leadType: 'patient', agencyId, page, pageSize: PAGE_SIZE,
-      search, stageFilter, serviceType, source, sortKey, sortDir,
+      search, stageFilter, serviceType, source, owner, sortKey, sortDir,
     }),
-    q.getLeadStageCounts({ leadType: 'patient', agencyId, search, serviceType, source }),
+    q.getLeadStageCounts({ leadType: 'patient', agencyId, search, serviceType, source, owner }),
     q.getLeadDistinctSources({ leadType: 'patient', agencyId }),
+    q.getLeadOwnerOptions({ leadType: 'patient', agencyId }),
     q.getAgencyLeadStages(agencyId),
   ])
 
@@ -71,10 +75,12 @@ export default async function AgencyLeadsPage({
         initialStageFilter={stageFilter}
         initialServiceType={serviceType}
         initialSource={source}
+        initialOwner={owner}
         initialSortKey={sortKey}
         initialSortDir={sortDir}
         stageCounts={stageCounts}
         allSources={allSources}
+        ownerOptions={ownerOptionsResult.data ?? []}
         context={context}
         stages={agencyStages}
         taskStatus={taskStatus}

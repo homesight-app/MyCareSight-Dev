@@ -35,6 +35,10 @@ describe('lead ownership and collaborative task assignment contract', () => {
     expect(detail).toContain('updateLeadTaskAssignee')
     expect(detail).toContain("Assigned to {task.assignee?.full_name || 'Unassigned'}")
     expect(list).toContain('context.canAssign')
+    expect(list).toContain('All Owners')
+    expect(list).toContain('Filter leads by owner')
+    expect(query).toContain("opts.owner === 'unassigned'")
+    expect(query).toContain('getLeadOwnerOptions')
   })
 
   test('loads creator and assignee display names in one task query', () => {

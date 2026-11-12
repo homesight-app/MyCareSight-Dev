@@ -83,6 +83,7 @@ export interface GetLeadsPaginatedOpts {
   stageFilter?: string   // 'active' | 'all' | 'archived' | specific stage key
   serviceType?: string
   source?: string
+  owner?: string // 'all' | 'unassigned' | user profile UUID
   sortKey?: string
   sortDir?: 'asc' | 'desc'
 }
@@ -107,6 +108,8 @@ function buildLeadFilterFragments(opts: GetLeadsPaginatedOpts) {
 
   if (opts.serviceType && opts.serviceType !== 'all') frags.push(sql`l.service_type = ${opts.serviceType}`)
   if (opts.source      && opts.source      !== 'all') frags.push(sql`l.source = ${opts.source}`)
+  if (opts.owner === 'unassigned') frags.push(sql`l.lead_owner_id IS NULL`)
+  else if (opts.owner && opts.owner !== 'all') frags.push(sql`l.lead_owner_id = ${opts.owner}`)
 
   if (opts.search?.trim()) {
     const term = opts.search.trim()
@@ -180,12 +183,17 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
 
 /** Lightweight — returns only stage + status, used to compute tab counts. */
 export async function getLeadStageCounts(
-  opts: Pick<GetLeadsPaginatedOpts, 'leadType' | 'agencyId' | 'search' | 'serviceType' | 'source'>
+  opts: Pick<GetLeadsPaginatedOpts, 'leadType' | 'agencyId' | 'search' | 'serviceType' | 'source' | 'owner'>
 ) {
   try {
     const agencyFrag      = opts.agencyId ? sql`AND l.agency_id = ${opts.agencyId}` : sql``
     const serviceTypeFrag = opts.serviceType && opts.serviceType !== 'all' ? sql`AND l.service_type = ${opts.serviceType}` : sql``
     const sourceFrag      = opts.source    && opts.source      !== 'all' ? sql`AND l.source = ${opts.source}`             : sql``
+    const ownerFrag       = opts.owner === 'unassigned'
+      ? sql`AND l.lead_owner_id IS NULL`
+      : opts.owner && opts.owner !== 'all'
+        ? sql`AND l.lead_owner_id = ${opts.owner}`
+        : sql``
     const searchFrag      = opts.search?.trim()
       ? sql`AND (l.contact_first_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.contact_last_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.company_name ILIKE ${'%' + opts.search.trim() + '%'} OR l.contact_email ILIKE ${'%' + opts.search.trim() + '%'})`
       : sql``
@@ -194,7 +202,7 @@ export async function getLeadStageCounts(
       SELECT l.stage, l.status, l.converted_at
       FROM leads l
       WHERE l.lead_type = ${opts.leadType}
-      ${agencyFrag} ${serviceTypeFrag} ${sourceFrag} ${searchFrag}
+      ${agencyFrag} ${serviceTypeFrag} ${sourceFrag} ${ownerFrag} ${searchFrag}
     `
 
     const allRows = rows as unknown as { stage: string; status: string; converted_at: string | null }[]
@@ -211,6 +219,32 @@ export async function getLeadStageCounts(
     return counts
   } catch {
     return {}
+  }
+}
+
+/** Tenant-scoped owners currently referenced by leads, used by the owner filter. */
+export async function getLeadOwnerOptions(
+  opts: Pick<GetLeadsPaginatedOpts, 'leadType' | 'agencyId'>
+) {
+  try {
+    const agencyFrag = opts.agencyId ? sql`AND l.agency_id = ${opts.agencyId}` : sql``
+    const rows = await sql`
+      SELECT DISTINCT profile.id, profile.full_name
+      FROM leads l
+      JOIN user_profiles profile ON profile.id = l.lead_owner_id
+      WHERE l.lead_type = ${opts.leadType}
+      ${agencyFrag}
+      ORDER BY profile.full_name ASC NULLS LAST, profile.id ASC
+    `
+    return {
+      data: rows as unknown as { id: string; full_name: string | null }[],
+      error: null,
+    }
+  } catch (err) {
+    return {
+      data: [],
+      error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' },
+    }
   }
 }
 

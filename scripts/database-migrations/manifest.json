@@ -126,7 +126,7 @@
       "name": "client-intake-status",
       "file": "044-client-intake-status.sql",
       "verifier": "044-verify-client-intake-status.sql",
-      "checksumSha256": "ae4bfce23b8a19999551b06185a73a0db348f9bc3a8824daed60d53e705429fe",
+      "checksumSha256": "eaa39be4fc2479efd3894f65454fe349805adcf69a6d661141bfd1659e04d323",
       "transactional": true,
       "verifierExpectations": {
         "allBooleansTrue": true,

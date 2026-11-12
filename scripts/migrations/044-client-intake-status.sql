@@ -8,6 +8,7 @@ DO $migration$
 DECLARE
   existing_constraint name;
   matching_constraint_count integer;
+  status_constraint_count integer;
   status_attribute smallint;
 BEGIN
   IF to_regclass('public.patients') IS NULL THEN
@@ -30,19 +31,32 @@ BEGIN
     RAISE EXCEPTION 'patients contains unsupported status values';
   END IF;
 
-  SELECT count(*), min(conname)
-  INTO matching_constraint_count, existing_constraint
+  SELECT
+    count(*),
+    count(*) FILTER (
+      WHERE pg_get_constraintdef(oid) LIKE '%status%active%inactive%'
+    ),
+    min(conname) FILTER (
+      WHERE pg_get_constraintdef(oid) LIKE '%status%active%inactive%'
+    )
+  INTO status_constraint_count, matching_constraint_count, existing_constraint
   FROM pg_constraint
   WHERE conrelid = 'public.patients'::regclass
     AND contype = 'c'
-    AND conkey = ARRAY[status_attribute]::smallint[]
-    AND pg_get_constraintdef(oid) LIKE '%status%active%inactive%';
+    AND conkey = ARRAY[status_attribute]::smallint[];
 
-  IF matching_constraint_count <> 1 THEN
-    RAISE EXCEPTION 'Expected exactly one recognized patients.status constraint; found %', matching_constraint_count;
+  IF status_constraint_count <> matching_constraint_count THEN
+    RAISE EXCEPTION 'Found an unrecognized patients.status constraint; manual review is required';
   END IF;
 
-  EXECUTE format('ALTER TABLE public.patients DROP CONSTRAINT %I', existing_constraint);
+  IF matching_constraint_count > 1 THEN
+    RAISE EXCEPTION 'Expected no more than one recognized patients.status constraint; found %', matching_constraint_count;
+  END IF;
+
+  IF matching_constraint_count = 1 THEN
+    EXECUTE format('ALTER TABLE public.patients DROP CONSTRAINT %I', existing_constraint);
+  END IF;
+
   ALTER TABLE public.patients
     ADD CONSTRAINT patients_status_check
     CHECK (status IN ('active', 'inactive', 'pending')) NOT VALID;

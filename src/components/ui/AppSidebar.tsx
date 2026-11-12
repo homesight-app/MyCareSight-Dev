@@ -21,6 +21,10 @@ export interface MenuGroupDef {
   label: string
   icon: LucideIcon
   items: MenuItemDef[]
+  /** Optional visual accent for grouped navigation; does not convey status or access. */
+  iconColor?: string
+  /** Optional subtle background tint for the parent icon container. */
+  iconBackground?: string
 }
 
 interface AppSidebarProps {
@@ -99,12 +103,12 @@ export default function AppSidebar({
     const showItemLock = item.locked && !options?.groupLocked
     const className = `
       flex w-full items-center gap-3 rounded-lg text-sm transition-all duration-200
-      ${nested && !collapsed ? 'ml-1 px-3 py-2' : 'px-3 py-2.5'}
+      ${nested && !collapsed ? 'min-h-10 px-3 py-2' : 'px-3 py-2.5'}
       ${item.locked
         ? 'border-l-2 border-transparent pl-[10px] text-slate-500 hover:bg-white/5 hover:text-slate-300'
         : isActive
-          ? 'border-l-2 border-brand bg-white/10 pl-[10px] font-semibold text-white'
-          : 'border-l-2 border-transparent pl-[10px] text-slate-400 hover:bg-white/5 hover:text-slate-200'
+          ? `border-l-2 border-brand ${nested ? 'bg-[#343A50]' : 'bg-white/10'} pl-[10px] font-semibold text-white`
+          : `border-l-2 border-transparent pl-[10px] ${nested ? 'text-[#AAB5CC]' : 'text-slate-400'} hover:bg-white/5 hover:text-slate-200`
       }
     `
     const content = (
@@ -244,19 +248,28 @@ export default function AppSidebar({
                       : undefined}
                     title={collapsed ? `${group.label}${isLocked ? ' — not included in your plan' : ''}` : undefined}
                     data-locked={isLocked ? 'true' : undefined}
-                    className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-200 ${
+                    className={`relative flex min-h-12 w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
                       isExpanded || containsActiveItem
-                        ? 'bg-white/[0.07] text-slate-100'
-                        : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+                        ? 'bg-[#292F3E] text-[#EBEDF5]'
+                        : 'text-[#EBEDF5] hover:bg-white/5'
                     }`}
                   >
-                    <GroupIcon className="h-5 w-5 flex-shrink-0 text-slate-400" strokeWidth={2} />
+                    <span
+                      data-sidebar-group-icon={group.id}
+                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg"
+                      style={{
+                        color: group.iconColor,
+                        backgroundColor: group.iconBackground,
+                      }}
+                    >
+                      <GroupIcon className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
+                    </span>
                     {collapsed && isLocked && (
                       <Lock className="absolute right-1 top-1 h-3 w-3 text-slate-500" aria-hidden />
                     )}
                     {!collapsed && (
                       <>
-                        <span className="min-w-0 flex-1 truncate text-left font-medium">{group.label}</span>
+                        <span className="min-w-0 flex-1 truncate text-left font-semibold">{group.label}</span>
                         <span className="flex shrink-0 items-center gap-2">
                           {isLocked && <Lock className="h-3.5 w-3.5 text-slate-500" aria-hidden />}
                           {isExpanded
@@ -274,7 +287,7 @@ export default function AppSidebar({
                     }`}
                   >
                     <div className="overflow-hidden">
-                      <div className={collapsed ? 'space-y-0.5 pt-0.5' : 'ml-3 space-y-0.5 border-l border-slate-700/60 pl-2 pt-0.5'}>
+                      <div className={collapsed ? 'space-y-0.5 pt-0.5' : 'ml-[26px] space-y-0.5 border-l border-slate-600/60 pl-3 py-0.5'}>
                         {group.items.map(item => renderMenuItem(item, {
                           nested: true,
                           groupExpanded: isExpanded,

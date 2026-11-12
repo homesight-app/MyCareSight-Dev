@@ -12,6 +12,8 @@ const groups: MenuGroupDef[] = [
     id: 'client-management',
     label: 'Client Management',
     icon: Users,
+    iconColor: '#8DAEFF',
+    iconBackground: '#263450',
     items: [
       { href: '/pages/agency/clients', label: 'Clients', icon: Users },
     ],
@@ -70,6 +72,10 @@ describe('AppSidebar grouped navigation', () => {
     expect(screen.getByRole('button', { name: 'HomeSights Services' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('link', { name: 'My Services' })).toHaveAttribute('title', 'My Services')
     expect(screen.getByRole('button', { name: 'Client Management' })).toHaveAttribute('title', 'Client Management')
+    expect(document.querySelector('[data-sidebar-group-icon="client-management"]')).toHaveStyle({
+      color: '#8DAEFF',
+      backgroundColor: '#263450',
+    })
   })
 
   test('keeps locked destinations inside their category and opens the plan prompt', () => {

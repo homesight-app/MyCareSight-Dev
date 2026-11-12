@@ -10,7 +10,10 @@ import {
   CalendarDays,
   DollarSign,
   BarChart3,
+  BriefcaseBusiness,
+  ChartColumn,
   Settings,
+  ShieldCheck,
   Target,
   FileStack,
   ClipboardList,
@@ -124,17 +127,19 @@ export default function DashboardLayout({
 
   const ownerMenuGroups: MenuGroupDef[] | undefined = profile?.role === 'company_owner'
     ? [
-        { id: 'client-management', label: 'Client Management', icon: Users, hrefs: ['/pages/agency/leads', '/pages/agency/clients'] },
-        { id: 'care-operations', label: 'Care Operations', icon: CalendarDays, hrefs: ['/pages/agency/care-visits', '/pages/agency/time-billing'] },
-        { id: 'agency-compliance', label: 'Agency Compliance', icon: Award, hrefs: ['/pages/agency/certifications'] },
-        { id: 'analytics-reporting', label: 'Analytics & Reporting', icon: BarChart3, hrefs: ['/pages/agency/reports'] },
-        { id: 'homesights-services', label: 'HomeSights Services', icon: FileStack, hrefs: ['/pages/agency/programs', '/pages/agency/templates'] },
-        { id: 'administration', label: 'Administration', icon: Settings, hrefs: ['/pages/agency/user-management', '/pages/agency/configuration'] },
+        { id: 'client-management', label: 'Client Management', icon: Users, iconColor: '#8DAEFF', iconBackground: '#263450', hrefs: ['/pages/agency/leads', '/pages/agency/clients'] },
+        { id: 'care-operations', label: 'Care Operations', icon: CalendarDays, iconColor: '#66C9BA', iconBackground: '#223D3B', hrefs: ['/pages/agency/care-visits', '/pages/agency/time-billing'] },
+        { id: 'agency-compliance', label: 'Agency Compliance', icon: ShieldCheck, iconColor: '#E7B66F', iconBackground: '#41372C', hrefs: ['/pages/agency/certifications'] },
+        { id: 'analytics-reporting', label: 'Analytics & Reporting', icon: ChartColumn, iconColor: '#B4A0F0', iconBackground: '#353049', hrefs: ['/pages/agency/reports'] },
+        { id: 'homesights-services', label: 'HomeSights Services', icon: BriefcaseBusiness, iconColor: '#78B6EA', iconBackground: '#293D4B', hrefs: ['/pages/agency/programs', '/pages/agency/templates'] },
+        { id: 'administration', label: 'Administration', icon: Settings, iconColor: '#A8B3C8', iconBackground: '#303744', hrefs: ['/pages/agency/user-management', '/pages/agency/configuration'] },
       ]
         .map(group => ({
           id: group.id,
           label: group.label,
           icon: group.icon,
+          iconColor: group.iconColor,
+          iconBackground: group.iconBackground,
           items: group.hrefs
             .map(href => menuItems.find(item => item.href === href))
             .filter((item): item is MenuItemDef => item !== undefined),

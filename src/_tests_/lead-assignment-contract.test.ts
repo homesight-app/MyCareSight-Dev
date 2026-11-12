@@ -41,6 +41,12 @@ describe('lead ownership and collaborative task assignment contract', () => {
     expect(query).toContain('getLeadOwnerOptions')
   })
 
+  test('does not misrepresent an existing unavailable owner as unassigned', () => {
+    expect(detail).toContain('const assignedLeadOwner = Array.isArray(lead.lead_owner)')
+    expect(detail).toContain('const leadOwnerOptions = assignedLeadOwner && !assignedOwnerIsEligible')
+    expect(detail).toContain("' (currently assigned)'")
+  })
+
   test('loads creator and assignee display names in one task query', () => {
     expect(query).toContain('LEFT JOIN user_profiles creator')
     expect(query).toContain('LEFT JOIN user_profiles assignee')

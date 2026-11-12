@@ -192,6 +192,15 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   const [showConvertPrompt, setShowConvertPrompt]        = useState(false)
 
   const owners = platformStaff
+  const assignedLeadOwner = Array.isArray(lead.lead_owner)
+    ? lead.lead_owner[0] ?? null
+    : lead.lead_owner ?? null
+  const assignedOwnerIsEligible = assignedLeadOwner
+    ? owners.some(owner => owner.id === assignedLeadOwner.id)
+    : false
+  const leadOwnerOptions = assignedLeadOwner && !assignedOwnerIsEligible
+    ? [assignedLeadOwner, ...owners]
+    : owners
 
   const activeStages = stages && stages.length > 0 ? stages : (LEAD_STAGES as unknown as AgencyLeadStage[])
   const stageColorMap = Object.fromEntries(activeStages.map(s => [s.key, s.color]))
@@ -576,9 +585,10 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
                     >
                       <option value="">Unassigned</option>
-                      {owners.map(u => (
+                      {leadOwnerOptions.map(u => (
                         <option key={u.id} value={u.id}>
-                          {u.full_name ?? ''}
+                          {u.full_name?.trim() || 'Unnamed user'}
+                          {u.id === assignedLeadOwner?.id && !assignedOwnerIsEligible ? ' (currently assigned)' : ''}
                         </option>
                       ))}
                     </select>

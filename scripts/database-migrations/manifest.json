@@ -145,7 +145,7 @@
       "name": "lead-ownership-and-task-assignment",
       "file": "045-lead-ownership-and-task-assignment.sql",
       "verifier": "045-verify-lead-ownership-and-task-assignment.sql",
-      "checksumSha256": "d5131cd00881ffb3f9eb49b426053ced13df35aab29e986396f2ee0582c86f7a",
+      "checksumSha256": "6bc1ec60e4477565929ac7ddffce8f12b60be61c92bd8303fbf31c2823b41e61",
       "transactional": true,
       "verifierExpectations": {
         "allBooleansTrue": true,

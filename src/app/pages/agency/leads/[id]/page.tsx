@@ -50,6 +50,7 @@ export default async function AgencyLeadDetailPage({
       tasks={tasks ?? []}
       documents={(documents ?? []) as unknown as LeadDetailProps['documents']}
       context={context}
+      currentUserId={session!.user.id}
       currentUserRole={session!.profile?.role}
       platformStaff={collaborators ?? []}
       stages={agencyStages}

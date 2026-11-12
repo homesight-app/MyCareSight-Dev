@@ -536,9 +536,9 @@ export default function AddLeadModal({
           </div>
           {context.canAssign && (
             <div>
-              <label className={labelCls}>Lead Owner <span className="text-red-500">*</span></label>
+              <label className={labelCls}>Lead Owner</label>
               <select className={inputCls} {...register('leadOwnerId')}>
-                <option value="">— Select owner —</option>
+                <option value="">Unassigned</option>
                 {owners.map(u => (
                   <option key={u.id} value={u.id}>{u.full_name ?? ''}</option>
                 ))}

@@ -97,6 +97,7 @@ interface LeadDetailContentProps {
   tasks: LeadTask[]
   documents: LeadDocument[]
   context: LeadContext
+  currentUserId: string
   currentUserRole?: string | null
   platformStaff?: { id: string; full_name: string | null }[]
   stages?: AgencyLeadStage[]
@@ -151,7 +152,7 @@ const NOTE_TYPE_COLOR: Record<string, BadgeColor> = {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserRole, platformStaff = [], stages, patientDetails }: LeadDetailContentProps) {
+export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserId, currentUserRole, platformStaff = [], stages, patientDetails }: LeadDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = (['overview', 'notes', 'tasks', 'documents'] as const).find(t => t === searchParams.get('tab')) ?? 'overview'
@@ -170,7 +171,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   // Tasks state
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
-  const [newTaskAssignee, setNewTaskAssignee] = useState(lead.lead_owner_id ?? '')
+  const [newTaskAssignee, setNewTaskAssignee] = useState(currentUserId)
   const [addingTask, setAddingTask] = useState(false)
   const [taskError, setTaskError] = useState<string | null>(null)
   const [showCompleted, setShowCompleted] = useState(false)
@@ -574,7 +575,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                       disabled={isPending || isConverted}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
                     >
-                      <option value="" disabled>— Select owner —</option>
+                      <option value="">Unassigned</option>
                       {owners.map(u => (
                         <option key={u.id} value={u.id}>
                           {u.full_name ?? ''}

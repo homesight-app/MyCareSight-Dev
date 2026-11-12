@@ -36,64 +36,42 @@ BEGIN
 END
 $migration$;
 
--- Preserve legacy intent by using the creator only when that creator is still an
--- active, eligible owner in the same scope. Never select an arbitrary owner.
+-- Preserve historical accountability by assigning every unowned lead to its
+-- recorded creator. Historical ownership is evidence, so it does not depend on
+-- whether the creator is still active or currently eligible for reassignment.
 UPDATE public.leads lead
 SET lead_owner_id = lead.created_by,
     updated_at = clock_timestamp()
 FROM public.user_profiles creator
 WHERE lead.lead_owner_id IS NULL
-  AND lead.status = 'active'
-  AND lead.converted_at IS NULL
-  AND creator.id = lead.created_by
-  AND creator.is_active = true
-  AND (
-    (
-      lead.lead_type = 'agency'
-      AND creator.role IN ('admin', 'expert')
-    )
-    OR (
-      lead.lead_type = 'patient'
-      AND lead.agency_id IS NOT NULL
-      AND creator.agency_id = lead.agency_id
-      AND creator.role IN ('company_owner', 'care_coordinator')
-      AND EXISTS (
-        SELECT 1
-        FROM public.user_agency_roles membership
-        WHERE membership.user_id = creator.id
-          AND membership.agency_id = lead.agency_id
-          AND membership.role = creator.role
-          AND membership.status = 'active'
-      )
-    )
-  );
+  AND creator.id = lead.created_by;
+
+-- Assign existing unassigned tasks to their recorded creator.
+UPDATE public.lead_tasks task
+SET assigned_to = creator.id,
+    updated_at = clock_timestamp()
+FROM public.user_profiles creator
+WHERE task.assigned_to IS NULL
+  AND creator.id = task.created_by;
+
+-- Legacy tasks can outlive a deleted creator profile. In that exceptional case,
+-- inherit the accountable parent lead owner instead of choosing another user.
+UPDATE public.lead_tasks task
+SET assigned_to = lead.lead_owner_id,
+    updated_at = clock_timestamp()
+FROM public.leads lead
+WHERE task.assigned_to IS NULL
+  AND lead.id = task.lead_id
+  AND lead.lead_owner_id IS NOT NULL;
 
 DO $migration$
 BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM public.leads
-    WHERE status = 'active'
-      AND converted_at IS NULL
-      AND lead_owner_id IS NULL
-  ) THEN
-    RAISE EXCEPTION 'Active unconverted leads remain ownerless; assign an eligible owner before retrying migration 045';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = 'public.leads'::regclass
-      AND conname = 'leads_active_owner_check'
-  ) THEN
-    ALTER TABLE public.leads
-      ADD CONSTRAINT leads_active_owner_check
-      CHECK (status <> 'active' OR converted_at IS NOT NULL OR lead_owner_id IS NOT NULL)
-      NOT VALID;
-  END IF;
-
+  -- Ownership is intentionally optional so system-created inbound leads can
+  -- enter an explicit unassigned queue. Remove a pre-release test constraint
+  -- if this migration was exercised manually before ledger-controlled rollout.
+  ALTER TABLE public.leads DROP CONSTRAINT IF EXISTS leads_active_owner_check;
   ALTER TABLE public.leads VALIDATE CONSTRAINT leads_lead_owner_id_fkey;
   ALTER TABLE public.lead_tasks VALIDATE CONSTRAINT lead_tasks_assigned_to_fkey;
-  ALTER TABLE public.leads VALIDATE CONSTRAINT leads_active_owner_check;
 END
 $migration$;
 
@@ -106,6 +84,6 @@ CREATE INDEX IF NOT EXISTS lead_tasks_assigned_pending_idx
   WHERE completed_at IS NULL;
 
 COMMENT ON COLUMN public.leads.lead_owner_id IS
-  'Active accountable owner for the lead; eligibility is validated by the server against role and tenant scope.';
+  'Optional accountable owner for the lead; eligibility is validated by the server against role and tenant scope.';
 COMMENT ON COLUMN public.lead_tasks.assigned_to IS
   'Optional collaborator responsible for the task; eligibility is validated against the parent lead scope.';

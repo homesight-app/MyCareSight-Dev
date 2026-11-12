@@ -213,8 +213,10 @@ export async function createLead(payload: {
   const agencyId = payload.leadType === 'patient' ? actor.agencyId : null
   if (payload.leadType === 'patient' && !agencyId) return { error: 'An active agency membership is required' }
 
-  const ownerId = payload.leadOwnerId?.trim() || actor.id
-  if (!(await isEligibleLeadCollaborator(ownerId, payload.leadType, agencyId))) {
+  const ownerId = payload.leadOwnerId === undefined
+    ? actor.id
+    : (payload.leadOwnerId?.trim() || null)
+  if (ownerId && !(await isEligibleLeadCollaborator(ownerId, payload.leadType, agencyId))) {
     return { error: 'Select an active eligible lead owner' }
   }
 
@@ -285,8 +287,7 @@ export async function updateLead(
   if (access.error || !access.session || !access.lead) return { error: access.error ?? 'Not authenticated' }
   const ownerChanged = 'leadOwnerId' in payload && payload.leadOwnerId !== access.lead.lead_owner_id
   if ('leadOwnerId' in payload) {
-    if (!payload.leadOwnerId) return { error: 'Lead owner is required' }
-    if (!(await isEligibleLeadCollaborator(payload.leadOwnerId, access.lead.lead_type, access.lead.agency_id))) {
+    if (payload.leadOwnerId && !(await isEligibleLeadCollaborator(payload.leadOwnerId, access.lead.lead_type, access.lead.agency_id))) {
       return { error: 'Select an active eligible lead owner' }
     }
   }
@@ -431,7 +432,7 @@ export async function addLeadTask(
   if (access.error || !access.session || !access.lead) return { error: access.error ?? 'Not authenticated' }
 
   const assignedTo = payload.assignedTo === undefined
-    ? access.lead.lead_owner_id
+    ? access.session.user.id
     : (payload.assignedTo || null)
   if (assignedTo && !(await isEligibleLeadCollaborator(assignedTo, access.lead.lead_type, access.lead.agency_id))) {
     return { error: 'Select an active eligible task assignee' }

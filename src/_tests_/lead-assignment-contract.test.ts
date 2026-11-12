@@ -21,8 +21,9 @@ describe('lead ownership and collaborative task assignment contract', () => {
     expect(actions).toContain('Select an active eligible task assignee')
   })
 
-  test('defaults new tasks to the owner and audits owner/task assignment changes', () => {
-    expect(actions).toContain('? access.lead.lead_owner_id')
+  test('defaults new tasks to the creator and audits owner/task assignment changes', () => {
+    expect(actions).toContain('? access.session.user.id')
+    expect(detail).toContain('useState(currentUserId)')
     expect(actions).toContain("'ASSIGN_OWNER'")
     expect(actions).toContain("'ASSIGN'")
     expect(actions).toContain('previous_assigned_to_user_id')
@@ -43,12 +44,14 @@ describe('lead ownership and collaborative task assignment contract', () => {
     expect(query).toContain('assignee_full_name')
   })
 
-  test('migration adds integrity, lookup indexes, and rejects ownerless active leads', () => {
+  test('migration adds referential integrity and lookup indexes while keeping ownership optional', () => {
     expect(migration).toContain('leads_lead_owner_id_fkey')
     expect(migration).toContain('lead_tasks_assigned_to_fkey')
     expect(migration).toContain('lead_tasks_assigned_pending_idx')
-    expect(migration).toContain('Never select an arbitrary owner')
-    expect(verifier).toContain('no_active_ownerless_leads')
+    expect(migration).toContain('creator.id = lead.created_by')
+    expect(migration).toContain('SET assigned_to = lead.lead_owner_id')
+    expect(verifier).toContain('lead_owner_is_optional')
+    expect(verifier).toContain('all_assignable_tasks_have_default_assignees')
     expect(verifier).toContain('no_orphaned_task_assignees')
   })
 })

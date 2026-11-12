@@ -34,6 +34,7 @@ export default async function AdminLeadDetailPage({
         tasks={tasks ?? []}
         documents={(documents ?? []) as unknown as LeadDetailProps['documents']}
         context={ADMIN_LEAD_CONTEXT}
+        currentUserId={user.id}
         currentUserRole={profile?.role}
         platformStaff={platformStaff ?? []}
       />

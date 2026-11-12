@@ -33,7 +33,13 @@ interface Lead {
   lead_owner_id: string | null
   proposal_sent_date: string | null
   converted_agency_id?: string | null
+  converted_client_id?: string | null
+  converted_at?: string | null
   lead_owner?: { id: string; full_name: string | null } | { id: string; full_name: string | null }[] | null
+}
+
+function isConvertedLead(lead: Lead) {
+  return Boolean(lead.converted_at && (lead.converted_agency_id || lead.converted_client_id))
 }
 
 interface LeadsContentProps {
@@ -176,10 +182,10 @@ export default function LeadsContent({
   const stageCounts = useMemo(() => {
     if (stageCountsProp) return stageCountsProp
     // Fallback: compute from current page (less accurate but backward-compatible)
-    const nonArchived = leads.filter(l => l.status !== 'archived')
+    const nonArchived = leads.filter(l => l.status !== 'archived' && !isConvertedLead(l))
     const counts: Record<string, number> = { all: nonArchived.length }
     counts.active = nonArchived.filter(l => !['on_hold', 'unresponsive', 'lost', 'signed'].includes(l.stage)).length
-    counts.archived = leads.filter(l => l.status === 'archived').length
+    counts.archived = leads.filter(l => l.status === 'archived' || isConvertedLead(l)).length
     for (const s of LEAD_STAGES) {
       counts[s.key] = nonArchived.filter(l => l.stage === s.key).length
     }
@@ -442,7 +448,7 @@ export default function LeadsContent({
                     </th>
                   )
                 })}
-                {context.billingVisible && (
+                {context.canAssign && (
                   <th
                     scope="col"
                     onClick={() => handleSort('price')}
@@ -485,7 +491,7 @@ export default function LeadsContent({
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={context.billingVisible ? (context.leadType === 'agency' ? 10 : 9) : (context.leadType === 'agency' ? 6 : 5)}
+                    colSpan={5 + (context.leadType === 'agency' ? 2 : 0) + (context.billingVisible ? 2 : 0) + (context.canAssign ? 1 : 0)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
                     {stageFilter === 'archived'
@@ -503,12 +509,12 @@ export default function LeadsContent({
                     key={lead.id}
                     onClick={() => handleRowClick(lead.id)}
                     className={`cursor-pointer hover:bg-gray-50 transition-colors ${
-                      taskStatus[lead.id] === 'overdue' ? 'shadow-[inset_4px_0_0_#ef4444]' :
-                      taskStatus[lead.id] === 'today'   ? 'shadow-[inset_4px_0_0_#facc15]' : ''
+                      !isConvertedLead(lead) && taskStatus[lead.id] === 'overdue' ? 'shadow-[inset_4px_0_0_#ef4444]' :
+                      !isConvertedLead(lead) && taskStatus[lead.id] === 'today'   ? 'shadow-[inset_4px_0_0_#facc15]' : ''
                     }`}
                   >
                     <td className="w-10 px-2 py-3" onClick={e => e.stopPropagation()}>
-                      <RecordActionsMenu
+                      {!isConvertedLead(lead) && <RecordActionsMenu
                         label={`Actions for ${displayName(lead)}`}
                         actions={lead.status === 'archived' ? [
                           {
@@ -523,7 +529,7 @@ export default function LeadsContent({
                             hidden: archivingId === lead.id,
                           },
                         ]}
-                      />
+                      />}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
                       {displayName(lead)}
@@ -543,7 +549,7 @@ export default function LeadsContent({
                       {serviceTypeLabel(lead.service_type)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                      {lead.status === 'archived' ? (
+                      {lead.status === 'archived' || isConvertedLead(lead) ? (
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'} opacity-60`}>
                           {stageLabelMap[lead.stage] ?? lead.stage}
                         </span>
@@ -579,7 +585,7 @@ export default function LeadsContent({
                         </div>
                       )}
                     </td>
-                    {context.billingVisible && (
+                    {context.canAssign && (
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                         {formatCurrency(lead.price)}
                       </td>

@@ -6,6 +6,7 @@ import FeatureGate from '@/components/FeatureGate'
 import { AGENCY_LEAD_CONTEXT, type LeadContext } from '@/lib/constants/lead-configs'
 import { requireAgencyCapability } from '@/lib/feature-access'
 import FeatureLockedPage from '@/components/FeatureLockedPage'
+import { buildLeadTaskUrgencyMap } from '@/lib/lead-task-urgency'
 
 const PAGE_SIZE = 50
 
@@ -52,6 +53,12 @@ export default async function AgencyLeadsPage({
 
   const leads = (leadsResult.data ?? []) as Parameters<typeof LeadsContent>[0]['leads']
   const agencyStages = (agencyStagesResult.data ?? []) as import('@/lib/constants/lead-configs').AgencyLeadStage[]
+  const today = new Date().toISOString().slice(0, 10)
+  const visibleLeadIds = leads
+    .filter(lead => lead.status !== 'archived' && !lead.converted_at)
+    .map(lead => lead.id)
+  const { data: taskRows } = await q.getLeadTaskStatusByLeadIds(visibleLeadIds, today)
+  const taskStatus = buildLeadTaskUrgencyMap(taskRows ?? [], today)
 
   return (
     <FeatureGate capability="client_management" agencyId={agencyId}>
@@ -70,6 +77,7 @@ export default async function AgencyLeadsPage({
         allSources={allSources}
         context={context}
         stages={agencyStages}
+        taskStatus={taskStatus}
       />
     </FeatureGate>
   )

@@ -3879,12 +3879,12 @@ export default function ClientDetailContent({ client, allClients, representative
       {/* Client Overview Header */}
       <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
         <div className="flex items-start gap-4">
-          <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-xl">
+          <div className="w-16 h-16 shrink-0 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-xl">
             {getInitials(patientFullName(localClient))}
           </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-bold text-gray-900">{patientFullName(localClient)}</h1>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-3 mb-2">
+              <h1 className="min-w-0 break-words text-3xl font-bold text-gray-900">{patientFullName(localClient)}</h1>
               <span className={`px-3 py-1 text-xs font-semibold rounded ${
                 clientStatus === 'active' 
                   ? 'bg-green-100 text-green-800' 
@@ -3898,30 +3898,30 @@ export default function ClientDetailContent({ client, allClients, representative
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 text-gray-600 mb-4">
-              <MapPin className="w-4 h-4" />
-              <span>{localClient.street_address}, {localClient.city}, {localClient.state} {localClient.zip_code}</span>
+            <div className="flex min-w-0 items-start gap-2 text-gray-600 mb-4">
+              <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
+              <span className="min-w-0 break-words">{localClient.street_address}, {localClient.city}, {localClient.state} {localClient.zip_code}</span>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
-                <span><strong>Date of Birth:</strong> {formatShortDate(localClient.date_of_birth)} (Age {displayedAge ?? 'N/A'})</span>
+            <div className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+              <div className="flex min-w-0 items-start gap-2">
+                <Calendar className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
+                <span className="min-w-0 break-words"><strong>Date of Birth:</strong> {formatShortDate(localClient.date_of_birth)} (Age {displayedAge ?? 'N/A'})</span>
               </div>
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-400" />
-                <span><strong>Gender:</strong> {localClient.gender || 'N/A'}</span>
+              <div className="flex min-w-0 items-start gap-2">
+                <User className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
+                <span className="min-w-0 break-words"><strong>Gender:</strong> {localClient.gender || 'N/A'}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-gray-400" />
-                <span><strong>Phone:</strong> {localClient.phone_number}</span>
+              <div className="flex min-w-0 items-start gap-2">
+                <Phone className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
+                <span className="min-w-0 break-words"><strong>Phone:</strong> {localClient.phone_number}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-gray-400" />
-                <span><strong>Email:</strong> {localClient.email_address}</span>
+              <div className="flex min-w-0 items-start gap-2">
+                <Mail className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
+                <span className="min-w-0"><strong>Email:</strong>{' '}<span className="[overflow-wrap:anywhere]">{localClient.email_address}</span></span>
               </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
-                <span><strong>Enrolled:</strong> {formatShortDate(localClient.created_at)}</span>
+              <div className="flex min-w-0 items-start gap-2">
+                <Calendar className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
+                <span className="min-w-0 break-words"><strong>Enrolled:</strong> {formatShortDate(localClient.created_at)}</span>
               </div>
             </div>
           </div>

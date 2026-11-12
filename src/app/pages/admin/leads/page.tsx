@@ -2,6 +2,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import * as q from '@/lib/supabase/query'
 import LeadsContent from '@/components/LeadsContent'
 import { ADMIN_LEAD_CONTEXT } from '@/lib/constants/lead-configs'
+import { buildLeadTaskUrgencyMap } from '@/lib/lead-task-urgency'
 
 const PAGE_SIZE = 50
 
@@ -36,16 +37,11 @@ export default async function AdminLeadsPage({
   const leads = (leadsResult.data ?? []) as Parameters<typeof LeadsContent>[0]['leads']
   const today = new Date().toISOString().slice(0, 10)
   const activeLeadIds = leads
-    .filter(l => l.status !== 'archived' && !['on_hold', 'lost', 'signed'].includes(l.stage))
+    .filter(l => l.status !== 'archived' && !l.converted_at && !['on_hold', 'lost', 'signed'].includes(l.stage))
     .map(l => l.id)
   const { data: taskRows } = await q.getLeadTaskStatusByLeadIds(activeLeadIds, today)
 
-  const taskStatus: Record<string, 'overdue' | 'today'> = {}
-  for (const row of taskRows ?? []) {
-    if (!row.lead_id || !row.due_date) continue
-    if (taskStatus[row.lead_id] === 'overdue') continue
-    taskStatus[row.lead_id] = row.due_date < today ? 'overdue' : 'today'
-  }
+  const taskStatus = buildLeadTaskUrgencyMap(taskRows ?? [], today)
 
   return (
     <LeadsContent

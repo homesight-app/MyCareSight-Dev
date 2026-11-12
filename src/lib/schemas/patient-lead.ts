@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { optionalEmailZodField, phoneZodField } from '@/lib/validation'
+import { US_STATES } from '@/lib/constants'
 
 export const patientLeadDetailsSchema = z.object({
   pocName: z.string().optional(),
@@ -19,7 +20,11 @@ export const leadConversionSchema = z.object({
   email: optionalEmailZodField,
   streetAddress: z.string().trim().max(250).optional(),
   city: z.string().trim().max(100).optional(),
-  state: z.string().trim().max(2).optional(),
+  state: z
+    .string()
+    .trim()
+    .optional()
+    .refine(value => !value || US_STATES.includes(value), 'Select a valid state'),
   zipCode: z.string().trim().max(10).optional(),
   confirmPossibleDuplicate: z.boolean().optional().default(false),
 })

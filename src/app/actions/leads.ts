@@ -14,9 +14,20 @@ import {
   getManageableLeadDocument,
   insertLeadDocument,
 } from '@/lib/repositories/lead-documents'
-import { readAdminLeadPlatformStaff } from '@/lib/repositories/platform-application-dashboard'
 import { leadConversionSchema, patientLeadDetailsSchema } from '@/lib/schemas/patient-lead'
 import { zodErrorToFieldErrors } from '@/lib/validation'
+
+type LeadCollaborator = {
+  id: string
+  full_name: string | null
+  role: 'admin' | 'expert' | 'company_owner' | 'care_coordinator'
+}
+
+type LeadActorScope = {
+  id: string
+  role: LeadCollaborator['role']
+  agencyId: string | null
+}
 
 function revalidateLeadPaths() {
   revalidatePath('/pages/admin/leads')
@@ -44,8 +55,126 @@ async function requireAgencyMember() {
   return { error: null, session }
 }
 
+async function getCurrentLeadActorScope(): Promise<LeadActorScope | null> {
+  const session = await getSession()
+  if (!session) return null
+
+  const [actor] = await sql<{ id: string; role: LeadActorScope['role']; agency_id: string | null }[]>`
+    SELECT profile.id, profile.role, profile.agency_id
+    FROM public.user_profiles profile
+    WHERE profile.id = ${session.user.id}::uuid
+      AND profile.is_active = true
+      AND profile.role IN ('admin', 'expert', 'company_owner', 'care_coordinator')
+      AND (
+        profile.role IN ('admin', 'expert')
+        OR EXISTS (
+          SELECT 1
+          FROM public.user_agency_roles membership
+          WHERE membership.user_id = profile.id
+            AND membership.agency_id = profile.agency_id
+            AND membership.role = profile.role
+            AND membership.status = 'active'
+        )
+      )
+    LIMIT 1
+  `
+  if (!actor) return null
+  return { id: actor.id, role: actor.role, agencyId: actor.agency_id }
+}
+
+async function getEligibleLeadCollaborators(scope: LeadActorScope): Promise<LeadCollaborator[]> {
+  if (scope.role === 'admin' || scope.role === 'expert') {
+    return sql<LeadCollaborator[]>`
+      SELECT id, full_name, role
+      FROM public.user_profiles
+      WHERE is_active = true AND role IN ('admin', 'expert')
+      ORDER BY full_name NULLS LAST, id
+    `
+  }
+  if (!scope.agencyId) return []
+  return sql<LeadCollaborator[]>`
+    SELECT DISTINCT profile.id, profile.full_name, profile.role
+    FROM public.user_profiles profile
+    JOIN public.user_agency_roles membership
+      ON membership.user_id = profile.id
+     AND membership.agency_id = profile.agency_id
+     AND membership.role = profile.role
+     AND membership.status = 'active'
+    WHERE profile.is_active = true
+      AND profile.agency_id = ${scope.agencyId}::uuid
+      AND profile.role IN ('company_owner', 'care_coordinator')
+    ORDER BY profile.full_name NULLS LAST, profile.id
+  `
+}
+
+async function isEligibleLeadCollaborator(
+  userId: string,
+  leadType: 'agency' | 'patient',
+  agencyId: string | null,
+) {
+  const [eligible] = await sql<{ allowed: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.user_profiles profile
+      WHERE profile.id = ${userId}::uuid
+        AND profile.is_active = true
+        AND (
+          (
+            ${leadType} = 'agency'
+            AND profile.role IN ('admin', 'expert')
+          )
+          OR (
+            ${leadType} = 'patient'
+            AND ${agencyId}::uuid IS NOT NULL
+            AND profile.agency_id = ${agencyId}::uuid
+            AND profile.role IN ('company_owner', 'care_coordinator')
+            AND EXISTS (
+              SELECT 1
+              FROM public.user_agency_roles membership
+              WHERE membership.user_id = profile.id
+                AND membership.agency_id = ${agencyId}::uuid
+                AND membership.role = profile.role
+                AND membership.status = 'active'
+            )
+          )
+        )
+    ) AS allowed
+  `
+  return eligible?.allowed === true
+}
+
+function leadIsConverted(lead: {
+  converted_agency_id: string | null
+  converted_client_id: string | null
+  converted_at: string | null
+}) {
+  return Boolean(lead.converted_at && (lead.converted_agency_id || lead.converted_client_id))
+}
+
+async function requireMutableLead(leadId: string) {
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated', session: null, lead: null }
+  const role = session.profile?.role ?? ''
+  const agencyId = session.profile?.agency_id ?? null
+  const lead = await withUserContext(session.user.id, role, agencyId, () =>
+    getManageableLead(leadId, session.user.id)
+  )
+  if (!lead) return { error: 'Lead not found or not authorized', session: null, lead: null }
+  if (leadIsConverted(lead)) {
+    return { error: 'Converted leads are read-only', session: null, lead: null }
+  }
+  return { error: null, session, lead }
+}
+
+export async function getLeadCollaboratorOptionsAction() {
+  const scope = await getCurrentLeadActorScope()
+  if (!scope) return { data: [], currentUserId: null, error: 'Forbidden' }
+  const data = await getEligibleLeadCollaborators(scope)
+  return { data, currentUserId: scope.id, error: null }
+}
+
 export async function getAdminLeadOwnerOptionsAction() {
-  return readAdminLeadPlatformStaff()
+  return getLeadCollaboratorOptionsAction()
 }
 
 // ——— Create / Update ————————————————————————————————————————
@@ -73,36 +202,53 @@ export async function createLead(payload: {
   leadOwnerId?: string | null
   serviceStates?: string[] | null
 }) {
-  let userId: string
-  if (payload.leadType === 'agency') {
-    const { error: authErr, session } = await requirePlatformStaff()
-    if (authErr || !session) return { error: authErr ?? 'Forbidden' }
-    userId = session.user.id
-  } else {
-    const { error: authErr, session } = await requireAgencyMember()
-    if (authErr || !session) return { error: authErr ?? 'Forbidden' }
-    userId = session.user.id
+  const actor = await getCurrentLeadActorScope()
+  if (!actor) return { error: 'Forbidden' }
+  if (payload.leadType === 'agency' && actor.role !== 'admin' && actor.role !== 'expert') {
+    return { error: 'Forbidden' }
+  }
+  if (payload.leadType === 'patient' && actor.role !== 'company_owner' && actor.role !== 'care_coordinator') {
+    return { error: 'Forbidden' }
+  }
+  const agencyId = payload.leadType === 'patient' ? actor.agencyId : null
+  if (payload.leadType === 'patient' && !agencyId) return { error: 'An active agency membership is required' }
+
+  const ownerId = payload.leadOwnerId?.trim() || actor.id
+  if (!(await isEligibleLeadCollaborator(ownerId, payload.leadType, agencyId))) {
+    return { error: 'Select an active eligible lead owner' }
   }
 
   try {
-    const [data] = await sql<{ id: string }[]>`
-      INSERT INTO leads (
-        lead_type, agency_id, created_by, assigned_to,
-        contact_first_name, contact_last_name, contact_email, contact_phone,
-        company_name, service_type, stage, price,
-        retainer_amount, retainer_paid_date, installments, installment_amount,
-        signed_date, notes, source, converted_agency_id, lead_owner_id,
-        service_states, status, updated_at
-      ) VALUES (
-        ${payload.leadType}, ${payload.agencyId ?? null}, ${userId}, ${payload.assignedTo ?? null},
-        ${payload.contactFirstName}, ${payload.contactLastName}, ${payload.contactEmail ?? null}, ${payload.contactPhone ?? null},
-        ${payload.companyName ?? null}, ${payload.serviceType ?? null}, ${payload.stage ?? 'new'}, ${payload.price ?? null},
-        ${payload.retainerAmount ?? null}, ${payload.retainerPaidDate ?? null}, ${payload.installments ?? null}, ${payload.installmentAmount ?? null},
-        ${payload.signedDate ?? null}, ${payload.notes ?? null}, ${payload.source ?? null}, ${payload.convertedAgencyId ?? null}, ${payload.leadOwnerId ?? null},
-        ${payload.serviceStates ?? null}, 'active', ${new Date().toISOString()}
-      )
-      RETURNING id
-    `
+    const data = await sql.begin(async tx => {
+      const [created] = await tx<{ id: string }[]>`
+        INSERT INTO leads (
+          lead_type, agency_id, created_by, assigned_to,
+          contact_first_name, contact_last_name, contact_email, contact_phone,
+          company_name, service_type, stage, price,
+          retainer_amount, retainer_paid_date, installments, installment_amount,
+          signed_date, notes, source, converted_agency_id, lead_owner_id,
+          service_states, status, updated_at
+        ) VALUES (
+          ${payload.leadType}, ${agencyId}, ${actor.id}, ${payload.assignedTo ?? null},
+          ${payload.contactFirstName}, ${payload.contactLastName}, ${payload.contactEmail ?? null}, ${payload.contactPhone ?? null},
+          ${payload.companyName ?? null}, ${payload.serviceType ?? null}, ${payload.stage ?? 'new'}, ${payload.price ?? null},
+          ${payload.retainerAmount ?? null}, ${payload.retainerPaidDate ?? null}, ${payload.installments ?? null}, ${payload.installmentAmount ?? null},
+          ${payload.signedDate ?? null}, ${payload.notes ?? null}, ${payload.source ?? null}, ${payload.convertedAgencyId ?? null}, ${ownerId},
+          ${payload.serviceStates ?? null}, 'active', ${new Date().toISOString()}
+        )
+        RETURNING id
+      `
+      if (!created) throw new Error('Insert failed')
+      await tx`
+        INSERT INTO public.audit_log (
+          agency_id, table_name, record_id, action, performed_by_user_id, details
+        ) VALUES (
+          ${agencyId}::uuid, 'leads', ${created.id}::uuid, 'ASSIGN_OWNER', ${actor.id}::uuid,
+          ${tx.json({ owner_user_id: ownerId, operation: 'lead_created' })}::jsonb
+        )
+      `
+      return created
+    })
     if (!data) return { error: 'Insert failed' }
     revalidateLeadPaths()
     return { error: null, leadId: data.id }
@@ -135,6 +281,15 @@ export async function updateLead(
     serviceStates?: string[] | null
   }
 ) {
+  const access = await requireMutableLead(leadId)
+  if (access.error || !access.session || !access.lead) return { error: access.error ?? 'Not authenticated' }
+  const ownerChanged = 'leadOwnerId' in payload && payload.leadOwnerId !== access.lead.lead_owner_id
+  if ('leadOwnerId' in payload) {
+    if (!payload.leadOwnerId) return { error: 'Lead owner is required' }
+    if (!(await isEligibleLeadCollaborator(payload.leadOwnerId, access.lead.lead_type, access.lead.agency_id))) {
+      return { error: 'Select an active eligible lead owner' }
+    }
+  }
   const raw: Record<string, unknown> = {
     contact_first_name: payload.contactFirstName,
     contact_last_name: payload.contactLastName,
@@ -162,7 +317,25 @@ export async function updateLead(
   const updateData = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
 
   try {
-    await sql`UPDATE leads SET ${sql(updateData)} WHERE id = ${leadId}`
+    await sql.begin(async tx => {
+      const updated = await tx<{ id: string }[]>`
+        UPDATE leads SET ${tx(updateData)}
+        WHERE id = ${leadId} AND converted_at IS NULL
+        RETURNING id
+      `
+      if (!updated[0]) throw new Error('Converted leads are read-only')
+      if (ownerChanged) {
+        await tx`
+          INSERT INTO public.audit_log (
+            agency_id, table_name, record_id, action, performed_by_user_id, details
+          ) VALUES (
+            ${access.lead.agency_id}::uuid, 'leads', ${leadId}::uuid, 'ASSIGN_OWNER',
+            ${access.session.user.id}::uuid,
+            ${tx.json({ previous_owner_user_id: access.lead.lead_owner_id, owner_user_id: payload.leadOwnerId })}::jsonb
+          )
+        `
+      }
+    })
   } catch (err: any) {
     return { error: err.message || 'Failed to update lead' }
   }
@@ -171,6 +344,8 @@ export async function updateLead(
 }
 
 export async function updateLeadStage(leadId: string, stage: string) {
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
   const updates: Record<string, unknown> = { stage, updated_at: new Date().toISOString() }
 
   if (stage === 'proposal_sent') {
@@ -183,7 +358,12 @@ export async function updateLeadStage(leadId: string, stage: string) {
   }
 
   try {
-    await sql`UPDATE leads SET ${sql(updates)} WHERE id = ${leadId}`
+    const updated = await sql<{ id: string }[]>`
+      UPDATE leads SET ${sql(updates)}
+      WHERE id = ${leadId} AND converted_at IS NULL
+      RETURNING id
+    `
+    if (!updated[0]) return { error: 'Converted leads are read-only' }
   } catch (err: any) {
     return { error: err.message || 'Failed to update lead stage' }
   }
@@ -193,16 +373,20 @@ export async function updateLeadStage(leadId: string, stage: string) {
 }
 
 export async function archiveLead(leadId: string) {
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
   try {
-    await sql`UPDATE leads SET status = 'archived', updated_at = ${new Date().toISOString()} WHERE id = ${leadId}`
+    await sql`UPDATE leads SET status = 'archived', updated_at = ${new Date().toISOString()} WHERE id = ${leadId} AND converted_at IS NULL`
   } catch (err: any) { return { error: err.message } }
   revalidateLeadPaths()
   return { error: null }
 }
 
 export async function unarchiveLead(leadId: string) {
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
   try {
-    await sql`UPDATE leads SET status = 'active', updated_at = ${new Date().toISOString()} WHERE id = ${leadId}`
+    await sql`UPDATE leads SET status = 'active', updated_at = ${new Date().toISOString()} WHERE id = ${leadId} AND converted_at IS NULL`
   } catch (err: any) { return { error: err.message } }
   revalidateLeadPaths()
   return { error: null }
@@ -214,13 +398,13 @@ export async function addLeadNote(
   leadId: string,
   payload: { content: string; noteType: string }
 ) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
+  const access = await requireMutableLead(leadId)
+  if (access.error || !access.session) return { error: access.error ?? 'Not authenticated' }
 
   try {
     await sql`
       INSERT INTO lead_notes (lead_id, author_id, content, note_type)
-      VALUES (${leadId}, ${session.user.id}, ${payload.content}, ${payload.noteType})
+      VALUES (${leadId}, ${access.session.user.id}, ${payload.content}, ${payload.noteType})
     `
   } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
@@ -228,8 +412,10 @@ export async function addLeadNote(
 }
 
 export async function deleteLeadNote(leadId: string, noteId: string) {
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
   try {
-    await sql`DELETE FROM lead_notes WHERE id = ${noteId}`
+    await sql`DELETE FROM lead_notes WHERE id = ${noteId} AND lead_id = ${leadId}`
   } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
@@ -241,39 +427,106 @@ export async function addLeadTask(
   leadId: string,
   payload: { title: string; dueDate?: string | null; assignedTo?: string | null }
 ) {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
+  const access = await requireMutableLead(leadId)
+  if (access.error || !access.session || !access.lead) return { error: access.error ?? 'Not authenticated' }
+
+  const assignedTo = payload.assignedTo === undefined
+    ? access.lead.lead_owner_id
+    : (payload.assignedTo || null)
+  if (assignedTo && !(await isEligibleLeadCollaborator(assignedTo, access.lead.lead_type, access.lead.agency_id))) {
+    return { error: 'Select an active eligible task assignee' }
+  }
 
   try {
-    await sql`
-      INSERT INTO lead_tasks (lead_id, created_by, assigned_to, title, due_date, updated_at)
-      VALUES (${leadId}, ${session.user.id}, ${payload.assignedTo ?? null}, ${payload.title}, ${payload.dueDate ?? null}, ${new Date().toISOString()})
-    `
+    await sql.begin(async tx => {
+      const [task] = await tx<{ id: string }[]>`
+        INSERT INTO lead_tasks (lead_id, created_by, assigned_to, title, due_date, updated_at)
+        VALUES (${leadId}, ${access.session.user.id}, ${assignedTo}, ${payload.title}, ${payload.dueDate ?? null}, ${new Date().toISOString()})
+        RETURNING id
+      `
+      if (!task) throw new Error('Failed to create task')
+      await tx`
+        INSERT INTO public.audit_log (
+          agency_id, table_name, record_id, action, performed_by_user_id, details
+        ) VALUES (
+          ${access.lead.agency_id}::uuid, 'lead_tasks', ${task.id}::uuid, 'CREATE',
+          ${access.session.user.id}::uuid,
+          ${tx.json({ lead_id: leadId, assigned_to_user_id: assignedTo })}::jsonb
+        )
+      `
+    })
   } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
 
+export async function updateLeadTaskAssignee(
+  leadId: string,
+  taskId: string,
+  assignedTo: string | null,
+) {
+  const access = await requireMutableLead(leadId)
+  if (access.error || !access.session || !access.lead) return { error: access.error ?? 'Not authenticated' }
+  if (assignedTo && !(await isEligibleLeadCollaborator(assignedTo, access.lead.lead_type, access.lead.agency_id))) {
+    return { error: 'Select an active eligible task assignee' }
+  }
+
+  try {
+    await sql.begin(async tx => {
+      const [task] = await tx<{ assigned_to: string | null }[]>`
+        SELECT assigned_to
+        FROM public.lead_tasks
+        WHERE id = ${taskId}::uuid AND lead_id = ${leadId}::uuid
+        FOR UPDATE
+      `
+      if (!task) throw new Error('Task not found')
+      if (task.assigned_to === assignedTo) return
+      await tx`
+        UPDATE public.lead_tasks
+        SET assigned_to = ${assignedTo}::uuid, updated_at = ${new Date().toISOString()}
+        WHERE id = ${taskId}::uuid AND lead_id = ${leadId}::uuid
+      `
+      await tx`
+        INSERT INTO public.audit_log (
+          agency_id, table_name, record_id, action, performed_by_user_id, details
+        ) VALUES (
+          ${access.lead.agency_id}::uuid, 'lead_tasks', ${taskId}::uuid, 'ASSIGN',
+          ${access.session.user.id}::uuid,
+          ${tx.json({ lead_id: leadId, previous_assigned_to_user_id: task.assigned_to, assigned_to_user_id: assignedTo })}::jsonb
+        )
+      `
+    })
+  } catch (err: any) { return { error: err.message || 'Failed to assign task' } }
+  revalidateLeadDetail(leadId)
+  return { error: null }
+}
+
 export async function completeLeadTask(leadId: string, taskId: string) {
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
   const now = new Date().toISOString()
   try {
-    await sql`UPDATE lead_tasks SET completed_at = ${now}, updated_at = ${now} WHERE id = ${taskId}`
+    await sql`UPDATE lead_tasks SET completed_at = ${now}, updated_at = ${now} WHERE id = ${taskId} AND lead_id = ${leadId}`
   } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
 
 export async function uncompleteLeadTask(leadId: string, taskId: string) {
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
   try {
-    await sql`UPDATE lead_tasks SET completed_at = null, updated_at = ${new Date().toISOString()} WHERE id = ${taskId}`
+    await sql`UPDATE lead_tasks SET completed_at = null, updated_at = ${new Date().toISOString()} WHERE id = ${taskId} AND lead_id = ${leadId}`
   } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
 }
 
 export async function deleteLeadTask(leadId: string, taskId: string) {
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
   try {
-    await sql`DELETE FROM lead_tasks WHERE id = ${taskId}`
+    await sql`DELETE FROM lead_tasks WHERE id = ${taskId} AND lead_id = ${leadId}`
   } catch (err: any) { return { error: err.message } }
   revalidateLeadDetail(leadId)
   return { error: null }
@@ -336,6 +589,7 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
         converted_agency_id = ${agencyId},
         converted_at = ${now},
         stage = 'signed',
+        status = 'archived',
         updated_at = ${now}
       WHERE id = ${leadId}
     `
@@ -344,13 +598,15 @@ export async function convertLeadToAgency(leadId: string, agencyNameOverride?: s
   }
 
   revalidateLeadDetail(leadId)
+  revalidateLeadPaths()
   revalidatePath('/pages/admin/agencies')
   return { error: null, agencyId }
 }
 
 export async function linkLeadToExistingAgency(leadId: string, agencyId: string) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
+  if (access.session?.profile?.role !== 'admin' && access.session?.profile?.role !== 'expert') return { error: 'Forbidden' }
   const { error } = await q.linkLeadToExistingAgency(leadId, agencyId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
@@ -358,8 +614,9 @@ export async function linkLeadToExistingAgency(leadId: string, agencyId: string)
 }
 
 export async function unlinkLeadFromAgency(leadId: string) {
-  const { error: authErr } = await requirePlatformStaff()
-  if (authErr) return { error: authErr }
+  const access = await requireMutableLead(leadId)
+  if (access.error) return { error: access.error }
+  if (access.session?.profile?.role !== 'admin' && access.session?.profile?.role !== 'expert') return { error: 'Forbidden' }
   const { error } = await q.unlinkLeadFromAgency(leadId)
   if (error) return { error: error.message }
   revalidateLeadDetail(leadId)
@@ -388,6 +645,7 @@ export async function commitLeadDocumentUploadAction(input: unknown) {
   const result = await withUserContext(session.user.id, role, agencyId, async () => {
     const lead = await getManageableLead(leadId, session.user.id)
     if (!lead || lead.agency_id !== claim.agencyId) return null
+    if (leadIsConverted(lead)) return null
     const document = await insertLeadDocument({
       leadId,
       name,
@@ -424,6 +682,7 @@ export async function deleteLeadDocumentAction(leadId: string, docId: string) {
   const deleted = await withUserContext(session.user.id, role, agencyId, async () => {
     const managed = await getManageableLeadDocument(leadId, docId, session.user.id)
     if (!managed) return null
+    if (leadIsConverted(managed.lead)) return null
     const removed = await deleteLeadDocument(docId)
     if (!removed) return null
     const { error: auditError } = await q.insertAuditLog({
@@ -485,12 +744,19 @@ export async function updatePatientLeadDetailsAction(
 
   try {
     await withUserContext(session.user.id, session.profile?.role ?? '', agencyId, async () => {
-      const [lead] = await sql<{ id: string }[]>`
-        SELECT id FROM public.leads
+      const [lead] = await sql<{
+        id: string
+        converted_agency_id: string | null
+        converted_client_id: string | null
+        converted_at: string | null
+      }[]>`
+        SELECT id, converted_agency_id, converted_client_id, converted_at
+        FROM public.leads
         WHERE id = ${leadId}::uuid AND agency_id = ${agencyId}::uuid AND lead_type = 'patient'
         LIMIT 1
       `
       if (!lead) throw new Error('LEAD_NOT_FOUND')
+      if (leadIsConverted(lead)) throw new Error('LEAD_CONVERTED')
       const [upserted] = await sql<{ id: string }[]>`
         INSERT INTO public.patient_lead_details (
           lead_id, poc_name, poc_phone, poc_relationship, poc_email, start_date, updated_at
@@ -513,6 +779,7 @@ export async function updatePatientLeadDetailsAction(
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'LEAD_NOT_FOUND') return { success: false, error: 'Lead not found or not authorized' }
+    if (error instanceof Error && error.message === 'LEAD_CONVERTED') return { success: false, error: 'Converted leads are read-only' }
     return { success: false, error: 'Unable to save lead contact details' }
   }
 
@@ -573,19 +840,19 @@ export async function convertPatientLeadToClientAction(input: unknown): Promise<
       if (duplicate && !parsed.data.confirmPossibleDuplicate) {
         return { success: false, requiresDuplicateConfirmation: true, error: 'A client with the same email or phone may already exist.' }
       }
-      const [details] = await sql<{ poc_name: string | null; poc_phone: string | null; poc_relationship: string | null; poc_email: string | null; start_date: string | null }[]>`
-        SELECT poc_name, poc_phone, poc_relationship, poc_email, start_date::text
+      const [details] = await sql<{ poc_name: string | null; poc_phone: string | null; poc_relationship: string | null; poc_email: string | null }[]>`
+        SELECT poc_name, poc_phone, poc_relationship, poc_email
         FROM public.patient_lead_details WHERE lead_id = ${parsed.data.leadId}::uuid LIMIT 1
       `
       const [patient] = await sql<Array<{ id: string } & Record<string, unknown>>>`
         INSERT INTO public.patients (
           agency_id, first_name, last_name, phone_number, email_address,
           street_address, city, state, zip_code, emergency_contact_name,
-          emergency_phone, status, start_date
+          emergency_phone, status
         ) VALUES (
           ${agencyId}::uuid, ${parsed.data.firstName}, ${parsed.data.lastName}, ${phone ?? ''}, ${email ?? ''},
           ${parsed.data.streetAddress ?? ''}, ${parsed.data.city ?? ''}, ${parsed.data.state ?? ''}, ${parsed.data.zipCode ?? ''},
-          '', '', 'pending', ${details?.start_date ?? null}::date
+          '', '', 'pending'
         ) RETURNING *
       `
       if (details?.poc_name?.trim()) {
@@ -610,6 +877,7 @@ export async function convertPatientLeadToClientAction(input: unknown): Promise<
         UPDATE public.leads
         SET converted_client_id = ${patient.id}::uuid,
             converted_at = clock_timestamp(),
+            status = 'archived',
             updated_at = clock_timestamp()
         WHERE id = ${parsed.data.leadId}::uuid AND agency_id = ${agencyId}::uuid
       `
@@ -630,6 +898,7 @@ export async function convertPatientLeadToClientAction(input: unknown): Promise<
     })
     if (!outcome.success) return outcome
     revalidateLeadDetail(parsed.data.leadId)
+    revalidateLeadPaths()
     revalidatePath('/pages/agency/clients')
     return outcome
   } catch {

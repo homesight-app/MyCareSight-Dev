@@ -20,6 +20,7 @@ import {
   addLeadNote,
   deleteLeadNote,
   addLeadTask,
+  updateLeadTaskAssignee,
   completeLeadTask,
   uncompleteLeadTask,
   deleteLeadTask,
@@ -84,7 +85,10 @@ interface LeadTask {
   due_date: string | null
   completed_at: string | null
   assigned_to: string | null
+  created_by: string
   created_at: string
+  creator: { id: string; full_name: string | null } | null
+  assignee: { id: string; full_name: string | null } | null
 }
 
 interface LeadDetailContentProps {
@@ -166,6 +170,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
   // Tasks state
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
+  const [newTaskAssignee, setNewTaskAssignee] = useState(lead.lead_owner_id ?? '')
   const [addingTask, setAddingTask] = useState(false)
   const [taskError, setTaskError] = useState<string | null>(null)
   const [showCompleted, setShowCompleted] = useState(false)
@@ -193,6 +198,9 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
     key ? context.serviceTypes.find(s => s.key === key)?.label ?? key : '—'
 
   const displayName = `${lead.contact_first_name ?? ''} ${lead.contact_last_name ?? ''}`.trim() || '(No name)'
+  const isConverted = Boolean(
+    lead.converted_at && (lead.converted_agency_id || lead.converted_client_id),
+  )
 
   // ─── Stage change ──────────────────────────────────────────────
 
@@ -267,7 +275,11 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
     if (!newTaskTitle.trim()) return
     setAddingTask(true)
     setTaskError(null)
-    const result = await addLeadTask(lead.id, { title: newTaskTitle, dueDate: newTaskDueDate || null })
+    const result = await addLeadTask(lead.id, {
+      title: newTaskTitle,
+      dueDate: newTaskDueDate || null,
+      assignedTo: newTaskAssignee || null,
+    })
     setAddingTask(false)
     if (result.error) { setTaskError(result.error); return }
     setNewTaskTitle('')
@@ -286,6 +298,13 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
 
   const handleDeleteTask = async (taskId: string) => {
     await deleteLeadTask(lead.id, taskId)
+    router.refresh()
+  }
+
+  const handleTaskAssigneeChange = async (taskId: string, assignedTo: string) => {
+    setTaskError(null)
+    const result = await updateLeadTaskAssignee(lead.id, taskId, assignedTo || null)
+    if (result.error) { setTaskError(result.error); return }
     router.refresh()
   }
 
@@ -310,15 +329,26 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
             <h1 className="text-xl font-semibold text-gray-900 truncate">{displayName}</h1>
             {lead.company_name && <p className="text-sm text-gray-500">{lead.company_name}</p>}
           </div>
-          <button
-            type="button"
-            onClick={() => setEditOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            Edit
-          </button>
+          {!isConverted && (
+            <button
+              type="button"
+              onClick={() => setEditOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Edit
+            </button>
+          )}
         </div>
+
+        {isConverted && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <p className="font-medium">Converted lead — read only</p>
+            <p className="mt-0.5 text-blue-700">
+              This historical lead is locked. Manage ongoing information from the converted record.
+            </p>
+          </div>
+        )}
 
         {/* Tabs */}
         <Tabs
@@ -384,14 +414,16 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-gray-900">Lead Contact Details</h3>
-                    <button
-                      type="button"
-                      onClick={() => setEditPatientDetailsOpen(true)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      Edit
-                    </button>
+                    {!isConverted && (
+                      <button
+                        type="button"
+                        onClick={() => setEditPatientDetailsOpen(true)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Edit
+                      </button>
+                    )}
                   </div>
 
                   {/* Point of Contact */}
@@ -478,6 +510,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                       <input
                         type="date"
                         defaultValue={lead.proposal_sent_date ?? ''}
+                        disabled={isConverted}
                         onBlur={e => {
                           const val = e.target.value || null
                           if (val !== (lead.proposal_sent_date ?? null)) {
@@ -487,7 +520,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                             })
                           }
                         }}
-                        className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full"
+                        className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed"
                       />
                     </dd>
                   </dl>
@@ -504,7 +537,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   <select
                     value={lead.stage}
                     onChange={e => handleStageChange(e.target.value)}
-                    disabled={isPending}
+                    disabled={isPending || isConverted}
                     className="w-full appearance-none pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
                   >
                     {activeStages.map(s => (
@@ -517,7 +550,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'}`}>
                     {activeStages.find(s => s.key === lead.stage)?.label ?? lead.stage}
                   </span>
-                  {lead.stage === 'retainer' && (
+                  {lead.stage === 'retainer' && !isConverted && (
                     <button
                       type="button"
                       onClick={() => setCollectRetainerOpen(true)}
@@ -527,7 +560,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     </button>
                   )}
                 </div>
-                {context.billingVisible && (
+                {context.canAssign && (
                   <div className="mt-4 pt-4 border-t border-gray-100">
                     <label className="block text-xs font-medium text-gray-500 mb-1.5">Lead Owner</label>
                     <select
@@ -538,10 +571,10 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                           router.refresh()
                         })
                       }}
-                      disabled={isPending}
+                      disabled={isPending || isConverted}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
                     >
-                      <option value="">— Unassigned —</option>
+                      <option value="" disabled>— Select owner —</option>
                       {owners.map(u => (
                         <option key={u.id} value={u.id}>
                           {u.full_name ?? ''}
@@ -596,8 +629,16 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                       )}
                     </div>
                   ) : lead.converted_client_id ? (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                      <p className="text-xs font-medium text-green-700">Converted to patient</p>
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-2">
+                      <p className="text-xs font-medium text-green-700">Converted to client</p>
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/pages/agency/clients/${lead.converted_client_id}`)}
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-green-800 hover:underline"
+                      >
+                        Open client
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   ) : (
                     <div>
@@ -687,8 +728,8 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   </div>
                   <div className="flex justify-between">
                     <dt className="text-gray-500">Status</dt>
-                    <dd className={`font-medium ${lead.status === 'archived' ? 'text-gray-400' : 'text-green-600'}`}>
-                      {lead.status === 'archived' ? 'Archived' : 'Active'}
+                    <dd className={`font-medium ${lead.status === 'archived' || isConverted ? 'text-gray-400' : 'text-green-600'}`}>
+                      {lead.status === 'archived' || isConverted ? 'Archived' : 'Active'}
                     </dd>
                   </div>
                   {lead.source && (
@@ -702,7 +743,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     </div>
                   )}
                 </dl>
-                {lead.status === 'active' && (
+                {lead.status === 'active' && !isConverted && (
                   <button
                     type="button"
                     onClick={async () => { await archiveLead(lead.id); router.push(context.listPath) }}
@@ -720,9 +761,10 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
         {tab === 'notes' && (
           <div className="space-y-4">
             {/* Add note */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Note</h3>
-              <form onSubmit={handleAddNote} className="space-y-3">
+            {!isConverted && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Note</h3>
+                <form onSubmit={handleAddNote} className="space-y-3">
                 <div className="flex gap-2">
                   {NOTE_TYPES.map(nt => (
                     <button
@@ -758,8 +800,9 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     {addingNote ? 'Saving…' : 'Save Note'}
                   </Button>
                 </div>
-              </form>
-            </div>
+                </form>
+              </div>
+            )}
 
             {/* Filter + feed */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -807,13 +850,16 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                           </div>
                           <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.content}</p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteNote(note.id)}
-                          className="flex-shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors rounded"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {!isConverted && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteNote(note.id)}
+                            className="flex-shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors rounded"
+                            aria-label="Delete note"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </li>
                   ))}
@@ -827,23 +873,35 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
         {tab === 'tasks' && (
           <div className="space-y-4">
             {/* Add task */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Task</h3>
-              <form onSubmit={handleAddTask} className="flex gap-2">
+            {!isConverted && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Task</h3>
+                <form onSubmit={handleAddTask} className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_10rem_13rem_auto]">
                 <input
                   value={newTaskTitle}
                   onChange={e => setNewTaskTitle(e.target.value)}
                   placeholder="Task title…"
-                  className={`${inputCls} flex-1 min-w-0`}
+                  className={`${inputCls} min-w-0`}
                   required
                 />
                 <input
                   type="date"
                   value={newTaskDueDate}
                   onChange={e => setNewTaskDueDate(e.target.value)}
-                  className="flex-shrink-0 w-100 px-0 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none cursor-pointer"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none cursor-pointer"
                   title="Due date"
                 />
+                <select
+                  value={newTaskAssignee}
+                  onChange={e => setNewTaskAssignee(e.target.value)}
+                  className={inputCls}
+                  aria-label="Assign new task to"
+                >
+                  <option value="">Unassigned</option>
+                  {owners.map(owner => (
+                    <option key={owner.id} value={owner.id}>{owner.full_name || 'Unnamed user'}</option>
+                  ))}
+                </select>
                 <Button
                   variant="primary"
                   type="submit"
@@ -852,9 +910,10 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   loading={addingTask}
                   className="flex-shrink-0"
                 />
-              </form>
-              {taskError && <p className="mt-2 text-xs text-red-600">{taskError}</p>}
-            </div>
+                </form>
+                {taskError && <p className="mt-2 text-xs text-red-600">{taskError}</p>}
+              </div>
+            )}
 
             {/* Pending tasks */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -868,20 +927,25 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
               ) : (
                 <ul className="divide-y divide-gray-100">
                   {pendingTasks.map(task => {
-                    const overdue = isOverdue(task)
-                    const dueToday = isDueToday(task)
+                    const overdue = !isConverted && isOverdue(task)
+                    const dueToday = !isConverted && isDueToday(task)
                     return (
                       <li
                         key={task.id}
                         className={`px-5 py-3.5 flex items-center gap-3 ${overdue ? 'border-l-2 border-red-400' : dueToday ? 'border-l-2 border-orange-400' : ''}`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => handleToggleTask(task)}
-                          className="flex-shrink-0 text-gray-400 hover:text-green-600 transition-colors"
-                        >
-                          <Square className="w-4.5 h-4.5 w-[18px] h-[18px]" />
-                        </button>
+                        {isConverted ? (
+                          <Square className="w-[18px] h-[18px] flex-shrink-0 text-gray-300" aria-hidden />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTask(task)}
+                            className="flex-shrink-0 text-gray-400 hover:text-green-600 transition-colors"
+                            aria-label={`Complete task: ${task.title}`}
+                          >
+                            <Square className="w-[18px] h-[18px]" />
+                          </button>
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-gray-800">{task.title}</p>
                           {task.due_date && (
@@ -890,14 +954,34 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                               {formatDate(task.due_date)}
                             </p>
                           )}
+                          <p className="mt-0.5 text-xs text-gray-500">
+                            Assigned to {task.assignee?.full_name || 'Unassigned'}
+                            {task.creator?.full_name ? ` · Created by ${task.creator.full_name}` : ''}
+                          </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTask(task.id)}
-                          className="flex-shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors rounded"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {!isConverted && (
+                          <>
+                            <select
+                              value={task.assigned_to ?? ''}
+                              onChange={e => handleTaskAssigneeChange(task.id, e.target.value)}
+                              className="max-w-48 rounded-lg border border-gray-300 px-2 py-1.5 text-xs text-gray-700 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                              aria-label={`Assign task: ${task.title}`}
+                            >
+                              <option value="">Unassigned</option>
+                              {owners.map(owner => (
+                                <option key={owner.id} value={owner.id}>{owner.full_name || 'Unnamed user'}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="flex-shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors rounded"
+                              aria-label={`Delete task: ${task.title}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
                       </li>
                     )
                   })}
@@ -922,26 +1006,38 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                   <ul className="divide-y divide-gray-100">
                     {completedTasks.map(task => (
                       <li key={task.id} className="px-5 py-3.5 flex items-center gap-3 opacity-60">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleTask(task)}
-                          className="flex-shrink-0 text-green-500 hover:text-gray-400 transition-colors"
-                        >
-                          <CheckSquare className="w-[18px] h-[18px]" />
-                        </button>
+                        {isConverted ? (
+                          <CheckSquare className="w-[18px] h-[18px] flex-shrink-0 text-green-500" aria-hidden />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTask(task)}
+                            className="flex-shrink-0 text-green-500 hover:text-gray-400 transition-colors"
+                            aria-label={`Reopen task: ${task.title}`}
+                          >
+                            <CheckSquare className="w-[18px] h-[18px]" />
+                          </button>
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-gray-500 line-through">{task.title}</p>
                           {task.completed_at && (
                             <p className="text-xs text-gray-400 mt-0.5">Completed {relativeTime(task.completed_at)}</p>
                           )}
+                          <p className="mt-0.5 text-xs text-gray-400">
+                            Assigned to {task.assignee?.full_name || 'Unassigned'}
+                            {task.creator?.full_name ? ` · Created by ${task.creator.full_name}` : ''}
+                          </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTask(task.id)}
-                          className="flex-shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors rounded"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {!isConverted && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="flex-shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors rounded"
+                            aria-label={`Delete task: ${task.title}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -957,10 +1053,12 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
             leadId={lead.id}
             initialDocuments={documents}
             canUpload={
-              currentUserRole === 'admin'
+              !isConverted && (
+                currentUserRole === 'admin'
               || currentUserRole === 'expert'
               || currentUserRole === 'company_owner'
               || currentUserRole === 'care_coordinator'
+              )
             }
           />
         )}

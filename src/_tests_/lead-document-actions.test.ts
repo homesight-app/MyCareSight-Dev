@@ -65,11 +65,27 @@ beforeEach(() => {
     path,
     expiresAt: Date.now() + 1000,
   })
-  jest.mocked(getManageableLead).mockResolvedValue({ id: leadId, agency_id: agencyId, converted_client_id: null })
+  jest.mocked(getManageableLead).mockResolvedValue({
+    id: leadId,
+    lead_type: 'patient',
+    agency_id: agencyId,
+    lead_owner_id: null,
+    converted_agency_id: null,
+    converted_client_id: null,
+    converted_at: null,
+  })
   jest.mocked(insertLeadDocument).mockResolvedValue(document)
   jest.mocked(q.insertAuditLog).mockResolvedValue({ error: null })
   jest.mocked(getManageableLeadDocument).mockResolvedValue({
-    lead: { id: leadId, agency_id: agencyId, converted_client_id: null },
+    lead: {
+      id: leadId,
+      lead_type: 'patient',
+      agency_id: agencyId,
+      lead_owner_id: null,
+      converted_agency_id: null,
+      converted_client_id: null,
+      converted_at: null,
+    },
     document,
   })
   jest.mocked(deleteLeadDocument).mockResolvedValue({ id: documentId })
@@ -104,6 +120,30 @@ test('rejects a mismatched signed object path before writing metadata', async ()
     size: 1024,
   })
   expect(result.error).toBe('Invalid document upload')
+  expect(insertLeadDocument).not.toHaveBeenCalled()
+})
+
+test('rejects document mutations after lead conversion', async () => {
+  jest.mocked(getManageableLead).mockResolvedValue({
+    id: leadId,
+    lead_type: 'patient',
+    agency_id: agencyId,
+    lead_owner_id: null,
+    converted_agency_id: null,
+    converted_client_id: '44000000-0000-4000-8000-000000000005',
+    converted_at: '2026-11-12T12:00:00Z',
+  })
+
+  const result = await commitLeadDocumentUploadAction({
+    leadId,
+    upload: { path, cleanupToken: 'synthetic-token' },
+    name: 'Synthetic proposal',
+    originalFileName: 'synthetic.pdf',
+    documentType: null,
+    size: 1024,
+  })
+
+  expect(result.error).toBe('Could not save document metadata')
   expect(insertLeadDocument).not.toHaveBeenCalled()
 })
 

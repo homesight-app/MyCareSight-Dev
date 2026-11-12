@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import sql from '@/db'
 import { getLeadTasks } from '@/lib/supabase/query/leads'
+import { buildLeadTaskUrgencyMap } from '@/lib/lead-task-urgency'
 
 jest.mock('@/db', () => ({ __esModule: true, default: jest.fn() }))
 
@@ -40,6 +41,18 @@ describe('lead task date boundary', () => {
     expect(result.error).toBeNull()
     expect(result.data?.[0]).toMatchObject({
       due_date: null, completed_at: null, created_at: '2026-09-29T22:00:00.000Z',
+    })
+  })
+
+  it('marks due-today tasks yellow and gives overdue tasks precedence', () => {
+    expect(buildLeadTaskUrgencyMap([
+      { lead_id: 'due-today', due_date: '2026-11-12' },
+      { lead_id: 'mixed', due_date: '2026-11-12' },
+      { lead_id: 'mixed', due_date: '2026-11-11' },
+      { lead_id: 'mixed', due_date: '2026-11-12' },
+    ], '2026-11-12')).toEqual({
+      'due-today': 'today',
+      mixed: 'overdue',
     })
   })
 })

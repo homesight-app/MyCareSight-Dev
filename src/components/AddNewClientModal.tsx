@@ -180,7 +180,10 @@ export default function AddNewClientModal({ isOpen, onClose, onSuccess, mode = '
           return
         }
         if (!result.success || !result.patient) {
-          showValidationToast({ error: result.error ?? 'Unable to convert this lead.' })
+          showValidationToast({
+            error: result.error ?? (result.fieldErrors ? undefined : 'Unable to convert this lead.'),
+            fieldErrors: result.fieldErrors,
+          })
           return
         }
         showSuccessToast('Lead converted to client intake')

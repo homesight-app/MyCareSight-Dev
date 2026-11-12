@@ -33,7 +33,7 @@ export async function getLeads(
   }
 ) {
   try {
-    const archivedFrag = !opts.includeArchived ? sql`AND l.status = 'active'` : sql``
+    const archivedFrag = !opts.includeArchived ? sql`AND l.status = 'active' AND l.converted_at IS NULL` : sql``
     const agencyFrag   = opts.agencyId ? sql`AND l.agency_id = ${opts.agencyId}` : sql``
     const stageFrag    = opts.stage    ? sql`AND l.stage = ${opts.stage}`        : sql``
     const searchFrag   = opts.search?.trim()
@@ -93,12 +93,14 @@ function buildLeadFilterFragments(opts: GetLeadsPaginatedOpts) {
   if (opts.agencyId) frags.push(sql`l.agency_id = ${opts.agencyId}`)
 
   if (opts.stageFilter === 'archived') {
-    frags.push(sql`l.status = 'archived'`)
+    frags.push(sql`(l.status = 'archived' OR l.converted_at IS NOT NULL)`)
   } else if (opts.stageFilter === 'active') {
     frags.push(sql`l.status = 'active'`)
+    frags.push(sql`l.converted_at IS NULL`)
     frags.push(sql`l.stage NOT IN ('on_hold', 'unresponsive', 'lost', 'signed')`)
   } else if (opts.stageFilter && opts.stageFilter !== 'all') {
     frags.push(sql`l.status = 'active'`)
+    frags.push(sql`l.converted_at IS NULL`)
     frags.push(sql`l.stage = ${opts.stageFilter}`)
   }
   // 'all': include archived — no status filter
@@ -189,19 +191,19 @@ export async function getLeadStageCounts(
       : sql``
 
     const rows = await sql`
-      SELECT l.stage, l.status
+      SELECT l.stage, l.status, l.converted_at
       FROM leads l
       WHERE l.lead_type = ${opts.leadType}
       ${agencyFrag} ${serviceTypeFrag} ${sourceFrag} ${searchFrag}
     `
 
-    const allRows = rows as unknown as { stage: string; status: string }[]
-    const nonArchived = allRows.filter(r => r.status !== 'archived')
+    const allRows = rows as unknown as { stage: string; status: string; converted_at: string | null }[]
+    const nonArchived = allRows.filter(r => r.status !== 'archived' && !r.converted_at)
     const TERMINAL = ['on_hold', 'unresponsive', 'lost', 'signed']
     const counts: Record<string, number> = {
       all:      nonArchived.length,
       active:   nonArchived.filter(r => !TERMINAL.includes(r.stage)).length,
-      archived: allRows.filter(r => r.status === 'archived').length,
+      archived: allRows.filter(r => r.status === 'archived' || Boolean(r.converted_at)).length,
     }
     for (const r of nonArchived) {
       counts[r.stage] = (counts[r.stage] ?? 0) + 1
@@ -300,6 +302,8 @@ type LeadTaskRow = {
   completed_at: Date | string | null
   created_at: Date | string
   updated_at: Date | string
+  creator_full_name: string | null
+  assignee_full_name: string | null
 }
 
 type SerializedLeadTaskRow = Omit<LeadTaskRow, 'due_date' | 'completed_at' | 'created_at' | 'updated_at'> & {
@@ -312,16 +316,28 @@ type SerializedLeadTaskRow = Omit<LeadTaskRow, 'due_date' | 'completed_at' | 'cr
 export async function getLeadTasks(leadId: string) {
   try {
     const rows = await sql<LeadTaskRow[]>`
-      SELECT id, lead_id, created_by, assigned_to, title, due_date, completed_at, created_at, updated_at
-      FROM lead_tasks
-      WHERE lead_id = ${leadId}
-      ORDER BY completed_at ASC NULLS FIRST, due_date ASC NULLS LAST, created_at ASC
+      SELECT task.id, task.lead_id, task.created_by, task.assigned_to, task.title,
+        task.due_date, task.completed_at, task.created_at, task.updated_at,
+        creator.full_name AS creator_full_name,
+        assignee.full_name AS assignee_full_name
+      FROM lead_tasks task
+      LEFT JOIN user_profiles creator ON creator.id = task.created_by
+      LEFT JOIN user_profiles assignee ON assignee.id = task.assigned_to
+      WHERE task.lead_id = ${leadId}
+      ORDER BY task.completed_at ASC NULLS FIRST, task.due_date ASC NULLS LAST, task.created_at ASC
       LIMIT 200
     `
-    const data = normalizeDatabaseRows(rows, {
+    const normalized = normalizeDatabaseRows(rows, {
       dates: ['due_date'],
       timestamps: ['completed_at', 'created_at', 'updated_at'],
-    }) as unknown as SerializedLeadTaskRow[]
+    }) as unknown as (SerializedLeadTaskRow & { creator_full_name: string | null; assignee_full_name: string | null })[]
+    const data = normalized.map(task => ({
+      ...task,
+      creator: task.creator_full_name ? { id: task.created_by, full_name: task.creator_full_name } : null,
+      assignee: task.assigned_to && task.assignee_full_name
+        ? { id: task.assigned_to, full_name: task.assignee_full_name }
+        : null,
+    }))
     return { data, error: null }
   } catch (err) {
     return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: '', details: '', hint: '', name: 'Error' } }

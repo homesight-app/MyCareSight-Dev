@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { leadFormSchema, type LeadFormData } from '@/lib/schemas/lead'
 import { type LeadContext, LEAD_STAGES, type AgencyLeadStage } from '@/lib/constants/lead-configs'
-import { createLead, getAdminLeadOwnerOptionsAction, updateLead, updatePatientLeadDetailsAction } from '@/app/actions/leads'
+import { createLead, getLeadCollaboratorOptionsAction, updateLead, updatePatientLeadDetailsAction } from '@/app/actions/leads'
 import { getActiveAgencyOptionsAction } from '@/app/actions/agencies'
 import { getAgencyLeadStagesAction } from '@/app/actions/agency-lead-stages'
 import { getPeopleForAgency } from '@/app/actions/agency-people'
@@ -175,9 +175,12 @@ export default function AddLeadModal({
   }, [isOpen, editLead, reset])
 
   useEffect(() => {
-    if (!isOpen || !context.billingVisible || owners.length > 0) return
-    getAdminLeadOwnerOptionsAction().then(({ data }) => setOwners(data ?? []))
-  }, [isOpen, context.billingVisible, owners.length])
+    if (!isOpen || !context.canAssign) return
+    getLeadCollaboratorOptionsAction().then(({ data, currentUserId }) => {
+      setOwners(data ?? [])
+      if (!editLead && currentUserId) setValue('leadOwnerId', currentUserId)
+    })
+  }, [isOpen, context.canAssign, editLead, setValue])
 
   useEffect(() => {
     if (!isOpen || context.leadType !== 'patient' || !context.agencyId) return
@@ -281,7 +284,7 @@ export default function AddLeadModal({
         notes: data.notes || null,
         source: data.source || null,
         convertedAgencyId,
-        leadOwnerId: context.billingVisible ? (data.leadOwnerId || null) : undefined,
+        leadOwnerId: context.canAssign ? (data.leadOwnerId || null) : undefined,
         serviceStates: serviceStates.length > 0 ? serviceStates : null,
       })
       if (result.error) { showValidationToast({ error: result.error }); return }
@@ -307,7 +310,7 @@ export default function AddLeadModal({
         signedDate: context.billingVisible ? dateOrNull(data.signedDate ?? '') : null,
         notes: data.notes || undefined,
         convertedAgencyId,
-        leadOwnerId: context.billingVisible ? (data.leadOwnerId || null) : null,
+        leadOwnerId: context.canAssign ? (data.leadOwnerId || null) : null,
         serviceStates: serviceStates.length > 0 ? serviceStates : null,
       })
       if (result.error) { showValidationToast({ error: result.error }); return }
@@ -531,11 +534,11 @@ export default function AddLeadModal({
               ))}
             </select>
           </div>
-          {context.billingVisible && (
+          {context.canAssign && (
             <div>
-              <label className={labelCls}>Lead Owner</label>
+              <label className={labelCls}>Lead Owner <span className="text-red-500">*</span></label>
               <select className={inputCls} {...register('leadOwnerId')}>
-                <option value="">— Unassigned —</option>
+                <option value="">— Select owner —</option>
                 {owners.map(u => (
                   <option key={u.id} value={u.id}>{u.full_name ?? ''}</option>
                 ))}

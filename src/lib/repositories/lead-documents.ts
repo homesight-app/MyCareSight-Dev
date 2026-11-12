@@ -13,13 +13,18 @@ export type LeadDocumentRecord = {
 
 export type ManageableLead = {
   id: string
+  lead_type: 'agency' | 'patient'
   agency_id: string | null
+  lead_owner_id: string | null
+  converted_agency_id: string | null
   converted_client_id: string | null
+  converted_at: string | null
 }
 
 export async function getManageableLead(leadId: string, actorId: string) {
   const rows = await sql<ManageableLead[]>`
-    SELECT lead.id, lead.agency_id, lead.converted_client_id
+    SELECT lead.id, lead.lead_type, lead.agency_id, lead.lead_owner_id, lead.converted_agency_id,
+      lead.converted_client_id, lead.converted_at
     FROM public.leads lead
     JOIN public.user_profiles actor
       ON actor.id = ${actorId}::uuid AND actor.is_active = true

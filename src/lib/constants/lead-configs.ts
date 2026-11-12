@@ -89,6 +89,6 @@ export const AGENCY_LEAD_CONTEXT: LeadContext = {
   conversionLabel: 'Convert to Client',
   conversionAction: 'patient',
   billingVisible: false,
-  canAssign: false,
+  canAssign: true,
   hipaaProtected: true,
 }

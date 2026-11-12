@@ -6,6 +6,7 @@ import LeadDetailContent from '@/components/LeadDetailContent'
 import { AGENCY_LEAD_CONTEXT, type LeadContext } from '@/lib/constants/lead-configs'
 import type { ComponentProps } from 'react'
 import { withUserContext } from '@/db'
+import { getLeadCollaboratorOptionsAction } from '@/app/actions/leads'
 
 type LeadDetailProps = ComponentProps<typeof LeadDetailContent>
 
@@ -40,6 +41,7 @@ export default async function AgencyLeadDetailPage({
   const context: LeadContext = { ...AGENCY_LEAD_CONTEXT, agencyId }
   const agencyStages = (agencyStagesResult.data ?? []) as import('@/lib/constants/lead-configs').AgencyLeadStage[]
   const patientDetails = patientDetailsResult.data ?? null
+  const { data: collaborators } = await getLeadCollaboratorOptionsAction()
 
   return (
     <LeadDetailContent
@@ -49,6 +51,7 @@ export default async function AgencyLeadDetailPage({
       documents={(documents ?? []) as unknown as LeadDetailProps['documents']}
       context={context}
       currentUserRole={session!.profile?.role}
+      platformStaff={collaborators ?? []}
       stages={agencyStages}
       patientDetails={patientDetails as unknown as LeadDetailProps['patientDetails']}
     />

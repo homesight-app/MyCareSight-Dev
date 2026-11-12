@@ -139,6 +139,25 @@
         "production",
         "environment-base"
       ]
+    },
+    {
+      "id": "045",
+      "name": "lead-ownership-and-task-assignment",
+      "file": "045-lead-ownership-and-task-assignment.sql",
+      "verifier": "045-verify-lead-ownership-and-task-assignment.sql",
+      "checksumSha256": "d5131cd00881ffb3f9eb49b426053ced13df35aab29e986396f2ee0582c86f7a",
+      "transactional": true,
+      "verifierExpectations": {
+        "allBooleansTrue": true,
+        "zeroColumns": []
+      },
+      "environments": [
+        "development",
+        "uat",
+        "production-staging",
+        "production",
+        "environment-base"
+      ]
     }
   ]
 }

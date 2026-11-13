@@ -158,6 +158,25 @@
         "production",
         "environment-base"
       ]
+    },
+    {
+      "id": "046",
+      "name": "manager-visit-edit-history",
+      "file": "046-manager-visit-edit-history.sql",
+      "verifier": "046-verify-manager-visit-edit-history.sql",
+      "checksumSha256": "ba5ed920219b93b3b32ef8320d341576d6a0f9a3369307f7368ecbb0f7fc9fae",
+      "transactional": true,
+      "verifierExpectations": {
+        "allBooleansTrue": true,
+        "zeroColumns": []
+      },
+      "environments": [
+        "development",
+        "uat",
+        "production-staging",
+        "production",
+        "environment-base"
+      ]
     }
   ]
 }

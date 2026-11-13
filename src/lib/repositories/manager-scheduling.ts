@@ -34,6 +34,23 @@ async function requireVisit(actor:{agencyId:string},visitId:string){
   if(!row)throw new SchedulingError('Visit not found in your agency.')
   return row
 }
+async function assertNoVisitEvidence(actor:{agencyId:string},visitIds:string[]){
+  const clean=Array.from(new Set(visitIds.filter(Boolean)))
+  if(clean.length===0)return
+  const [linked]=await sql<{has_links:boolean}[]>`SELECT
+    EXISTS(SELECT 1 FROM public.visit_time_entries
+      WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=ANY(${clean}::uuid[]))
+    OR EXISTS(SELECT 1 FROM public.visit_approvals
+      WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=ANY(${clean}::uuid[]))
+    OR EXISTS(SELECT 1 FROM public.visit_financials
+      WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=ANY(${clean}::uuid[]))
+    OR EXISTS(SELECT 1 FROM public.visit_corrections
+      WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=ANY(${clean}::uuid[]))
+    OR EXISTS(SELECT 1 FROM public.internal_notes
+      WHERE agency_id=${actor.agencyId}::uuid AND subject_type='visit' AND subject_id=ANY(${clean}::uuid[]))
+    AS has_links`
+  if(linked?.has_links)throw new SchedulingError('Visits with time, billing, correction, or note evidence cannot be deleted.')
+}
 async function validateLinks(actor:{agencyId:string},patientId:string,input:{
   caregiver_id?:string|null;contract_id?:string|null;patient_address_id?:string|null
 }){
@@ -219,7 +236,10 @@ export async function managerUpdateRecurringSchedules(input:Parameters<typeof sc
 export async function managerDeleteSchedule(id:string){
   if(!scheduleIdSchema.safeParse(id).success)return {data:null,error:new Error('Invalid visit.')}
   try{return await withCareOperationsManager(async actor=>{const visit=await requireVisit(actor,id)
-    if(visit.status==='completed')throw new SchedulingError('Completed visits require an audited correction before removal.')
+    if(!['scheduled','unassigned','on_hold'].includes(visit.status)){
+      throw new SchedulingError('Historical or active visits cannot be deleted. Use the audited status workflow instead.')
+    }
+    await assertNoVisitEvidence(actor,[id])
     const result=ensure(await schedules.deleteSchedule(id));await audit(actor,id,'DELETE','delete_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
@@ -251,11 +271,7 @@ export async function managerDeleteRecurringSchedule(input:unknown):Promise<{del
       throw new SchedulingError('Completed, missed, cancelled, or active visits require an individual correction.')
     }
     const ids=candidates.map(row=>row.id)
-    const [linked]=await sql<{has_links:boolean}[]>`SELECT
-      EXISTS(SELECT 1 FROM public.visit_time_entries WHERE scheduled_visit_id=ANY(${ids}::uuid[]))
-      OR EXISTS(SELECT 1 FROM public.visit_approvals WHERE scheduled_visit_id=ANY(${ids}::uuid[]))
-      OR EXISTS(SELECT 1 FROM public.visit_financials WHERE scheduled_visit_id=ANY(${ids}::uuid[])) AS has_links`
-    if(linked?.has_links)throw new SchedulingError('Visits with time or billing records require an audited correction.')
+    await assertNoVisitEvidence(actor,ids)
 
     const changed=await sql<{id:string}[]>`UPDATE public.scheduled_visits SET status='voided',
       status_reason='Removed from recurring series',updated_at=now()

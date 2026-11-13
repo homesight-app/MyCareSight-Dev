@@ -20,6 +20,26 @@ jest.mock('@/app/actions/visit-candidates', () => ({
 jest.mock('@/app/actions/visit-corrections', () => ({
   correctVisitAction: jest.fn(), readVisitCorrectionHistoryAction: jest.fn(() => Promise.resolve({ data: [] })),
 }))
+jest.mock('@/app/actions/manager-visit-edit', () => ({
+  readManagerVisitEditAction: jest.fn((scheduledVisitId: string) => Promise.resolve({ data: {
+    scheduledVisitId,
+    updatedAt: '2099-10-01T12:00:00.000Z',
+    visitDate: '2099-10-28',
+    scheduledEndDate: '2099-10-28',
+    scheduledStartTime: '09:00',
+    scheduledEndTime: '10:00',
+    caregiverMemberId: null,
+    status: 'scheduled',
+    visitTimezone: 'America/Los_Angeles',
+    actualStartAt: null,
+    actualEndAt: null,
+    billableHours: 0,
+    timeSource: 'none',
+    financialStatus: null,
+    caregivers: [{ id: 'caregiver-1', name: 'Caregiver Example' }],
+  } })),
+  updateManagerVisitAction: jest.fn(() => Promise.resolve({ success: true })),
+}))
 jest.mock('@/components/Modal', () => ({
   __esModule: true,
   default: ({ isOpen, title, onClose, children }: { isOpen: boolean; title: string; onClose: () => void; children: React.ReactNode }) =>
@@ -72,73 +92,49 @@ test('patient-first button opens the existing details view', async () => {
   expect(screen.getByRole('tabpanel', { name: 'History' })).toHaveTextContent('No corrections recorded.')
 })
 
-test('visit actions live in the header menu and respect assignment state', async () => {
+test('manager actions use one edit mode instead of a competing action menu', async () => {
   renderList(visit('unassigned'))
   expect(screen.queryByRole('button', { name: /Actions for Synthetic Client/i })).not.toBeInTheDocument()
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: /View visit details for Synthetic Client/i })) })
   expect(screen.getByRole('dialog', { name: 'Visit Details' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Visit actions' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Edit Visit' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Advertise Shift' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Cancel Visit' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Close visit details' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /^Close$/ })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Visit actions' }))
-  expect(screen.getByRole('menuitem', { name: 'Assign Caregiver' })).toBeInTheDocument()
-  expect(screen.queryByRole('menuitem', { name: 'Unassign' })).not.toBeInTheDocument()
-  expect(screen.getByRole('menuitem', { name: 'Place On Hold' })).toBeInTheDocument()
-  expect(screen.getByRole('menuitem', { name: 'Mark as Missed' })).toBeInTheDocument()
-  expect(screen.getByRole('menuitem', { name: 'Cancel Visit' })).toBeInTheDocument()
-  fireEvent.keyDown(document, { key: 'Escape' })
-  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Visit' }))
+  expect(screen.getByRole('dialog', { name: 'Edit Visit' })).toBeInTheDocument()
+  expect(screen.getByLabelText(/Visit location time zone/i)).toHaveValue('America/Los_Angeles')
+  expect(screen.getByText(/edits only this visit occurrence/i)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
   expect(screen.getByRole('dialog', { name: 'Visit Details' })).toBeInTheDocument()
 })
 
-test('the drawer closes on Escape and assignment opens the existing modal', async () => {
+test('cancellation stays stacked and returns to the same visit details', async () => {
   renderList(visit('unassigned'))
-  const trigger = screen.getByRole('button', { name: /View visit details for Synthetic Client/i })
-  await act(async () => { fireEvent.click(trigger) })
-  fireEvent.keyDown(document, { key: 'Escape' })
-  expect(screen.queryByRole('dialog', { name: 'Visit Details' })).not.toBeInTheDocument()
-  await act(async () => { fireEvent.click(trigger) })
-  fireEvent.click(screen.getByRole('button', { name: 'Visit actions' }))
-  await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Assign Caregiver' })) })
-  expect(screen.getByRole('dialog', { name: 'Assign Caregiver' })).toBeInTheDocument()
-  expect(screen.getByText('Visit Details').closest('[role="dialog"]')).toHaveAttribute('aria-hidden', 'true')
-  fireEvent.click(screen.getByRole('dialog', { name: 'Assign Caregiver' }).querySelector('button[aria-label="Close modal"]')!)
-  expect(screen.getByRole('dialog', { name: 'Visit Details' })).toBeInTheDocument()
-})
-
-test('status actions open their existing reason dialog', async () => {
-  renderList(visit('scheduled', 'Caregiver Example'))
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: /View visit details for Synthetic Client/i })) })
-  fireEvent.click(screen.getByRole('button', { name: 'Visit actions' }))
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Mark as Missed' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel Visit' }))
   expect(screen.getByText('Visit Details').closest('[role="dialog"]')).toHaveAttribute('aria-hidden', 'true')
-  expect(screen.getByRole('dialog', { name: 'Mark Visit as Missed' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /^Cancel$/ }))
-  expect(screen.getByRole('dialog', { name: 'Visit Details' })).toBeInTheDocument()
-})
-
-test('canceling Place On Hold returns to the same visit details', async () => {
-  renderList(visit('scheduled', 'Caregiver Example'))
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: /View visit details for Synthetic Client/i })) })
-  fireEvent.click(screen.getByRole('button', { name: 'Visit actions' }))
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Place On Hold' }))
-  expect(screen.getByRole('dialog', { name: 'Put Visit On Hold' })).toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: 'Cancel Visit' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Confirm Cancellation' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Back' }))
   expect(screen.getByRole('dialog', { name: 'Visit Details' })).toBeInTheDocument()
-  expect(screen.getByRole('tabpanel', { name: 'Overview' })).toHaveTextContent('Caregiver Example')
 })
 
-test('completed visits offer correction without scheduling changes', async () => {
+test('completed visits use the same single-visit editor without cancellation', async () => {
   renderList({ ...visit('completed', 'Caregiver Example'), statusLabel: 'Completed' })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: /View visit details for Synthetic Client/i })) })
-  fireEvent.click(screen.getByRole('button', { name: 'Visit actions' }))
-  expect(screen.getByRole('menuitem', { name: 'Correct Visit' })).toBeInTheDocument()
-  expect(screen.queryByRole('menuitem', { name: /Assign Caregiver|Mark as Missed|Cancel Visit/i })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Edit Visit' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Cancel Visit' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Visit actions' })).not.toBeInTheDocument()
 })
 
 test('a viewer does not see manager visit actions', async () => {
   renderList(visit('scheduled', 'Caregiver Example'), false)
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: /View visit details for Synthetic Client/i })) })
-  expect(screen.queryByRole('button', { name: 'Visit actions' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Edit Visit' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Cancel Visit' })).not.toBeInTheDocument()
   expect(screen.queryByRole('tab', { name: 'History' })).not.toBeInTheDocument()
 })
 

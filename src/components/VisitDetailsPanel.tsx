@@ -8,17 +8,7 @@ import type { AllVisitCardDTO } from '@/lib/visit-all-visits-dashboard'
 import type { VisitCorrectionHistoryItem } from '@/lib/repositories/visit-corrections'
 import type { VisitStatus } from '@/lib/visit-status'
 import { formatVisitTimeRangeLabel } from '@/lib/visit-time-display'
-
-export type VisitDetailsActions = {
-  onAssign?: () => void
-  onAdvertise?: () => void
-  onUnassign?: () => void
-  onMiss?: () => void
-  onHold?: () => void
-  onCancel?: () => void
-  onReinstate?: () => void
-  onCorrect?: () => void
-}
+import type { ManagerVisitEditSnapshot } from '@/lib/schemas/manager-visit-edit'
 
 type Props = {
   visit: AllVisitCardDTO
@@ -27,6 +17,7 @@ type Props = {
   canSeeHistory?: boolean
   correctionHistory?: VisitCorrectionHistoryItem[]
   correctionHistoryLoading?: boolean
+  operationalSnapshot?: ManagerVisitEditSnapshot | null
 }
 
 function statusPresentation(status: VisitStatus) {
@@ -49,7 +40,7 @@ function displayDate(date: string) {
 
 export default function VisitDetailsPanel({
   visit, canManageNotes, agencyId, canSeeHistory,
-  correctionHistory = [], correctionHistoryLoading = false,
+  correctionHistory = [], correctionHistoryLoading = false, operationalSnapshot,
 }: Props) {
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'notes' | 'history'>('overview')
   const taskLabel = visit.adlTasks.join(', ') || 'No care tasks listed'
@@ -89,6 +80,11 @@ export default function VisitDetailsPanel({
           <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Date</dt><dd className="text-gray-900">{displayDate(visit.date)}</dd></div>
           <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Time</dt><dd className="text-gray-900">{formatVisitTimeRangeLabel(visit.timeLabel)}</dd></div>
           <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2 py-2"><dt className="text-gray-500">Location</dt><dd className="text-gray-900">{visit.locationLabel}</dd></div>
+          {operationalSnapshot?.actualStartAt ? <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2 py-2"><dt className="text-gray-500">Recorded time</dt><dd className="text-gray-900">
+            {new Date(operationalSnapshot.actualStartAt).toLocaleString(undefined, operationalSnapshot.visitTimezone ? { timeZone: operationalSnapshot.visitTimezone } : undefined)} {operationalSnapshot.actualEndAt ? `– ${new Date(operationalSnapshot.actualEndAt).toLocaleString(undefined, operationalSnapshot.visitTimezone ? { timeZone: operationalSnapshot.visitTimezone } : undefined)}` : '– In progress'}
+            <div className="mt-0.5 text-[11px] text-gray-500">{operationalSnapshot.timeSource === 'caregiver' ? 'Caregiver clock record' : operationalSnapshot.timeSource === 'manager_adjusted' ? 'Manager adjusted' : 'Manager entered'}</div>
+          </dd></div> : null}
+          {operationalSnapshot?.financialStatus ? <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Time &amp; Billing</dt><dd className="capitalize text-gray-900">{operationalSnapshot.financialStatus}</dd></div> : null}
         </dl>
       </div> : null}
 
@@ -106,8 +102,8 @@ export default function VisitDetailsPanel({
         {correctionHistoryLoading ? <p className="text-sm text-gray-500">Loading history...</p>
           : correctionHistory.length === 0 ? <p className="text-sm text-gray-500">No corrections recorded.</p>
             : <ol className="space-y-3">{correctionHistory.map(item => <li key={item.id} className="rounded-lg border border-gray-200 p-3 text-sm">
-              <div className="font-medium text-gray-900">{item.previousStatus} → {item.correctedStatus}</div>
-              <div className="text-xs text-gray-500">{new Date(item.createdAt).toLocaleString()} · Changed by user {item.correctedByUserId}</div>
+              <div className="font-medium text-gray-900">{item.changeType === 'manager_manual_time' ? 'Manager recorded or adjusted time' : `${item.previousStatus} → ${item.correctedStatus}`}</div>
+              <div className="text-xs text-gray-500">{new Date(item.createdAt).toLocaleString()} · {item.correctedByName}</div>
               <p className="mt-2 whitespace-pre-wrap text-gray-700">{item.reason}</p>
               {item.actualStartTime && item.actualEndTime ? <p className="mt-1 text-xs text-gray-600">Manually verified: {new Date(item.actualStartTime).toLocaleString()} – {new Date(item.actualEndTime).toLocaleString()}</p> : null}
             </li>)}</ol>}

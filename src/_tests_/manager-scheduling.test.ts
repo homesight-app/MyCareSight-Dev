@@ -10,6 +10,7 @@ import {
   managerReplaceSchedules,
   managerUpdateRecurringSchedules,
   managerUpdateSchedule,
+  managerDeleteSchedule,
   managerDeleteRecurringSchedule,
 } from '@/lib/repositories/manager-scheduling'
 
@@ -63,9 +64,11 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
   CREATE TABLE scheduled_visits(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid,visit_series_id uuid,status text,
     caregiver_member_id uuid,visit_date date,scheduled_start_time time,scheduled_end_time time,scheduled_end_date date,
     status_reason text,updated_at timestamptz);
-  CREATE TABLE visit_time_entries(scheduled_visit_id uuid);
-  CREATE TABLE visit_approvals(scheduled_visit_id uuid);
-  CREATE TABLE visit_financials(scheduled_visit_id uuid);
+  CREATE TABLE visit_time_entries(scheduled_visit_id uuid,agency_id uuid);
+  CREATE TABLE visit_approvals(scheduled_visit_id uuid,agency_id uuid);
+  CREATE TABLE visit_financials(scheduled_visit_id uuid,agency_id uuid);
+  CREATE TABLE visit_corrections(scheduled_visit_id uuid,agency_id uuid);
+  CREATE TABLE internal_notes(subject_type text,subject_id uuid,agency_id uuid);
   CREATE TABLE caregiver_availability_slots(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),caregiver_member_id uuid,
     agency_id uuid,label text,is_recurring boolean,start_time time,end_time time,repeat_frequency text,
     days_of_week integer[],repeat_start date,repeat_end date,specific_date date);
@@ -157,6 +160,19 @@ test('completed visits cannot be changed or replaced through ordinary scheduling
   expect((await db.query<{status:string}>('SELECT status FROM scheduled_visits WHERE id=$1',[VISIT])).rows[0].status).toBe('completed')
 })
 
+test('historical single visits cannot be physically deleted',async()=>{
+  await db.exec(`UPDATE scheduled_visits SET status='missed' WHERE id='${VISIT}'`)
+  expect((await managerDeleteSchedule(VISIT)).error?.message).toMatch(/audited status workflow/i)
+  expect(scheduleQueries.deleteSchedule).not.toHaveBeenCalled()
+})
+
+test('single visits with agency note evidence cannot be physically deleted',async()=>{
+  await db.exec(`INSERT INTO internal_notes(subject_type,subject_id,agency_id)
+    VALUES('visit','${VISIT}','${AGENCY}')`)
+  expect((await managerDeleteSchedule(VISIT)).error?.message).toMatch(/note evidence/i)
+  expect(scheduleQueries.deleteSchedule).not.toHaveBeenCalled()
+})
+
 test('replacement rolls back deletions when a later insert fails',async()=>{
   let calls=0
   jest.mocked(scheduleQueries.deleteSchedule).mockImplementation(async visitId=>{
@@ -217,9 +233,9 @@ test('removing this and future recurring visits preserves earlier visits and can
 })
 
 test('time records block recurring deletion without changing any visit or series',async()=>{
-  await db.exec(`INSERT INTO visit_time_entries VALUES('${VISIT}')`)
+  await db.exec(`INSERT INTO visit_time_entries(scheduled_visit_id,agency_id) VALUES('${VISIT}','${AGENCY}')`)
   const result=await managerDeleteRecurringSchedule({seed_schedule_id:VISIT,scope:'this_and_future'})
-  expect(result.error?.message).toMatch(/time or billing/i)
+  expect(result.error?.message).toMatch(/time.*billing/i)
   expect((await db.query<{status:string}>('SELECT status FROM scheduled_visits WHERE id=$1',[VISIT])).rows[0].status).toBe('scheduled')
   expect((await db.query<{status:string}>('SELECT status FROM visit_series WHERE id=$1',[SERIES])).rows[0].status).toBe('active')
   expect((await db.query('SELECT 1 FROM audit_log')).rows).toHaveLength(0)

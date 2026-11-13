@@ -112,6 +112,7 @@ When production migration planning is authorized, record evidence for:
 - `038`â€“`041`: controlled migration ledger and runner prerequisites, scoped session revocation, Development/UAT-only synthetic caregiver-skill approval, and the data-preserving production-safe caregiver qualification policy set.
 - `042`: convergent production-staging/Production canonical reference seed with staging-only license, pricing, plan, tenant, authentication, and operational data excluded.
 - `043`: agency-scoped lead document RLS and converted-client lookup support; preserve each lead-document record and private Blob exactly once, retain the lead relationship, and validate the converted client belongs to the same agency.
+- `046`: append-only single-visit manager edit history plus an explicit IANA visit-location time zone for manager-entered clock records. Preserve caregiver-originated clock evidence separately from adjusted times; retain the manager accuracy attestation; snapshot previous/current rate, amount, approved-hour, and financial-status decisions; migrate the nullable time-zone field before matching application code; and verify approved Time & Billing records cannot be silently rewritten or visits with clinical/financial evidence physically deleted.
 
 Update this register whenever a new migration, provider-boundary change, or application data contract changes what a future production import must create, transform, exclude, or verify.
 

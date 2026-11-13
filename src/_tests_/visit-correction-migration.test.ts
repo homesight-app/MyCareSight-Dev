@@ -121,3 +121,28 @@ test('032 permits coordinator corrections only within the actor agency', async (
   await expect(asApp('care_coordinator', AGENCY,
     'DELETE FROM public.visit_corrections')).rejects.toThrow()
 })
+
+test('046 adds timezone-safe manager edit history while preserving forced append-only RLS', async () => {
+  await db.exec(`
+    CREATE TABLE public.visit_time_entries(id uuid PRIMARY KEY,
+      adjusted_start_time timestamptz,adjusted_end_time timestamptz,
+      actual_hours numeric,billable_hours numeric,adjustment_comment text,
+      clock_in_time timestamptz,clock_out_time timestamptz);
+    CREATE TABLE public.internal_notes(id uuid PRIMARY KEY);
+    CREATE TABLE public.visit_adjustment_history(id uuid PRIMARY KEY);
+    REVOKE ALL ON public.scheduled_visits,public.visit_time_entries FROM mycaresight_app;
+    REVOKE ALL ON public.visit_adjustment_history FROM mycaresight_app;
+    GRANT SELECT ON public.scheduled_visits,public.visit_time_entries TO mycaresight_app;
+  `)
+  await db.exec(readFileSync(join(process.cwd(),
+    'scripts/migrations/046-manager-visit-edit-history.sql'), 'utf8'))
+  const verification = await db.exec(readFileSync(join(process.cwd(),
+    'scripts/migrations/046-verify-manager-visit-edit-history.sql'), 'utf8'))
+  const row = verification.flatMap(result => result.rows)[0] as Record<string, unknown>
+  expect(Object.values(row).every(Boolean)).toBe(true)
+
+  await db.exec(`UPDATE public.scheduled_visits
+    SET visit_timezone='America/New_York' WHERE id='${VISIT}'`)
+  await expect(db.exec(`UPDATE public.scheduled_visits
+    SET visit_timezone='US/Eastern' WHERE id='${VISIT}'`)).rejects.toThrow()
+})

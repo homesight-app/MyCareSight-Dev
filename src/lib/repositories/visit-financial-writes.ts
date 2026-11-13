@@ -130,10 +130,16 @@ export async function decideTimeBillingVisit(input:TimeBillingDecisionInput):Pro
         const billAmount=round2(calcAmount(data.billableHours,Number(frozenBill),billUnit))
         const [history]=await sql<{id:string}[]>`INSERT INTO public.visit_adjustment_history
           (agency_id,visit_time_entry_id,changed_by_user_id,reason,previous_actual_hours,current_actual_hours,
-           previous_billable_hours,current_billable_hours,note)
+           previous_billable_hours,current_billable_hours,note,
+           previous_pay_rate,current_pay_rate,previous_bill_rate,current_bill_rate,
+           previous_pay_amount,current_pay_amount,previous_bill_amount,current_bill_amount,
+           previous_financial_status,current_financial_status)
           VALUES(${visit.agency_id}::uuid,${entry.id}::uuid,${actor.id}::uuid,
             ${financial?'coordinator_time_billing_update':'coordinator_time_billing_initial'},${previousActual},${data.actualHours},
-            ${previousBillable},${data.billableHours},${data.note||null}) RETURNING id`
+            ${previousBillable},${data.billableHours},${data.note||null},
+            ${financial?.pay_rate ?? null},${frozenPay},${financial?.bill_rate ?? null},${frozenBill},
+            ${financial?.pay_amount ?? null},${payAmount},${financial?.bill_amount ?? null},${billAmount},
+            ${financial?.status ?? null},'approved') RETURNING id`
         const [savedApproval]=await sql<{id:string}[]>`INSERT INTO public.visit_approvals
           (agency_id,scheduled_visit_id,visit_time_entry_id,patient_id,caregiver_member_id,approved_by_user_id,
            approval_status,approved_actual_hours,approved_billable_hours,approval_comment,pay_rate,bill_rate,approved_at)
@@ -174,9 +180,16 @@ export async function decideTimeBillingVisit(input:TimeBillingDecisionInput):Pro
         const previousBill=Number(financial?.bill_rate??approval?.bill_rate??0)
         const [history]=await sql<{id:string}[]>`INSERT INTO public.visit_adjustment_history
           (agency_id,visit_time_entry_id,changed_by_user_id,reason,previous_actual_hours,current_actual_hours,
-           previous_billable_hours,current_billable_hours,note)
+           previous_billable_hours,current_billable_hours,note,
+           previous_pay_rate,current_pay_rate,previous_bill_rate,current_bill_rate,
+           previous_pay_amount,current_pay_amount,previous_bill_amount,current_bill_amount,
+           previous_financial_status,current_financial_status)
           VALUES(${visit.agency_id}::uuid,${entry.id}::uuid,${actor.id}::uuid,'coordinator_void_billing',
-            ${previousActual},NULL,${previousBillable},NULL,${data.note||null}) RETURNING id`
+            ${previousActual},NULL,${previousBillable},NULL,${data.note||null},
+            ${previousPay},${previousPay},${previousBill},${previousBill},
+            ${financial?.pay_amount ?? null},${financial?.pay_amount ?? null},
+            ${financial?.bill_amount ?? null},${financial?.bill_amount ?? null},
+            ${financial?.status ?? null},'voided') RETURNING id`
         const [savedApproval]=await sql<{id:string}[]>`INSERT INTO public.visit_approvals
           (agency_id,scheduled_visit_id,visit_time_entry_id,patient_id,caregiver_member_id,approved_by_user_id,
            approval_status,approved_actual_hours,approved_billable_hours,approval_comment,pay_rate,bill_rate,approved_at)

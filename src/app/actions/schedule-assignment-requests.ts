@@ -264,7 +264,8 @@ export async function markScheduleCancelledAction(
   const session = await getSession()
   if (!session?.user?.id) return { error: 'You must be signed in.' }
   if (!isAgencyManagerRole(session.profile?.role)) return { error: 'You do not have permission to perform this action.' }
-  const trimmedReason = reason.trim() || null
+  const trimmedReason = reason.trim()
+  if (trimmedReason.length < 10) return { error: 'Explain the cancellation in at least 10 characters.' }
   const { data, error } = await managerUpdateSchedule(scheduleId, {
     status: 'cancelled',
     status_reason: trimmedReason,

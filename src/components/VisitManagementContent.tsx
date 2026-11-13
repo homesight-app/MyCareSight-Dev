@@ -415,6 +415,25 @@ export default function VisitManagementContent({
     void runAction(`cancel:${id}`, () => markScheduleCancelledAction(id, reason))
   }
 
+  const loadVisitEditor = async (visitId: string, requestId: number, enterEdit = false) => {
+    setVisitEditLoading(true)
+    try {
+      const result = await readManagerVisitEditAction(visitId)
+      if (requestId !== correctionHistoryRequestRef.current) return
+      if (result.data) {
+        setVisitEditSnapshot(result.data)
+        if (enterEdit) setVisitDetailsMode('edit')
+      }
+      if (result.error) toast.error(result.error)
+    } catch {
+      if (requestId === correctionHistoryRequestRef.current) {
+        toast.error('Unable to load the visit editor. Please try again.')
+      }
+    } finally {
+      if (requestId === correctionHistoryRequestRef.current) setVisitEditLoading(false)
+    }
+  }
+
   const openVisitDetails = (visit: AllVisitCardDTO) => {
     const requestId = ++correctionHistoryRequestRef.current
     setDetailVisit(visit)
@@ -423,15 +442,7 @@ export default function VisitManagementContent({
     setCorrectionHistory([])
     if (!canCorrectVisits) return
     setCorrectionHistoryLoading(true)
-    setVisitEditLoading(true)
-    void readManagerVisitEditAction(visit.id).then(result => {
-      if (requestId !== correctionHistoryRequestRef.current) return
-      if (result.data) setVisitEditSnapshot(result.data)
-      if (result.error) toast.error(result.error)
-      setVisitEditLoading(false)
-    }).catch(() => {
-      if (requestId === correctionHistoryRequestRef.current) setVisitEditLoading(false)
-    })
+    void loadVisitEditor(visit.id, requestId)
     void readVisitCorrectionHistoryAction(visit.id).then(result => {
       if (requestId !== correctionHistoryRequestRef.current) return
       if (result.data) setCorrectionHistory(result.data)
@@ -980,8 +991,13 @@ export default function VisitManagementContent({
 
       <VisitDetailsDrawer isOpen={!!detailVisit} onClose={closeVisitDetails} visit={detailVisit}
         mode={visitDetailsMode}
-        canEdit={!!canCorrectVisits && !!visitEditSnapshot && !visitEditLoading}
-        onEdit={() => setVisitDetailsMode('edit')}
+        canEdit={!!canCorrectVisits}
+        editLoading={visitEditLoading}
+        onEdit={() => {
+          if (!detailVisit || visitEditLoading) return
+          if (visitEditSnapshot) setVisitDetailsMode('edit')
+          else void loadVisitEditor(detailVisit.id, correctionHistoryRequestRef.current, true)
+        }}
         onDiscardEdit={() => setVisitDetailsMode('view')}
         editFormId="manager-visit-edit-form"
         saving={visitEditSaving}

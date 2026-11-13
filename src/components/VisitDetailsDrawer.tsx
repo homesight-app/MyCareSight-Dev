@@ -18,6 +18,7 @@ type Props = {
   onAdvertiseVisit?: () => void
   canAdvertiseVisit?: boolean
   editFormId?: string
+  editLoading?: boolean
   saving?: boolean
   actionDialogOpen?: boolean
   children: ReactNode
@@ -27,6 +28,7 @@ type Props = {
 export default function VisitDetailsDrawer({
   isOpen, onClose, mode = 'view', canEdit = false, onEdit, onDiscardEdit,
   onCancelVisit, canCancelVisit = false, editFormId, saving = false,
+  editLoading = false,
   onAdvertiseVisit, canAdvertiseVisit = false,
   actionDialogOpen = false, children,
 }: Props) {
@@ -89,7 +91,8 @@ export default function VisitDetailsDrawer({
       <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-5 py-3">
         <h2 id={headingId} className="text-base font-semibold text-gray-950">{mode === 'edit' ? 'Edit Visit' : 'Visit Details'}</h2>
         <div className="flex items-center gap-1">
-          {mode === 'view' && canEdit && onEdit ? <Button type="button" variant="secondary" size="sm" icon={Pencil} onClick={onEdit} data-visit-primary-action>
+          {mode === 'view' && canEdit && onEdit ? <Button type="button" variant="secondary" size="sm" icon={Pencil} onClick={onEdit}
+            loading={editLoading} data-visit-primary-action>
             Edit Visit
           </Button> : null}
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Close visit details"

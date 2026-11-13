@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import VisitManagementContent from '@/components/VisitManagementContent'
+import { readManagerVisitEditAction } from '@/app/actions/manager-visit-edit'
 import type { AllVisitCardDTO } from '@/lib/visit-all-visits-dashboard'
 import { addCalendarDays, todayPacificDate } from '@/lib/pct-week-horizon'
 
@@ -109,6 +110,18 @@ test('manager actions use one edit mode instead of a competing action menu', asy
   expect(screen.getByText(/edits only this visit occurrence/i)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
   expect(screen.getByRole('dialog', { name: 'Visit Details' })).toBeInTheDocument()
+})
+
+test('authorized manager retains a retryable Edit action when the initial editor read fails', async () => {
+  jest.mocked(readManagerVisitEditAction).mockClear()
+  jest.mocked(readManagerVisitEditAction).mockResolvedValueOnce({ data: null, error: 'Editor temporarily unavailable.' })
+  renderList(visit('unassigned'))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: /View visit details for Synthetic Client/i })) })
+  const editButton = screen.getByRole('button', { name: 'Edit Visit' })
+  expect(editButton).toBeEnabled()
+  await act(async () => { fireEvent.click(editButton) })
+  expect(screen.getByRole('dialog', { name: 'Edit Visit' })).toBeInTheDocument()
+  expect(readManagerVisitEditAction).toHaveBeenCalledTimes(2)
 })
 
 test('cancellation stays stacked and returns to the same visit details', async () => {

@@ -59,8 +59,21 @@ SELECT
     AND has_column_privilege('mycaresight_app','public.visit_time_entries','adjusted_start_time','UPDATE')
     AND has_column_privilege('mycaresight_app','public.visit_time_entries','adjusted_end_time','UPDATE')
     AS runtime_can_write_manager_adjusted_time,
-  NOT has_column_privilege('mycaresight_app','public.visit_time_entries','clock_in_time','UPDATE')
-    AND NOT has_column_privilege('mycaresight_app','public.visit_time_entries','clock_out_time','UPDATE')
+  EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid='public.visit_time_entries'::regclass
+      AND tgname='visit_time_entries_protect_caregiver_evidence'
+      AND tgenabled='O' AND NOT tgisinternal
+  )
+    AND EXISTS (
+      SELECT 1 FROM pg_proc
+      WHERE oid=to_regprocedure('public.protect_visit_time_entry_caregiver_evidence()')
+        AND NOT prosecdef
+        AND pg_get_functiondef(oid) LIKE '%caregiver_can_execute_visit%'
+    )
+    AND has_column_privilege('mycaresight_app','public.visit_time_entries','clock_in_time','UPDATE')
+    AND has_column_privilege('mycaresight_app','public.visit_time_entries','clock_out_time','UPDATE')
+    AND NOT has_table_privilege('mycaresight_app','public.visit_time_entries','UPDATE')
     AS caregiver_clock_evidence_remains_protected,
   has_column_privilege('mycaresight_app','public.visit_adjustment_history','previous_pay_rate','INSERT')
     AND has_column_privilege('mycaresight_app','public.visit_adjustment_history','current_bill_amount','INSERT')

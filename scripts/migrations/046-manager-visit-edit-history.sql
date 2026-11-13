@@ -8,7 +8,8 @@ DO $migration$
 BEGIN
   IF to_regclass('public.visit_corrections') IS NULL
      OR to_regclass('public.visit_time_entries') IS NULL
-     OR to_regclass('public.internal_notes') IS NULL THEN
+     OR to_regclass('public.internal_notes') IS NULL
+     OR to_regprocedure('public.caregiver_can_execute_visit(uuid,uuid)') IS NULL THEN
     RAISE EXCEPTION '046 requires visit correction, time entry, and internal note foundations';
   END IF;
 END
@@ -100,8 +101,50 @@ COMMENT ON COLUMN public.visit_corrections.care_verified IS
 COMMENT ON COLUMN public.visit_adjustment_history.previous_financial_status IS
   'Append-only financial decision snapshot; protected as sensitive operational and billing evidence.';
 
--- Migration 014 and 011 intentionally use column-level least-privilege grants.
--- Extend only the columns required by this workflow; caregiver clock fields stay excluded.
+-- Caregivers and managers share the restricted runtime role. Column grants therefore cannot
+-- distinguish caregiver-originated clock evidence from manager adjustments. Enforce that
+-- distinction with actor context while allowing managers to write only the adjusted fields.
+CREATE OR REPLACE FUNCTION public.protect_visit_time_entry_caregiver_evidence()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public
+AS $function$
+DECLARE
+  raw_evidence_changed boolean;
+BEGIN
+  raw_evidence_changed := CASE WHEN TG_OP = 'INSERT' THEN
+    NEW.clock_in_time IS NOT NULL OR NEW.clock_out_time IS NOT NULL
+      OR NEW.clock_in_latitude IS NOT NULL OR NEW.clock_in_longitude IS NOT NULL
+      OR NEW.clock_out_latitude IS NOT NULL OR NEW.clock_out_longitude IS NOT NULL
+  ELSE
+    NEW.clock_in_time IS DISTINCT FROM OLD.clock_in_time
+      OR NEW.clock_out_time IS DISTINCT FROM OLD.clock_out_time
+      OR NEW.clock_in_latitude IS DISTINCT FROM OLD.clock_in_latitude
+      OR NEW.clock_in_longitude IS DISTINCT FROM OLD.clock_in_longitude
+      OR NEW.clock_out_latitude IS DISTINCT FROM OLD.clock_out_latitude
+      OR NEW.clock_out_longitude IS DISTINCT FROM OLD.clock_out_longitude
+  END;
+
+  IF raw_evidence_changed
+     AND NOT public.caregiver_can_execute_visit(NEW.agency_id, NEW.caregiver_member_id) THEN
+    RAISE EXCEPTION 'Caregiver clock evidence can only be recorded by the assigned caregiver'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION public.protect_visit_time_entry_caregiver_evidence() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS visit_time_entries_protect_caregiver_evidence
+  ON public.visit_time_entries;
+CREATE TRIGGER visit_time_entries_protect_caregiver_evidence
+BEFORE INSERT OR UPDATE ON public.visit_time_entries
+FOR EACH ROW EXECUTE FUNCTION public.protect_visit_time_entry_caregiver_evidence();
+
+-- Migration 010 and 011 intentionally use column-level least-privilege grants. Raw clock
+-- columns remain available to caregivers and are actor-protected by the trigger above.
 GRANT UPDATE (visit_timezone) ON public.scheduled_visits TO mycaresight_app;
 GRANT INSERT (adjusted_start_time, adjusted_end_time, actual_hours, billable_hours, adjustment_comment)
   ON public.visit_time_entries TO mycaresight_app;

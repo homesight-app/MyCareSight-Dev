@@ -164,7 +164,7 @@
       "name": "manager-visit-edit-history",
       "file": "046-manager-visit-edit-history.sql",
       "verifier": "046-verify-manager-visit-edit-history.sql",
-      "checksumSha256": "ba5ed920219b93b3b32ef8320d341576d6a0f9a3369307f7368ecbb0f7fc9fae",
+      "checksumSha256": "52eaa7928db13112e624fda62526618396752e884feca96bd6ca6ccd1ba0c1e8",
       "transactional": true,
       "verifierExpectations": {
         "allBooleansTrue": true,

@@ -1,4 +1,3 @@
-import zipcodes from 'zipcodes'
 import sql from '@/db'
 import * as q from '@/lib/supabase/query'
 import type { ScheduleRow } from '@/lib/supabase/query/schedules'
@@ -6,7 +5,7 @@ import { patientFullName } from '@/lib/patient-name'
 import { managerGetSchedulesByAgencyAndRange } from '@/lib/repositories/manager-scheduling'
 import { visitStatusFromScheduleRow, visitStatusLabel, type VisitStatus } from '@/lib/visit-status'
 import { decodeVisitTaskCodes, extractVisitTaskToken, isUuidToken } from '@/lib/visit-task-codes'
-import { normalizeUsZipForLookup } from '@/lib/us-postal-code'
+import { visitLocationLabel } from '@/lib/visit-location-label'
 
 export type { VisitStatus } from '@/lib/visit-status'
 
@@ -61,10 +60,6 @@ type PatientRow = {
   id: string
   first_name?: string | null
   last_name?: string | null
-  zip_code?: string | null
-  state?: string | null
-  city?: string | null
-  street_address?: string | null
 }
 
 type StaffRow = {
@@ -100,18 +95,6 @@ function visitTitleFromSchedule(s: ScheduleRow): string {
   const d = (s.description ?? '').trim()
   if (d) return d.length > 80 ? `${d.slice(0, 77)}...` : d
   return 'Care visit'
-}
-
-function patientLocationLabel(patient: PatientRow): string {
-  const z = normalizeUsZipForLookup(patient.zip_code)
-  if (z) {
-    const loc = zipcodes.lookup(z)
-    if (loc?.city && loc?.state) return `${loc.city}, ${loc.state}`
-  }
-  if (patient.city && patient.state) return `${patient.city}, ${patient.state}`
-  if (patient.state) return String(patient.state)
-  if (patient.street_address) return String(patient.street_address).split(',')[0]?.trim() || '-'
-  return '-'
 }
 
 function typeLabel(s: ScheduleRow): string {
@@ -156,7 +139,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
   const visitIds = schedules.map(schedule => schedule.id)
   const [patientsData, reqResult, offerRows, correctionRows] = await Promise.all([
     sql<PatientRow[]>`
-      SELECT id, first_name, last_name, zip_code, state, city, street_address
+      SELECT id, first_name, last_name
       FROM patients WHERE id = ANY(${patientIds}::uuid[])
     `,
     q.getCaregiverRequirementsByPatientIds(patientIds),
@@ -250,7 +233,7 @@ export async function fetchAllVisitsDashboardData(agencyId: string | null): Prom
       typeLabel: typeLabel(s),
       clientId: s.patient_id,
       clientName: patient ? patientFullName(patient as { first_name: string; last_name: string }) : 'Client',
-      locationLabel: patient ? patientLocationLabel(patient) : '-',
+      locationLabel: visitLocationLabel(s),
       caregiverId: s.caregiver_id,
       caregiverName: currentCaregiver ? [currentCaregiver.first_name, currentCaregiver.last_name].filter(Boolean).join(' ') : null,
       adlTasks: decodeVisitTaskCodes(s.adl_codes, taskNameById),

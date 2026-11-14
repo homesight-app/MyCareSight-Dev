@@ -3,6 +3,7 @@ import 'server-only'
 import sql from '@/db'
 import { withCareOperationsManager } from '@/lib/repositories/visit-financial-reads'
 import * as schedules from '@/lib/supabase/query/schedules'
+import { resolveVisitTimezoneFromZip } from '@/lib/visit-location-timezone'
 import {
   recurringScheduleCreateSchema,
   recurringScheduleUpdateSchema,
@@ -29,10 +30,41 @@ async function requirePatient(actor:{agencyId:string},patientId:string){
   if(!row)throw new SchedulingError('Patient not found in your agency.')
 }
 async function requireVisit(actor:{agencyId:string},visitId:string){
-  const [row]=await sql<{id:string;patient_id:string;visit_series_id:string|null;caregiver_member_id:string|null;status:string;visit_date:string}[]>`SELECT id,patient_id,visit_series_id,caregiver_member_id,status,visit_date
+  const [row]=await sql<{id:string;patient_id:string;visit_series_id:string|null;caregiver_member_id:string|null;status:string;visit_date:string;patient_address_id:string|null}[]>`SELECT id,patient_id,visit_series_id,caregiver_member_id,status,visit_date,patient_address_id
     FROM public.scheduled_visits WHERE id=${visitId}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`
   if(!row)throw new SchedulingError('Visit not found in your agency.')
   return row
+}
+async function resolveScheduleTimezone(actor:{agencyId:string},patientId:string,addressId?:string|null){
+  const [address]=addressId
+    ? await sql<{zip_code:string}[]>`SELECT zip_code FROM public.patient_addresses
+        WHERE id=${addressId}::uuid AND agency_id=${actor.agencyId}::uuid AND patient_id=${patientId}::uuid`
+    : await sql<{zip_code:string}[]>`SELECT zip_code FROM public.patient_addresses
+        WHERE agency_id=${actor.agencyId}::uuid AND patient_id=${patientId}::uuid
+        ORDER BY is_primary DESC,created_at ASC LIMIT 1`
+  return address?resolveVisitTimezoneFromZip(address.zip_code):null
+}
+async function applyScheduleTimezone(actor:{agencyId:string},visitIds:string[],timezone:string|null){
+  if(!timezone||visitIds.length===0)return
+  await sql`UPDATE public.scheduled_visits SET visit_timezone=${timezone},updated_at=now()
+    WHERE agency_id=${actor.agencyId}::uuid AND id=ANY(${visitIds}::uuid[])`
+}
+async function assertNoVisitEvidence(actor:{agencyId:string},visitIds:string[]){
+  const clean=Array.from(new Set(visitIds.filter(Boolean)))
+  if(clean.length===0)return
+  const [linked]=await sql<{has_links:boolean}[]>`SELECT
+    EXISTS(SELECT 1 FROM public.visit_time_entries
+      WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=ANY(${clean}::uuid[]))
+    OR EXISTS(SELECT 1 FROM public.visit_approvals
+      WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=ANY(${clean}::uuid[]))
+    OR EXISTS(SELECT 1 FROM public.visit_financials
+      WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=ANY(${clean}::uuid[]))
+    OR EXISTS(SELECT 1 FROM public.visit_corrections
+      WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=ANY(${clean}::uuid[]))
+    OR EXISTS(SELECT 1 FROM public.internal_notes
+      WHERE agency_id=${actor.agencyId}::uuid AND subject_type='visit' AND subject_id=ANY(${clean}::uuid[]))
+    AS has_links`
+  if(linked?.has_links)throw new SchedulingError('Visits with time, billing, correction, or note evidence cannot be deleted.')
 }
 async function validateLinks(actor:{agencyId:string},patientId:string,input:{
   caregiver_id?:string|null;contract_id?:string|null;patient_address_id?:string|null
@@ -139,13 +171,15 @@ export async function managerGetSchedulesByIds(ids:string[]){
 export async function managerInsertSchedule(input:Parameters<typeof schedules.insertSchedule>[0]){
   const parsed=scheduleCreateSchema.safeParse(input);if(!parsed.success)return {data:null,error:new Error(parsed.error.issues[0]?.message??'Invalid schedule.')}
   try{return await withCareOperationsManager(async actor=>{await requirePatient(actor,parsed.data.patient_id);await validateLinks(actor,parsed.data.patient_id,parsed.data)
-    const result=ensure(await schedules.insertSchedule(parsed.data));if(result.data?.id)await assertAssignmentIntegrity(actor,[result.data.id]);await audit(actor,result.data?.id??null,'INSERT','create_schedule');return result})
+    const timezone=await resolveScheduleTimezone(actor,parsed.data.patient_id,parsed.data.patient_address_id)
+    const result=ensure(await schedules.insertSchedule(parsed.data));if(result.data?.id){await applyScheduleTimezone(actor,[result.data.id],timezone);await assertAssignmentIntegrity(actor,[result.data.id])}await audit(actor,result.data?.id??null,'INSERT','create_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 export async function managerInsertRecurringSchedules(input:Parameters<typeof schedules.insertRecurringSchedulesFromSeries>[0]){
   const parsed=recurringScheduleCreateSchema.safeParse(input);if(!parsed.success)return {data:null,error:new Error(parsed.error.issues[0]?.message??'Invalid recurring schedule.')}
   try{return await withCareOperationsManager(async actor=>{await requirePatient(actor,parsed.data.patient_id);await validateLinks(actor,parsed.data.patient_id,parsed.data)
-    const result=ensure(await schedules.insertRecurringSchedulesFromSeries(parsed.data));await assertAssignmentIntegrity(actor,(result.data??[]).map(row=>row.id));await audit(actor,null,'INSERT','create_recurring_schedules',result.data?.length??0);return result})
+    const timezone=await resolveScheduleTimezone(actor,parsed.data.patient_id,parsed.data.patient_address_id)
+    const result=ensure(await schedules.insertRecurringSchedulesFromSeries(parsed.data));const ids=(result.data??[]).map(row=>row.id);await applyScheduleTimezone(actor,ids,timezone);await assertAssignmentIntegrity(actor,ids);await audit(actor,null,'INSERT','create_recurring_schedules',result.data?.length??0);return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 
@@ -172,10 +206,11 @@ export async function managerReplaceSchedules(input:ScheduleReplacementInput){
     if(parsed.data.kind==='recurring'){
       const result=ensure(await schedules.insertRecurringSchedulesFromSeries(parsed.data.visit))
       createdIds=(result.data??[]).map(row=>row.id)
+      await applyScheduleTimezone(actor,createdIds,await resolveScheduleTimezone(actor,patientId,parsed.data.visit.patient_address_id))
     }else{
       for(const visit of parsed.data.visits){
         const result=ensure(await schedules.insertSchedule(visit))
-        if(result.data?.id)createdIds.push(result.data.id)
+        if(result.data?.id){createdIds.push(result.data.id);await applyScheduleTimezone(actor,[result.data.id],await resolveScheduleTimezone(actor,patientId,visit.patient_address_id))}
       }
     }
     await assertPatientScheduleIntegrity(actor,patientId,createdIds)
@@ -219,7 +254,10 @@ export async function managerUpdateRecurringSchedules(input:Parameters<typeof sc
 export async function managerDeleteSchedule(id:string){
   if(!scheduleIdSchema.safeParse(id).success)return {data:null,error:new Error('Invalid visit.')}
   try{return await withCareOperationsManager(async actor=>{const visit=await requireVisit(actor,id)
-    if(visit.status==='completed')throw new SchedulingError('Completed visits require an audited correction before removal.')
+    if(!['scheduled','unassigned','on_hold'].includes(visit.status)){
+      throw new SchedulingError('Historical or active visits cannot be deleted. Use the audited status workflow instead.')
+    }
+    await assertNoVisitEvidence(actor,[id])
     const result=ensure(await schedules.deleteSchedule(id));await audit(actor,id,'DELETE','delete_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
@@ -251,11 +289,7 @@ export async function managerDeleteRecurringSchedule(input:unknown):Promise<{del
       throw new SchedulingError('Completed, missed, cancelled, or active visits require an individual correction.')
     }
     const ids=candidates.map(row=>row.id)
-    const [linked]=await sql<{has_links:boolean}[]>`SELECT
-      EXISTS(SELECT 1 FROM public.visit_time_entries WHERE scheduled_visit_id=ANY(${ids}::uuid[]))
-      OR EXISTS(SELECT 1 FROM public.visit_approvals WHERE scheduled_visit_id=ANY(${ids}::uuid[]))
-      OR EXISTS(SELECT 1 FROM public.visit_financials WHERE scheduled_visit_id=ANY(${ids}::uuid[])) AS has_links`
-    if(linked?.has_links)throw new SchedulingError('Visits with time or billing records require an audited correction.')
+    await assertNoVisitEvidence(actor,ids)
 
     const changed=await sql<{id:string}[]>`UPDATE public.scheduled_visits SET status='voided',
       status_reason='Removed from recurring series',updated_at=now()

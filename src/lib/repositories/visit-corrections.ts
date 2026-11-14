@@ -27,6 +27,7 @@ type Approval = { id: string; approval_status: string }
 
 export type VisitCorrectionHistoryItem = {
   id: string
+  changeType: string
   previousStatus: string
   correctedStatus: string
   reason: string
@@ -35,6 +36,7 @@ export type VisitCorrectionHistoryItem = {
   actualHours: number | null
   billableHours: number | null
   correctedByUserId: string
+  correctedByName: string
   createdAt: string
 }
 
@@ -118,10 +120,10 @@ export async function correctVisit(input: VisitCorrectionInput): Promise<{ ok?: 
 
         const [correction] = await sql<{id:string}[]>`
           INSERT INTO public.visit_corrections
-            (agency_id,scheduled_visit_id,corrected_by_user_id,previous_status,corrected_status,
+            (agency_id,scheduled_visit_id,corrected_by_user_id,care_verified,previous_status,corrected_status,
              reason,previous_caregiver_member_id,corrected_caregiver_member_id,
              actual_start_time,actual_end_time,actual_hours,billable_hours,previous_financial_status)
-          VALUES (${actor.agencyId}::uuid,${visit.id}::uuid,${actor.id}::uuid,'missed','completed',
+          VALUES (${actor.agencyId}::uuid,${visit.id}::uuid,${actor.id}::uuid,true,'missed','completed',
             ${data.reason},${visit.caregiver_member_id}::uuid,${caregiver.id}::uuid,
             ${data.actualStartAt}::timestamptz,${data.actualEndAt}::timestamptz,
             ${actualHours},${data.billableHours},${financial?.status ?? null}) RETURNING id`
@@ -197,20 +199,24 @@ export async function readVisitCorrectionHistory(scheduledVisitId: string): Prom
         WHERE id=${scheduledVisitId}::uuid AND agency_id=${actor.agencyId}::uuid`
       if (!visit) throw new CorrectionError('Visit not found in your agency.')
       const rows = await sql<{
-        id:string;previous_status:string;corrected_status:string;reason:string;
+        id:string;change_type:string;previous_status:string;corrected_status:string;reason:string;
         actual_start_time:string|null;actual_end_time:string|null;actual_hours:number|null;
-        billable_hours:number|null;corrected_by_user_id:string;created_at:string
-      }[]>`SELECT id,previous_status,corrected_status,reason,actual_start_time,actual_end_time,
-        actual_hours,billable_hours,corrected_by_user_id,created_at
-        FROM public.visit_corrections
-        WHERE agency_id=${actor.agencyId}::uuid AND scheduled_visit_id=${visit.id}::uuid
-        ORDER BY created_at DESC,id DESC`
+        billable_hours:number|null;corrected_by_user_id:string;corrected_by_name:string;created_at:string
+      }[]>`SELECT correction.id,correction.change_type,correction.previous_status,correction.corrected_status,
+        correction.reason,correction.actual_start_time,correction.actual_end_time,
+        correction.actual_hours,correction.billable_hours,correction.corrected_by_user_id,
+        COALESCE(profile.full_name,'Authorized manager') AS corrected_by_name,correction.created_at
+        FROM public.visit_corrections correction
+        LEFT JOIN public.user_profiles profile ON profile.id=correction.corrected_by_user_id
+        WHERE correction.agency_id=${actor.agencyId}::uuid AND correction.scheduled_visit_id=${visit.id}::uuid
+        ORDER BY correction.created_at DESC,correction.id DESC`
       await sql`INSERT INTO public.audit_log
         (agency_id,table_name,record_id,action,performed_by_user_id,details)
         VALUES (${actor.agencyId}::uuid,'visit_corrections',${visit.id}::uuid,'READ',${actor.id}::uuid,
           ${JSON.stringify({ operation: 'read_visit_correction_history', result_count: rows.length })}::jsonb)`
       return rows.map(row => ({
         id: row.id,
+        changeType: row.change_type,
         previousStatus: row.previous_status,
         correctedStatus: row.corrected_status,
         reason: row.reason,
@@ -219,6 +225,7 @@ export async function readVisitCorrectionHistory(scheduledVisitId: string): Prom
         actualHours: row.actual_hours === null ? null : Number(row.actual_hours),
         billableHours: row.billable_hours === null ? null : Number(row.billable_hours),
         correctedByUserId: row.corrected_by_user_id,
+        correctedByName: row.corrected_by_name,
         createdAt: row.created_at,
       }))
     })

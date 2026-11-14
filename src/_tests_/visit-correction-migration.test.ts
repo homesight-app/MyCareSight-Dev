@@ -27,9 +27,15 @@ beforeAll(async () => {
         SELECT target::text = current_setting('app.current_agency_id',true)
           AND current_setting('app.current_user_role',true) IN ('company_owner','care_coordinator')
       $$;
+    CREATE FUNCTION public.caregiver_can_execute_visit(target_agency uuid,target_caregiver uuid)
+      RETURNS boolean LANGUAGE sql STABLE AS $$
+        SELECT target_agency::text = current_setting('app.current_agency_id',true)
+          AND current_setting('app.current_user_role',true) = 'staff_member'
+      $$;
     GRANT USAGE ON SCHEMA public TO mycaresight_app;
     GRANT SELECT ON public.scheduled_visits TO mycaresight_app;
     GRANT EXECUTE ON FUNCTION public.visit_financial_manager_can_read(uuid) TO mycaresight_app;
+    GRANT EXECUTE ON FUNCTION public.caregiver_can_execute_visit(uuid,uuid) TO mycaresight_app;
   `)
   await db.exec(readFileSync(join(process.cwd(), 'scripts/migrations/030-visit-correction-history.sql'), 'utf8'))
 }, 60000)
@@ -120,4 +126,41 @@ test('032 permits coordinator corrections only within the actor agency', async (
     'SELECT id FROM public.visit_corrections')).rows).toHaveLength(0)
   await expect(asApp('care_coordinator', AGENCY,
     'DELETE FROM public.visit_corrections')).rejects.toThrow()
+})
+
+test('046 adds timezone-safe manager edit history while preserving forced append-only RLS', async () => {
+  await db.exec(`
+    CREATE TABLE public.visit_time_entries(id uuid PRIMARY KEY,agency_id uuid,caregiver_member_id uuid,
+      adjusted_start_time timestamptz,adjusted_end_time timestamptz,
+      actual_hours numeric,billable_hours numeric,adjustment_comment text,
+      clock_in_time timestamptz,clock_out_time timestamptz,
+      clock_in_latitude double precision,clock_in_longitude double precision,
+      clock_out_latitude double precision,clock_out_longitude double precision);
+    CREATE TABLE public.internal_notes(id uuid PRIMARY KEY);
+    CREATE TABLE public.visit_adjustment_history(id uuid PRIMARY KEY);
+    REVOKE ALL ON public.scheduled_visits,public.visit_time_entries FROM mycaresight_app;
+    REVOKE ALL ON public.visit_adjustment_history FROM mycaresight_app;
+    GRANT SELECT ON public.scheduled_visits,public.visit_time_entries TO mycaresight_app;
+    GRANT UPDATE (clock_in_time,clock_out_time) ON public.visit_time_entries TO mycaresight_app;
+  `)
+  await db.exec(readFileSync(join(process.cwd(),
+    'scripts/migrations/046-manager-visit-edit-history.sql'), 'utf8'))
+  const verification = await db.exec(readFileSync(join(process.cwd(),
+    'scripts/migrations/046-verify-manager-visit-edit-history.sql'), 'utf8'))
+  const row = verification.flatMap(result => result.rows)[0] as Record<string, unknown>
+  expect(Object.values(row).every(Boolean)).toBe(true)
+
+  await db.exec(`INSERT INTO public.visit_time_entries(id,agency_id,caregiver_member_id)
+    VALUES ('90000000-0000-4000-8000-000000000005','${AGENCY}','90000000-0000-4000-8000-000000000006')`)
+  await expect(asApp('company_owner', AGENCY, `UPDATE public.visit_time_entries
+    SET clock_in_time='2099-10-28T16:00:00Z' WHERE id='90000000-0000-4000-8000-000000000005'`))
+    .rejects.toThrow(/assigned caregiver/i)
+  await expect(asApp('staff_member', AGENCY, `UPDATE public.visit_time_entries
+    SET clock_in_time='2099-10-28T16:00:00Z' WHERE id='90000000-0000-4000-8000-000000000005'`))
+    .resolves.toBeDefined()
+
+  await db.exec(`UPDATE public.scheduled_visits
+    SET visit_timezone='America/New_York' WHERE id='${VISIT}'`)
+  await expect(db.exec(`UPDATE public.scheduled_visits
+    SET visit_timezone='US/Eastern' WHERE id='${VISIT}'`)).rejects.toThrow()
 })

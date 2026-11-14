@@ -86,17 +86,24 @@ beforeEach(async () => {
       scheduled_visit_id uuid UNIQUE,visit_time_entry_id uuid,visit_approval_id uuid,patient_id uuid,
       caregiver_member_id uuid,contract_id uuid,billing_code_id uuid,service_type text,status text,approved_actual_hours numeric,
       approved_billable_hours numeric,calculation_basis jsonb,pay_rate numeric,pay_unit_type text,
-      pay_amount numeric,bill_rate numeric,bill_unit_type text,bill_amount numeric,updated_at timestamptz DEFAULT now());
+      pay_amount numeric,bill_rate numeric,bill_unit_type text,bill_amount numeric,coordinator_note text,
+      updated_at timestamptz DEFAULT now());
     CREATE TABLE public.visit_approvals(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),agency_id uuid,
-      scheduled_visit_id uuid,visit_time_entry_id uuid UNIQUE,approval_status text,pay_rate numeric,bill_rate numeric);
-    CREATE TABLE public.visit_adjustment_history(agency_id uuid,visit_time_entry_id uuid,
+      scheduled_visit_id uuid,visit_time_entry_id uuid UNIQUE,patient_id uuid,caregiver_member_id uuid,
+      approved_by_user_id uuid,approval_status text,approved_actual_hours numeric,approved_billable_hours numeric,
+      approval_comment text,pay_rate numeric,bill_rate numeric,approved_at timestamptz,updated_at timestamptz DEFAULT now());
+    CREATE TABLE public.visit_adjustment_history(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),agency_id uuid,visit_time_entry_id uuid,
       changed_by_user_id uuid,reason text,previous_actual_hours numeric,current_actual_hours numeric,
-      previous_billable_hours numeric,current_billable_hours numeric,note text);
+      previous_billable_hours numeric,current_billable_hours numeric,note text,
+      previous_pay_rate numeric,current_pay_rate numeric,previous_bill_rate numeric,current_bill_rate numeric,
+      previous_pay_amount numeric,current_pay_amount numeric,previous_bill_amount numeric,current_bill_amount numeric,
+      previous_financial_status text,current_financial_status text);
     CREATE TABLE public.visit_corrections(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),agency_id uuid,
       scheduled_visit_id uuid,corrected_by_user_id uuid,previous_status text,corrected_status text,
       reason text,previous_caregiver_member_id uuid,corrected_caregiver_member_id uuid,
       actual_start_time timestamptz,actual_end_time timestamptz,actual_hours numeric,
-      billable_hours numeric,previous_financial_status text,created_at timestamptz DEFAULT now());
+      billable_hours numeric,previous_financial_status text,care_verified boolean NOT NULL DEFAULT false,
+      created_at timestamptz DEFAULT now());
     CREATE TABLE public.audit_log(agency_id uuid,table_name text,record_id uuid,action text,
       performed_by_user_id uuid,details jsonb);
     INSERT INTO public.user_profiles VALUES ('${USER}','company_owner','${AGENCY}',true);
@@ -212,4 +219,51 @@ test('Time & Billing does not approve a pending record with no caregiver pay rat
       VALUES ('${id(7)}','${AGENCY}','${VISIT}','${id(8)}','pending',0,'hour',0,0,'hour',0);`)
   expect((await decideTimeBillingVisit(approvalInput)).error).toMatch(/caregiver pay rate/i)
   expect((await db.query<{status:string}>('SELECT status FROM visit_financials')).rows[0].status).toBe('pending')
+})
+
+test('Time & Billing preserves immutable rate and amount snapshots for approval and void', async () => {
+  const entryId = id(8)
+  const financialId = id(7)
+  const contractId = id(9)
+  await db.exec(`UPDATE scheduled_visits SET status='completed',caregiver_member_id='${CAREGIVER}';
+    INSERT INTO caregiver_pay_rates(caregiver_member_id,pay_rate,unit_type,service_type,agency_id,effective_start)
+      VALUES ('${CAREGIVER}',20,'hour','non_skilled','${AGENCY}','2026-01-01');
+    INSERT INTO patient_service_contracts(id,agency_id,patient_id,bill_rate,bill_unit_type,service_type,
+      contract_type,status,effective_date)
+      VALUES ('${contractId}','${AGENCY}','${PATIENT}',40,'hour','non_skilled','billing','active','2026-01-01');
+    INSERT INTO visit_time_entries(id,agency_id,scheduled_visit_id,patient_id,caregiver_member_id,
+      actual_hours,billable_hours,entry_status)
+      VALUES ('${entryId}','${AGENCY}','${VISIT}','${PATIENT}','${CAREGIVER}',4,4,'pending_review');
+    INSERT INTO visit_financials(id,agency_id,scheduled_visit_id,visit_time_entry_id,patient_id,
+      caregiver_member_id,status,pay_rate,pay_unit_type,pay_amount,bill_rate,bill_unit_type,bill_amount)
+      VALUES ('${financialId}','${AGENCY}','${VISIT}','${entryId}','${PATIENT}','${CAREGIVER}',
+        'pending',0,'hour',0,0,'hour',0);`)
+
+  expect(await decideTimeBillingVisit(approvalInput)).toEqual({ ok: true })
+  const approved = await db.query<{
+    previous_pay_rate:number;current_pay_rate:number;previous_bill_rate:number;current_bill_rate:number;
+    current_pay_amount:number;current_bill_amount:number;previous_financial_status:string;current_financial_status:string
+  }>(`SELECT previous_pay_rate,current_pay_rate,previous_bill_rate,current_bill_rate,
+    current_pay_amount,current_bill_amount,previous_financial_status,current_financial_status
+    FROM visit_adjustment_history WHERE current_financial_status='approved' LIMIT 1`)
+  expect({
+    ...approved.rows[0],
+    previous_pay_rate: Number(approved.rows[0].previous_pay_rate),
+    current_pay_rate: Number(approved.rows[0].current_pay_rate),
+    previous_bill_rate: Number(approved.rows[0].previous_bill_rate),
+    current_bill_rate: Number(approved.rows[0].current_bill_rate),
+    current_pay_amount: Number(approved.rows[0].current_pay_amount),
+    current_bill_amount: Number(approved.rows[0].current_bill_amount),
+  }).toMatchObject({
+    previous_pay_rate: 0, current_pay_rate: 20, previous_bill_rate: 0, current_bill_rate: 40,
+    current_pay_amount: 80, current_bill_amount: 160,
+    previous_financial_status: 'pending', current_financial_status: 'approved',
+  })
+
+  expect(await decideTimeBillingVisit({ ...approvalInput, decision: 'voided', note: 'Synthetic void review.' }))
+    .toEqual({ ok: true })
+  const voided = await db.query<{previous_financial_status:string;current_financial_status:string}>(`
+    SELECT previous_financial_status,current_financial_status FROM visit_adjustment_history
+    WHERE current_financial_status='voided' LIMIT 1`)
+  expect(voided.rows[0]).toEqual({ previous_financial_status: 'approved', current_financial_status: 'voided' })
 })

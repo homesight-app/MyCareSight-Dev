@@ -59,6 +59,20 @@ Important reusable flows:
 
 Do not duplicate a flow for a different entry point. Extend the shared component with a prop when needed.
 
+## Performance-First Screen Design
+
+Performance is a design constraint, not a post-implementation optimization. Review every new or changed screen at expected production scale and at approximately 10x that scale before choosing its data-loading pattern.
+
+- Render the record shell and primary information from the smallest authorized query needed for the initial view. Do not delay the record because unselected tabs, hidden panels, menus, editors, or optional actions are loading.
+- Lazy-load tab content, modal/editor data, large reference lists, histories, and action-specific data only when the user opens that surface. Cache or deduplicate the result for the current record where safe, and keep loading and error states local to that surface.
+- Do not fetch an unbounded collection and then rely on client-side filtering or pagination. Potentially large lists require bounded server-side queries with stable ordering and cursor or page-based pagination; filters and search should execute server-side when the full result can grow materially.
+- Calendar and scheduling views must query only the visible date window plus any explicitly documented buffer. When the visible range can contain many clients or resources, paginate or virtualize the rows instead of rendering every entity at once.
+- Avoid N+1 reads. Prefer scoped joins, batched lookups, aggregate queries, and indexed predicates. Confirm that tenant, date-range, status, ownership, and foreign-key filters used by high-volume screens have an appropriate index or a documented reason not to add one.
+- Separate lightweight counts and summaries from detailed row payloads when loading the details would materially increase query, serialization, or rendering cost.
+- Preserve authorization and audit boundaries during lazy loading: every deferred request must independently authenticate, authorize tenant and record scope, validate input, and avoid PHI in logs or telemetry.
+- Add proportionate performance regression coverage. Tests should verify that unopened tabs and actions do not issue requests, large reads are bounded, and pagination/window changes do not lose or duplicate records.
+- In implementation summaries, state the expected result size, query bounds, pagination or virtualization behavior, deferred loads, known scale limits, and any performance check that was not run.
+
 ## UI Design System and Cross-Portal Consistency
 
 The objective of UI design-system work is to improve visual consistency,

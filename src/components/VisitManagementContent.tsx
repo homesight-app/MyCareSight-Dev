@@ -23,28 +23,24 @@ import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import VisitWeeklyCalendar from '@/components/VisitWeeklyCalendar'
 import VisitDetailsDrawer from '@/components/VisitDetailsDrawer'
-import VisitDetailsPanel, { type VisitDetailsActions } from '@/components/VisitDetailsPanel'
+import VisitDetailsPanel, { type VisitDetailsTab } from '@/components/VisitDetailsPanel'
+import ManagerVisitScopedEditModal from '@/components/ManagerVisitScopedEditModal'
 import Modal from './Modal'
 import DeclineAssignmentModal from './DeclineAssignmentModal'
 import {
   approveScheduleAssignmentRequestAction,
   approveScheduleUnassignmentRequestAction,
-  assignCaregiverToScheduleAction,
   declineScheduleAssignmentRequestAction,
   declineScheduleUnassignmentRequestAction,
-  markScheduleMissedAction,
   markScheduleCancelledAction,
-  markScheduleOnHoldAction,
-  reinstateScheduleAction,
-  unassignCaregiverFromScheduleAction,
 } from '@/app/actions/schedule-assignment-requests'
 import { getCaregiverCandidatesForVisitAction } from '@/app/actions/visit-candidates'
 import type { CaregiverMatchOption } from '@/lib/caregiver-matching'
-import { CaregiverAssignmentList } from '@/components/CaregiverAssignmentList'
 import VisitShiftOfferModal from '@/components/VisitShiftOfferModal'
-import VisitCorrectionModal from '@/components/VisitCorrectionModal'
-import { correctVisitAction, readVisitCorrectionHistoryAction } from '@/app/actions/visit-corrections'
+import { readVisitCorrectionHistoryAction } from '@/app/actions/visit-corrections'
+import { prepareManagerVisitTimeAction, readManagerVisitEditAction, updateManagerVisitAction } from '@/app/actions/manager-visit-edit'
 import type { VisitCorrectionHistoryItem } from '@/lib/repositories/visit-corrections'
+import type { ManagerVisitEditScope, ManagerVisitEditSnapshot } from '@/lib/schemas/manager-visit-edit'
 import { toast } from 'sonner'
 import type {
   AssignmentRequestCardDTO,
@@ -225,22 +221,18 @@ export default function VisitManagementContent({
   useEffect(() => {
     setDetailVisit(current => current ? allVisits.find(visit => visit.id === current.id) ?? current : null)
   }, [allVisits])
-  const [correctionVisit, setCorrectionVisit] = useState<AllVisitCardDTO | null>(null)
+  const [visitEditScope, setVisitEditScope] = useState<ManagerVisitEditScope | null>(null)
+  const [visitEditSnapshot, setVisitEditSnapshot] = useState<ManagerVisitEditSnapshot | null>(null)
+  const [visitEditLoading, setVisitEditLoading] = useState(false)
   const [correctionHistory, setCorrectionHistory] = useState<VisitCorrectionHistoryItem[]>([])
   const [correctionHistoryLoading, setCorrectionHistoryLoading] = useState(false)
+  const [correctionHistoryLoadedFor, setCorrectionHistoryLoadedFor] = useState<string | null>(null)
   const correctionHistoryRequestRef = useRef(0)
-  const [reassignVisit, setReassignVisit] = useState<AllVisitCardDTO | null>(null)
   const [advertiseVisit, setAdvertiseVisit] = useState<AllVisitCardDTO | null>(null)
-  const [missVisit, setMissVisit] = useState<AllVisitCardDTO | null>(null)
   const [cancelVisit, setCancelVisit] = useState<AllVisitCardDTO | null>(null)
-  const [holdVisit, setHoldVisit] = useState<AllVisitCardDTO | null>(null)
-  const [candidates, setCandidates] = useState<CaregiverMatchOption[]>([])
-  const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [advertiseCandidates, setAdvertiseCandidates] = useState<CaregiverMatchOption[]>([])
   const [loadingAdvertiseCandidates, setLoadingAdvertiseCandidates] = useState(false)
-  const [missReason, setMissReason] = useState('')
   const [cancelReason, setCancelReason] = useState('')
-  const [holdReason, setHoldReason] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('week')
@@ -404,21 +396,6 @@ export default function VisitManagementContent({
       void runAction(`decline:${requestId}`, () => declineScheduleAssignmentRequestAction(requestId, reason))
     }
   }
-  const handleUnassign = (visit: AllVisitCardDTO) =>
-    void runAction(`unassign:${visit.id}`, () => unassignCaregiverFromScheduleAction(visit.id))
-  const openReassignModal = async (visit: AllVisitCardDTO) => {
-    setReassignVisit(visit)
-    setCandidates([])
-    setLoadingCandidates(true)
-    const result = await getCaregiverCandidatesForVisitAction(visit.id)
-    setCandidates(result.data ?? [])
-    setLoadingCandidates(false)
-  }
-  const handleAssign = (visit: AllVisitCardDTO, caregiverId: string) => {
-    setReassignVisit(null)
-    setCandidates([])
-    void runAction(`assign:${visit.id}`, () => assignCaregiverToScheduleAction(visit.id, caregiverId))
-  }
   const openAdvertiseModal = async (visit: AllVisitCardDTO) => {
     setActionError(null)
     setAdvertiseVisit(visit)
@@ -429,14 +406,6 @@ export default function VisitManagementContent({
     setAdvertiseCandidates(result.data ?? [])
     setLoadingAdvertiseCandidates(false)
   }
-  const handleMiss = () => {
-    if (!missVisit) return
-    const id = missVisit.id
-    const reason = missReason
-    setMissVisit(null)
-    setMissReason('')
-    void runAction(`miss:${id}`, () => markScheduleMissedAction(id, reason))
-  }
   const handleCancel = () => {
     if (!cancelVisit) return
     const id = cancelVisit.id
@@ -445,27 +414,53 @@ export default function VisitManagementContent({
     setCancelReason('')
     void runAction(`cancel:${id}`, () => markScheduleCancelledAction(id, reason))
   }
-  const handleHold = () => {
-    if (!holdVisit) return
-    const id = holdVisit.id
-    const reason = holdReason
-    setHoldVisit(null)
-    setHoldReason('')
-    void runAction(`hold:${id}`, () => markScheduleOnHoldAction(id, reason))
-  }
-  const handleReinstate = (visit: AllVisitCardDTO) => {
-    void runAction(`reinstate:${visit.id}`, () => reinstateScheduleAction(visit.id))
+
+  const loadVisitEditor = async (visitId: string, requestId: number, requestedScope: ManagerVisitEditScope) => {
+    setVisitEditLoading(true)
+    try {
+      const initial = await readManagerVisitEditAction(visitId)
+      const result = requestedScope === 'time' && initial.data && !initial.data.visitTimezone
+        ? await prepareManagerVisitTimeAction(visitId)
+        : initial
+      if (requestId !== correctionHistoryRequestRef.current) return
+      if (result.data) {
+        setVisitEditSnapshot(result.data)
+      }
+      if (result.error) {
+        setVisitEditScope(null)
+        toast.error(result.error)
+      }
+    } catch {
+      if (requestId === correctionHistoryRequestRef.current) {
+        setVisitEditScope(null)
+        toast.error('Unable to load the visit editor. Please try again.')
+      }
+    } finally {
+      if (requestId === correctionHistoryRequestRef.current) setVisitEditLoading(false)
+    }
   }
 
   const openVisitDetails = (visit: AllVisitCardDTO) => {
-    const requestId = ++correctionHistoryRequestRef.current
+    correctionHistoryRequestRef.current += 1
     setDetailVisit(visit)
+    setVisitEditScope(null)
+    setVisitEditSnapshot(null)
+    setVisitEditLoading(false)
     setCorrectionHistory([])
-    if (!canCorrectVisits) return
+    setCorrectionHistoryLoadedFor(null)
+    setCorrectionHistoryLoading(false)
+  }
+
+  const loadCorrectionHistory = (visitId: string, force = false) => {
+    if (!canCorrectVisits || correctionHistoryLoading || (!force && correctionHistoryLoadedFor === visitId)) return
+    const requestId = correctionHistoryRequestRef.current
     setCorrectionHistoryLoading(true)
-    void readVisitCorrectionHistoryAction(visit.id).then(result => {
+    void readVisitCorrectionHistoryAction(visitId).then(result => {
       if (requestId !== correctionHistoryRequestRef.current) return
-      if (result.data) setCorrectionHistory(result.data)
+      if (result.data) {
+        setCorrectionHistory(result.data)
+        setCorrectionHistoryLoadedFor(visitId)
+      }
       if (result.error) toast.error(result.error)
       setCorrectionHistoryLoading(false)
     }).catch(() => {
@@ -476,24 +471,25 @@ export default function VisitManagementContent({
   const closeVisitDetails = useCallback(() => {
     correctionHistoryRequestRef.current += 1
     setDetailVisit(null)
+    setVisitEditScope(null)
+    setVisitEditSnapshot(null)
+    setVisitEditLoading(false)
+    setCorrectionHistory([])
+    setCorrectionHistoryLoadedFor(null)
+    setCorrectionHistoryLoading(false)
   }, [])
 
-  const detailsActionsFor = (visit: AllVisitCardDTO): VisitDetailsActions => {
-    if (!canCorrectVisits) return {}
-    const canManage = !isPastVisitDate(visit.date) &&
-      visit.status !== 'completed' && visit.status !== 'missed' && visit.status !== 'cancelled'
-    return {
-      onAssign: canManage ? () => { void openReassignModal(visit) } : undefined,
-      onAdvertise: canManage && !visit.caregiverId ? () => { void openAdvertiseModal(visit) } : undefined,
-      onUnassign: canManage && !!visit.caregiverId ? () => { handleUnassign(visit) } : undefined,
-      onMiss: canManage ? () => { setMissVisit(visit) } : undefined,
-      onHold: canManage && visit.status !== 'on_hold' ? () => { setHoldVisit(visit) } : undefined,
-      onCancel: canManage ? () => { setCancelVisit(visit) } : undefined,
-      onReinstate: visit.status === 'cancelled' || visit.status === 'on_hold'
-        ? () => { handleReinstate(visit) } : undefined,
-      onCorrect: visit.status === 'missed' || visit.status === 'completed'
-        ? () => { setCorrectionVisit(visit) } : undefined,
-    }
+  const openScopedVisitEditor = (scope: ManagerVisitEditScope) => {
+    if (!detailVisit || visitEditLoading) return
+    setVisitEditScope(scope)
+    if (scope === 'time' && visitEditSnapshot && !visitEditSnapshot.visitTimezone) {
+      void loadVisitEditor(detailVisit.id, correctionHistoryRequestRef.current, scope)
+    } else if (visitEditSnapshot) return
+    else void loadVisitEditor(detailVisit.id, correctionHistoryRequestRef.current, scope)
+  }
+
+  const handleVisitDetailsTabChange = (tab: VisitDetailsTab) => {
+    if (tab === 'history' && detailVisit) loadCorrectionHistory(detailVisit.id)
   }
 
   const requestActionBusy = (requestId: string, kind: 'assignment' | 'unassignment' = 'assignment') => {
@@ -1026,9 +1022,11 @@ export default function VisitManagementContent({
       />
 
       <VisitDetailsDrawer isOpen={!!detailVisit} onClose={closeVisitDetails} visit={detailVisit}
-        actions={detailVisit ? detailsActionsFor(detailVisit) : undefined}
-        actionsBusy={pendingActionKey?.endsWith(`:${detailVisit?.id}`) ?? false}
-        actionDialogOpen={!!(correctionVisit || advertiseVisit || reassignVisit || missVisit || cancelVisit || holdVisit)}>
+        canCancelVisit={!!canCorrectVisits && !!detailVisit && ['scheduled', 'unassigned', 'on_hold'].includes(detailVisit.status)}
+        onCancelVisit={() => { if (detailVisit) setCancelVisit(detailVisit) }}
+        canAdvertiseVisit={!!canCorrectVisits && !!detailVisit && !detailVisit.caregiverId && ['scheduled', 'unassigned'].includes(detailVisit.status)}
+        onAdvertiseVisit={() => { if (detailVisit) void openAdvertiseModal(detailVisit) }}
+        actionDialogOpen={!!(advertiseVisit || cancelVisit || (visitEditScope && visitEditSnapshot))}>
         {detailVisit ? <VisitDetailsPanel
           key={detailVisit.id}
           visit={detailVisit}
@@ -1037,16 +1035,38 @@ export default function VisitManagementContent({
           canSeeHistory={canCorrectVisits}
           correctionHistory={correctionHistory}
           correctionHistoryLoading={correctionHistoryLoading}
+          operationalSnapshot={visitEditSnapshot}
+          canEdit={!!canCorrectVisits}
+          editLoadingScope={visitEditLoading ? visitEditScope : null}
+          onTabChange={handleVisitDetailsTabChange}
+          onEditStatus={() => openScopedVisitEditor('status')}
+          onEditCaregiver={() => openScopedVisitEditor('caregiver')}
+          onEditSchedule={() => openScopedVisitEditor('schedule')}
+          onEditLocation={() => openScopedVisitEditor('location')}
+          onEditTime={() => openScopedVisitEditor('time')}
         /> : null}
       </VisitDetailsDrawer>
 
-      {correctionVisit ? <VisitCorrectionModal key={correctionVisit.id} visit={correctionVisit}
-        caregivers={allCaregivers} onClose={() => setCorrectionVisit(null)}
-        onSubmit={async input => {
-          const result = await correctVisitAction(input)
-          if (result.ok) router.refresh()
-          return result
-        }} /> : null}
+      {detailVisit && visitEditSnapshot ? <ManagerVisitScopedEditModal
+        scope={visitEditScope}
+        snapshot={visitEditSnapshot}
+        clientId={detailVisit.clientId}
+        requiredSkills={detailVisit.clientRequiredSkills}
+        preferredSkills={detailVisit.clientPreferredSkills}
+        onClose={() => setVisitEditScope(null)}
+        onSubmit={updateManagerVisitAction}
+        onSaved={() => {
+          setVisitEditScope(null)
+          router.refresh()
+          void readManagerVisitEditAction(detailVisit.id).then(result => {
+            if (result.data) setVisitEditSnapshot(result.data)
+          })
+          if (correctionHistoryLoadedFor === detailVisit.id) {
+            setCorrectionHistoryLoadedFor(null)
+            loadCorrectionHistory(detailVisit.id, true)
+          }
+        }}
+      /> : null}
 
       <VisitShiftOfferModal
         visit={advertiseVisit}
@@ -1064,62 +1084,6 @@ export default function VisitManagementContent({
           router.refresh()
         }}
       />
-
-      <Modal isOpen={!!reassignVisit} onClose={() => { setReassignVisit(null); setCandidates([]) }} title="Assign Caregiver" size="xl">
-        {reassignVisit ? (
-          <div className="space-y-3">
-            <div className="text-sm text-gray-600">{reassignVisit.clientName} — {reassignVisit.visitTitle} — {formatVisitTimeRangeLabel(reassignVisit.timeLabel)}</div>
-            <CaregiverAssignmentList
-              variant="modal"
-              options={candidates}
-              requiredSkills={reassignVisit.clientRequiredSkills}
-              preferredSkills={reassignVisit.clientPreferredSkills}
-              selectedId={reassignVisit.caregiverId}
-              defaultFilter="eligible"
-              assignmentMode="direct"
-              isLoading={loadingCandidates}
-              disabled={pendingActionKey === `assign:${reassignVisit.id}`}
-              onSelect={(id) => {
-                const isCurrent = id === reassignVisit.caregiverId
-                if (isCurrent) {
-                  setReassignVisit(null)
-                } else {
-                  handleAssign(reassignVisit, id)
-                }
-              }}
-            />
-          </div>
-        ) : null}
-      </Modal>
-
-      <Modal isOpen={!!missVisit} onClose={() => { setMissVisit(null); setMissReason('') }} title="Mark Visit as Missed" size="md">
-        {missVisit ? (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900">
-              <div className="font-semibold">{missVisit.clientName}</div>
-              <div>{missVisit.visitTitle}</div>
-              <div>{missVisit.dateLabel}, {formatVisitTimeRangeLabel(missVisit.timeLabel)}</div>
-              <div>Caregiver: {missVisit.caregiverName ?? 'Unassigned'}</div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700">Reason <span className="text-gray-400">(optional)</span></label>
-              <textarea value={missReason} onChange={(e) => setMissReason(e.target.value)} placeholder="e.g. Client hospitalized, caregiver no-show, weather..." rows={4} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-            </div>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">This will be logged with your name and timestamp and will appear in missed-visit reports.</div>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => { setMissVisit(null); setMissReason('') }} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium">Cancel</button>
-              <button
-                type="button"
-                disabled={missVisit != null && pendingActionKey === `miss:${missVisit.id}`}
-                onClick={handleMiss}
-                className="rounded-lg bg-orange-600 text-white px-4 py-2 text-sm font-medium hover:bg-orange-700 disabled:opacity-60"
-              >
-                Confirm Missed
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
 
       <Modal isOpen={!!cancelVisit} onClose={() => { setCancelVisit(null); setCancelReason('') }} title="Cancel Visit" size="md">
         {cancelVisit ? (
@@ -1139,7 +1103,7 @@ export default function VisitManagementContent({
               <button type="button" onClick={() => { setCancelVisit(null); setCancelReason('') }} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium">Back</button>
               <button
                 type="button"
-                disabled={!cancelReason.trim() || pendingActionKey === `cancel:${cancelVisit.id}`}
+                disabled={cancelReason.trim().length < 10 || pendingActionKey === `cancel:${cancelVisit.id}`}
                 onClick={handleCancel}
                 className="rounded-lg bg-rose-600 text-white px-4 py-2 text-sm font-medium hover:bg-rose-700 disabled:opacity-60"
               >
@@ -1150,34 +1114,6 @@ export default function VisitManagementContent({
         ) : null}
       </Modal>
 
-      <Modal isOpen={!!holdVisit} onClose={() => { setHoldVisit(null); setHoldReason('') }} title="Put Visit On Hold" size="md">
-        {holdVisit ? (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
-              <div className="font-semibold">{holdVisit.clientName}</div>
-              <div>{holdVisit.visitTitle}</div>
-              <div>{holdVisit.dateLabel}, {formatVisitTimeRangeLabel(holdVisit.timeLabel)}</div>
-              <div>Caregiver: {holdVisit.caregiverName ?? 'Unassigned'}</div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700">Reason <span className="text-red-500">*</span></label>
-              <textarea value={holdReason} onChange={(e) => setHoldReason(e.target.value)} placeholder="e.g. Awaiting authorization, client unavailable, pending assessment..." rows={4} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-            </div>
-            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-xs text-yellow-800">The visit will be paused. It can be reinstated at any time. This action is logged with your name and timestamp.</div>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => { setHoldVisit(null); setHoldReason('') }} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium">Back</button>
-              <button
-                type="button"
-                disabled={!holdReason.trim() || pendingActionKey === `hold:${holdVisit.id}`}
-                onClick={handleHold}
-                className="rounded-lg bg-yellow-600 text-white px-4 py-2 text-sm font-medium hover:bg-yellow-700 disabled:opacity-60"
-              >
-                Confirm On Hold
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
     </div>
   )
 }

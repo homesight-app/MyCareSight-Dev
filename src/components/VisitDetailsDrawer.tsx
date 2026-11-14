@@ -2,22 +2,28 @@
 
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
-import RecordActionsMenu, { type RecordAction } from '@/components/ui/RecordActionsMenu'
-import type { VisitDetailsActions } from '@/components/VisitDetailsPanel'
+import Button from '@/components/ui/PrimaryButton'
 import type { AllVisitCardDTO } from '@/lib/visit-all-visits-dashboard'
 
 type Props = {
   isOpen: boolean
   onClose: () => void
   visit: AllVisitCardDTO | null
-  actions?: VisitDetailsActions
-  actionsBusy?: boolean
+  onCancelVisit?: () => void
+  canCancelVisit?: boolean
+  onAdvertiseVisit?: () => void
+  canAdvertiseVisit?: boolean
   actionDialogOpen?: boolean
   children: ReactNode
 }
 
 /** Centered host for reusable visit details; action dialogs can stack above it. */
-export default function VisitDetailsDrawer({ isOpen, onClose, visit, actions, actionsBusy, actionDialogOpen = false, children }: Props) {
+export default function VisitDetailsDrawer({
+  isOpen, onClose,
+  onCancelVisit, canCancelVisit = false,
+  onAdvertiseVisit, canAdvertiseVisit = false,
+  actionDialogOpen = false, children,
+}: Props) {
   const headingId = useId()
   const panelRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -28,7 +34,7 @@ export default function VisitDetailsDrawer({ isOpen, onClose, visit, actions, ac
   useEffect(() => {
     if (isOpen && wasActionDialogOpenRef.current && !actionDialogOpen) {
       document.body.style.overflow = 'hidden'
-      panelRef.current?.querySelector<HTMLButtonElement>('button[aria-label="Visit actions"]')?.focus()
+      panelRef.current?.querySelector<HTMLButtonElement>('[data-visit-primary-action]')?.focus()
     }
     wasActionDialogOpenRef.current = actionDialogOpen
   }, [isOpen, actionDialogOpen])
@@ -42,8 +48,6 @@ export default function VisitDetailsDrawer({ isOpen, onClose, visit, actions, ac
     const onKeyDown = (event: KeyboardEvent) => {
       if (actionDialogOpenRef.current) return
       if (event.key === 'Escape') {
-        // Let the open actions menu consume Escape before closing Visit Details.
-        if (document.querySelector('[role="menu"]')) return
         event.preventDefault()
         onClose()
         return
@@ -72,16 +76,6 @@ export default function VisitDetailsDrawer({ isOpen, onClose, visit, actions, ac
   }, [isOpen, onClose])
 
   if (!isOpen) return null
-  const menuActions: RecordAction[] = actions && visit ? [
-    { label: visit.caregiverId ? 'Reassign Caregiver' : 'Assign Caregiver', onClick: actions.onAssign, hidden: !actions.onAssign },
-    { label: 'Advertise Shift', onClick: actions.onAdvertise, hidden: !actions.onAdvertise },
-    { label: 'Unassign', onClick: actions.onUnassign, hidden: !actions.onUnassign },
-    { label: visit.status === 'on_hold' ? 'Resume Visit' : 'Reinstate Visit', onClick: actions.onReinstate, hidden: !actions.onReinstate },
-    { label: 'Place On Hold', onClick: actions.onHold, hidden: !actions.onHold },
-    { label: 'Mark as Missed', onClick: actions.onMiss, hidden: !actions.onMiss },
-    { label: 'Correct Visit', onClick: actions.onCorrect, hidden: !actions.onCorrect },
-    { label: 'Cancel Visit', onClick: actions.onCancel, hidden: !actions.onCancel, destructive: true },
-  ] : []
 
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-6">
     <section ref={panelRef} role="dialog" aria-modal={!actionDialogOpen} aria-hidden={actionDialogOpen || undefined} aria-labelledby={headingId}
@@ -89,7 +83,6 @@ export default function VisitDetailsDrawer({ isOpen, onClose, visit, actions, ac
       <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-5 py-3">
         <h2 id={headingId} className="text-base font-semibold text-gray-950">Visit Details</h2>
         <div className="flex items-center gap-1">
-          {!actionsBusy && menuActions.some(action => !action.hidden) ? <div className="[&>button]:h-10 [&>button]:w-10"><RecordActionsMenu actions={menuActions} label="Visit actions" /></div> : null}
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Close visit details"
             className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-blue-600">
             <X className="h-4 w-4" aria-hidden />
@@ -97,8 +90,12 @@ export default function VisitDetailsDrawer({ isOpen, onClose, visit, actions, ac
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-      <div className="flex shrink-0 justify-end border-t border-gray-100 px-5 py-3">
-        <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-blue-600">Close</button>
+      <div className={`flex shrink-0 border-t border-gray-100 px-5 py-3 ${canCancelVisit || canAdvertiseVisit ? 'justify-between' : 'justify-end'} gap-2`}>
+        <div className="flex gap-2">
+          {canAdvertiseVisit && onAdvertiseVisit ? <Button type="button" variant="secondary" size="sm" onClick={onAdvertiseVisit}>Advertise Shift</Button> : null}
+          {canCancelVisit && onCancelVisit ? <Button type="button" variant="danger" size="sm" onClick={onCancelVisit}>Cancel Visit</Button> : null}
+        </div>
+        <Button type="button" variant="secondary" onClick={onClose}>Close</Button>
       </div>
     </section>
   </div>

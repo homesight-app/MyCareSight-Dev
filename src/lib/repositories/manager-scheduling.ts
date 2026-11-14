@@ -3,6 +3,7 @@ import 'server-only'
 import sql from '@/db'
 import { withCareOperationsManager } from '@/lib/repositories/visit-financial-reads'
 import * as schedules from '@/lib/supabase/query/schedules'
+import { resolveVisitTimezoneFromZip } from '@/lib/visit-location-timezone'
 import {
   recurringScheduleCreateSchema,
   recurringScheduleUpdateSchema,
@@ -29,10 +30,24 @@ async function requirePatient(actor:{agencyId:string},patientId:string){
   if(!row)throw new SchedulingError('Patient not found in your agency.')
 }
 async function requireVisit(actor:{agencyId:string},visitId:string){
-  const [row]=await sql<{id:string;patient_id:string;visit_series_id:string|null;caregiver_member_id:string|null;status:string;visit_date:string}[]>`SELECT id,patient_id,visit_series_id,caregiver_member_id,status,visit_date
+  const [row]=await sql<{id:string;patient_id:string;visit_series_id:string|null;caregiver_member_id:string|null;status:string;visit_date:string;patient_address_id:string|null}[]>`SELECT id,patient_id,visit_series_id,caregiver_member_id,status,visit_date,patient_address_id
     FROM public.scheduled_visits WHERE id=${visitId}::uuid AND agency_id=${actor.agencyId}::uuid FOR UPDATE`
   if(!row)throw new SchedulingError('Visit not found in your agency.')
   return row
+}
+async function resolveScheduleTimezone(actor:{agencyId:string},patientId:string,addressId?:string|null){
+  const [address]=addressId
+    ? await sql<{zip_code:string}[]>`SELECT zip_code FROM public.patient_addresses
+        WHERE id=${addressId}::uuid AND agency_id=${actor.agencyId}::uuid AND patient_id=${patientId}::uuid`
+    : await sql<{zip_code:string}[]>`SELECT zip_code FROM public.patient_addresses
+        WHERE agency_id=${actor.agencyId}::uuid AND patient_id=${patientId}::uuid
+        ORDER BY is_primary DESC,created_at ASC LIMIT 1`
+  return address?resolveVisitTimezoneFromZip(address.zip_code):null
+}
+async function applyScheduleTimezone(actor:{agencyId:string},visitIds:string[],timezone:string|null){
+  if(!timezone||visitIds.length===0)return
+  await sql`UPDATE public.scheduled_visits SET visit_timezone=${timezone},updated_at=now()
+    WHERE agency_id=${actor.agencyId}::uuid AND id=ANY(${visitIds}::uuid[])`
 }
 async function assertNoVisitEvidence(actor:{agencyId:string},visitIds:string[]){
   const clean=Array.from(new Set(visitIds.filter(Boolean)))
@@ -156,13 +171,15 @@ export async function managerGetSchedulesByIds(ids:string[]){
 export async function managerInsertSchedule(input:Parameters<typeof schedules.insertSchedule>[0]){
   const parsed=scheduleCreateSchema.safeParse(input);if(!parsed.success)return {data:null,error:new Error(parsed.error.issues[0]?.message??'Invalid schedule.')}
   try{return await withCareOperationsManager(async actor=>{await requirePatient(actor,parsed.data.patient_id);await validateLinks(actor,parsed.data.patient_id,parsed.data)
-    const result=ensure(await schedules.insertSchedule(parsed.data));if(result.data?.id)await assertAssignmentIntegrity(actor,[result.data.id]);await audit(actor,result.data?.id??null,'INSERT','create_schedule');return result})
+    const timezone=await resolveScheduleTimezone(actor,parsed.data.patient_id,parsed.data.patient_address_id)
+    const result=ensure(await schedules.insertSchedule(parsed.data));if(result.data?.id){await applyScheduleTimezone(actor,[result.data.id],timezone);await assertAssignmentIntegrity(actor,[result.data.id])}await audit(actor,result.data?.id??null,'INSERT','create_schedule');return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 export async function managerInsertRecurringSchedules(input:Parameters<typeof schedules.insertRecurringSchedulesFromSeries>[0]){
   const parsed=recurringScheduleCreateSchema.safeParse(input);if(!parsed.success)return {data:null,error:new Error(parsed.error.issues[0]?.message??'Invalid recurring schedule.')}
   try{return await withCareOperationsManager(async actor=>{await requirePatient(actor,parsed.data.patient_id);await validateLinks(actor,parsed.data.patient_id,parsed.data)
-    const result=ensure(await schedules.insertRecurringSchedulesFromSeries(parsed.data));await assertAssignmentIntegrity(actor,(result.data??[]).map(row=>row.id));await audit(actor,null,'INSERT','create_recurring_schedules',result.data?.length??0);return result})
+    const timezone=await resolveScheduleTimezone(actor,parsed.data.patient_id,parsed.data.patient_address_id)
+    const result=ensure(await schedules.insertRecurringSchedulesFromSeries(parsed.data));const ids=(result.data??[]).map(row=>row.id);await applyScheduleTimezone(actor,ids,timezone);await assertAssignmentIntegrity(actor,ids);await audit(actor,null,'INSERT','create_recurring_schedules',result.data?.length??0);return result})
   }catch(error){return {data:null,error:asError(error)}}
 }
 
@@ -189,10 +206,11 @@ export async function managerReplaceSchedules(input:ScheduleReplacementInput){
     if(parsed.data.kind==='recurring'){
       const result=ensure(await schedules.insertRecurringSchedulesFromSeries(parsed.data.visit))
       createdIds=(result.data??[]).map(row=>row.id)
+      await applyScheduleTimezone(actor,createdIds,await resolveScheduleTimezone(actor,patientId,parsed.data.visit.patient_address_id))
     }else{
       for(const visit of parsed.data.visits){
         const result=ensure(await schedules.insertSchedule(visit))
-        if(result.data?.id)createdIds.push(result.data.id)
+        if(result.data?.id){createdIds.push(result.data.id);await applyScheduleTimezone(actor,[result.data.id],await resolveScheduleTimezone(actor,patientId,visit.patient_address_id))}
       }
     }
     await assertPatientScheduleIntegrity(actor,patientId,createdIds)

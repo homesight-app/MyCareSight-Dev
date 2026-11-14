@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { readManagerVisitEditSnapshot, updateManagerVisit } from '@/lib/repositories/manager-visit-edit'
+import { prepareManagerVisitTimeSnapshot, readManagerVisitEditSnapshot, updateManagerVisit } from '@/lib/repositories/manager-visit-edit'
 import { managerVisitEditSchema, type ManagerVisitEditInput } from '@/lib/schemas/manager-visit-edit'
 import { zodErrorToFieldErrors } from '@/lib/validation'
 
@@ -16,6 +16,10 @@ function revalidateVisitSurfaces() {
 
 export async function readManagerVisitEditAction(scheduledVisitId: string) {
   return readManagerVisitEditSnapshot(scheduledVisitId)
+}
+
+export async function prepareManagerVisitTimeAction(scheduledVisitId: string) {
+  return prepareManagerVisitTimeSnapshot(scheduledVisitId)
 }
 
 export async function updateManagerVisitAction(input: ManagerVisitEditInput): Promise<{

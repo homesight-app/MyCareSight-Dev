@@ -23,8 +23,8 @@ import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import VisitWeeklyCalendar from '@/components/VisitWeeklyCalendar'
 import VisitDetailsDrawer from '@/components/VisitDetailsDrawer'
-import VisitDetailsPanel from '@/components/VisitDetailsPanel'
-import ManagerVisitEditForm from '@/components/ManagerVisitEditForm'
+import VisitDetailsPanel, { type VisitDetailsTab } from '@/components/VisitDetailsPanel'
+import ManagerVisitScopedEditModal from '@/components/ManagerVisitScopedEditModal'
 import Modal from './Modal'
 import DeclineAssignmentModal from './DeclineAssignmentModal'
 import {
@@ -38,9 +38,9 @@ import { getCaregiverCandidatesForVisitAction } from '@/app/actions/visit-candid
 import type { CaregiverMatchOption } from '@/lib/caregiver-matching'
 import VisitShiftOfferModal from '@/components/VisitShiftOfferModal'
 import { readVisitCorrectionHistoryAction } from '@/app/actions/visit-corrections'
-import { readManagerVisitEditAction, updateManagerVisitAction } from '@/app/actions/manager-visit-edit'
+import { prepareManagerVisitTimeAction, readManagerVisitEditAction, updateManagerVisitAction } from '@/app/actions/manager-visit-edit'
 import type { VisitCorrectionHistoryItem } from '@/lib/repositories/visit-corrections'
-import type { ManagerVisitEditSnapshot } from '@/lib/schemas/manager-visit-edit'
+import type { ManagerVisitEditScope, ManagerVisitEditSnapshot } from '@/lib/schemas/manager-visit-edit'
 import { toast } from 'sonner'
 import type {
   AssignmentRequestCardDTO,
@@ -221,12 +221,12 @@ export default function VisitManagementContent({
   useEffect(() => {
     setDetailVisit(current => current ? allVisits.find(visit => visit.id === current.id) ?? current : null)
   }, [allVisits])
-  const [visitDetailsMode, setVisitDetailsMode] = useState<'view' | 'edit'>('view')
+  const [visitEditScope, setVisitEditScope] = useState<ManagerVisitEditScope | null>(null)
   const [visitEditSnapshot, setVisitEditSnapshot] = useState<ManagerVisitEditSnapshot | null>(null)
   const [visitEditLoading, setVisitEditLoading] = useState(false)
-  const [visitEditSaving, setVisitEditSaving] = useState(false)
   const [correctionHistory, setCorrectionHistory] = useState<VisitCorrectionHistoryItem[]>([])
   const [correctionHistoryLoading, setCorrectionHistoryLoading] = useState(false)
+  const [correctionHistoryLoadedFor, setCorrectionHistoryLoadedFor] = useState<string | null>(null)
   const correctionHistoryRequestRef = useRef(0)
   const [advertiseVisit, setAdvertiseVisit] = useState<AllVisitCardDTO | null>(null)
   const [cancelVisit, setCancelVisit] = useState<AllVisitCardDTO | null>(null)
@@ -415,18 +415,24 @@ export default function VisitManagementContent({
     void runAction(`cancel:${id}`, () => markScheduleCancelledAction(id, reason))
   }
 
-  const loadVisitEditor = async (visitId: string, requestId: number, enterEdit = false) => {
+  const loadVisitEditor = async (visitId: string, requestId: number, requestedScope: ManagerVisitEditScope) => {
     setVisitEditLoading(true)
     try {
-      const result = await readManagerVisitEditAction(visitId)
+      const initial = await readManagerVisitEditAction(visitId)
+      const result = requestedScope === 'time' && initial.data && !initial.data.visitTimezone
+        ? await prepareManagerVisitTimeAction(visitId)
+        : initial
       if (requestId !== correctionHistoryRequestRef.current) return
       if (result.data) {
         setVisitEditSnapshot(result.data)
-        if (enterEdit) setVisitDetailsMode('edit')
       }
-      if (result.error) toast.error(result.error)
+      if (result.error) {
+        setVisitEditScope(null)
+        toast.error(result.error)
+      }
     } catch {
       if (requestId === correctionHistoryRequestRef.current) {
+        setVisitEditScope(null)
         toast.error('Unable to load the visit editor. Please try again.')
       }
     } finally {
@@ -435,17 +441,26 @@ export default function VisitManagementContent({
   }
 
   const openVisitDetails = (visit: AllVisitCardDTO) => {
-    const requestId = ++correctionHistoryRequestRef.current
+    correctionHistoryRequestRef.current += 1
     setDetailVisit(visit)
-    setVisitDetailsMode('view')
+    setVisitEditScope(null)
     setVisitEditSnapshot(null)
+    setVisitEditLoading(false)
     setCorrectionHistory([])
-    if (!canCorrectVisits) return
+    setCorrectionHistoryLoadedFor(null)
+    setCorrectionHistoryLoading(false)
+  }
+
+  const loadCorrectionHistory = (visitId: string, force = false) => {
+    if (!canCorrectVisits || correctionHistoryLoading || (!force && correctionHistoryLoadedFor === visitId)) return
+    const requestId = correctionHistoryRequestRef.current
     setCorrectionHistoryLoading(true)
-    void loadVisitEditor(visit.id, requestId)
-    void readVisitCorrectionHistoryAction(visit.id).then(result => {
+    void readVisitCorrectionHistoryAction(visitId).then(result => {
       if (requestId !== correctionHistoryRequestRef.current) return
-      if (result.data) setCorrectionHistory(result.data)
+      if (result.data) {
+        setCorrectionHistory(result.data)
+        setCorrectionHistoryLoadedFor(visitId)
+      }
       if (result.error) toast.error(result.error)
       setCorrectionHistoryLoading(false)
     }).catch(() => {
@@ -456,9 +471,26 @@ export default function VisitManagementContent({
   const closeVisitDetails = useCallback(() => {
     correctionHistoryRequestRef.current += 1
     setDetailVisit(null)
-    setVisitDetailsMode('view')
+    setVisitEditScope(null)
     setVisitEditSnapshot(null)
+    setVisitEditLoading(false)
+    setCorrectionHistory([])
+    setCorrectionHistoryLoadedFor(null)
+    setCorrectionHistoryLoading(false)
   }, [])
+
+  const openScopedVisitEditor = (scope: ManagerVisitEditScope) => {
+    if (!detailVisit || visitEditLoading) return
+    setVisitEditScope(scope)
+    if (scope === 'time' && visitEditSnapshot && !visitEditSnapshot.visitTimezone) {
+      void loadVisitEditor(detailVisit.id, correctionHistoryRequestRef.current, scope)
+    } else if (visitEditSnapshot) return
+    else void loadVisitEditor(detailVisit.id, correctionHistoryRequestRef.current, scope)
+  }
+
+  const handleVisitDetailsTabChange = (tab: VisitDetailsTab) => {
+    if (tab === 'history' && detailVisit) loadCorrectionHistory(detailVisit.id)
+  }
 
   const requestActionBusy = (requestId: string, kind: 'assignment' | 'unassignment' = 'assignment') => {
     if (kind === 'unassignment') {
@@ -990,23 +1022,12 @@ export default function VisitManagementContent({
       />
 
       <VisitDetailsDrawer isOpen={!!detailVisit} onClose={closeVisitDetails} visit={detailVisit}
-        mode={visitDetailsMode}
-        canEdit={!!canCorrectVisits}
-        editLoading={visitEditLoading}
-        onEdit={() => {
-          if (!detailVisit || visitEditLoading) return
-          if (visitEditSnapshot) setVisitDetailsMode('edit')
-          else void loadVisitEditor(detailVisit.id, correctionHistoryRequestRef.current, true)
-        }}
-        onDiscardEdit={() => setVisitDetailsMode('view')}
-        editFormId="manager-visit-edit-form"
-        saving={visitEditSaving}
         canCancelVisit={!!canCorrectVisits && !!detailVisit && ['scheduled', 'unassigned', 'on_hold'].includes(detailVisit.status)}
         onCancelVisit={() => { if (detailVisit) setCancelVisit(detailVisit) }}
         canAdvertiseVisit={!!canCorrectVisits && !!detailVisit && !detailVisit.caregiverId && ['scheduled', 'unassigned'].includes(detailVisit.status)}
         onAdvertiseVisit={() => { if (detailVisit) void openAdvertiseModal(detailVisit) }}
-        actionDialogOpen={!!(advertiseVisit || cancelVisit)}>
-        {detailVisit && visitDetailsMode === 'view' ? <VisitDetailsPanel
+        actionDialogOpen={!!(advertiseVisit || cancelVisit || (visitEditScope && visitEditSnapshot))}>
+        {detailVisit ? <VisitDetailsPanel
           key={detailVisit.id}
           visit={detailVisit}
           canManageNotes={canManageNotes}
@@ -1015,24 +1036,37 @@ export default function VisitManagementContent({
           correctionHistory={correctionHistory}
           correctionHistoryLoading={correctionHistoryLoading}
           operationalSnapshot={visitEditSnapshot}
+          canEdit={!!canCorrectVisits}
+          editLoadingScope={visitEditLoading ? visitEditScope : null}
+          onTabChange={handleVisitDetailsTabChange}
+          onEditStatus={() => openScopedVisitEditor('status')}
+          onEditCaregiver={() => openScopedVisitEditor('caregiver')}
+          onEditSchedule={() => openScopedVisitEditor('schedule')}
+          onEditLocation={() => openScopedVisitEditor('location')}
+          onEditTime={() => openScopedVisitEditor('time')}
         /> : null}
-        {detailVisit && visitDetailsMode === 'edit' && visitEditSnapshot ? <ManagerVisitEditForm
-          formId="manager-visit-edit-form"
-          snapshot={visitEditSnapshot}
-          onSavingChange={setVisitEditSaving}
-          onSubmit={updateManagerVisitAction}
-          onSaved={() => {
-            setVisitDetailsMode('view')
-            router.refresh()
-            void readManagerVisitEditAction(detailVisit.id).then(result => {
-              if (result.data) setVisitEditSnapshot(result.data)
-            })
-            void readVisitCorrectionHistoryAction(detailVisit.id).then(result => {
-              if (result.data) setCorrectionHistory(result.data)
-            })
-          }}
-        /> : visitDetailsMode === 'edit' ? <div className="flex items-center justify-center py-10 text-sm text-gray-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading visit editor...</div> : null}
       </VisitDetailsDrawer>
+
+      {detailVisit && visitEditSnapshot ? <ManagerVisitScopedEditModal
+        scope={visitEditScope}
+        snapshot={visitEditSnapshot}
+        clientId={detailVisit.clientId}
+        requiredSkills={detailVisit.clientRequiredSkills}
+        preferredSkills={detailVisit.clientPreferredSkills}
+        onClose={() => setVisitEditScope(null)}
+        onSubmit={updateManagerVisitAction}
+        onSaved={() => {
+          setVisitEditScope(null)
+          router.refresh()
+          void readManagerVisitEditAction(detailVisit.id).then(result => {
+            if (result.data) setVisitEditSnapshot(result.data)
+          })
+          if (correctionHistoryLoadedFor === detailVisit.id) {
+            setCorrectionHistoryLoadedFor(null)
+            loadCorrectionHistory(detailVisit.id, true)
+          }
+        }}
+      /> : null}
 
       <VisitShiftOfferModal
         visit={advertiseVisit}

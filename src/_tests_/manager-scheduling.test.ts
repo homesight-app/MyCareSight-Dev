@@ -59,11 +59,12 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
   CREATE TABLE caregiver_skill_assignments(caregiver_member_id uuid,agency_id uuid,credential_id uuid,verification_status text);
   CREATE TABLE patient_skill_requirement_items(patient_id uuid,agency_id uuid,credential_id uuid,requirement_level text);
   CREATE TABLE patient_service_contracts(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid);
-  CREATE TABLE patient_addresses(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid);
+  CREATE TABLE patient_addresses(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid,zip_code text,
+    is_primary boolean DEFAULT false,created_at timestamptz DEFAULT now());
   CREATE TABLE visit_series(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid,status text);
   CREATE TABLE scheduled_visits(id uuid PRIMARY KEY,agency_id uuid,patient_id uuid,visit_series_id uuid,status text,
     caregiver_member_id uuid,visit_date date,scheduled_start_time time,scheduled_end_time time,scheduled_end_date date,
-    status_reason text,updated_at timestamptz);
+    status_reason text,updated_at timestamptz,patient_address_id uuid,visit_timezone text);
   CREATE TABLE visit_time_entries(scheduled_visit_id uuid,agency_id uuid);
   CREATE TABLE visit_approvals(scheduled_visit_id uuid,agency_id uuid);
   CREATE TABLE visit_financials(scheduled_visit_id uuid,agency_id uuid);
@@ -80,6 +81,8 @@ beforeEach(async()=>{failAudit=false;jest.clearAllMocks();await db.exec(`
   INSERT INTO user_profiles VALUES('${USER}','company_owner','${AGENCY}',true);
   INSERT INTO user_agency_roles VALUES('${USER}','${AGENCY}','company_owner','active');
   INSERT INTO patients VALUES('${PATIENT}','${AGENCY}'),('${FOREIGN_PATIENT}','${FOREIGN}');
+  INSERT INTO patient_addresses(id,agency_id,patient_id,zip_code,is_primary)
+    VALUES('${id(40)}','${AGENCY}','${PATIENT}','92056',true);
   INSERT INTO visit_series VALUES('${SERIES}','${AGENCY}','${PATIENT}','active');
   INSERT INTO scheduled_visits(id,agency_id,patient_id,visit_series_id,status,visit_date,scheduled_start_time,scheduled_end_time)
     VALUES('${VISIT}','${AGENCY}','${PATIENT}','${SERIES}','scheduled','2026-09-22','10:00','12:00');`)

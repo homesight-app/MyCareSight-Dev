@@ -1,14 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { CalendarDays, Clock3, MapPin, UserRound } from 'lucide-react'
+import { CalendarDays, Clock3, Loader2, MapPin, Pencil, UserRound } from 'lucide-react'
 import Tabs from '@/components/ui/Tabs'
 import InternalNotesPanel from '@/components/InternalNotesPanel'
 import type { AllVisitCardDTO } from '@/lib/visit-all-visits-dashboard'
 import type { VisitCorrectionHistoryItem } from '@/lib/repositories/visit-corrections'
 import type { VisitStatus } from '@/lib/visit-status'
 import { formatVisitTimeRangeLabel } from '@/lib/visit-time-display'
-import type { ManagerVisitEditSnapshot } from '@/lib/schemas/manager-visit-edit'
+import type { ManagerVisitEditScope, ManagerVisitEditSnapshot } from '@/lib/schemas/manager-visit-edit'
+
+export type VisitDetailsTab = 'overview' | 'tasks' | 'notes' | 'history'
 
 type Props = {
   visit: AllVisitCardDTO
@@ -18,6 +20,14 @@ type Props = {
   correctionHistory?: VisitCorrectionHistoryItem[]
   correctionHistoryLoading?: boolean
   operationalSnapshot?: ManagerVisitEditSnapshot | null
+  canEdit?: boolean
+  editLoadingScope?: ManagerVisitEditScope | null
+  onTabChange?: (tab: VisitDetailsTab) => void
+  onEditStatus?: () => void
+  onEditCaregiver?: () => void
+  onEditSchedule?: () => void
+  onEditLocation?: () => void
+  onEditTime?: () => void
 }
 
 function statusPresentation(status: VisitStatus) {
@@ -41,11 +51,18 @@ function displayDate(date: string) {
 export default function VisitDetailsPanel({
   visit, canManageNotes, agencyId, canSeeHistory,
   correctionHistory = [], correctionHistoryLoading = false, operationalSnapshot,
+  canEdit = false, editLoadingScope = null, onTabChange,
+  onEditStatus, onEditCaregiver, onEditSchedule, onEditLocation, onEditTime,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'notes' | 'history'>('overview')
+  const [activeTab, setActiveTab] = useState<VisitDetailsTab>('overview')
   const taskLabel = visit.adlTasks.join(', ') || 'No care tasks listed'
   const statusClass = statusPresentation(visit.status)
   const status = <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium before:h-1.5 before:w-1.5 before:rounded-full ${statusClass}`}>{displayStatus(visit)}</span>
+  const editButton = (scope: ManagerVisitEditScope, label: string, onClick?: () => void) => canEdit && onClick ? <button type="button"
+    aria-label={label} title={label} onClick={onClick} data-visit-primary-action disabled={editLoadingScope !== null}
+    className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+    {editLoadingScope === scope ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Pencil className="h-3.5 w-3.5" aria-hidden />}
+  </button> : null
 
   return (
     <div className="space-y-5">
@@ -63,7 +80,11 @@ export default function VisitDetailsPanel({
         </div>
       </div>
 
-      <Tabs variant="underline" active={activeTab} onChange={key => setActiveTab(key as typeof activeTab)}
+      <Tabs variant="underline" active={activeTab} onChange={key => {
+        const nextTab = key as VisitDetailsTab
+        setActiveTab(nextTab)
+        onTabChange?.(nextTab)
+      }}
         items={[
           { key: 'overview', label: 'Overview' },
           { key: 'tasks', label: 'Tasks' },
@@ -73,17 +94,19 @@ export default function VisitDetailsPanel({
 
       {activeTab === 'overview' ? <div role="tabpanel" aria-label="Overview" className="space-y-4">
         <dl className="divide-y divide-gray-100 rounded-lg border border-gray-200 px-3 text-xs">
-          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Status</dt><dd>{status}</dd></div>
-          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Caregiver</dt><dd className={visit.caregiverName ? 'text-gray-900' : 'text-amber-700'}>{visit.caregiverName ?? 'Unassigned'}</dd></div>
+          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2 py-2"><dt className="text-gray-500">Status</dt><dd>{status}</dd>{editButton('status', 'Edit visit status', onEditStatus)}</div>
+          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2 py-2"><dt className="text-gray-500">Caregiver</dt><dd className={visit.caregiverName ? 'text-gray-900' : 'text-amber-700'}>{visit.caregiverName ?? 'Unassigned'}</dd>{editButton('caregiver', 'Edit caregiver assignment', onEditCaregiver)}</div>
           <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Client</dt><dd className="font-medium text-gray-900">{visit.clientName}</dd></div>
           <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2 py-2"><dt className="text-gray-500">Care task</dt><dd className="text-gray-900">{taskLabel}</dd></div>
-          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Date</dt><dd className="text-gray-900">{displayDate(visit.date)}</dd></div>
-          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Time</dt><dd className="text-gray-900">{formatVisitTimeRangeLabel(visit.timeLabel)}</dd></div>
-          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2 py-2"><dt className="text-gray-500">Location</dt><dd className="text-gray-900">{visit.locationLabel}</dd></div>
-          {operationalSnapshot?.actualStartAt ? <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2 py-2"><dt className="text-gray-500">Recorded time</dt><dd className="text-gray-900">
+          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2 py-2"><dt className="text-gray-500">Schedule</dt><dd className="text-gray-900"><div>{displayDate(visit.date)}</div><div className="text-gray-600">{formatVisitTimeRangeLabel(visit.timeLabel)}</div></dd>{editButton('schedule', 'Edit visit schedule', onEditSchedule)}</div>
+          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2 py-2"><dt className="text-gray-500">Location</dt><dd className="text-gray-900">{visit.locationLabel}</dd>{editButton('location', 'Edit visit location', onEditLocation)}</div>
+          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-start gap-2 py-2"><dt className="text-gray-500">Recorded time</dt><dd className="text-gray-900">
+            {operationalSnapshot?.actualStartAt ? <>
             {new Date(operationalSnapshot.actualStartAt).toLocaleString(undefined, operationalSnapshot.visitTimezone ? { timeZone: operationalSnapshot.visitTimezone } : undefined)} {operationalSnapshot.actualEndAt ? `– ${new Date(operationalSnapshot.actualEndAt).toLocaleString(undefined, operationalSnapshot.visitTimezone ? { timeZone: operationalSnapshot.visitTimezone } : undefined)}` : '– In progress'}
             <div className="mt-0.5 text-[11px] text-gray-500">{operationalSnapshot.timeSource === 'caregiver' ? 'Caregiver clock record' : operationalSnapshot.timeSource === 'manager_adjusted' ? 'Manager adjusted' : 'Manager entered'}</div>
-          </dd></div> : null}
+            </> : operationalSnapshot ? <span className="text-gray-500">Not recorded</span>
+              : <span className="text-gray-500">Select edit to view or record time</span>}
+          </dd>{editButton('time', operationalSnapshot?.actualStartAt ? 'Edit recorded time' : 'View or edit recorded time', onEditTime)}</div>
           {operationalSnapshot?.financialStatus ? <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-2 py-2"><dt className="text-gray-500">Time &amp; Billing</dt><dd className="capitalize text-gray-900">{operationalSnapshot.financialStatus}</dd></div> : null}
         </dl>
       </div> : null}

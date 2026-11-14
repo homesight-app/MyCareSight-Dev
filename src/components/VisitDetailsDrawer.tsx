@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useId, useRef, type ReactNode } from 'react'
-import { Pencil, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import type { AllVisitCardDTO } from '@/lib/visit-all-visits-dashboard'
 
@@ -9,26 +9,18 @@ type Props = {
   isOpen: boolean
   onClose: () => void
   visit: AllVisitCardDTO | null
-  mode?: 'view' | 'edit'
-  canEdit?: boolean
-  onEdit?: () => void
-  onDiscardEdit?: () => void
   onCancelVisit?: () => void
   canCancelVisit?: boolean
   onAdvertiseVisit?: () => void
   canAdvertiseVisit?: boolean
-  editFormId?: string
-  editLoading?: boolean
-  saving?: boolean
   actionDialogOpen?: boolean
   children: ReactNode
 }
 
 /** Centered host for reusable visit details; action dialogs can stack above it. */
 export default function VisitDetailsDrawer({
-  isOpen, onClose, mode = 'view', canEdit = false, onEdit, onDiscardEdit,
-  onCancelVisit, canCancelVisit = false, editFormId, saving = false,
-  editLoading = false,
+  isOpen, onClose,
+  onCancelVisit, canCancelVisit = false,
   onAdvertiseVisit, canAdvertiseVisit = false,
   actionDialogOpen = false, children,
 }: Props) {
@@ -89,12 +81,8 @@ export default function VisitDetailsDrawer({
     <section ref={panelRef} role="dialog" aria-modal={!actionDialogOpen} aria-hidden={actionDialogOpen || undefined} aria-labelledby={headingId}
       className="flex max-h-[min(85vh,820px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
       <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-5 py-3">
-        <h2 id={headingId} className="text-base font-semibold text-gray-950">{mode === 'edit' ? 'Edit Visit' : 'Visit Details'}</h2>
+        <h2 id={headingId} className="text-base font-semibold text-gray-950">Visit Details</h2>
         <div className="flex items-center gap-1">
-          {mode === 'view' && canEdit && onEdit ? <Button type="button" variant="secondary" size="sm" icon={Pencil} onClick={onEdit}
-            loading={editLoading} data-visit-primary-action>
-            Edit Visit
-          </Button> : null}
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Close visit details"
             className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-blue-600">
             <X className="h-4 w-4" aria-hidden />
@@ -102,15 +90,12 @@ export default function VisitDetailsDrawer({
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-      <div className={`flex shrink-0 border-t border-gray-100 px-5 py-3 ${mode === 'view' && (canCancelVisit || canAdvertiseVisit) ? 'justify-between' : 'justify-end'} gap-2`}>
-        {mode === 'view' ? <div className="flex gap-2">
+      <div className={`flex shrink-0 border-t border-gray-100 px-5 py-3 ${canCancelVisit || canAdvertiseVisit ? 'justify-between' : 'justify-end'} gap-2`}>
+        <div className="flex gap-2">
           {canAdvertiseVisit && onAdvertiseVisit ? <Button type="button" variant="secondary" size="sm" onClick={onAdvertiseVisit}>Advertise Shift</Button> : null}
           {canCancelVisit && onCancelVisit ? <Button type="button" variant="danger" size="sm" onClick={onCancelVisit}>Cancel Visit</Button> : null}
-        </div> : null}
-        {mode === 'edit' ? <>
-          <Button type="button" variant="secondary" onClick={onDiscardEdit} disabled={saving}>Discard changes</Button>
-          <Button type="submit" form={editFormId} loading={saving} data-visit-primary-action>Save changes</Button>
-        </> : <Button type="button" variant="secondary" onClick={onClose}>Close</Button>}
+        </div>
+        <Button type="button" variant="secondary" onClick={onClose}>Close</Button>
       </div>
     </section>
   </div>

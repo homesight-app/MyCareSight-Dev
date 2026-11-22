@@ -1,5 +1,12 @@
 # HIPAA Compliance Log
 
+### Public contact Turnstile diagnostics — 2026-11-21
+
+- Added allowlisted Cloudflare Siteverify failure codes and HTTP status, with separate request and response-decode stages, in `src/lib/turnstile.ts`. Tokens, secrets, IP addresses, provider metadata, form contents and raw errors are excluded from the new diagnostics. Unknown error values are replaced with a fixed classification. Supports 45 CFR 164.312(b), (d) and (e)(1).
+- Added synthetic tests in `src/_tests_/turnstile.test.ts` for successful verification, rejected/expired tokens, secret rejection, malformed responses, TLS failures and suppression of private values. The public verifier interface, acceptance rules, form behavior, authorization and database access are unchanged. Existing gaps remain: missing secret configuration skips verification and the contact API's general exception handler logs raw errors; separate remediation is required. Never remove the configured secret as a troubleshooting step.
+- Isolated only these diagnostics/tests and this entry onto a fix branch from main; migration tooling and unrelated reconciliation history are excluded. No push, deployment, live credential access, production form submission or database/cloud mutation was performed. Rollback reverts this diagnostic commit. After release, a fresh synthetic submission and sanitized `Turnstile verification failed` log entry are required to classify the production failure; the root cause is not yet established.
+- Validation: all seven focused synthetic tests and whitespace checks pass on the isolated branch. Before isolation, the identical verifier/test files passed eleven combined contact/Turnstile tests, TypeScript, lint (15 existing warnings) and the production build on the reconciliation branch. Broad checks were not repeated during branch recovery; CI/staging must validate the isolated main-based release. No UI changes or Playwright/live tests are included.
+
 This document records features and implementations that address HIPAA Security Rule
 (45 CFR § 164.312) requirements. It is maintained by Claude Code alongside feature
 development and is intended to serve as a living evidence trail for compliance officers

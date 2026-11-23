@@ -82,6 +82,7 @@ export async function authorizeStoredObject(
     `
     if (applicationRows[0]) return applicationRows[0]
 
+    // Agency licenses have no caregiver_member_id; personal credentials are checked below.
     const licenseRows = await sql<AuthorizedObject[]>`
       SELECT document.license_id AS "recordId", license.agency_id AS "agencyId",
         'license_documents'::text AS "tableName"
@@ -92,15 +93,6 @@ export async function authorizeStoredObject(
           ${actor.role} IN ('admin', 'expert')
           OR license.company_owner_id = ${actor.id}::uuid
           OR ${agencyAccess(actor, sql`license.agency_id`)}
-          OR (
-            ${actor.role} = 'staff_member'
-            AND EXISTS (
-              SELECT 1 FROM public.caregiver_members caregiver
-              WHERE caregiver.id = license.caregiver_member_id
-                AND caregiver.user_id = ${actor.id}::uuid
-                AND caregiver.status = 'active'
-            )
-          )
         )
       LIMIT 1
     `
@@ -361,6 +353,7 @@ export async function authorizeStorageUpload(
   }
 
   if (purpose === 'license-document') {
+    // Personal caregiver uploads use the separate caregiver-certification purpose.
     const rows = await sql<{ agencyId: string | null }[]>`
       SELECT license.agency_id AS "agencyId"
       FROM public.licenses license
@@ -369,15 +362,6 @@ export async function authorizeStorageUpload(
           ${actor.role} IN ('admin', 'expert')
           OR license.company_owner_id = ${actor.id}::uuid
           OR ${agencyAccess(actor, sql`license.agency_id`)}
-          OR (
-            ${actor.role} = 'staff_member'
-            AND EXISTS (
-              SELECT 1 FROM public.caregiver_members caregiver
-              WHERE caregiver.id = license.caregiver_member_id
-                AND caregiver.user_id = ${actor.id}::uuid
-                AND caregiver.status = 'active'
-            )
-          )
         )
       LIMIT 1
     `

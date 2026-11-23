@@ -56,7 +56,8 @@ beforeAll(async () => {
     CREATE TABLE caregiver_members(id uuid PRIMARY KEY, agency_id uuid, user_id uuid, status text, documents jsonb DEFAULT '[]');
     CREATE TABLE applications(id uuid PRIMARY KEY, agency_id uuid, assigned_expert_id uuid, company_owner_id uuid, caregiver_member_id uuid);
     CREATE TABLE application_documents(id uuid PRIMARY KEY, application_id uuid, document_url text);
-    CREATE TABLE licenses(id uuid PRIMARY KEY, agency_id uuid, company_owner_id uuid, caregiver_member_id uuid);
+    -- Matches both approved source/target schema artifacts: licenses has no caregiver_member_id.
+    CREATE TABLE licenses(id uuid PRIMARY KEY, agency_id uuid, company_owner_id uuid);
     CREATE TABLE license_documents(id uuid PRIMARY KEY, license_id uuid, document_url text);
     CREATE TABLE caregiver_credentials(id uuid PRIMARY KEY, agency_id uuid, caregiver_member_id uuid, user_id uuid, document_url text);
     CREATE TABLE patients(id uuid PRIMARY KEY, agency_id uuid, documents jsonb);
@@ -88,7 +89,7 @@ beforeEach(async () => {
   await db.query(`INSERT INTO patients VALUES ($1,$2,$3::jsonb)`, [PATIENT, AGENCY, JSON.stringify([{ path: 'patients/synthetic.pdf' }])])
   await db.query(`INSERT INTO patient_incidents VALUES ($1,$2,NULL)`, [INCIDENT, PATIENT])
   await db.query(`INSERT INTO caregiver_members(id,agency_id,user_id,status) VALUES ($1,$2,$3,'active')`, [CAREGIVER, AGENCY, STAFF])
-  await db.query(`INSERT INTO licenses VALUES ($1,$2,$3,$4)`, [LICENSE, AGENCY, OWNER, CAREGIVER])
+  await db.query(`INSERT INTO licenses VALUES ($1,$2,$3)`, [LICENSE, AGENCY, OWNER])
   await db.query(`INSERT INTO license_requirement_templates VALUES ($1,'templates/synthetic.pdf')`, [TEMPLATE])
   await db.query(`INSERT INTO license_requirements VALUES ($1)`, [REQUIREMENT])
   await db.query(`INSERT INTO playbooks VALUES ($1)`, [PLAYBOOK])
@@ -202,21 +203,56 @@ test('generates server-owned upload scopes and denies cross-agency resources', a
   expect(await authorizeStorageUpload('patient-document', PATIENT)).toBeNull()
 })
 
-test('allows a caregiver to scope only their own certification and license uploads', async () => {
+test('allows own caregiver certification upload without inventing a caregiver link on agency licenses', async () => {
   login(STAFF)
   expect(await authorizeStorageUpload('caregiver-certification', null)).toMatchObject({
     agencyId: AGENCY,
     recordId: CAREGIVER,
     pathPrefix: `certifications/${STAFF}/`,
   })
-  expect(await authorizeStorageUpload('license-document', LICENSE)).toMatchObject({
-    agencyId: AGENCY,
-    recordId: LICENSE,
-    pathPrefix: `${LICENSE}/`,
-  })
+  expect(await authorizeStorageUpload('license-document', LICENSE)).toBeNull()
 
   await db.query(`UPDATE caregiver_members SET status='inactive' WHERE id=$1`, [CAREGIVER])
   expect(await authorizeStorageUpload('caregiver-certification', null)).toBeNull()
+  expect(await authorizeStorageUpload('license-document', LICENSE)).toBeNull()
+})
+
+test('authorizes license documents against the actual schema and denies unrelated users', async () => {
+  await db.query(`INSERT INTO license_documents VALUES ($1,$2,$3)`, [id(61), LICENSE, 'licenses/synthetic.pdf'])
+  const expected = { agencyId: AGENCY, recordId: LICENSE, tableName: 'license_documents' }
+  expect(await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'licenses/synthetic.pdf')).toEqual(expected)
+  login(ADMIN)
+  expect(await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'licenses/synthetic.pdf')).toEqual(expected)
+  expect(await authorizeStorageUpload('license-document', LICENSE)).toMatchObject({ recordId: LICENSE })
+  login(OTHER)
+  expect(await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'licenses/synthetic.pdf')).toBeNull()
+  expect(await authorizeStorageUpload('license-document', LICENSE)).toBeNull()
+  login(OWNER)
+  await db.query(`UPDATE user_profiles SET is_active=false WHERE id=$1`, [OWNER])
+  expect(await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'licenses/synthetic.pdf')).toBeNull()
+})
+
+test('reaches own caregiver credential documents after the agency-license lookup', async () => {
+  await db.query(`INSERT INTO caregiver_credentials VALUES ($1,$2,$3,$4,$5)`,
+    [id(62), AGENCY, CAREGIVER, STAFF, 'credentials/synthetic.pdf'])
+  login(STAFF)
+  expect(await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'credentials/synthetic.pdf')).toMatchObject({
+    recordId: id(62), tableName: 'caregiver_credentials',
+  })
+  login(OTHER)
+  expect(await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'credentials/synthetic.pdf')).toBeNull()
+})
+
+test('retains active agency membership access to license documents and rejects revoked membership', async () => {
+  await db.query(`INSERT INTO license_documents VALUES ($1,$2,$3)`, [id(61), LICENSE, 'licenses/synthetic.pdf'])
+  await db.query(`INSERT INTO user_agency_roles VALUES ($1,$2,'company_owner','active')`, [OTHER, AGENCY])
+  login(OTHER)
+  expect(await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'licenses/synthetic.pdf')).toMatchObject({
+    recordId: LICENSE, agencyId: AGENCY,
+  })
+  expect(await authorizeStorageUpload('license-document', LICENSE)).toMatchObject({ recordId: LICENSE })
+  await db.query(`UPDATE user_agency_roles SET status='inactive' WHERE user_id=$1 AND agency_id=$2`, [OTHER, AGENCY])
+  expect(await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'licenses/synthetic.pdf')).toBeNull()
   expect(await authorizeStorageUpload('license-document', LICENSE)).toBeNull()
 })
 

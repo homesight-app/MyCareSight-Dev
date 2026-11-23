@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useForm } from 'react-hook-form'
@@ -9,6 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { Mail, Lock, User, Shield, RefreshCw, GraduationCap, ArrowLeft } from 'lucide-react'
 import { signIn } from 'next-auth/react'
+import { getConfirmedLoginDestination, LoginSessionUnavailableError } from '@/lib/auth/login-session'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -20,7 +21,6 @@ type LoginFormData = z.infer<typeof loginSchema>
 
 
 function LoginPageContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -109,23 +109,15 @@ function LoginPageContent() {
         return
       }
 
-      // Session is set — fetch role via the session endpoint then redirect
-      const sessionRes = await fetch('/api/auth/session')
-      const sessionData = await sessionRes.json()
-      const role = sessionData?.user?.role
-
-      if (role === 'admin') {
-        router.push('/pages/admin')
-      } else if (role === 'expert') {
-        router.push('/pages/expert/clients')
-      } else if (role === 'staff_member') {
-        router.push('/pages/caregiver')
-      } else if (role === 'care_coordinator') {
-        router.push('/pages/agency/clients')
-      } else {
-        router.push('/pages/agency')
-      }
+      const destination = await getConfirmedLoginDestination()
+      // Discard pre-login router entries and load a fresh authenticated page tree.
+      window.location.replace(destination)
     } catch (err) {
+      if (err instanceof LoginSessionUnavailableError) {
+        setError(err.message)
+        setIsLoading(false)
+        return
+      }
       const isNetworkError =
         err instanceof TypeError &&
         (err.message === 'Failed to fetch' || (err as Error).message?.includes('fetch'))

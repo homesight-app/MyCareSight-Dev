@@ -26,3 +26,5 @@ export type StoredFileUpload = {
 }
 
 export const STORAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+// Existing migrated documents can exceed the current new-upload limit.
+export const STORAGE_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024

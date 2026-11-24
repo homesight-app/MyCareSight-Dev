@@ -17,10 +17,6 @@ jest.mock('@/app/actions/licenses', () => ({
   getCertificationVersionHistory: jest.fn(),
 }))
 jest.mock('@/app/actions/license-documents', () => ({ uploadLicenseDocumentAction: jest.fn() }))
-jest.mock('@/lib/storage', () => ({
-  createSignedStorageUrl: jest.fn(),
-  STORAGE_BUCKET: { APPLICATION: 'application-documents' },
-}))
 
 const AGENCY_ID = '10000000-0000-4000-8000-000000000001'
 const LICENSE_ID = '10000000-0000-4000-8000-000000000002'
@@ -105,4 +101,55 @@ test('uses shared client validation and displays server field errors inline', as
   fireEvent.change(screen.getByLabelText(/Certification Name/), { target: { value: 'Synthetic Updated Certification' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save' }))
   expect(await screen.findByText('Select a valid category')).toBeInTheDocument()
+})
+
+test('downloads certification bytes through the app with the original filename and handles failures', async () => {
+  const documentPath = 'licenses/synthetic-license/synthetic.pdf'
+  const fetchMock = jest.fn()
+  const originalFetch = global.fetch
+  global.fetch = fetchMock
+  const originalCreate = window.URL.createObjectURL
+  const originalRevoke = window.URL.revokeObjectURL
+  window.URL.createObjectURL = jest.fn(() => 'blob:synthetic-download')
+  window.URL.revokeObjectURL = jest.fn()
+  const alertMock = jest.spyOn(window, 'alert').mockImplementation(() => {})
+  const downloads: { href: string; filename: string }[] = []
+  const clickMock = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+    downloads.push({ href: this.href, filename: this.download })
+  })
+  try {
+    const blob = new Blob(['synthetic document'], { type: 'application/pdf' })
+    fetchMock.mockResolvedValueOnce({ ok: true, blob: async () => blob })
+    render(
+      <CertificationDetailModal
+        license={{ ...license, license_documents: [{
+          id: '10000000-0000-4000-8000-000000000005',
+          document_name: 'Synthetic Original.pdf', document_url: documentPath,
+          document_type: 'license', created_at: '2026-01-01T00:00:00.000Z',
+        }] }}
+        agencyId={AGENCY_ID} backPath="/synthetic" categoryOptions={categoryOptions}
+        canEdit onClose={jest.fn()}
+      />
+    )
+    fireEvent.click(screen.getByTitle('Download'))
+    await waitFor(() => expect(downloads).toEqual([{ href: 'blob:synthetic-download', filename: 'Synthetic Original.pdf' }]))
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/storage/download?${new URLSearchParams({ bucket: 'application-documents', path: documentPath })}`,
+      { cache: 'no-store' }
+    )
+    expect(window.URL.revokeObjectURL).toHaveBeenCalledWith('blob:synthetic-download')
+    await waitFor(() => expect(screen.getByTitle('Download')).toBeEnabled())
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: 'Unauthorized' }) })
+    fireEvent.click(screen.getByTitle('Download'))
+    await waitFor(() => expect(alertMock).toHaveBeenCalledWith('Failed to download document.'))
+    expect(downloads).toHaveLength(1)
+    expect(screen.getByTitle('Download')).toBeEnabled()
+  } finally {
+    global.fetch = originalFetch
+    window.URL.createObjectURL = originalCreate
+    window.URL.revokeObjectURL = originalRevoke
+    alertMock.mockRestore()
+    clickMock.mockRestore()
+  }
 })

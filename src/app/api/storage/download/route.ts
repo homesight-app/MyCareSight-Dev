@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth'
 import { attachmentContentDisposition } from '@/lib/download-filename'
 import { auditStoredObjectAccess, authorizeStoredObject } from '@/lib/storage/authorization'
 import { downloadFile } from '@/lib/storage/client'
-import { STORAGE_UPLOAD_MAX_BYTES } from '@/lib/storage/contracts'
+import { STORAGE_DOWNLOAD_MAX_BYTES } from '@/lib/storage/contracts'
 
 export const runtime = 'nodejs'
 
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     const object = await withUserContext(...context, () => authorizeStoredObject(bucket, path))
     if (!object) return Response.json({ error: 'Document not found' }, { status: 404 })
 
-    const file = await downloadFile(bucket, path, STORAGE_UPLOAD_MAX_BYTES)
+    const file = await downloadFile(bucket, path, STORAGE_DOWNLOAD_MAX_BYTES)
     if (!file) return Response.json({ error: 'Unable to download document' }, { status: 503 })
 
     await withUserContext(...context, () =>

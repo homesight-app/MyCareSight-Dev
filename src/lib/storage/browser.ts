@@ -34,6 +34,18 @@ export async function cleanupStoredFile(upload: StoredFileUpload): Promise<void>
   }
 }
 
+function storedFileDownloadUrl(bucket: StorageBucket, path: string): string {
+  return `/api/storage/download?${new URLSearchParams({ bucket, path }).toString()}`
+}
+
+/** Fetch authorized bytes through the app, so browser downloads do not depend on blob CORS. */
+export async function fetchStoredFile(bucket: StorageBucket, path: string): Promise<Blob> {
+  if (!path) throw new Error('Invalid document request')
+  const response = await fetch(storedFileDownloadUrl(bucket, path), { cache: 'no-store' })
+  if (!response.ok) throw new Error(await responseError(response, 'Failed to download document'))
+  return response.blob()
+}
+
 /**
  * Starts a same-origin, server-authorized download. The server chooses the
  * filename from the document record and returns it in Content-Disposition.
@@ -41,9 +53,8 @@ export async function cleanupStoredFile(upload: StoredFileUpload): Promise<void>
 export function downloadStoredFile(bucket: StorageBucket, path: string): void {
   if (!path) return
 
-  const query = new URLSearchParams({ bucket, path })
   const anchor = document.createElement('a')
-  anchor.href = `/api/storage/download?${query.toString()}`
+  anchor.href = storedFileDownloadUrl(bucket, path)
   anchor.style.display = 'none'
   document.body.appendChild(anchor)
   anchor.click()

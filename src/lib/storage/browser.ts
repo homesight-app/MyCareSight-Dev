@@ -1,4 +1,7 @@
 import type { StorageBucket, StoredFileUpload, UploadPurpose } from './contracts'
+import { sanitizeDownloadFilename } from '@/lib/download-filename'
+import { isExternalDocumentLink } from './index'
+import { STORAGE_BUCKET } from './contracts'
 
 async function responseError(response: Response, fallback: string) {
   const body = await response.json().catch(() => null) as { error?: string } | null
@@ -44,6 +47,43 @@ export async function fetchStoredFile(bucket: StorageBucket, path: string): Prom
   const response = await fetch(storedFileDownloadUrl(bucket, path), { cache: 'no-store' })
   if (!response.ok) throw new Error(await responseError(response, 'Failed to download document'))
   return response.blob()
+}
+
+/** Save authorized bytes with the feature's existing filename; never fetch a provider URL. */
+export async function saveStoredFile(bucket: StorageBucket, path: string, filename: string): Promise<void> {
+  const blob = await fetchStoredFile(bucket, path)
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  try {
+    anchor.href = objectUrl
+    anchor.download = sanitizeDownloadFilename(filename)
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+  } finally {
+    anchor.remove()
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+/** Stored templates use the shared download route; intentional external resources still open. */
+export async function saveTemplateFile(reference: string, filename: string): Promise<void> {
+  if (isExternalDocumentLink(reference)) {
+    window.open(reference, '_blank', 'noopener,noreferrer')
+    return
+  }
+  await saveStoredFile(STORAGE_BUCKET.LICENSE_TEMPLATES, reference, filename)
+}
+
+/** Read the authorized object's size without downloading its bytes. */
+export async function getStoredFileSize(bucket: StorageBucket, path: string): Promise<number> {
+  if (!path) throw new Error('Invalid document request')
+  const response = await fetch(storedFileDownloadUrl(bucket, path), { method: 'HEAD', cache: 'no-store' })
+  if (!response.ok) throw new Error(`Unable to read document size (HTTP ${response.status})`)
+  const header = response.headers.get('content-length')
+  const bytes = header === null ? NaN : Number(header)
+  if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('Invalid document size')
+  return bytes
 }
 
 /**

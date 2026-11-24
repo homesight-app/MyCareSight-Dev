@@ -146,12 +146,12 @@ test('writes identifier-only signing evidence without storing the object path', 
   expect(JSON.stringify(result.rows[0])).not.toContain('synthetic.pdf')
 })
 
-test('writes identifier-only download evidence as a read without storing the object path', async () => {
+test.each(['DOWNLOAD', 'METADATA'] as const)('writes identifier-only %s evidence as a read without storing the object path', async operation => {
   const object = await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'applications/synthetic.pdf')
   expect(object).not.toBeNull()
-  await auditStoredObjectAccess(OWNER, object!, 'DOWNLOAD')
+  await auditStoredObjectAccess(OWNER, object!, operation)
   const result = await db.query<{ action: string; details: unknown }>('SELECT action, details FROM audit_log')
-  expect(result.rows).toEqual([{ action: 'READ', details: { operation: 'DOWNLOAD' } }])
+  expect(result.rows).toEqual([{ action: 'READ', details: { operation } }])
   expect(JSON.stringify(result.rows[0])).not.toContain('synthetic.pdf')
 })
 

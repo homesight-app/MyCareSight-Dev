@@ -33,7 +33,8 @@ import { LicenseType } from '@/types/license'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import * as q from '@/app/actions/query-bridge'
 import { useRouter } from 'next/navigation'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
+import { saveStoredFile } from '@/lib/storage/browser'
 
 interface License {
   id: string
@@ -233,25 +234,9 @@ export default function LicensesContent({
       }
 
       // Download the document
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documents.document_url)
-      if (!signedUrl) throw new Error('Failed to generate download URL')
-      const response = await fetch(signedUrl)
-      if (!response.ok) {
-        throw new Error('Failed to download file')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = documents.document_name || 'document'
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (error: any) {
-      console.error('Error downloading document:', error)
-      alert('Failed to download document: ' + (error.message || 'Unknown error'))
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, documents.document_url, documents.document_name || 'document')
+    } catch {
+      alert('Failed to download document. Please try again.')
     } finally {
       setDownloadingApplicationId(null)
     }
@@ -276,25 +261,9 @@ export default function LicensesContent({
       }
 
       // Download the document
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documents.document_url)
-      if (!signedUrl) throw new Error('Failed to generate download URL')
-      const response = await fetch(signedUrl)
-      if (!response.ok) {
-        throw new Error('Failed to download file')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = documents.document_name || 'document'
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (error: any) {
-      console.error('Error downloading document:', error)
-      alert('Failed to download document: ' + (error.message || 'Unknown error'))
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, documents.document_url, documents.document_name || 'document')
+    } catch {
+      alert('Failed to download document. Please try again.')
     } finally {
       setDownloadingLicenseId(null)
     }

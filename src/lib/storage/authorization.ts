@@ -207,7 +207,7 @@ export async function authorizeStoredObject(
 export async function auditStoredObjectAccess(
   actorId: string,
   object: AuthorizedObject,
-  operation: 'SIGNED_URL' | 'DOWNLOAD' | 'UPLOAD' | 'DELETE'
+  operation: 'SIGNED_URL' | 'DOWNLOAD' | 'METADATA' | 'UPLOAD' | 'DELETE'
 ) {
   await sql`
     INSERT INTO public.audit_log
@@ -216,7 +216,7 @@ export async function auditStoredObjectAccess(
       ${object.agencyId}::uuid,
       ${object.tableName},
       ${object.recordId}::uuid,
-      ${operation === 'SIGNED_URL' || operation === 'DOWNLOAD' ? 'READ' : operation === 'UPLOAD' ? 'CREATE' : 'DELETE'},
+      ${operation === 'DELETE' ? 'DELETE' : operation === 'UPLOAD' ? 'CREATE' : 'READ'},
       ${actorId}::uuid,
       ${JSON.stringify({ operation })}::jsonb
     )

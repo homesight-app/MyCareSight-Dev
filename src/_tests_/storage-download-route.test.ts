@@ -1,9 +1,9 @@
 /** @jest-environment node */
-import { GET } from '@/app/api/storage/download/route'
+import { GET, HEAD } from '@/app/api/storage/download/route'
 import { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import { auditStoredObjectAccess, authorizeStoredObject } from '@/lib/storage/authorization'
-import { downloadFile } from '@/lib/storage/client'
+import { downloadFile, getFileMetadata } from '@/lib/storage/client'
 import { STORAGE_DOWNLOAD_MAX_BYTES, STORAGE_UPLOAD_MAX_BYTES } from '@/lib/storage/contracts'
 
 jest.mock('server-only', () => ({}), { virtual: true })
@@ -17,7 +17,7 @@ jest.mock('@/lib/storage/authorization', () => ({
   authorizeStoredObject: jest.fn(),
   auditStoredObjectAccess: jest.fn(),
 }))
-jest.mock('@/lib/storage/client', () => ({ downloadFile: jest.fn() }))
+jest.mock('@/lib/storage/client', () => ({ downloadFile: jest.fn(), getFileMetadata: jest.fn() }))
 
 const USER_ID = '00000000-0000-4000-8000-000000000001'
 const RECORD_ID = '00000000-0000-4000-8000-000000000002'
@@ -40,6 +40,39 @@ beforeEach(() => {
     contentLength: 3,
     contentType: 'application/pdf',
   })
+  jest.mocked(getFileMetadata).mockResolvedValue({ contentLength: 3, contentType: 'application/pdf' })
+})
+
+test('HEAD independently authorizes and audits metadata without reading or returning file bytes', async () => {
+  const response = await HEAD(new Request('https://uat.example.test/api/storage/download?bucket=application-documents&path=synthetic.pdf', { method: 'HEAD' }))
+  expect(response.status).toBe(200)
+  expect(response.headers.get('content-length')).toBe('3')
+  expect(await response.text()).toBe('')
+  expect(downloadFile).not.toHaveBeenCalled()
+  expect(getFileMetadata).toHaveBeenCalledWith('application-documents', 'synthetic.pdf', STORAGE_DOWNLOAD_MAX_BYTES)
+  expect(auditStoredObjectAccess).toHaveBeenCalledWith(USER_ID, expect.objectContaining({ recordId: RECORD_ID }), 'METADATA')
+})
+
+test('HEAD denies unauthenticated or unregistered access before checking provider metadata', async () => {
+  const request = new Request('https://uat.example.test/api/storage/download?bucket=application-documents&path=synthetic.pdf', { method: 'HEAD' })
+  jest.mocked(getSession).mockResolvedValueOnce(null)
+  expect((await HEAD(request)).status).toBe(401)
+  jest.mocked(authorizeStoredObject).mockResolvedValueOnce(null)
+  expect((await HEAD(request)).status).toBe(404)
+  expect(getFileMetadata).not.toHaveBeenCalled()
+  expect(downloadFile).not.toHaveBeenCalled()
+})
+
+test('HEAD fails closed on metadata or audit failure and never includes an error body', async () => {
+  const request = new Request('https://uat.example.test/api/storage/download?bucket=application-documents&path=synthetic.pdf', { method: 'HEAD' })
+  jest.mocked(getFileMetadata).mockResolvedValueOnce(null)
+  const unavailable = await HEAD(request)
+  expect(unavailable.status).toBe(503)
+  expect(await unavailable.text()).toBe('')
+  jest.mocked(auditStoredObjectAccess).mockRejectedValueOnce(new Error('synthetic-private-error'))
+  const rejected = await HEAD(request)
+  expect(rejected.status).toBe(500)
+  expect(await rejected.text()).toBe('')
 })
 
 test('streams an authorized document with its database filename and audits the download', async () => {

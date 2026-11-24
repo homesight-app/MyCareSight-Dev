@@ -6,7 +6,7 @@ import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import PlaybookTab from './PlaybookTab'
 import Modal from './Modal'
-import { resolveDocumentViewUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { saveTemplateFile } from '@/lib/storage/browser'
 import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import { updatePlaybook, createPlaybookTemplate, getPlaybookTemplatesAction, updatePlaybookTemplateAction, deletePlaybookTemplateAction } from '@/app/actions/playbooks'
 import { US_STATES } from '@/lib/constants'
@@ -193,9 +193,12 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
 
   // ── Template handlers ────────────────────────────────────────────────────
 
-  const handleDownloadTemplate = async (fileUrlOrPath: string) => {
-    const signedUrl = await resolveDocumentViewUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, fileUrlOrPath)
-    if (signedUrl) window.open(signedUrl, '_blank')
+  const handleDownloadTemplate = async (fileUrlOrPath: string, filename: string) => {
+    try {
+      await saveTemplateFile(fileUrlOrPath, filename)
+    } catch {
+      alert('Failed to download template. Please try again.')
+    }
   }
 
   const handleUploadTemplate = async (e: React.FormEvent) => {
@@ -565,7 +568,7 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <button onClick={() => handleDownloadTemplate(tpl.file_url)} className="p-2 text-gray-700 hover:bg-gray-100 rounded transition-colors" title="Download" type="button">
+                      <button onClick={() => handleDownloadTemplate(tpl.file_url, tpl.file_name)} className="p-2 text-gray-700 hover:bg-gray-100 rounded transition-colors" title="Download" type="button">
                         <FileText className="w-4 h-4" />
                       </button>
                       <button

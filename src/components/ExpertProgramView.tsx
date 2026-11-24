@@ -11,7 +11,7 @@ import {
 import Link from 'next/link'
 import * as q from '@/app/actions/query-bridge'
 import { useVisiblePolling } from '@/hooks/useVisiblePolling'
-import { createSignedStorageUrl, resolveDocumentViewUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { saveTemplateFile } from '@/lib/storage/browser'
 import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
 import {
   getProgramItemNoteCounts,
@@ -1112,8 +1112,11 @@ export default function ExpertProgramView({
                   type="button"
                   icon={Download}
                   onClick={async () => {
-                    const signedUrl = await resolveDocumentViewUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, tpl.file_url)
-                    if (signedUrl) window.open(signedUrl, '_blank')
+                    try {
+                      await saveTemplateFile(tpl.file_url, tpl.file_name)
+                    } catch {
+                      alert('Failed to download template. Please try again.')
+                    }
                   }}
                 >
                   Download

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { createSignedStorageUrl, resolveDocumentViewUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { resolveDocumentViewUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { saveStoredFile } from '@/lib/storage/browser'
 import Modal from './Modal'
 import UploadDocumentModal from './UploadDocumentModal'
 import InternalNotesPanel from './InternalNotesPanel'
@@ -487,14 +488,13 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
 
   const handleDownload = async (doc: ItemDoc) => {
     setDownloadingDocId(doc.id)
-    const url = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, doc.document_url)
-    if (url) {
-      const a = document.createElement('a')
-      a.href = url
-      a.download = doc.document_name
-      a.click()
+    try {
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, doc.document_url, doc.document_name)
+    } catch {
+      alert('Failed to download document. Please try again.')
+    } finally {
+      setDownloadingDocId(null)
     }
-    setDownloadingDocId(null)
   }
 
   // Validation summary counts — derived from the latest saved run, not ruleChecks.

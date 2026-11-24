@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { createSignedStorageUrl } from '@/lib/storage'
+import { saveStoredFile } from '@/lib/storage/browser'
 import type { PatientDocument } from '@/lib/supabase/query/patients'
 import { uploadCaregiverDocumentsAction, deleteCaregiverDocumentAction } from '@/app/actions/caregiver-documents'
 import { FileText, Upload, Download, Trash2, Loader2 } from 'lucide-react'
-import { sanitizeDownloadFilename } from '@/lib/download-filename'
 
 const BUCKET = 'staff-member-documents'
 const LOG = '[CaregiverDocs]'
@@ -138,20 +137,7 @@ export function CaregiverDocumentsPanel({
     setDownloadingId(doc.id)
     setError(null)
     try {
-      const signedUrl = await createSignedStorageUrl(BUCKET, doc.path)
-      if (!signedUrl) throw new Error('Could not generate download link')
-      const res = await fetch(signedUrl)
-      if (!res.ok) throw new Error(`Download failed (${res.status})`)
-      const blob = await res.blob()
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = sanitizeDownloadFilename(doc.name)
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objectUrl)
+      await saveStoredFile(BUCKET, doc.path, doc.name)
     } catch {
       setError('Could not download this file.')
     } finally {

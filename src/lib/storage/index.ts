@@ -1,5 +1,16 @@
 export { STORAGE_BUCKET } from './contracts'
 
+/** Intentional external resources stay external; migrated objects never use this bypass. */
+export function isExternalDocumentLink(reference: string): boolean {
+  if (reference.includes('/storage/v1/object/')) return false
+  try {
+    const url = new URL(reference)
+    return ['http:', 'https:'].includes(url.protocol) && !url.hostname.endsWith('.supabase.co')
+  } catch {
+    return false
+  }
+}
+
 /** Resolve migrated storage references through Azure while preserving external template links. */
 export async function resolveDocumentViewUrl(bucket: string, reference: string, expiresIn = 600): Promise<string | null> {
   if (!reference) return null
@@ -8,7 +19,7 @@ export async function resolveDocumentViewUrl(bucket: string, reference: string, 
       const url = new URL(reference)
       // Unsupported legacy URLs must never fall back to the retired provider.
       if (url.hostname.endsWith('.supabase.co')) return null
-      return reference
+      return isExternalDocumentLink(reference) ? reference : null
     } catch {
       return null
     }

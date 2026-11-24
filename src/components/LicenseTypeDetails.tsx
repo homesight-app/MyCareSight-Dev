@@ -5,7 +5,7 @@ import { CheckCircle2, Clock, DollarSign, Calendar, Loader2, Plus, Save, X, File
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import * as q from '@/app/actions/query-bridge'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { saveTemplateFile } from '@/lib/storage/browser'
 import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import { 
   createStep, 
@@ -728,13 +728,12 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
 
   // Generate a time-limited signed URL for a template download.
   // Handles both legacy records (stored as full https:// URLs) and new records (stored as storage paths).
-  const handleDownloadTemplate = async (fileUrlOrPath: string) => {
-    if (fileUrlOrPath.startsWith('http')) {
-      window.open(fileUrlOrPath, '_blank')
-      return
+  const handleDownloadTemplate = async (fileUrlOrPath: string, filename: string) => {
+    try {
+      await saveTemplateFile(fileUrlOrPath, filename)
+    } catch {
+      alert('Failed to download template. Please try again.')
     }
-    const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, fileUrlOrPath)
-    if (signedUrl) window.open(signedUrl, '_blank')
   }
 
   // Template handlers
@@ -2474,7 +2473,7 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button
-                        onClick={() => handleDownloadTemplate(tpl.file_url)}
+                        onClick={() => handleDownloadTemplate(tpl.file_url, tpl.file_name)}
                         className="p-2 text-gray-700 hover:bg-gray-100 rounded transition-colors"
                         title="Download"
                         type="button"

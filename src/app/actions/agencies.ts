@@ -484,51 +484,11 @@ export async function deleteAgencyNote(agencyId: string, noteId: string) {
 // ——— Agency Documents ————————————————————————————————————————
 
 export async function uploadAgencyDocument(
-  agencyId: string,
-  formData: FormData
+  _agencyId: string,
+  _formData: FormData
 ): Promise<{ error: string | null; doc?: { id: string; document_name: string; file_url: string } }> {
-  const session = await getSession()
-  if (!session) return { error: 'Not authenticated' }
-
-  const file = formData.get('file') as File | null
-  const documentName = formData.get('document_name') as string | null
-  const documentType = formData.get('document_type') as string | null
-
-  if (!file || !documentName?.trim()) return { error: 'File and document name are required' }
-
-  const ext = file.name.split('.').pop()
-  const filePath = `${agencyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-
-  const { error: uploadErr } = await uploadFile(STORAGE_BUCKET.AGENCY, filePath, file)
-  if (uploadErr) return { error: uploadErr.message }
-
-  const { data, error: insertErr } = await q.insertAgencyDocument({
-    agency_id: agencyId,
-    document_name: documentName.trim(),
-    file_url: filePath,
-    file_name: file.name,
-    document_type: documentType ?? null,
-    uploaded_by: session.user.id,
-  })
-
-  if (insertErr) {
-    const { error: cleanupErr } = await removeFiles(STORAGE_BUCKET.AGENCY, [filePath])
-    if (cleanupErr) console.error('[agencies/uploadAgencyDocument] Storage cleanup failed. path=%s err=%s', filePath, cleanupErr.message)
-    return { error: insertErr.message }
-  }
-
-  const { error: auditErr } = await q.insertAuditLog({
-    agency_id: agencyId,
-    table_name: 'agency_documents',
-    record_id: data!.id,
-    action: 'CREATE',
-    performed_by_user_id: session.user.id,
-    details: { document_name: documentName.trim(), document_type: documentType ?? null, file_name: file.name },
-  })
-  if (auditErr) console.error('[agencies/uploadAgencyDocument] Audit log failed. docId=%s err=%s', data!.id, auditErr.message)
-
-  revalidateAgencyDetailPages()
-  return { error: null, doc: { id: data!.id, document_name: documentName.trim(), file_url: filePath } }
+  // Old browser tabs must refresh; do not keep a second, unvalidated binary upload path.
+  return { error: 'Refresh this page to use the updated document upload, then select the file again.' }
 }
 
 export async function deleteAgencyDocumentAction(agencyId: string, docId: string, filePath: string) {

@@ -4,12 +4,16 @@ import { withUserContext } from '@/db'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
 import { auditStoredObjectAccess, authorizeStorageUpload } from '@/lib/storage/authorization'
 import { createStorageCleanupToken, readStorageCleanupToken } from '@/lib/storage/cleanup-token'
-import { STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/contracts'
+import { reportUploadFailure } from '@/lib/storage/diagnostics'
+import { STORAGE_UPLOAD_FILE_EXTENSIONS, STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/contracts'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
+import { findAgencyDocumentUpload, lockAgencyDocumentUpload } from '@/lib/repositories/agency-documents'
 
 const MAX_MULTIPART_REQUEST_BYTES = STORAGE_UPLOAD_MAX_BYTES + 256 * 1024
 const PURPOSES = new Set<UploadPurpose>([
   'application-document',
   'lead-document',
+  'agency-document',
   'patient-document',
   'caregiver-certification',
   'license-document',
@@ -17,17 +21,6 @@ const PURPOSES = new Set<UploadPurpose>([
   'patient-incident',
   'playbook-template',
 ])
-const FILE_EXTENSIONS: Record<string, string> = {
-  'application/pdf': 'pdf',
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-  'text/plain': 'txt',
-}
 
 export async function POST(request: Request) {
   const session = await getSession()
@@ -54,7 +47,9 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Invalid upload request' }, { status: 400 })
   }
 
-  const extension = FILE_EXTENSIONS[file.type.toLowerCase()]
+  const mime = file.type.toLowerCase()
+  const extension = Object.prototype.hasOwnProperty.call(STORAGE_UPLOAD_FILE_EXTENSIONS, mime)
+    ? STORAGE_UPLOAD_FILE_EXTENSIONS[mime] : undefined
   if (!extension) return Response.json({ error: 'Unsupported file type' }, { status: 400 })
 
   const authorized = await withUserContext(
@@ -68,14 +63,18 @@ export async function POST(request: Request) {
 
   const path = `${authorized.pathPrefix}${randomUUID()}.${extension}`
   const { error } = await uploadFile(authorized.bucket, path, file, { contentType: file.type })
-  if (error) return Response.json({ error: 'File upload failed' }, { status: 500 })
+  if (error) {
+    reportUploadFailure('object-upload', error)
+    return Response.json({ error: 'File upload failed' }, { status: 500 })
+  }
 
   try {
     await withUserContext(
       session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null,
       () => auditStoredObjectAccess(session.user.id, authorized, 'UPLOAD')
     )
-  } catch {
+  } catch (error) {
+    reportUploadFailure('upload-audit', error)
     await removeFiles(authorized.bucket, [path])
     return Response.json({ error: 'File upload could not be recorded' }, { status: 500 })
   }
@@ -103,6 +102,29 @@ export async function DELETE(request: Request) {
   const claim = readStorageCleanupToken(body.cleanupToken)
   if (!claim || claim.actorId !== session.user.id || claim.path !== body.path) {
     return Response.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  if (claim.bucket === STORAGE_BUCKET.AGENCY) {
+    if (!claim.agencyId || claim.tableName !== 'agencies' || claim.recordId !== claim.agencyId
+      || !claim.path.startsWith(`${claim.agencyId}/`)) return Response.json({ error: 'Not found' }, { status: 404 })
+    const agencyId = claim.agencyId
+    try {
+      return await withUserContext(session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null, async () => {
+        const authorized = await authorizeStorageUpload('agency-document', agencyId)
+        if (!authorized || authorized.agencyId !== agencyId) return Response.json({ error: 'Not found' }, { status: 404 })
+        await lockAgencyDocumentUpload(claim.path)
+        if (await findAgencyDocumentUpload(agencyId, claim.path)) {
+          return Response.json({ error: 'This file is already attached to a saved document' }, { status: 409 })
+        }
+        const { error } = await removeFiles(claim.bucket, [claim.path])
+        if (error) throw error
+        await auditStoredObjectAccess(session.user.id, claim, 'DELETE')
+        return Response.json({ success: true })
+      })
+    } catch (error) {
+      reportUploadFailure('upload-cleanup', error)
+      return Response.json({ error: 'File cleanup failed' }, { status: 500 })
+    }
   }
 
   const { error } = await removeFiles(claim.bucket, [claim.path])

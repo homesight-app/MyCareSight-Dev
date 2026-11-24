@@ -2,12 +2,12 @@ import { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import { attachmentContentDisposition } from '@/lib/download-filename'
 import { auditStoredObjectAccess, authorizeStoredObject } from '@/lib/storage/authorization'
-import { downloadFile } from '@/lib/storage/client'
+import { downloadFile, getFileMetadata } from '@/lib/storage/client'
 import { STORAGE_DOWNLOAD_MAX_BYTES } from '@/lib/storage/contracts'
 
 export const runtime = 'nodejs'
 
-export async function GET(request: Request) {
+async function handleRequest(request: Request, metadataOnly: boolean) {
   const session = await getSession()
   if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -28,11 +28,13 @@ export async function GET(request: Request) {
     const object = await withUserContext(...context, () => authorizeStoredObject(bucket, path))
     if (!object) return Response.json({ error: 'Document not found' }, { status: 404 })
 
-    const file = await downloadFile(bucket, path, STORAGE_DOWNLOAD_MAX_BYTES)
+    const file = metadataOnly
+      ? await getFileMetadata(bucket, path, STORAGE_DOWNLOAD_MAX_BYTES).then(metadata => metadata && { ...metadata, stream: null })
+      : await downloadFile(bucket, path, STORAGE_DOWNLOAD_MAX_BYTES)
     if (!file) return Response.json({ error: 'Unable to download document' }, { status: 503 })
 
     await withUserContext(...context, () =>
-      auditStoredObjectAccess(session.user.id, object, 'DOWNLOAD')
+      auditStoredObjectAccess(session.user.id, object, metadataOnly ? 'METADATA' : 'DOWNLOAD')
     )
 
     return new Response(file.stream, {
@@ -47,4 +49,13 @@ export async function GET(request: Request) {
   } catch {
     return Response.json({ error: 'Unable to download document' }, { status: 500 })
   }
+}
+
+export async function GET(request: Request) {
+  return handleRequest(request, false)
+}
+
+export async function HEAD(request: Request) {
+  const response = await handleRequest(request, true)
+  return new Response(null, { status: response.status, headers: response.headers })
 }

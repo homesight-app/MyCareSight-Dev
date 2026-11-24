@@ -5,7 +5,8 @@ import { getApplicationNoteCountsAction } from '@/app/actions/internal-notes'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
+import { saveStoredFile, saveTemplateFile } from '@/lib/storage/browser'
 import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import type { StoredFileUpload } from '@/lib/storage/contracts'
 import { APPLICATION_DOCUMENT_MAX_BYTES } from '@/lib/schemas/application-documents'
@@ -1456,20 +1457,8 @@ export default function ApplicationDetailContent({
 
   const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documentPath)
-      if (!signedUrl) throw new Error('Could not generate download link')
-      const response = await fetch(signedUrl)
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = documentName
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (error) {
-      console.error('Error downloading file:', error)
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, documentPath, documentName)
+    } catch {
       alert('Failed to download document. Please try again.')
     }
   }
@@ -2502,12 +2491,11 @@ export default function ApplicationDetailContent({
                       type="button"
                       icon={Download}
                       onClick={async () => {
-                        if (tpl.file_url.startsWith('http')) {
-                          window.open(tpl.file_url, '_blank')
-                          return
+                        try {
+                          await saveTemplateFile(tpl.file_url, tpl.file_name)
+                        } catch {
+                          alert('Failed to download template. Please try again.')
                         }
-                        const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, tpl.file_url)
-                        if (signedUrl) window.open(signedUrl, '_blank')
                       }}
                     >
                       Download

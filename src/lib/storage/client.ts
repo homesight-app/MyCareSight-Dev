@@ -2,7 +2,7 @@ import 'server-only'
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions } from '@azure/storage-blob'
 import { DefaultAzureCredential } from '@azure/identity'
 import { Readable } from 'node:stream'
-import { reportSigningFailure } from './diagnostics'
+import { reportReadFailure, reportSigningFailure } from './diagnostics'
 import {
   measureStorageOperation,
   storageSizeClass,
@@ -77,10 +77,26 @@ export async function removeFiles(
   }
 }
 
-export type DownloadedFile = {
-  stream: ReadableStream<Uint8Array>
+export type StoredFileMetadata = {
   contentLength: number
   contentType: string | null
+}
+
+export type DownloadedFile = StoredFileMetadata & { stream: ReadableStream<Uint8Array> }
+
+/** Inspect one bounded private object after the caller has authorized its record. */
+export async function getFileMetadata(bucket: string, path: string, maxBytes: number): Promise<StoredFileMetadata | null> {
+  if (!path || !Number.isSafeInteger(maxBytes) || maxBytes < 1) return null
+  try {
+    const blob = containerClient(bucket).getBlockBlobClient(normalizeBlobPath(bucket, path))
+    const properties = await blob.getProperties()
+    const bytes = properties.contentLength
+    if (bytes === undefined || !Number.isSafeInteger(bytes) || bytes < 0 || bytes > maxBytes) return null
+    return { contentLength: bytes, contentType: properties.contentType ?? null }
+  } catch (error) {
+    reportReadFailure('blob-properties', error)
+    return null
+  }
 }
 
 /** Download a bounded private object for an authorized server-side use. */
@@ -89,27 +105,45 @@ export async function downloadFile(
   path: string,
   maxBytes: number
 ): Promise<DownloadedFile | null> {
-  if (!path || !Number.isSafeInteger(maxBytes) || maxBytes < 1) return null
+  const metadata = await getFileMetadata(bucket, path, maxBytes)
+  if (!metadata) return null
+  const bytes = metadata.contentLength
+  // Preserve accepted empty migration objects without an invalid zero-length SDK range.
+  if (bytes === 0) return {
+    ...metadata,
+    stream: new ReadableStream({ start(controller) { controller.close() } }),
+  }
 
   try {
     const blob = containerClient(bucket).getBlockBlobClient(normalizeBlobPath(bucket, path))
-    const properties = await blob.getProperties()
-    const bytes = properties.contentLength
-    if (bytes === undefined || bytes < 1 || bytes > maxBytes) return null
 
     const response = await measureStorageOperation('download', storageSizeClass(bytes), () =>
       blob.download(0, bytes)
     )
     if (!response.readableStreamBody) return null
-
+    const reader = (Readable.toWeb(response.readableStreamBody as Readable) as ReadableStream<Uint8Array>).getReader()
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read()
+          if (done) controller.close()
+          else controller.enqueue(value)
+        } catch (error) {
+          reportReadFailure('blob-download', error)
+          // Do not let a provider error containing an object URL reach framework logs.
+          controller.error(new Error('Document transfer interrupted'))
+        }
+      },
+      async cancel() {
+        try { await reader.cancel() } catch { /* Client cancellation is not a transfer failure. */ }
+      },
+    })
     return {
-      stream: Readable.toWeb(response.readableStreamBody as Readable) as ReadableStream<Uint8Array>,
-      contentLength: bytes,
-      contentType: properties.contentType ?? null,
+      stream,
+      ...metadata,
     }
-  } catch {
-    // Provider errors can include blob URLs or paths. Do not forward them.
-    console.error('[storage] downloadFile failed')
+  } catch (error) {
+    reportReadFailure('blob-download', error)
     return null
   }
 }

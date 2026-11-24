@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { FileText, Download, Image as ImageIcon, Loader2, ExternalLink } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { saveStoredFile } from '@/lib/storage/browser'
 
 interface CertificationDocumentViewerProps {
   documentUrl: string | null | undefined
@@ -48,24 +49,10 @@ export default function CertificationDocumentViewer({
 
     setIsDownloading(true)
     try {
-      const response = await fetch(signedUrl)
-      if (!response.ok) {
-        throw new Error('Failed to download file')
-      }
-
-      const blob = await response.blob()
       const extension = getFileExtension(documentUrl) || 'pdf'
-      const blobUrl = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
       const safeCertName = certificationName.replace(/[^a-z0-9]/gi, '_').toLowerCase()
-      a.download = `${safeCertName}_certification.${extension}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(blobUrl)
-    } catch (error) {
-      console.error('Error downloading file:', error)
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, documentUrl, `${safeCertName}_certification.${extension}`)
+    } catch {
       alert('Failed to download file. Please try again.')
     } finally {
       setIsDownloading(false)

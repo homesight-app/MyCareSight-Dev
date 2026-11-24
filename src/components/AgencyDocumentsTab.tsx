@@ -1,10 +1,14 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Controller, useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { Upload, FileText, Loader2, Search } from 'lucide-react'
 import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
-import { downloadStoredFile } from '@/lib/storage/browser'
-import { uploadAgencyDocument, deleteAgencyDocumentAction } from '@/app/actions/agencies'
+import { cleanupStoredFile, downloadStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import { deleteAgencyDocumentAction } from '@/app/actions/agencies'
+import { commitAgencyDocumentUploadAction } from '@/app/actions/agency-documents'
+import { AGENCY_DOCUMENT_TYPES, agencyDocumentFormSchema, type AgencyDocumentForm } from '@/lib/schemas/agency-documents'
 import { deleteLeadDocumentAction } from '@/app/actions/leads'
 import * as q from '@/app/actions/query-bridge'
 import { formatDateShort } from '@/lib/format-date'
@@ -42,20 +46,19 @@ interface UnifiedDoc {
   created_at: string
 }
 
-const DOC_TYPES = ['Proposal', 'Contract', 'Agreement', 'Invoice', 'NDA', 'Other']
-
 export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMap }: AgencyDocumentsTabProps) {
   const [agencyDocs, setAgencyDocs] = useState<UnifiedDoc[]>([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const [showForm, setShowForm] = useState(false)
-  const [docName, setDocName] = useState('')
-  const [docType, setDocType] = useState('')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const fileRef = useRef<HTMLInputElement | null>(null)
+  const { register, control, handleSubmit, setValue, getValues, reset, setError, formState: { errors, isSubmitting } } = useForm<AgencyDocumentForm>({
+    resolver: zodResolver(agencyDocumentFormSchema), mode: 'onBlur',
+    defaultValues: { documentName: '', documentType: '' },
+  })
 
   const { search, setSearch, sort, setSort, page, setPage, pageSize, applySortedData, applyPageSlice } = useTableState({
     defaultSort: { key: 'date', dir: 'desc' },
@@ -107,44 +110,43 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
   const sorted = useMemo(() => applySortedData(filtered, sortFn), [filtered, applySortedData, sortFn])
   const { slice: rows, totalCount } = useMemo(() => applyPageSlice(sorted), [sorted, applyPageSlice])
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null
-    setSelectedFile(file)
-    if (file && !docName) setDocName(file.name.replace(/\.[^.]+$/, ''))
-  }
-
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedFile || !docName.trim()) return
-    setUploading(true)
-    setUploadError(null)
-
-    const fd = new FormData()
-    fd.append('file', selectedFile)
-    fd.append('document_name', docName.trim())
-    fd.append('document_type', docType || '')
-
-    const result = await uploadAgencyDocument(agencyId, fd)
-    setUploading(false)
-
-    if (result.error) { setUploadError(result.error); return }
-
-    const newDoc: UnifiedDoc = {
-      id: result.doc!.id,
-      source: 'agency',
-      document_name: result.doc!.document_name,
-      file_url: result.doc!.file_url,
-      file_name: selectedFile.name,
-      document_type: docType || null,
-      created_at: new Date().toISOString(),
-    }
-    setAgencyDocs(prev => [newDoc, ...prev])
-    setDocName('')
-    setDocType('')
-    setSelectedFile(null)
+  const closeUploadForm = () => {
+    reset()
     if (fileRef.current) fileRef.current.value = ''
+    setUploadError(null)
     setShowForm(false)
   }
+
+  const handleUpload = handleSubmit(async values => {
+    setUploading(true)
+    setUploadError(null)
+    let committing = false
+    try {
+      const upload = await uploadStoredFile(values.file, 'agency-document', agencyId)
+      committing = true
+      const result = await commitAgencyDocumentUploadAction({
+        agencyId, upload, documentName: values.documentName, documentType: values.documentType,
+        originalFileName: values.file.name, size: values.file.size,
+      })
+      if (!result.success || !result.doc) {
+        if (result.cleanupRequired) await cleanupStoredFile(upload)
+        for (const field of ['documentName', 'documentType', 'file'] as const) {
+          const message = result.fieldErrors?.[field]?.[0]
+          if (message) setError(field, { type: 'server', message })
+        }
+        setUploadError(result.error ?? 'The document could not be saved. Please try again.')
+        return
+      }
+      setAgencyDocs(previous => [{ ...result.doc!, source: 'agency' as const }, ...previous])
+      closeUploadForm()
+    } catch {
+      setUploadError(committing
+        ? 'Upload result is uncertain. Refresh the document list before trying again.'
+        : 'The file could not be uploaded. Check your connection and sign-in, then try again.')
+    } finally {
+      setUploading(false)
+    }
+  })
 
   const handleView = async (doc: UnifiedDoc) => {
     const bucket = doc.source === 'agency' ? STORAGE_BUCKET.AGENCY : STORAGE_BUCKET.LEAD
@@ -192,7 +194,9 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
           />
         </div>
         <button
-          onClick={() => setShowForm(v => !v)}
+          type="button"
+          disabled={uploading}
+          onClick={() => { if (showForm) closeUploadForm(); else setShowForm(true) }}
           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors sm:ml-auto"
         >
           <Upload className="w-4 h-4" />
@@ -201,53 +205,75 @@ export default function AgencyDocumentsTab({ agencyId, leadDocuments, leadNameMa
       </div>
 
       {showForm && (
-        <form onSubmit={handleUpload} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+        <form onSubmit={handleUpload} noValidate className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
           <p className="text-sm font-semibold text-gray-700">New Document</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Document Name <span className="text-red-500">*</span></label>
+              <label htmlFor="agency-document-name" className="block text-xs font-medium text-gray-600 mb-1">Document Name <span className="text-red-500">*</span></label>
               <input
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                value={docName}
-                onChange={e => setDocName(e.target.value)}
+                id="agency-document-name"
+                {...register('documentName')}
+                disabled={uploading}
+                aria-invalid={Boolean(errors.documentName)}
+                aria-describedby={errors.documentName ? 'agency-document-name-error' : undefined}
                 placeholder="e.g. Agency Agreement"
                 required
               />
+              {errors.documentName && <p id="agency-document-name-error" role="alert" className="text-xs text-red-600 mt-1">{errors.documentName.message}</p>}
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+              <label htmlFor="agency-document-type" className="block text-xs font-medium text-gray-600 mb-1">Type</label>
               <select
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                value={docType}
-                onChange={e => setDocType(e.target.value)}
+                id="agency-document-type"
+                {...register('documentType')}
+                disabled={uploading}
+                aria-invalid={Boolean(errors.documentType)}
+                aria-describedby={errors.documentType ? 'agency-document-type-error' : undefined}
               >
                 <option value="">— Select —</option>
-                {DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                {AGENCY_DOCUMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
+              {errors.documentType && <p id="agency-document-type-error" role="alert" className="text-xs text-red-600 mt-1">{errors.documentType.message}</p>}
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">File <span className="text-red-500">*</span></label>
-            <input
-              ref={fileRef}
+            <label htmlFor="agency-document-file" className="block text-xs font-medium text-gray-600 mb-1">File <span className="text-red-500">*</span></label>
+            <Controller name="file" control={control} render={({ field }) => <input
+              id="agency-document-file"
+              ref={element => { field.ref(element); fileRef.current = element }}
+              name={field.name}
               type="file"
-              onChange={handleFileSelect}
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.webp"
+              disabled={uploading}
+              onBlur={field.onBlur}
+              onChange={event => {
+                const file = event.target.files?.[0]
+                field.onChange(file)
+                if (file && !getValues('documentName')) setValue('documentName', file.name.replace(/\.[^.]+$/, ''), { shouldValidate: true })
+              }}
+              aria-invalid={Boolean(errors.file)}
+              aria-describedby={errors.file ? 'agency-document-file-error' : 'agency-document-file-help'}
               className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-200 file:text-gray-700 hover:file:bg-gray-300"
               required
-            />
+            />}/>
+            <p id="agency-document-file-help" className="text-xs text-gray-500 mt-1">Documents and images, up to 10 MB.</p>
+            {errors.file && <p id="agency-document-file-error" role="alert" className="text-xs text-red-600 mt-1">{errors.file.message}</p>}
           </div>
-          {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
+          {uploadError && <p role="alert" className="text-sm text-red-600">{uploadError}</p>}
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => { setShowForm(false); setUploadError(null) }}
+              disabled={uploading}
+              onClick={closeUploadForm}
               className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={uploading || !selectedFile || !docName.trim()}
+              disabled={uploading || isSubmitting}
               className="px-3 py-1.5 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 flex items-center gap-1.5"
             >
               {uploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

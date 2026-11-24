@@ -16,6 +16,7 @@ import type { ApplicationPlaybookItem } from '@/lib/supabase/query/playbooks'
 
 jest.mock('@/lib/storage', () => ({
   createSignedStorageUrl: jest.fn(),
+  resolveDocumentViewUrl: jest.fn(),
   STORAGE_BUCKET: { APPLICATION: 'application-documents' },
 }))
 

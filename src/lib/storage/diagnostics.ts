@@ -10,7 +10,7 @@ const credentialNames = new Set([
 ])
 
 /** Never log raw provider errors: they can contain credentials, URLs and object paths. */
-export function reportSigningFailure(stage: SigningStage, error: unknown): void {
+function safeFailureDetails(error: unknown) {
   const candidate = error && typeof error === 'object'
     ? error as { name?: unknown; code?: unknown; statusCode?: unknown; cause?: { code?: unknown }; details?: { errorCode?: unknown } }
     : {}
@@ -19,9 +19,27 @@ export function reportSigningFailure(stage: SigningStage, error: unknown): void 
   const safeCode = code ?? (typeof candidate.name === 'string' && credentialNames.has(candidate.name)
     ? candidate.name : 'UNCLASSIFIED')
   const status = candidate.statusCode
-  console.error('[storage] Signed URL failed', {
-    stage, code: safeCode,
+  return {
+    code: safeCode,
     ...(typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
       ? { httpStatus: status } : {}),
-  })
+  }
+}
+
+export function reportSigningFailure(stage: SigningStage, error: unknown): void {
+  console.error('[storage] Signed URL failed', { stage, ...safeFailureDetails(error) })
+}
+
+export function reportReadFailure(stage: 'blob-properties' | 'blob-download' | 'source-session' | 'record-authorization' | 'read-audit', error: unknown): void {
+  console.error('[storage] Read failed', { stage, ...safeFailureDetails(error) })
+}
+
+export type AgencyUploadStage = 'authentication' | 'upload-proof' | 'agency-authorization' | 'upload-lock' | 'object-verification' | 'metadata-save' | 'audit' | 'database-commit' | 'cache-invalidation'
+export function reportAgencyUploadFailure(stage: AgencyUploadStage): void {
+  // Never include input fields, file names, paths or raw errors.
+  console.error('[agency-documents] Upload failed', { stage })
+}
+
+export function reportUploadFailure(stage: 'object-upload' | 'upload-audit' | 'upload-cleanup', error: unknown): void {
+  console.error('[storage] Upload failed', { stage, ...safeFailureDetails(error) })
 }

@@ -21,7 +21,8 @@ import {
 } from 'lucide-react'
 import * as q from '@/app/actions/query-bridge'
 import Modal from './Modal'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
+import { saveStoredFile } from '@/lib/storage/browser'
 
 interface Application {
   id: string
@@ -244,20 +245,8 @@ export default function ExpertApplicationDetailModal({
 
   const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documentPath)
-      if (!signedUrl) throw new Error('Failed to generate download URL')
-      const response = await fetch(signedUrl)
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = documentName
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (error) {
-      console.error('Error downloading file:', error)
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, documentPath, documentName)
+    } catch {
       alert('Failed to download file')
     }
   }

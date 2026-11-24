@@ -16,7 +16,8 @@ import {
 import * as q from '@/app/actions/query-bridge'
 import { useState } from 'react'
 import Button from '@/components/ui/PrimaryButton'
-import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import { cleanupStoredFile, saveStoredFile, uploadStoredFile } from '@/lib/storage/browser'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
 
 interface License {
   id: string
@@ -102,18 +103,8 @@ export default function StaffLicenseDetailContent({
 
   const handleDownload = async (documentUrl: string, documentName: string) => {
     try {
-      const response = await fetch(documentUrl)
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = documentName
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (error) {
-      console.error('Error downloading document:', error)
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, documentUrl, documentName)
+    } catch {
       alert('Failed to download document. Please try again.')
     }
   }

@@ -17,9 +17,10 @@ jest.mock('@/lib/observability/performance', () => ({
 const properties = jest.fn()
 const download = jest.fn()
 let downloadFile: typeof import('@/lib/storage/client').downloadFile
+let getFileMetadata: typeof import('@/lib/storage/client').getFileMetadata
 
-beforeAll(async () => { ({ downloadFile } = await import('@/lib/storage/client')) })
-beforeEach(() => jest.clearAllMocks())
+beforeAll(async () => { ({ downloadFile, getFileMetadata } = await import('@/lib/storage/client')) })
+beforeEach(() => { properties.mockReset(); download.mockReset() })
 
 test('streams a migrated file above 10 MB without buffering it on the server', async () => {
   const size = 24 * 1024 * 1024
@@ -31,8 +32,44 @@ test('streams a migrated file above 10 MB without buffering it on the server', a
   expect(await new Response(file!.stream).text()).toBe('synthetic stream')
 })
 
-test.each([STORAGE_DOWNLOAD_MAX_BYTES + 1, 0, undefined])('rejects unsupported size %s before reading bytes', async size => {
+test.each([STORAGE_DOWNLOAD_MAX_BYTES + 1, -1, undefined, NaN, 1.5])('rejects unsupported size %s before reading bytes', async size => {
   properties.mockResolvedValue({ contentLength: size })
   expect(await downloadFile('application-documents', 'synthetic.pdf', STORAGE_DOWNLOAD_MAX_BYTES)).toBeNull()
   expect(download).not.toHaveBeenCalled()
+})
+
+test('preserves zero-byte migration objects and reads metadata without downloading bytes', async () => {
+  properties.mockResolvedValue({ contentLength: 0, contentType: 'application/pdf' })
+  expect(await getFileMetadata('application-documents', 'empty.pdf', STORAGE_DOWNLOAD_MAX_BYTES))
+    .toEqual({ contentLength: 0, contentType: 'application/pdf' })
+  const file = await downloadFile('application-documents', 'empty.pdf', STORAGE_DOWNLOAD_MAX_BYTES)
+  expect(await new Response(file!.stream).text()).toBe('')
+  expect(file?.contentLength).toBe(0)
+  expect(download).not.toHaveBeenCalled()
+})
+
+test.each(['blob-properties', 'blob-download'])('classifies %s failures without private provider values', async stage => {
+  const log = jest.spyOn(console, 'error').mockImplementation(() => {})
+  const error = { code: 'AuthorizationPermissionMismatch', statusCode: 403, message: 'synthetic-private-url-and-token' }
+  properties.mockResolvedValue({ contentLength: 3 })
+  if (stage === 'blob-properties') properties.mockRejectedValueOnce(error)
+  else download.mockRejectedValueOnce(error)
+  try {
+    expect(await downloadFile('application-documents', 'synthetic.pdf', STORAGE_DOWNLOAD_MAX_BYTES)).toBeNull()
+    expect(log.mock.calls).toEqual([['[storage] Read failed', { stage, code: 'AuthorizationPermissionMismatch', httpStatus: 403 }]])
+  } finally { log.mockRestore() }
+})
+
+test('an interrupted body fails with a fixed error instead of exposing private provider details', async () => {
+  const log = jest.spyOn(console, 'error').mockImplementation(() => {})
+  properties.mockResolvedValue({ contentLength: 100 })
+  download.mockResolvedValue({ readableStreamBody: Readable.from((async function* () {
+    yield Buffer.from('synthetic')
+    throw Object.assign(new Error('synthetic-private-url-and-token'), { code: 'ECONNRESET' })
+  })()) })
+  try {
+    const file = await downloadFile('application-documents', 'synthetic.pdf', STORAGE_DOWNLOAD_MAX_BYTES)
+    await expect(new Response(file!.stream).text()).rejects.toThrow('Document transfer interrupted')
+    expect(log.mock.calls).toEqual([['[storage] Read failed', { stage: 'blob-download', code: 'ECONNRESET' }]])
+  } finally { log.mockRestore() }
 })

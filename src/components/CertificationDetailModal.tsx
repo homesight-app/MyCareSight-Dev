@@ -22,7 +22,7 @@ import {
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import { STORAGE_BUCKET } from '@/lib/storage/contracts'
-import { fetchStoredFile } from '@/lib/storage/browser'
+import { saveStoredFile } from '@/lib/storage/browser'
 import {
   updateCertificationDetails,
   deleteLicenseDocument,
@@ -302,15 +302,7 @@ function DocumentsSection({
   const handleDownload = async (doc: LicenseDocument) => {
     setDownloadingId(doc.id)
     try {
-      const blob = await fetchStoredFile(STORAGE_BUCKET.APPLICATION, doc.document_url)
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = doc.document_name
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, doc.document_url, doc.document_name)
     } catch {
       alert('Failed to download document.')
     } finally {

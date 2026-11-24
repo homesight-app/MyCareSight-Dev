@@ -40,9 +40,8 @@ import {
 } from 'lucide-react'
 import UpgradePromptModal from './UpgradePromptModal'
 import Button from '@/components/ui/PrimaryButton'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
-import { cleanupStoredFile, downloadStoredFile, uploadStoredFile } from '@/lib/storage/browser'
-import { sanitizeDownloadFilename } from '@/lib/download-filename'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
+import { cleanupStoredFile, downloadStoredFile, saveStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import { getThreeWeekRollingWindowPacific } from '@/lib/pct-week-horizon'
 import { expandSeriesOccurrences, recurrenceDateDefaults } from '@/lib/recurrence-dates'
 import * as q from '@/app/actions/query-bridge'
@@ -1149,20 +1148,7 @@ export default function ClientDetailContent({ client, allClients, representative
     setDownloadingDocId(doc.id)
     setDocumentUploadError(null)
     try {
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.PATIENT, doc.path)
-      if (!signedUrl) throw new Error('Could not generate download link')
-      const res = await fetch(signedUrl)
-      if (!res.ok) throw new Error(`Download failed (${res.status})`)
-      const blob = await res.blob()
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = sanitizeDownloadFilename(doc.name)
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objectUrl)
+      await saveStoredFile(STORAGE_BUCKET.PATIENT, doc.path, doc.name)
     } catch {
       setDocumentUploadError('Could not download this document. Try again.')
     } finally {
@@ -1320,20 +1306,7 @@ export default function ClientDetailContent({ client, allClients, representative
     setDownloadingIncidentId(incident.id)
     setIncidentListError(null)
     try {
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.PATIENT, incident.file_path)
-      if (!signedUrl) throw new Error('Could not generate download link')
-      const res = await fetch(signedUrl)
-      if (!res.ok) throw new Error(`Download failed (${res.status})`)
-      const blob = await res.blob()
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = sanitizeDownloadFilename(displayName)
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objectUrl)
+      await saveStoredFile(STORAGE_BUCKET.PATIENT, incident.file_path, displayName)
     } catch {
       setIncidentListError('Could not download this file. Try again or open it in a new tab.')
     } finally {

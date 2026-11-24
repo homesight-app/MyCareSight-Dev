@@ -179,7 +179,7 @@ export async function authorizeStoredObject(
         COALESCE(NULLIF(document.file_name, ''), NULLIF(document.document_name, ''), 'document') AS "downloadFileName"
       FROM public.agency_documents document
       WHERE document.file_url = ${path}
-        AND (${actor.role} = 'admin' OR ${agencyAccess(actor, sql`document.agency_id`)})
+        AND (${actor.role} IN ('admin', 'expert') OR ${agencyAccess(actor, sql`document.agency_id`)})
       LIMIT 1
     `
     return rows[0] ?? null
@@ -207,7 +207,7 @@ export async function authorizeStoredObject(
 export async function auditStoredObjectAccess(
   actorId: string,
   object: AuthorizedObject,
-  operation: 'SIGNED_URL' | 'DOWNLOAD' | 'UPLOAD' | 'DELETE'
+  operation: 'SIGNED_URL' | 'DOWNLOAD' | 'METADATA' | 'UPLOAD' | 'DELETE'
 ) {
   await sql`
     INSERT INTO public.audit_log
@@ -216,7 +216,7 @@ export async function auditStoredObjectAccess(
       ${object.agencyId}::uuid,
       ${object.tableName},
       ${object.recordId}::uuid,
-      ${operation === 'SIGNED_URL' || operation === 'DOWNLOAD' ? 'READ' : operation === 'UPLOAD' ? 'CREATE' : 'DELETE'},
+      ${operation === 'DELETE' ? 'DELETE' : operation === 'UPLOAD' ? 'CREATE' : 'READ'},
       ${actorId}::uuid,
       ${JSON.stringify({ operation })}::jsonb
     )
@@ -254,6 +254,28 @@ export async function authorizeStorageUpload(
   }
   if (!resourceId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(resourceId)) {
     return null
+  }
+
+  if (purpose === 'agency-document') {
+    const rows = await sql<{ id: string }[]>`
+      SELECT agency.id FROM public.agencies agency
+      WHERE agency.id = ${resourceId}::uuid
+        AND (
+          ${actor.role} IN ('admin', 'expert')
+          OR (
+            ${actor.role} IN ('company_owner', 'care_coordinator')
+            AND ${agencyAccess(actor, sql`agency.id`)}
+          )
+        )
+      LIMIT 1
+    `
+    return rows[0] ? {
+      agencyId: resourceId,
+      recordId: resourceId,
+      tableName: 'agencies',
+      bucket: STORAGE_BUCKET.AGENCY,
+      pathPrefix: `${resourceId}/`,
+    } : null
   }
 
   if (purpose === 'patient-document') {

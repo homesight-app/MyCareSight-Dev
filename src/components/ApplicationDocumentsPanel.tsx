@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Folder, Download, FileText } from 'lucide-react'
 import * as q from '@/app/actions/query-bridge'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
+import { getStoredFileSize, saveStoredFile } from '@/lib/storage/browser'
 
 interface Document {
   id: string
@@ -38,28 +39,27 @@ export default function ApplicationDocumentsPanel({
       }
 
       setDocuments(data || [])
+      setFileSizes({})
+      // The record list and download buttons do not wait for optional size metadata.
+      setIsLoading(false)
 
       // Fetch file sizes for each document
       if (data && data.length > 0) {
         const sizes: Record<string, string> = {}
-        await Promise.all(
-          data.map(async (doc) => {
+        let nextIndex = 0
+        const readSizes = async () => {
+          while (nextIndex < data.length) {
+            const doc = data[nextIndex++]
             try {
-              const docSignedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, doc.document_url)
-              if (docSignedUrl) {
-                const response = await fetch(docSignedUrl, { method: 'HEAD' })
-                const contentLength = response.headers.get('content-length')
-                if (contentLength) {
-                  const bytes = parseInt(contentLength, 10)
-                  sizes[doc.id] = formatFileSize(bytes)
-                }
-              }
-            } catch (err) {
-              console.error('Error fetching file size:', err)
+              const bytes = await getStoredFileSize(STORAGE_BUCKET.APPLICATION, doc.document_url)
+              sizes[doc.id] = formatFileSize(bytes)
+            } catch {
               sizes[doc.id] = 'Unknown'
             }
-          })
-        )
+          }
+        }
+        // The existing query caps this list at 100; never burst 100 metadata requests at once.
+        await Promise.all(Array.from({ length: Math.min(4, data.length) }, readSizes))
         setFileSizes(sizes)
       }
     } catch (error) {
@@ -88,20 +88,9 @@ export default function ApplicationDocumentsPanel({
 
   const handleDownload = async (documentPath: string, documentName: string) => {
     try {
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, documentPath)
-      if (!signedUrl) throw new Error('Failed to generate download URL')
-      const response = await fetch(signedUrl)
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = documentName
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (error) {
-      console.error('Error downloading file:', error)
+      await saveStoredFile(STORAGE_BUCKET.APPLICATION, documentPath, documentName)
+    } catch {
+      alert('Failed to download document. Please try again.')
     }
   }
 

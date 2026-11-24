@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { PGlite } from '@electric-sql/pglite'
 import { getSession } from '@/lib/auth'
+import { findAgencyDocumentUpload, lockAgencyDocumentUpload } from '@/lib/repositories/agency-documents'
 import {
   auditStoredObjectAccess,
   authorizeStoredObject,
@@ -67,8 +68,9 @@ beforeAll(async () => {
     CREATE TABLE license_requirements(id uuid PRIMARY KEY);
     CREATE TABLE playbooks(id uuid PRIMARY KEY);
     CREATE TABLE leads(id uuid PRIMARY KEY, agency_id uuid);
+    CREATE TABLE agencies(id uuid PRIMARY KEY);
     CREATE TABLE lead_documents(id uuid PRIMARY KEY, lead_id uuid, file_url text, file_name text, document_name text);
-    CREATE TABLE agency_documents(id uuid PRIMARY KEY, agency_id uuid, file_url text, file_name text, document_name text);
+    CREATE TABLE agency_documents(id uuid PRIMARY KEY, agency_id uuid, file_url text, file_name text, document_name text, document_type text, created_at timestamptz DEFAULT now());
     CREATE TABLE audit_log(
       id uuid DEFAULT gen_random_uuid(), agency_id uuid, table_name text, record_id uuid,
       action text, performed_by_user_id uuid, details jsonb
@@ -78,7 +80,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.exec(`
-    TRUNCATE audit_log, agency_documents, lead_documents, leads, playbooks, license_requirements, playbook_templates, license_requirement_templates, patient_incidents,
+    TRUNCATE audit_log, agency_documents, agencies, lead_documents, leads, playbooks, license_requirements, playbook_templates, license_requirement_templates, patient_incidents,
       patients, caregiver_credentials, license_documents, licenses, application_documents,
       applications, caregiver_members, user_agency_roles, user_profiles;
   `)
@@ -94,9 +96,49 @@ beforeEach(async () => {
   await db.query(`INSERT INTO license_requirements VALUES ($1)`, [REQUIREMENT])
   await db.query(`INSERT INTO playbooks VALUES ($1)`, [PLAYBOOK])
   await db.query(`INSERT INTO leads VALUES ($1,$2)`, [LEAD, AGENCY])
+  await db.query(`INSERT INTO agencies VALUES ($1),($2)`, [AGENCY, OTHER_AGENCY])
   await db.query(`INSERT INTO lead_documents VALUES ($1,$2,'${LEAD}/synthetic.pdf','Original Lead File.pdf','Lead document')`, [LEAD_DOCUMENT, LEAD])
-  await db.query(`INSERT INTO agency_documents VALUES ($1,$2,'${AGENCY}/synthetic.pdf','Original Agency File.pdf','Agency document')`, [AGENCY_DOCUMENT, AGENCY])
+  await db.query(`INSERT INTO agency_documents(id,agency_id,file_url,file_name,document_name) VALUES ($1,$2,'${AGENCY}/synthetic.pdf','Original Agency File.pdf','Agency document')`, [AGENCY_DOCUMENT, AGENCY])
   login(OWNER)
+})
+
+test('scopes agency uploads to active managers and platform staff, denying foreign, revoked and caregiver access', async () => {
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).toMatchObject({
+    agencyId: AGENCY, recordId: AGENCY, tableName: 'agencies', bucket: 'agency-documents', pathPrefix: `${AGENCY}/`,
+  })
+  expect(await authorizeStorageUpload('agency-document', OTHER_AGENCY)).toBeNull()
+  await db.query(`UPDATE user_profiles SET role='care_coordinator' WHERE id=$1`, [OWNER])
+  await db.query(`UPDATE user_agency_roles SET role='care_coordinator' WHERE user_id=$1`, [OWNER])
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
+  await db.exec(`UPDATE user_agency_roles SET status='pending'`)
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).toBeNull()
+  login(STAFF)
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).toBeNull()
+  login(ADMIN)
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
+  await db.query(`UPDATE user_profiles SET role='expert' WHERE id=$1`, [ADMIN])
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
+  await db.query(`UPDATE user_profiles SET is_active=false WHERE id=$1`, [ADMIN])
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).toBeNull()
+})
+
+test('an active platform expert can download an agency document they are allowed to upload', async () => {
+  await db.query(`UPDATE user_profiles SET role='expert' WHERE id=$1`, [ADMIN])
+  login(ADMIN)
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
+  expect(await authorizeStoredObject(STORAGE_BUCKET.AGENCY, `${AGENCY}/synthetic.pdf`)).not.toBeNull()
+})
+
+test('the upload repository locks and reads one exact agency/object without leaking a different agency record', async () => {
+  await db.exec('BEGIN')
+  try {
+    await lockAgencyDocumentUpload(`${AGENCY}/synthetic.pdf`)
+    expect(await findAgencyDocumentUpload(AGENCY, `${AGENCY}/synthetic.pdf`)).toMatchObject({
+      id: AGENCY_DOCUMENT, document_name: 'Agency document', file_name: 'Original Agency File.pdf', created_at: expect.any(String),
+    })
+    expect(await findAgencyDocumentUpload(OTHER_AGENCY, `${AGENCY}/synthetic.pdf`)).toBeNull()
+    expect(await findAgencyDocumentUpload(AGENCY, `${AGENCY}/missing.pdf`)).toBeNull()
+  } finally { await db.exec('ROLLBACK') }
 })
 
 afterAll(async () => { await db.close() })
@@ -146,12 +188,12 @@ test('writes identifier-only signing evidence without storing the object path', 
   expect(JSON.stringify(result.rows[0])).not.toContain('synthetic.pdf')
 })
 
-test('writes identifier-only download evidence as a read without storing the object path', async () => {
+test.each(['DOWNLOAD', 'METADATA'] as const)('writes identifier-only %s evidence as a read without storing the object path', async operation => {
   const object = await authorizeStoredObject(STORAGE_BUCKET.APPLICATION, 'applications/synthetic.pdf')
   expect(object).not.toBeNull()
-  await auditStoredObjectAccess(OWNER, object!, 'DOWNLOAD')
+  await auditStoredObjectAccess(OWNER, object!, operation)
   const result = await db.query<{ action: string; details: unknown }>('SELECT action, details FROM audit_log')
-  expect(result.rows).toEqual([{ action: 'READ', details: { operation: 'DOWNLOAD' } }])
+  expect(result.rows).toEqual([{ action: 'READ', details: { operation } }])
   expect(JSON.stringify(result.rows[0])).not.toContain('synthetic.pdf')
 })
 
@@ -197,6 +239,7 @@ test('generates server-owned upload scopes and denies cross-agency resources', a
   expect(await authorizeStorageUpload('patient-incident', INCIDENT)).toBeNull()
   expect(await authorizeStorageUpload('lead-document', LEAD)).toBeNull()
   expect(await authorizeStoredObject(STORAGE_BUCKET.LEAD, `${LEAD}/synthetic.pdf`)).toBeNull()
+  expect(await authorizeStoredObject(STORAGE_BUCKET.AGENCY, `${AGENCY}/synthetic.pdf`)).toBeNull()
 
   await db.query(`INSERT INTO user_agency_roles VALUES ($1,$2,'staff_member','active')`, [STAFF, AGENCY])
   login(STAFF)

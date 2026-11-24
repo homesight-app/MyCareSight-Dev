@@ -5,7 +5,7 @@ import { getApplicationNoteCountsAction } from '@/app/actions/internal-notes'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { createSignedStorageUrl, resolveDocumentViewUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import type { StoredFileUpload } from '@/lib/storage/contracts'
 import { APPLICATION_DOCUMENT_MAX_BYTES } from '@/lib/schemas/application-documents'
@@ -2502,11 +2502,7 @@ export default function ApplicationDetailContent({
                       type="button"
                       icon={Download}
                       onClick={async () => {
-                        if (tpl.file_url.startsWith('http')) {
-                          window.open(tpl.file_url, '_blank')
-                          return
-                        }
-                        const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, tpl.file_url)
+                        const signedUrl = await resolveDocumentViewUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, tpl.file_url)
                         if (signedUrl) window.open(signedUrl, '_blank')
                       }}
                     >

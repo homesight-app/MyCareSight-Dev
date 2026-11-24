@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { createSignedStorageUrl, resolveDocumentViewUrl, STORAGE_BUCKET } from '@/lib/storage'
 import Modal from './Modal'
 import UploadDocumentModal from './UploadDocumentModal'
 import InternalNotesPanel from './InternalNotesPanel'
@@ -354,11 +354,7 @@ export default function ProgramItemDetailModal({ item, agencyId, isStaff, onClos
         const params = new URLSearchParams({ path: doc.document_url })
         url = `/api/storage/document-preview?${params}`
       } else if (doc.document_url) {
-        url = doc.document_url
-        if (!url.startsWith('http')) {
-          const signed = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, url, 3600)
-          url = signed ?? ''
-        }
+        url = await resolveDocumentViewUrl(STORAGE_BUCKET.APPLICATION, doc.document_url, 3600) ?? ''
       }
       if (url) previews.push({ url, name: doc.document_name, ext })
     }

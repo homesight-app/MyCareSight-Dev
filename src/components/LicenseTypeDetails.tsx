@@ -5,7 +5,7 @@ import { CheckCircle2, Clock, DollarSign, Calendar, Loader2, Plus, Save, X, File
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import * as q from '@/app/actions/query-bridge'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { resolveDocumentViewUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import { 
   createStep, 
@@ -729,11 +729,7 @@ export default function LicenseTypeDetails({ licenseType, selectedState }: Licen
   // Generate a time-limited signed URL for a template download.
   // Handles both legacy records (stored as full https:// URLs) and new records (stored as storage paths).
   const handleDownloadTemplate = async (fileUrlOrPath: string) => {
-    if (fileUrlOrPath.startsWith('http')) {
-      window.open(fileUrlOrPath, '_blank')
-      return
-    }
-    const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, fileUrlOrPath)
+    const signedUrl = await resolveDocumentViewUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, fileUrlOrPath)
     if (signedUrl) window.open(signedUrl, '_blank')
   }
 

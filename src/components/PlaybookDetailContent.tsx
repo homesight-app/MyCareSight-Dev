@@ -6,7 +6,7 @@ import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import PlaybookTab from './PlaybookTab'
 import Modal from './Modal'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { resolveDocumentViewUrl, STORAGE_BUCKET } from '@/lib/storage'
 import { cleanupStoredFile, uploadStoredFile } from '@/lib/storage/browser'
 import { updatePlaybook, createPlaybookTemplate, getPlaybookTemplatesAction, updatePlaybookTemplateAction, deletePlaybookTemplateAction } from '@/app/actions/playbooks'
 import { US_STATES } from '@/lib/constants'
@@ -194,8 +194,7 @@ export default function PlaybookDetailContent({ playbook, licenseRequirementId, 
   // ── Template handlers ────────────────────────────────────────────────────
 
   const handleDownloadTemplate = async (fileUrlOrPath: string) => {
-    if (fileUrlOrPath.startsWith('http')) { window.open(fileUrlOrPath, '_blank'); return }
-    const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, fileUrlOrPath)
+    const signedUrl = await resolveDocumentViewUrl(STORAGE_BUCKET.LICENSE_TEMPLATES, fileUrlOrPath)
     if (signedUrl) window.open(signedUrl, '_blank')
   }
 

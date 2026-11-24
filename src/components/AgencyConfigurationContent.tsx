@@ -1,16 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Trash2, Calendar, Clock, DollarSign, Car, GitBranch, Palette } from 'lucide-react'
+import { Plus, Trash2, Calendar, Clock, DollarSign, Car, GitBranch, Building, MapPin } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
-import { saveAgencyConfiguration, type HolidayEntry } from '@/app/actions/agency-configuration'
+import { saveAgencyConfiguration, loadAgencyConfigurationAction, loadAgencyPipelineAction, type HolidayEntry } from '@/app/actions/agency-configuration'
 import AgencyLeadStageSettings from '@/components/AgencyLeadStageSettings'
-import AgencyBrandingSection from '@/components/AgencyBrandingSection'
+import dynamic from 'next/dynamic'
+const AgencyInfoLoader = dynamic(() => import('@/components/AgencyInfoLoader'))
+const AgencyBranchSettings = dynamic(() => import('@/components/AgencyBranchSettings'))
 import type { AgencyLeadStage } from '@/lib/constants/lead-configs'
-import type { BrandingValues } from '@/components/ui/BrandingForm'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -53,41 +54,61 @@ interface Props {
   agencyId: string | null
   userRole: string | null
   initialStages: AgencyLeadStage[]
-  initialBranding?: BrandingValues
+  branchesEnabled?: boolean
+  initialSection?: string
 }
 
-type Category = 'schedule' | 'pay_rules' | 'mileage' | 'pipeline' | 'branding'
+type Category = 'schedule' | 'pay_rules' | 'mileage' | 'pipeline' | 'agency' | 'branches'
 
 const CATEGORIES: { key: Category; label: string; icon: typeof Calendar; ownerOnly?: boolean }[] = [
+  { key: 'agency', label: 'Agency Info', icon: Building, ownerOnly: true },
+  { key: 'branches', label: 'Branches', icon: MapPin, ownerOnly: true },
   { key: 'schedule',   label: 'Work Schedule',     icon: Calendar },
   { key: 'pay_rules',  label: 'Pay Rules',         icon: DollarSign },
   { key: 'mileage',    label: 'Mileage',            icon: Car },
   { key: 'pipeline',   label: 'Lead Pipeline',      icon: GitBranch, ownerOnly: true },
-  { key: 'branding',   label: 'Branding',           icon: Palette,   ownerOnly: true },
 ]
 
-export default function AgencyConfigurationContent({ initialConfig, agencyId, userRole, initialStages, initialBranding }: Props) {
-  const [activeCategory, setActiveCategory] = useState<Category>('schedule')
+export default function AgencyConfigurationContent({ initialConfig, agencyId, userRole, initialStages, branchesEnabled = false, initialSection }: Props) {
+  const [activeCategory, setActiveCategory] = useState<Category>(userRole === 'company_owner' ? (initialSection === 'branches' && branchesEnabled ? 'branches' : 'agency') : 'schedule')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  const { register, control, handleSubmit, watch, formState: { errors } } = useForm<FormValues>({
+  const { register, control, handleSubmit, watch, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      workWeekStart: initialConfig?.work_week_start ?? 0,
-      allowWeekends: initialConfig?.allow_weekends ?? true,
-      weekendRateMultiplier: initialConfig?.weekend_rate_multiplier ?? null,
-      fullTimeHoursPerWeek: initialConfig?.full_time_hours_per_week ?? 40,
-      overtimeThresholdWeekly: initialConfig?.overtime_threshold_weekly ?? 40,
-      overtimeThresholdDaily: initialConfig?.overtime_threshold_daily ?? null,
-      overtimeRateMultiplier: initialConfig?.overtime_rate_multiplier ?? 1.5,
-      holidays: initialConfig?.holidays ?? [],
-      mileageReimbursementEnabled: initialConfig?.mileage_reimbursement_enabled ?? false,
-      mileageReimbursementStartDate: initialConfig?.mileage_reimbursement_start_date ?? null,
-      mileageRatePerMile: initialConfig?.mileage_rate_per_mile ?? null,
-    },
+    defaultValues: configDefaults(initialConfig),
   })
+
+  const [configLoaded, setConfigLoaded] = useState(initialConfig !== null)
+  const [stages, setStages] = useState(initialStages)
+  const [pipelineLoaded, setPipelineLoaded] = useState(initialStages.length > 0)
+  const [panelError, setPanelError] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
+  const configRequest = useRef<ReturnType<typeof loadAgencyConfigurationAction> | null>(null)
+  const pipelineRequest = useRef<ReturnType<typeof loadAgencyPipelineAction> | null>(null)
+  const configCategory = activeCategory === 'schedule' || activeCategory === 'pay_rules' || activeCategory === 'mileage'
+  useEffect(() => {
+    let current = true
+    setPanelError(null)
+    if (configCategory && !configLoaded) {
+      configRequest.current ??= loadAgencyConfigurationAction()
+      configRequest.current.then(result => {
+        if (!current) return
+        if (result.success) { reset(configDefaults(result.data as AgencyConfig | null)); setConfigLoaded(true) }
+        else { setPanelError(result.error); configRequest.current = null }
+      }).catch(() => { if (current) { setPanelError('Unable to load configuration. Try again.'); configRequest.current = null } })
+    }
+    if (activeCategory === 'pipeline' && !pipelineLoaded) {
+      pipelineRequest.current ??= loadAgencyPipelineAction()
+      pipelineRequest.current.then(result => {
+        if (!current) return
+        if (result.success) { setStages(result.data); setPipelineLoaded(true) }
+        else { setPanelError(result.error); pipelineRequest.current = null }
+      }).catch(() => { if (current) { setPanelError('Unable to load pipeline settings. Try again.'); pipelineRequest.current = null } })
+    }
+    return () => { current = false }
+  }, [activeCategory, configCategory, configLoaded, pipelineLoaded, reset, retry])
 
   const { fields, append, remove } = useFieldArray({ control, name: 'holidays' })
   const allowWeekends = watch('allowWeekends')
@@ -110,7 +131,7 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
   const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent'
   const labelCls = 'block text-sm font-medium text-gray-700 mb-1'
 
-  const visibleCategories = CATEGORIES.filter(c => !c.ownerOnly || userRole === 'company_owner')
+  const visibleCategories = CATEGORIES.filter(c => (!c.ownerOnly || userRole === 'company_owner') && (c.key !== 'branches' || branchesEnabled))
 
   return (
     <div className="flex gap-6 min-h-0">
@@ -142,7 +163,9 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
 
       {/* Content panel */}
       <div className="flex-1 min-w-0">
-        <form onSubmit={handleSubmit(onSubmit)}>
+        {panelError && <p role="alert">{panelError} <Button type="button" variant="secondary" onClick={() => setRetry(value => value + 1)}>Retry</Button></p>}
+        {!panelError && ((configCategory && !configLoaded) || (activeCategory === 'pipeline' && !pipelineLoaded)) && <p role="status">Loading settings...</p>}
+        {configCategory && configLoaded && <form onSubmit={handleSubmit(onSubmit)}>
 
           {/* Work Schedule */}
           {activeCategory === 'schedule' && (
@@ -323,10 +346,10 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
             </div>
           )}
 
-        </form>
+        </form>}
 
         {/* Lead Pipeline — not inside the form, uses its own actions */}
-        {activeCategory === 'pipeline' && agencyId && userRole === 'company_owner' && (
+        {activeCategory === 'pipeline' && pipelineLoaded && agencyId && userRole === 'company_owner' && (
           <div className="space-y-4">
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <div className="mb-4">
@@ -338,18 +361,14 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
                   Configure the stages your team uses to track patient leads. New, Closed&nbsp;–&nbsp;Won, and Closed&nbsp;–&nbsp;Lost are fixed; add custom stages in between.
                 </p>
               </div>
-              <AgencyLeadStageSettings agencyId={agencyId} initialStages={initialStages} />
+              <AgencyLeadStageSettings agencyId={agencyId} initialStages={stages} />
             </div>
           </div>
         )}
 
-        {/* Branding — not inside the form, uses its own actions */}
-        {activeCategory === 'branding' && agencyId && userRole === 'company_owner' && (
-          <AgencyBrandingSection
-            agencyId={agencyId}
-            initialValues={initialBranding ?? {}}
-          />
-        )}
+        {activeCategory === 'agency' && agencyId && userRole === 'company_owner' && <AgencyInfoLoader />}
+        {activeCategory === 'branches' && agencyId && userRole === 'company_owner' && branchesEnabled && <AgencyBranchSettings />}
+
       </div>
     </div>
   )
@@ -370,4 +389,20 @@ function SaveRow({ isSaving, saveSuccess, saveError }: { isSaving: boolean; save
       {saveError && <span className="text-red-600 text-sm">{saveError}</span>}
     </div>
   )
+}
+
+function configDefaults(config: AgencyConfig | null): FormValues {
+  return {
+      workWeekStart: config?.work_week_start ?? 0,
+      allowWeekends: config?.allow_weekends ?? true,
+      weekendRateMultiplier: config?.weekend_rate_multiplier ?? null,
+      fullTimeHoursPerWeek: config?.full_time_hours_per_week ?? 40,
+      overtimeThresholdWeekly: config?.overtime_threshold_weekly ?? 40,
+      overtimeThresholdDaily: config?.overtime_threshold_daily ?? null,
+      overtimeRateMultiplier: config?.overtime_rate_multiplier ?? 1.5,
+      holidays: config?.holidays ?? [],
+      mileageReimbursementEnabled: config?.mileage_reimbursement_enabled ?? false,
+      mileageReimbursementStartDate: config?.mileage_reimbursement_start_date ?? null,
+      mileageRatePerMile: config?.mileage_rate_per_mile ?? null,
+    }
 }

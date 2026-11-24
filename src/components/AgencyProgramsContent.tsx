@@ -16,6 +16,7 @@ interface PlaybookItem {
 }
 
 interface Program {
+  progress_summary?: { approved: number; inProgress: number; reviewNeeded: number; notStarted: number; notApplicable: number; itemCount: number }
   id: string
   application_name: string
   state: string
@@ -32,11 +33,13 @@ interface PendingRequest {
 }
 
 interface AgencyProgramsContentProps {
+  branchSelectionEnabled?: boolean
   programs: Program[]
   totalCount: number
   page: number
   pageSize: number
   initialSearch?: string
+  pendingHasMore?: boolean
   pendingRequests: PendingRequest[]
 }
 
@@ -57,7 +60,9 @@ export default function AgencyProgramsContent({
   page,
   pageSize,
   initialSearch = '',
+  branchSelectionEnabled = false,
   pendingRequests,
+  pendingHasMore = false,
 }: AgencyProgramsContentProps) {
   const router = useRouter()
   const [search, setSearch] = useState(initialSearch)
@@ -70,7 +75,8 @@ export default function AgencyProgramsContent({
 
   const pushParams = useCallback(
     (overrides: { page?: number; q?: string }) => {
-      const p = new URLSearchParams()
+      const p = new URLSearchParams(window.location.search);
+      ["page","q"].forEach(key => p.delete(key))
       const newPage   = overrides.page ?? 0
       const newSearch = overrides.q !== undefined ? overrides.q : search
       if (newPage > 0)      p.set('page', String(newPage))
@@ -110,7 +116,7 @@ export default function AgencyProgramsContent({
           </p>
         </div>
         <div className="flex-shrink-0 w-48">
-          <ApplyForNewLicenseButton programsOnly label="Request Service" />
+          <ApplyForNewLicenseButton programsOnly label="Request Service" branchSelectionEnabled={branchSelectionEnabled} />
         </div>
       </div>
 
@@ -123,12 +129,13 @@ export default function AgencyProgramsContent({
             className="w-full flex items-center justify-between px-4 py-3 hover:bg-amber-100/50 transition-colors"
           >
             <h2 className="text-sm font-semibold text-amber-800">
-              Pending Requests ({pendingRequests.length})
+              Pending Requests ({pendingRequests.length}{pendingHasMore ? '+' : ''})
             </h2>
             <ChevronDown className={`w-4 h-4 text-amber-600 transition-transform duration-200 ${pendingExpanded ? 'rotate-180' : ''}`} />
           </button>
           {pendingExpanded && (
             <div className="px-4 pb-4 space-y-2">
+              {pendingHasMore && <p>Showing the latest 50 requests. Use the paginated services list below for older requests.</p>}
               {pendingRequests.map(req => (
                 <div key={req.id} className="flex items-center justify-between bg-white border border-amber-100 rounded-lg px-4 py-2.5">
                   <div>
@@ -194,7 +201,9 @@ export default function AgencyProgramsContent({
             </thead>
             <tbody className="divide-y divide-gray-50">
               {programs.map(app => {
-                const prog = computeProgress(app.application_playbook_items)
+                const summary = app.progress_summary
+                const countable = summary ? summary.itemCount - summary.notApplicable : 0
+                const prog = summary ? { ...summary, pct: countable > 0 ? Math.round(summary.approved / countable * 100) : 0 } : computeProgress(app.application_playbook_items)
                 return (
                   <tr
                     key={app.id}
@@ -225,7 +234,7 @@ export default function AgencyProgramsContent({
                         {prog.notStarted > 0 && <span className="flex items-center gap-0.5 text-xs text-gray-500"><Circle className="w-3 h-3" /> {prog.notStarted} not started</span>}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{app.application_playbook_items.length} items</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">{app.progress_summary?.itemCount ?? app.application_playbook_items.length} items</td>
                   </tr>
                 )
               })}

@@ -1,4 +1,5 @@
 'use server'
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
 
 import { revalidatePath } from 'next/cache'
 import sql, { withUserContext } from '@/db'
@@ -849,11 +850,11 @@ export async function convertPatientLeadToClientAction(input: unknown): Promise<
         INSERT INTO public.patients (
           agency_id, first_name, last_name, phone_number, email_address,
           street_address, city, state, zip_code, emergency_contact_name,
-          emergency_phone, status
+          emergency_phone, status ${agencyBranchesEnabled() ? sql`, branch_id` : sql``}
         ) VALUES (
           ${agencyId}::uuid, ${parsed.data.firstName}, ${parsed.data.lastName}, ${phone ?? ''}, ${email ?? ''},
           ${parsed.data.streetAddress ?? ''}, ${parsed.data.city ?? ''}, ${parsed.data.state ?? ''}, ${parsed.data.zipCode ?? ''},
-          '', '', 'pending'
+          '', '', 'pending' ${agencyBranchesEnabled() ? sql`, (SELECT branch_id FROM public.leads WHERE id = ${parsed.data.leadId}::uuid AND agency_id = ${agencyId}::uuid)` : sql``}
         ) RETURNING *
       `
       if (details?.poc_name?.trim()) {

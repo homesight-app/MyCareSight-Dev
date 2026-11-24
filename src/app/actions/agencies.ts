@@ -208,88 +208,12 @@ export async function updateAgency(
   }
 }
 
-const companyDetailsSchema = agencyFormSchema.omit({ agencyAdminIds: true })
 export type CompanyDetailsFormData = Omit<AgencyFormData, 'agencyAdminIds'>
 
+/** Compatibility for previously open profile tabs; use the same current owner guard. */
 export async function saveCompanyDetails(data: CompanyDetailsFormData) {
-  const parsed = companyDetailsSchema.safeParse(data)
-  if (!parsed.success) return { success: false as const, error: 'Please complete required fields', fieldErrors: zodErrorToFieldErrors(parsed.error), data: null }
-  const validData = parsed.data
-  try {
-    const session = await getSession()
-    const user = session ? { id: session.user.id } : null
-    if (!user?.id) {
-      return { error: 'Not authenticated', data: null }
-    }
-
-    const { data: client, error: clientError } = await q.getClientByCompanyOwnerId(user.id)
-
-    if (clientError || !client) {
-      return { error: 'No client record found for your account.', data: null }
-    }
-
-    const payload = {
-      name: validData.companyName.trim(),
-      business_type: validData.businessType.trim() || null,
-      tax_id: validData.taxId.trim() || null,
-      primary_license_number: validData.primaryLicenseNumber.trim() || null,
-      website: validData.website?.trim() || null,
-      physical_street_address: validData.physicalStreetAddress.trim() || null,
-      physical_city: validData.physicalCity.trim() || null,
-      physical_state: validData.physicalState.trim() || null,
-      physical_zip_code: validData.physicalZipCode.trim() || null,
-      same_as_physical: validData.sameAsPhysical ?? true,
-      mailing_street_address: validData.mailingStreetAddress?.trim() || null,
-      mailing_city: validData.mailingCity?.trim() || null,
-      mailing_state: validData.mailingState?.trim() || null,
-      mailing_zip_code: validData.mailingZipCode?.trim() || null,
-      legal_entity_name: validData.legalEntityName?.trim() || null,
-      entity_type: validData.entityType?.trim() || null,
-      state_of_incorporation: validData.stateOfIncorporation?.trim().toUpperCase() || null,
-      date_of_incorporation: validData.dateOfIncorporation || null,
-      licensed_office_street: validData.licensedOfficeStreet?.trim() || null,
-      licensed_office_city: validData.licensedOfficeCity?.trim() || null,
-      licensed_office_state: validData.licensedOfficeState?.trim().toUpperCase() || null,
-      licensed_office_zip: validData.licensedOfficeZip?.trim() || null,
-      licensed_same_as_physical: validData.licensedSameAsPhysical ?? false,
-      updated_at: new Date().toISOString(),
-    }
-
-    const { data: existingAgency } = await q.getAgencyByAdminId(client.id)
-
-    if (existingAgency) {
-      const { error: updateError } = await q.updateAgencyById(existingAgency.id, payload)
-
-      if (updateError) {
-        return { error: updateError.message, data: null }
-      }
-      await q.updateClientAgencyId(client.id, existingAgency.id)
-    } else {
-      const { data: newAgency, error: insertError } = await q.insertAgencyWithAdmin({
-        ...payload,
-        agency_admin_ids: [client.id],
-      })
-
-      if (insertError) {
-        return { error: insertError.message, data: null }
-      }
-      if (newAgency?.id) {
-        await q.updateClientAgencyId(client.id, newAgency.id)
-      }
-    }
-
-    const { error: clientUpdateError } = await q.updateClientCompanyName(client.id, validData.companyName.trim())
-
-    if (clientUpdateError) {
-      console.error('Failed to update client company_name:', clientUpdateError)
-    }
-
-    revalidatePath('/pages/agency/profile')
-    revalidateAgencyListCaches()
-    return { success: true as const, error: null, data: { success: true } }
-  } catch (err: any) {
-    return { success: false as const, error: err?.message || 'Failed to save company details', data: null }
-  }
+  const { saveAgencyInfoAction } = await import('@/app/actions/agency-branches')
+  return saveAgencyInfoAction(data)
 }
 
 function revalidateAgencyDetailPages() {

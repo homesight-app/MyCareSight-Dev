@@ -53,7 +53,8 @@ export default function ClientsContent({
 
   const pushParams = useCallback(
     (overrides: { page?: number; q?: string; status?: string }) => {
-      const p = new URLSearchParams()
+      const p = new URLSearchParams(window.location.search);
+      ["page","q","status"].forEach(key => p.delete(key))
       const newPage   = overrides.page   ?? 0
       const newSearch = overrides.q      ?? searchQuery
       const newStatus = overrides.status ?? statusFilter
@@ -367,6 +368,7 @@ export default function ClientsContent({
         onClose={() => setIsModalOpen(false)}
         onSuccess={(insertedRow) => {
           if (!insertedRow) return
+          if (new URLSearchParams(window.location.search).has('branch')) { router.refresh(); return }
           const next = mapInsertedPatientToListPatient(insertedRow)
           setClients((prev) => [next, ...prev.filter((c) => c.id !== next.id)])
         }}

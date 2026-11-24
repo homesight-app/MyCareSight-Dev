@@ -1,3 +1,6 @@
+import { z } from 'zod'
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import AgencyBranchFilter from '@/components/AgencyBranchFilter'
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
@@ -11,7 +14,7 @@ const PAGE_SIZE = 50
 export default async function AgencyProgramsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; q?: string }>
+  searchParams: Promise<{ branch?: string; page?: string; q?: string }>
 }) {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
@@ -23,16 +26,19 @@ export default async function AgencyProgramsPage({
   }
 
   const params = await searchParams
+  const branchesEnabled = agencyBranchesEnabled()
+  if (branchesEnabled && params.branch && !z.uuid().safeParse(params.branch).success) return <p role="alert">Invalid branch filter.</p>
+  const branchId = branchesEnabled ? params.branch : undefined
   const page   = Math.max(0, parseInt(params.page ?? '0') || 0)
   const search = params.q ?? ''
 
-  const [result, { data: pendingRequests }] = await withUserContext(
+  const [result, pendingResult] = await withUserContext(
     actor.userId,
     actor.role,
     actor.agencyId,
     () => Promise.all([
-      q.getApplicationsWithProgramsPaginated(actor.agencyId, { page, pageSize: PAGE_SIZE, search }),
-      q.getRequestedProgramsForAgency(actor.agencyId),
+      q.getApplicationsWithProgramsPaginated(actor.agencyId, { page, pageSize: PAGE_SIZE, search, branchId }),
+      q.getRequestedProgramsForAgency(actor.agencyId, branchId),
     ])
   )
 
@@ -43,6 +49,7 @@ export default async function AgencyProgramsPage({
     status: string
     agency_id: string | null
     assigned_expert_id: string | null
+    progress_summary?: { approved: number; inProgress: number; reviewNeeded: number; notStarted: number; notApplicable: number; itemCount: number }
     application_playbook_items: { status: 'not_started' | 'in_progress' | 'review_needed' | 'approved' | 'not_applicable'; requirement_type: string }[]
   }
 
@@ -55,13 +62,18 @@ export default async function AgencyProgramsPage({
   }
 
   return (
+    <>
+    {branchesEnabled && <AgencyBranchFilter value={branchId} />}
     <AgencyProgramsContent
+      branchSelectionEnabled={branchesEnabled && actor.role === 'company_owner'}
       programs={(result.data ?? []) as unknown as RawRow[]}
       totalCount={result.count}
       page={page}
       pageSize={PAGE_SIZE}
       initialSearch={search}
-      pendingRequests={(pendingRequests ?? []) as unknown as PendingRow[]}
+      pendingHasMore={pendingResult.hasMore ?? false}
+      pendingRequests={(pendingResult.data ?? []) as unknown as PendingRow[]}
     />
+    </>
   )
 }

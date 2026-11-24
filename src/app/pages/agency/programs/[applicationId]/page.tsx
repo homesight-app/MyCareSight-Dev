@@ -1,3 +1,5 @@
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import RecordBranchAssignment from '@/components/RecordBranchAssignment'
 ﻿import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getSession } from '@/lib/auth'
@@ -52,6 +54,7 @@ export default async function AgencyProgramDetailPage({
         ← Back to Programs
       </Link>
 
+      {agencyBranchesEnabled() && <RecordBranchAssignment key={applicationId} kind="application" recordId={applicationId} />}
       <ClientProgramView
         applicationId={applicationId}
         applicationName={app.application_name}

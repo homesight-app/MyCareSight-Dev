@@ -1,3 +1,6 @@
+import { z } from 'zod'
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import AgencyBranchFilter from '@/components/AgencyBranchFilter'
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
@@ -14,7 +17,7 @@ export default async function AgencyLeadsPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    page?: string; q?: string; stage?: string; serviceType?: string
+    branch?: string; page?: string; q?: string; stage?: string; serviceType?: string
     source?: string; owner?: string; sortKey?: string; sortDir?: string
   }>
 }) {
@@ -32,7 +35,10 @@ export default async function AgencyLeadsPage({
 
   const context: LeadContext = { ...AGENCY_LEAD_CONTEXT, agencyId }
 
-  const params      = await searchParams
+  const params = await searchParams
+  const branchesEnabled = agencyBranchesEnabled()
+  if (branchesEnabled && params.branch && !z.uuid().safeParse(params.branch).success) return <p role="alert">Invalid branch filter.</p>
+  const branchId = branchesEnabled ? params.branch : undefined
   const page        = Math.max(0, parseInt(params.page ?? '0') || 0)
   const search      = params.q ?? ''
   const stageFilter = params.stage ?? 'active'
@@ -47,9 +53,9 @@ export default async function AgencyLeadsPage({
   const [leadsResult, stageCounts, allSources, ownerOptionsResult, agencyStagesResult] = await Promise.all([
     q.getLeadsPaginated({
       leadType: 'patient', agencyId, page, pageSize: PAGE_SIZE,
-      search, stageFilter, serviceType, source, owner, sortKey, sortDir,
+      search, stageFilter, serviceType, source, owner, sortKey, sortDir, branchId,
     }),
-    q.getLeadStageCounts({ leadType: 'patient', agencyId, search, serviceType, source, owner }),
+    q.getLeadStageCounts({ leadType: 'patient', agencyId, search, serviceType, source, owner, branchId }),
     q.getLeadDistinctSources({ leadType: 'patient', agencyId }),
     q.getLeadOwnerOptions({ leadType: 'patient', agencyId }),
     q.getAgencyLeadStages(agencyId),
@@ -66,6 +72,7 @@ export default async function AgencyLeadsPage({
 
   return (
     <FeatureGate capability="client_management" agencyId={agencyId}>
+      {branchesEnabled && <AgencyBranchFilter value={branchId} />}
       <LeadsContent
         leads={leads}
         totalCount={leadsResult.count}

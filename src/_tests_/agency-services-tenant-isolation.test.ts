@@ -9,12 +9,12 @@ describe('agency My Services tenant isolation', () => {
   test('requires agency scope for list data, counts, searches, and pending requests', () => {
     const source = read('src/lib/supabase/query/playbooks.ts')
 
-    expect(source).toContain('getApplicationsWithProgramsPaginated(\n  agencyId: string,')
-    expect(source).toContain('WHERE a.agency_id = ${agencyId}\n            AND a.playbook_id IS NOT NULL')
-    expect(source).toContain('WHERE agency_id = ${agencyId} AND playbook_id IS NOT NULL AND application_name ILIKE')
-    expect(source).toContain('WHERE agency_id = ${agencyId} AND playbook_id IS NOT NULL`')
-    expect(source).toContain('getRequestedProgramsForAgency(agencyId: string)')
-    expect(source).toContain("WHERE a.agency_id = ${agencyId}\n        AND a.status = 'requested'")
+    const reads = source.slice(source.indexOf('export async function getApplicationsWithProgramsPaginated'), source.indexOf('\nexport async function', source.indexOf('export async function getRequestedProgramsForAgency') + 40))
+    expect(reads).toContain('FROM public.applications a WHERE a.agency_id = ${agencyId}::uuid')
+    expect(reads).toContain('WHERE a.agency_id = ${agencyId}::uuid AND a.playbook_id IS NOT NULL ${branchFragment} ${searchFragment}')
+    expect(reads).toContain('getRequestedProgramsForAgency(agencyId: string, branchId?: string)')
+    expect(reads).toContain("WHERE a.agency_id = ${agencyId} ${branchFragment}\n        AND a.status = 'requested'")
+
   })
 
   test('uses the authenticated agency for list and direct-detail reads', () => {
@@ -24,7 +24,7 @@ describe('agency My Services tenant isolation', () => {
     const queries = read('src/lib/supabase/query/applications.ts')
 
     expect(listPage).toContain('getApplicationsWithProgramsPaginated(actor.agencyId')
-    expect(listPage).toContain('getRequestedProgramsForAgency(actor.agencyId)')
+    expect(listPage).toContain('getRequestedProgramsForAgency(actor.agencyId, branchId)')
     expect(detailPage).toContain('getApplicationByIdAndAgencyId(applicationId, actor.agencyId)')
     expect(detailPage.indexOf('getApplicationByIdAndAgencyId')).toBeLessThan(
       detailPage.indexOf('getApplicationPlaybookItems')

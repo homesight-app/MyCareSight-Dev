@@ -138,7 +138,8 @@ export default function LeadsContent({
       page?: number; q?: string; stage?: string; serviceType?: string
       source?: string; owner?: string; sortKey?: string; sortDir?: string
     }) => {
-      const p = new URLSearchParams()
+      const p = new URLSearchParams(window.location.search);
+      ["page","q","stage","serviceType","source","owner","sortKey","sortDir"].forEach(key => p.delete(key))
       const newPage        = overrides.page        ?? 0
       const newSearch      = overrides.q           !== undefined ? overrides.q           : search
       const newStage       = overrides.stage       !== undefined ? overrides.stage       : stageFilter

@@ -1,3 +1,6 @@
+import { z } from 'zod'
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import AgencyBranchFilter from '@/components/AgencyBranchFilter'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
@@ -12,7 +15,7 @@ const PAGE_SIZE = 50
 export default async function ClientsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; q?: string; status?: string }>
+  searchParams: Promise<{ branch?: string; page?: string; q?: string; status?: string }>
 }) {
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
@@ -23,6 +26,9 @@ export default async function ClientsPage({
   }
 
   const params = await searchParams
+  const branchesEnabled = agencyBranchesEnabled()
+  if (branchesEnabled && params.branch && !z.uuid().safeParse(params.branch).success) return <p role="alert">Invalid branch filter.</p>
+  const branchId = branchesEnabled ? params.branch : undefined
 
   const page         = Math.max(0, parseInt(params.page ?? '0') || 0)
   const search       = params.q ?? ''
@@ -34,8 +40,8 @@ export default async function ClientsPage({
   const [clientsResult, counts] = agencyId
     ? await withUserContext(session!.user.id, role, agencyId, () =>
         Promise.all([
-          q.getPatientsByAgencyId(agencyId, { page, pageSize: PAGE_SIZE, search, status: statusFilter }),
-          q.getPatientCountsByAgencyId(agencyId),
+          q.getPatientsByAgencyId(agencyId, { page, pageSize: PAGE_SIZE, search, status: statusFilter, branchId }),
+          q.getPatientCountsByAgencyId(agencyId, branchId),
         ])
       )
     : [{ data: [], count: 0, error: null }, { total: 0, active: 0 }]
@@ -45,6 +51,7 @@ export default async function ClientsPage({
 
   return (
     <FeatureGate capability="client_management" agencyId={agencyId}>
+      {branchesEnabled && <AgencyBranchFilter value={branchId} />}
       <ClientsContent
         clients={clients}
         totalCount={totalCount}

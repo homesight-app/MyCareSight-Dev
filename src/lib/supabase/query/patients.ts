@@ -103,6 +103,7 @@ export async function getPatientsByOwnerIds(ownerIds: string[]) {
 }
 
 export type GetPatientsByAgencyIdOpts = {
+  branchId?: string
   page?: number
   pageSize?: number
   search?: string
@@ -131,6 +132,7 @@ export async function getPatientsByAgencyId(
         )`
       : sql``
 
+    const branchFragment = opts?.branchId ? sql`AND p.branch_id = ${opts.branchId}::uuid` : sql``
     const statusFragment = statusFilter
       ? sql`AND p.status = ${statusFilter}`
       : sql``
@@ -155,8 +157,8 @@ export async function getPatientsByAgencyId(
         FROM patients p
         WHERE p.agency_id = ${agencyId}
         ${searchFragment}
-        ${statusFragment}
-        ORDER BY p.status DESC, p.created_at DESC
+        ${statusFragment} ${branchFragment}
+        ORDER BY p.status DESC, p.created_at DESC, p.id
         LIMIT ${pageSize} OFFSET ${from}
       `,
       sql`
@@ -164,7 +166,7 @@ export async function getPatientsByAgencyId(
         FROM patients p
         WHERE p.agency_id = ${agencyId}
         ${searchFragment}
-        ${statusFragment}
+        ${statusFragment} ${branchFragment}
       `,
     ])
 
@@ -179,11 +181,12 @@ export async function getPatientsByAgencyId(
 }
 
 /** Get total + active patient counts for an agency (no rows fetched). */
-export async function getPatientCountsByAgencyId(agencyId: string) {
+export async function getPatientCountsByAgencyId(agencyId: string, branchId?: string) {
   try {
+    const branchFragment = branchId ? sql`AND branch_id = ${branchId}::uuid` : sql``
     const [totalRows, activeRows] = await Promise.all([
-      sql`SELECT COUNT(*)::int AS count FROM patients WHERE agency_id = ${agencyId}`,
-      sql`SELECT COUNT(*)::int AS count FROM patients WHERE agency_id = ${agencyId} AND status = 'active'`,
+      sql`SELECT COUNT(*)::int AS count FROM patients WHERE agency_id = ${agencyId} ${branchFragment}`,
+      sql`SELECT COUNT(*)::int AS count FROM patients WHERE agency_id = ${agencyId} AND status = 'active' ${branchFragment}`,
     ])
     return { total: totalRows[0]?.count ?? 0, active: activeRows[0]?.count ?? 0 }
   } catch {

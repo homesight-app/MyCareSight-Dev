@@ -11,6 +11,7 @@ import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import PrimaryButton from '@/components/ui/PrimaryButton'
 
 interface ApplyForNewLicenseButtonProps {
+  branchSelectionEnabled?: boolean
   agencyId?: string
   agencyName?: string
   label?: string
@@ -20,7 +21,7 @@ interface ApplyForNewLicenseButtonProps {
   className?: string
 }
 
-export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, programsOnly = false, size = 'md', className }: ApplyForNewLicenseButtonProps = {}) {
+export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, programsOnly = false, size = 'md', className, branchSelectionEnabled = false }: ApplyForNewLicenseButtonProps = {}) {
   const [isStateModalOpen, setIsStateModalOpen] = useState(false)
   const [isLicenseTypeModalOpen, setIsLicenseTypeModalOpen] = useState(false)
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false)
@@ -122,6 +123,7 @@ export default function ApplyForNewLicenseButton({ agencyId, agencyName, label, 
           onClose={handleCloseAll}
           state={selectedState}
           playbook={selectedPlaybook}
+          branchSelectionEnabled={branchSelectionEnabled}
           onBack={handleBackToTypesFromPlaybook}
           agencyId={agencyId}
         />

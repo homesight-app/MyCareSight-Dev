@@ -1,6 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import * as q from '@/lib/supabase/query'
 import ProfileTabs from '@/components/ProfileTabs'
 import Button from '@/components/ui/PrimaryButton'
 
@@ -13,15 +12,6 @@ export default async function ProfilePage() {
 
 
   const profile = session!.profile
-  let initialAgency: Record<string, unknown> | null = null
-  if (profile?.role === 'company_owner') {
-    const { data: client } = await q.getClientByCompanyOwnerId(session.user.id)
-    if (client?.id) {
-      const { data: agency } = await q.getAgencyByAdminIdFull(client.id)
-      if (agency) initialAgency = agency
-    }
-  }
-
   // Get recent activity (placeholder - you can create an activity log table later)
   const recentActivity = [
     { id: '1', action: 'Profile information updated', icon: 'person', date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
@@ -35,7 +25,7 @@ export default async function ProfilePage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Main Profile Section */}
         <div className="lg:col-span-2">
-          <ProfileTabs user={session.user} profile={profile} initialAgency={initialAgency} />
+          <ProfileTabs user={session.user} profile={profile} />
         </div>
 
         {/* Sidebar */}

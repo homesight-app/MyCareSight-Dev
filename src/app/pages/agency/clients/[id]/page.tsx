@@ -1,3 +1,5 @@
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import RecordBranchAssignment from '@/components/RecordBranchAssignment'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
@@ -48,6 +50,8 @@ export default async function ClientDetailPage({
     role === 'company_owner' || role === 'care_coordinator'
 
   return (
+    <>
+    {agencyBranchesEnabled() && <RecordBranchAssignment key={id} kind="client" recordId={id} />}
     <ClientDetailContent
       key={`${id}:${activeTab}`}
       client={bundle.client}
@@ -70,5 +74,6 @@ export default async function ClientDetailPage({
       canSchedule={canSchedule}
       convertedLeadDocuments={bundle.convertedLeadDocuments}
     />
+    </>
   )
 }

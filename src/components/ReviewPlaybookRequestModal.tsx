@@ -3,12 +3,14 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Modal from './Modal'
+import ProgramBranchRequestForm from './ProgramBranchRequestForm'
 import { BookOpen, MapPin, DollarSign, Clock, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import type { StandalonePlaybook } from '@/lib/supabase/query/playbooks'
 import { createProgramForAgency, submitProgramRequest } from '@/app/actions/applications'
 
 interface ReviewPlaybookRequestModalProps {
+  branchSelectionEnabled?: boolean
   isOpen: boolean
   onClose: () => void
   state: string
@@ -28,6 +30,7 @@ export default function ReviewPlaybookRequestModal({
   playbook,
   onBack,
   agencyId,
+  branchSelectionEnabled = false,
 }: ReviewPlaybookRequestModalProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -76,7 +79,7 @@ export default function ReviewPlaybookRequestModal({
   const requirements = Array.isArray(playbook.requirements) ? playbook.requirements : []
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Review Program Request" size="lg">
+    <Modal isOpen={isOpen} onClose={branchSelectionEnabled && !agencyId && isLoading ? () => {} : onClose} title="Review Program Request" size="lg">
       <div className="space-y-6">
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
@@ -197,7 +200,8 @@ export default function ReviewPlaybookRequestModal({
           >
             Back to Programs
           </Button>
-          <button
+          {branchSelectionEnabled && !agencyId ? <ProgramBranchRequestForm key={playbook.id} playbookId={playbook.id} state={state} onBusyChange={setIsLoading}
+            onSaved={() => { onClose(); router.push('/pages/agency/programs'); router.refresh() }} /> : <button
             onClick={handleSubmit}
             disabled={isLoading}
             className="px-6 py-2.5 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -213,7 +217,7 @@ export default function ReviewPlaybookRequestModal({
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
-          </button>
+          </button>}
         </div>
       </div>
     </Modal>

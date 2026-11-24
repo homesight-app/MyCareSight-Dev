@@ -179,7 +179,7 @@ export async function authorizeStoredObject(
         COALESCE(NULLIF(document.file_name, ''), NULLIF(document.document_name, ''), 'document') AS "downloadFileName"
       FROM public.agency_documents document
       WHERE document.file_url = ${path}
-        AND (${actor.role} = 'admin' OR ${agencyAccess(actor, sql`document.agency_id`)})
+        AND (${actor.role} IN ('admin', 'expert') OR ${agencyAccess(actor, sql`document.agency_id`)})
       LIMIT 1
     `
     return rows[0] ?? null

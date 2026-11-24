@@ -59,7 +59,7 @@ test('reads a zero size through same-origin HEAD without requesting file bytes',
   expect(click).not.toHaveBeenCalled()
 })
 
-test.each([null, '-1', 'bad', '1.5'])('rejects invalid metadata %s', async header => {
+test.each([null, '', ' ', '-1', 'bad', '1.5'])('rejects invalid metadata %s', async header => {
   fetchMock.mockResolvedValue({ ok: true, headers: { get: () => header } })
   await expect(getStoredFileSize(STORAGE_BUCKET.APPLICATION, 'synthetic.pdf')).rejects.toThrow('Invalid document size')
 })

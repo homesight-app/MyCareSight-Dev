@@ -59,3 +59,17 @@ test.each(['blob-properties', 'blob-download'])('classifies %s failures without 
     expect(log.mock.calls).toEqual([['[storage] Read failed', { stage, code: 'AuthorizationPermissionMismatch', httpStatus: 403 }]])
   } finally { log.mockRestore() }
 })
+
+test('an interrupted body fails with a fixed error instead of exposing private provider details', async () => {
+  const log = jest.spyOn(console, 'error').mockImplementation(() => {})
+  properties.mockResolvedValue({ contentLength: 100 })
+  download.mockResolvedValue({ readableStreamBody: Readable.from((async function* () {
+    yield Buffer.from('synthetic')
+    throw Object.assign(new Error('synthetic-private-url-and-token'), { code: 'ECONNRESET' })
+  })()) })
+  try {
+    const file = await downloadFile('application-documents', 'synthetic.pdf', STORAGE_DOWNLOAD_MAX_BYTES)
+    await expect(new Response(file!.stream).text()).rejects.toThrow('Document transfer interrupted')
+    expect(log.mock.calls).toEqual([['[storage] Read failed', { stage: 'blob-download', code: 'ECONNRESET' }]])
+  } finally { log.mockRestore() }
+})

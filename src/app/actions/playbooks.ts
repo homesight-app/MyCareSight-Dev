@@ -11,6 +11,7 @@ import type { PlaybookItem, ValidationRule } from '@/lib/supabase/query/playbook
 import { removeFiles } from '@/lib/storage/client'
 import { STORAGE_BUCKET } from '@/lib/storage'
 import { withAuthorizedApplication } from '@/lib/repositories/application-access'
+import { readAuthorizedStoredFile } from '@/lib/storage/server'
 
 export type OtherPlaybook = {
   id: string
@@ -1125,21 +1126,16 @@ export async function runDocumentValidation(itemId: string, agencyId: string | n
   let failCount = 0
 
   if (documents.length > 0) {
-    const { createSignedStorageUrl, STORAGE_BUCKET } = await import('@/lib/storage')
-
     for (const doc of documents) {
       const docUrl = (doc as { document_url: string }).document_url
       if (!docUrl) { failCount++; continue }
 
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, docUrl, 600)
-      if (!signedUrl) { failCount++; continue }
-
       const ext = (doc as { document_name: string }).document_name.split('.').pop()?.toLowerCase()
 
       try {
-        const response = await fetch(signedUrl)
-        if (!response.ok) { failCount++; continue }
-        const buffer = Buffer.from(await response.arrayBuffer())
+        const file = await readAuthorizedStoredFile(STORAGE_BUCKET.APPLICATION, docUrl)
+        if (!file) { failCount++; continue }
+        const buffer = Buffer.from(await new Response(file.stream).arrayBuffer())
 
         if (ext === 'docx') {
           const mammoth = await import('mammoth')
@@ -1150,7 +1146,9 @@ export async function runDocumentValidation(itemId: string, agencyId: string | n
           // pdf-parse v2 uses a class-based API: new PDFParse({ data }).getText()
           const { PDFParse } = await import('pdf-parse') as any
           const parser = new PDFParse({ data: new Uint8Array(buffer) })
-          const result = await parser.getText()
+          let result
+          try { result = await parser.getText() }
+          finally { await parser.destroy().catch(() => {}) }
           extractedText += '\n' + result.text
           successCount++
         } else {

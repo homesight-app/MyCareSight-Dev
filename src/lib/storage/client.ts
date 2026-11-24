@@ -121,9 +121,25 @@ export async function downloadFile(
       blob.download(0, bytes)
     )
     if (!response.readableStreamBody) return null
-
+    const reader = (Readable.toWeb(response.readableStreamBody as Readable) as ReadableStream<Uint8Array>).getReader()
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read()
+          if (done) controller.close()
+          else controller.enqueue(value)
+        } catch (error) {
+          reportReadFailure('blob-download', error)
+          // Do not let a provider error containing an object URL reach framework logs.
+          controller.error(new Error('Document transfer interrupted'))
+        }
+      },
+      async cancel() {
+        try { await reader.cancel() } catch { /* Client cancellation is not a transfer failure. */ }
+      },
+    })
     return {
-      stream: Readable.toWeb(response.readableStreamBody as Readable) as ReadableStream<Uint8Array>,
+      stream,
       ...metadata,
     }
   } catch (error) {

@@ -1,13 +1,14 @@
 /** @jest-environment node */
 import { commitAgencyDocumentUploadAction } from '@/app/actions/agency-documents'
-import { POST } from '@/app/api/storage/upload/route'
+import { POST, DELETE } from '@/app/api/storage/upload/route'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
 import { revalidatePath } from 'next/cache'
 import * as q from '@/lib/supabase/query'
 import { readStorageCleanupToken } from '@/lib/storage/cleanup-token'
 import { authorizeStorageUpload } from '@/lib/storage/authorization'
-import { uploadFile } from '@/lib/storage/client'
+import { getFileMetadata, removeFiles, uploadFile } from '@/lib/storage/client'
+import { findAgencyDocumentUpload, lockAgencyDocumentUpload } from '@/lib/repositories/agency-documents'
 
 jest.mock('server-only', () => ({}), { virtual: true })
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
@@ -16,7 +17,8 @@ jest.mock('@/db', () => ({ withUserContext: jest.fn() }))
 jest.mock('@/lib/supabase/query', () => ({ insertAgencyDocument: jest.fn(), insertAuditLog: jest.fn() }))
 jest.mock('@/lib/storage/cleanup-token', () => ({ readStorageCleanupToken: jest.fn(), createStorageCleanupToken: jest.fn(() => 'synthetic-token') }))
 jest.mock('@/lib/storage/authorization', () => ({ authorizeStorageUpload: jest.fn(), auditStoredObjectAccess: jest.fn() }))
-jest.mock('@/lib/storage/client', () => ({ uploadFile: jest.fn(), removeFiles: jest.fn() }))
+jest.mock('@/lib/storage/client', () => ({ uploadFile: jest.fn(), removeFiles: jest.fn(), getFileMetadata: jest.fn() }))
+jest.mock('@/lib/repositories/agency-documents', () => ({ findAgencyDocumentUpload: jest.fn(), lockAgencyDocumentUpload: jest.fn() }))
 
 const agencyId = '50000000-0000-4000-8000-000000000001'
 const actorId = '50000000-0000-4000-8000-000000000002'
@@ -35,8 +37,58 @@ beforeEach(() => {
   jest.mocked(q.insertAgencyDocument).mockResolvedValue({ data: { id: docId }, error: null })
   jest.mocked(q.insertAuditLog).mockResolvedValue({ error: null })
   jest.mocked(uploadFile).mockResolvedValue({ path, error: null })
+  jest.mocked(getFileMetadata).mockResolvedValue({ contentLength: input.size, contentType: 'application/pdf' })
+  jest.mocked(removeFiles).mockResolvedValue({ error: null })
+  jest.mocked(findAgencyDocumentUpload).mockReset().mockResolvedValue(null)
+  jest.mocked(lockAgencyDocumentUpload).mockReset().mockResolvedValue(undefined)
   jest.mocked(revalidatePath).mockReset()
   log = jest.spyOn(console, 'error').mockImplementation(() => {})
+})
+
+test('a repeated commit returns the saved document without inserting or renaming it again', async () => {
+  const existing = { id: docId, document_name: 'Original synthetic name', file_url: path,
+    file_name: 'synthetic.pdf', document_type: 'Other', created_at: '2026-01-01T00:00:00.000Z' }
+  jest.mocked(findAgencyDocumentUpload).mockResolvedValueOnce(existing)
+  expect(await commitAgencyDocumentUploadAction(input)).toMatchObject({ success: true, doc: existing })
+  expect(q.insertAgencyDocument).not.toHaveBeenCalled()
+  expect(lockAgencyDocumentUpload).toHaveBeenCalledWith(path)
+})
+
+test('cleanup refuses to delete an object attached to a saved agency document', async () => {
+  jest.mocked(findAgencyDocumentUpload).mockResolvedValueOnce({ id: docId, document_name: 'Synthetic', file_url: path,
+    file_name: 'synthetic.pdf', document_type: null, created_at: '2026-01-01T00:00:00.000Z' })
+  const response = await DELETE(new Request('https://app.example.test/api/storage/upload', {
+    method: 'DELETE', body: JSON.stringify(input.upload), headers: { 'Content-Type': 'application/json' },
+  }))
+  expect(response.status).toBe(409)
+  expect(removeFiles).not.toHaveBeenCalled()
+  expect(lockAgencyDocumentUpload).toHaveBeenCalledWith(path)
+})
+
+test('cleanup rechecks current agency access and only removes an unlinked upload', async () => {
+  const request = () => new Request('https://app.example.test/api/storage/upload', {
+    method: 'DELETE', body: JSON.stringify(input.upload), headers: { 'Content-Type': 'application/json' },
+  })
+  jest.mocked(authorizeStorageUpload).mockResolvedValueOnce(null)
+  expect((await DELETE(request())).status).toBe(404)
+  expect(removeFiles).not.toHaveBeenCalled()
+  expect((await DELETE(request())).status).toBe(200)
+  expect(removeFiles).toHaveBeenCalledWith('agency-documents', [path])
+})
+
+test.each([null, { contentLength: 1, contentType: 'application/pdf' }])('a missing or changed upload cannot acquire a metadata row (%j)', async metadata => {
+  jest.mocked(getFileMetadata).mockResolvedValueOnce(metadata)
+  expect(await commitAgencyDocumentUploadAction(input)).toMatchObject({ success: false, cleanupRequired: false })
+  expect(q.insertAgencyDocument).not.toHaveBeenCalled()
+  expect(log.mock.calls).toEqual([['[agency-documents] Upload failed', { stage: 'object-verification' }]])
+})
+
+test('an audit failure during confirmation must never authorize cleanup of the existing document', async () => {
+  jest.mocked(findAgencyDocumentUpload).mockResolvedValueOnce({ id: docId, document_name: 'Synthetic', file_url: path,
+    file_name: 'synthetic.pdf', document_type: null, created_at: '2026-01-01T00:00:00.000Z' })
+  jest.mocked(q.insertAuditLog).mockResolvedValueOnce({ error: new Error('synthetic audit failure') })
+  expect(await commitAgencyDocumentUploadAction(input)).toMatchObject({ success: false, cleanupRequired: false })
+  expect(q.insertAgencyDocument).not.toHaveBeenCalled()
 })
 afterEach(() => log.mockRestore())
 

@@ -6,6 +6,8 @@ import { auditStoredObjectAccess, authorizeStorageUpload } from '@/lib/storage/a
 import { createStorageCleanupToken, readStorageCleanupToken } from '@/lib/storage/cleanup-token'
 import { reportUploadFailure } from '@/lib/storage/diagnostics'
 import { STORAGE_UPLOAD_FILE_EXTENSIONS, STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/contracts'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
+import { findAgencyDocumentUpload, lockAgencyDocumentUpload } from '@/lib/repositories/agency-documents'
 
 const MAX_MULTIPART_REQUEST_BYTES = STORAGE_UPLOAD_MAX_BYTES + 256 * 1024
 const PURPOSES = new Set<UploadPurpose>([
@@ -100,6 +102,29 @@ export async function DELETE(request: Request) {
   const claim = readStorageCleanupToken(body.cleanupToken)
   if (!claim || claim.actorId !== session.user.id || claim.path !== body.path) {
     return Response.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  if (claim.bucket === STORAGE_BUCKET.AGENCY) {
+    if (!claim.agencyId || claim.tableName !== 'agencies' || claim.recordId !== claim.agencyId
+      || !claim.path.startsWith(`${claim.agencyId}/`)) return Response.json({ error: 'Not found' }, { status: 404 })
+    const agencyId = claim.agencyId
+    try {
+      return await withUserContext(session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null, async () => {
+        const authorized = await authorizeStorageUpload('agency-document', agencyId)
+        if (!authorized || authorized.agencyId !== agencyId) return Response.json({ error: 'Not found' }, { status: 404 })
+        await lockAgencyDocumentUpload(claim.path)
+        if (await findAgencyDocumentUpload(agencyId, claim.path)) {
+          return Response.json({ error: 'This file is already attached to a saved document' }, { status: 409 })
+        }
+        const { error } = await removeFiles(claim.bucket, [claim.path])
+        if (error) throw error
+        await auditStoredObjectAccess(session.user.id, claim, 'DELETE')
+        return Response.json({ success: true })
+      })
+    } catch (error) {
+      reportUploadFailure('upload-cleanup', error)
+      return Response.json({ error: 'File cleanup failed' }, { status: 500 })
+    }
   }
 
   const { error } = await removeFiles(claim.bucket, [claim.path])

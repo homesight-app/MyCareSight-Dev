@@ -81,7 +81,7 @@ export async function getStoredFileSize(bucket: StorageBucket, path: string): Pr
   const response = await fetch(storedFileDownloadUrl(bucket, path), { method: 'HEAD', cache: 'no-store' })
   if (!response.ok) throw new Error(`Unable to read document size (HTTP ${response.status})`)
   const header = response.headers.get('content-length')
-  const bytes = header === null ? NaN : Number(header)
+  const bytes = header === null || !/^\d+$/.test(header) ? NaN : Number(header)
   if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('Invalid document size')
   return bytes
 }

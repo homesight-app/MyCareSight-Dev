@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { PGlite } from '@electric-sql/pglite'
 import { getSession } from '@/lib/auth'
+import { findAgencyDocumentUpload, lockAgencyDocumentUpload } from '@/lib/repositories/agency-documents'
 import {
   auditStoredObjectAccess,
   authorizeStoredObject,
@@ -69,7 +70,7 @@ beforeAll(async () => {
     CREATE TABLE leads(id uuid PRIMARY KEY, agency_id uuid);
     CREATE TABLE agencies(id uuid PRIMARY KEY);
     CREATE TABLE lead_documents(id uuid PRIMARY KEY, lead_id uuid, file_url text, file_name text, document_name text);
-    CREATE TABLE agency_documents(id uuid PRIMARY KEY, agency_id uuid, file_url text, file_name text, document_name text);
+    CREATE TABLE agency_documents(id uuid PRIMARY KEY, agency_id uuid, file_url text, file_name text, document_name text, document_type text, created_at timestamptz DEFAULT now());
     CREATE TABLE audit_log(
       id uuid DEFAULT gen_random_uuid(), agency_id uuid, table_name text, record_id uuid,
       action text, performed_by_user_id uuid, details jsonb
@@ -97,7 +98,7 @@ beforeEach(async () => {
   await db.query(`INSERT INTO leads VALUES ($1,$2)`, [LEAD, AGENCY])
   await db.query(`INSERT INTO agencies VALUES ($1),($2)`, [AGENCY, OTHER_AGENCY])
   await db.query(`INSERT INTO lead_documents VALUES ($1,$2,'${LEAD}/synthetic.pdf','Original Lead File.pdf','Lead document')`, [LEAD_DOCUMENT, LEAD])
-  await db.query(`INSERT INTO agency_documents VALUES ($1,$2,'${AGENCY}/synthetic.pdf','Original Agency File.pdf','Agency document')`, [AGENCY_DOCUMENT, AGENCY])
+  await db.query(`INSERT INTO agency_documents(id,agency_id,file_url,file_name,document_name) VALUES ($1,$2,'${AGENCY}/synthetic.pdf','Original Agency File.pdf','Agency document')`, [AGENCY_DOCUMENT, AGENCY])
   login(OWNER)
 })
 
@@ -119,6 +120,25 @@ test('scopes agency uploads to active managers and platform staff, denying forei
   expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
   await db.query(`UPDATE user_profiles SET is_active=false WHERE id=$1`, [ADMIN])
   expect(await authorizeStorageUpload('agency-document', AGENCY)).toBeNull()
+})
+
+test('an active platform expert can download an agency document they are allowed to upload', async () => {
+  await db.query(`UPDATE user_profiles SET role='expert' WHERE id=$1`, [ADMIN])
+  login(ADMIN)
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
+  expect(await authorizeStoredObject(STORAGE_BUCKET.AGENCY, `${AGENCY}/synthetic.pdf`)).not.toBeNull()
+})
+
+test('the upload repository locks and reads one exact agency/object without leaking a different agency record', async () => {
+  await db.exec('BEGIN')
+  try {
+    await lockAgencyDocumentUpload(`${AGENCY}/synthetic.pdf`)
+    expect(await findAgencyDocumentUpload(AGENCY, `${AGENCY}/synthetic.pdf`)).toMatchObject({
+      id: AGENCY_DOCUMENT, document_name: 'Agency document', file_name: 'Original Agency File.pdf', created_at: expect.any(String),
+    })
+    expect(await findAgencyDocumentUpload(OTHER_AGENCY, `${AGENCY}/synthetic.pdf`)).toBeNull()
+    expect(await findAgencyDocumentUpload(AGENCY, `${AGENCY}/missing.pdf`)).toBeNull()
+  } finally { await db.exec('ROLLBACK') }
 })
 
 afterAll(async () => { await db.close() })
@@ -219,6 +239,7 @@ test('generates server-owned upload scopes and denies cross-agency resources', a
   expect(await authorizeStorageUpload('patient-incident', INCIDENT)).toBeNull()
   expect(await authorizeStorageUpload('lead-document', LEAD)).toBeNull()
   expect(await authorizeStoredObject(STORAGE_BUCKET.LEAD, `${LEAD}/synthetic.pdf`)).toBeNull()
+  expect(await authorizeStoredObject(STORAGE_BUCKET.AGENCY, `${AGENCY}/synthetic.pdf`)).toBeNull()
 
   await db.query(`INSERT INTO user_agency_roles VALUES ($1,$2,'staff_member','active')`, [STAFF, AGENCY])
   login(STAFF)

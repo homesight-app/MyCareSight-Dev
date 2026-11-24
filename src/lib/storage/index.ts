@@ -5,7 +5,8 @@ export function isExternalDocumentLink(reference: string): boolean {
   if (reference.includes('/storage/v1/object/')) return false
   try {
     const url = new URL(reference)
-    return ['http:', 'https:'].includes(url.protocol) && !url.hostname.endsWith('.supabase.co')
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
+    return ['http:', 'https:'].includes(url.protocol) && hostname !== 'supabase.co' && !hostname.endsWith('.supabase.co')
   } catch {
     return false
   }

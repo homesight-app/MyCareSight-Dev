@@ -4,6 +4,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto'
 import sql from '@/db'
 import type { AgencyRole, UserRole } from '@/types/auth'
 import { hashPassword, verifyPassword } from '@/lib/auth/password'
+import { reportSessionRejection, type SessionRejectionReason } from '@/lib/auth/session-diagnostics'
 
 const SESSION_MAX_AGE_SECONDS = 60 * 60
 const LOGIN_WINDOW_MINUTES = 15
@@ -237,7 +238,34 @@ export async function readOpaqueSession(sessionToken: string): Promise<OpaqueSes
       AND profile.is_active = true
     LIMIT 1
   `
-  if (!row?.membership_active) return null
+  if (!row?.membership_active) {
+    // Keep the authoritative validity query unchanged. A diagnostic-only read
+    // classifies rejected cookies without returning private session contents.
+    let reason: SessionRejectionReason = row ? 'membership-inactive' : 'unclassified'
+    if (!row) {
+      try {
+        const [diagnostic] = await sql<{ reason: SessionRejectionReason }[]>`
+          SELECT CASE
+            WHEN rejected.token_hash IS NULL THEN 'not-found'
+            WHEN rejected.revoked_at IS NOT NULL THEN 'revoked'
+            WHEN rejected.expires_at <= now() THEN 'expired'
+            WHEN profile.id IS NULL THEN 'profile-unavailable'
+            WHEN profile.is_active IS DISTINCT FROM true THEN 'profile-inactive'
+            ELSE 'unclassified'
+          END AS reason
+          FROM (SELECT 1) anchor
+          LEFT JOIN auth_sessions rejected ON rejected.token_hash = ${sha256(sessionToken)}
+          LEFT JOIN user_profiles profile ON profile.id = rejected.user_id
+          LIMIT 1
+        `
+        reason = diagnostic?.reason ?? 'unclassified'
+      } catch {
+        // Diagnostics must never authenticate a rejected token or hide a rejection.
+      }
+    }
+    reportSessionRejection(reason)
+    return null
+  }
 
   // Session validity is established by the read above. last_seen_at is
   // operational telemetry and must not sign out a verified user when that

@@ -2,6 +2,7 @@ import 'server-only'
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions } from '@azure/storage-blob'
 import { DefaultAzureCredential } from '@azure/identity'
 import { Readable } from 'node:stream'
+import { reportSigningFailure } from './diagnostics'
 import {
   measureStorageOperation,
   storageSizeClass,
@@ -127,6 +128,7 @@ export async function getSignedUrl(
 
   // Strip legacy Supabase full-URL paths stored in the DB.
   const blobPath = normalizeBlobPath(bucket, path)
+  let stage: 'delegation-key' | 'sas-generation' = 'delegation-key'
 
   try {
     return await measureStorageOperation('sign_url', 'unknown', async () => {
@@ -134,6 +136,7 @@ export async function getSignedUrl(
       const expiresOn = new Date(Date.now() + expiresIn * 1000)
 
       const userDelegationKey = await blobServiceClient.getUserDelegationKey(startsOn, expiresOn)
+      stage = 'sas-generation'
 
       const sasToken = generateBlobSASQueryParameters(
         {
@@ -150,9 +153,7 @@ export async function getSignedUrl(
       return `${accountUrl}/${bucket}/${blobPath}?${sasToken}`
     })
   } catch (err) {
-    // Provider errors can include blob URLs or paths. The timing span already
-    // records failure status without forwarding provider details.
-    console.error('[storage] getSignedUrl failed')
+    reportSigningFailure(stage, err)
     return null
   }
 }

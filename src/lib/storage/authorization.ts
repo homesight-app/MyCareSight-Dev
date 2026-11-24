@@ -256,6 +256,28 @@ export async function authorizeStorageUpload(
     return null
   }
 
+  if (purpose === 'agency-document') {
+    const rows = await sql<{ id: string }[]>`
+      SELECT agency.id FROM public.agencies agency
+      WHERE agency.id = ${resourceId}::uuid
+        AND (
+          ${actor.role} IN ('admin', 'expert')
+          OR (
+            ${actor.role} IN ('company_owner', 'care_coordinator')
+            AND ${agencyAccess(actor, sql`agency.id`)}
+          )
+        )
+      LIMIT 1
+    `
+    return rows[0] ? {
+      agencyId: resourceId,
+      recordId: resourceId,
+      tableName: 'agencies',
+      bucket: STORAGE_BUCKET.AGENCY,
+      pathPrefix: `${resourceId}/`,
+    } : null
+  }
+
   if (purpose === 'patient-document') {
     const rows = await sql<{ agencyId: string }[]>`
       SELECT patient.agency_id AS "agencyId"

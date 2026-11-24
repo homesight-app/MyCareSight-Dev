@@ -4,12 +4,14 @@ import { withUserContext } from '@/db'
 import { uploadFile, removeFiles } from '@/lib/storage/client'
 import { auditStoredObjectAccess, authorizeStorageUpload } from '@/lib/storage/authorization'
 import { createStorageCleanupToken, readStorageCleanupToken } from '@/lib/storage/cleanup-token'
-import { STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/contracts'
+import { reportUploadFailure } from '@/lib/storage/diagnostics'
+import { STORAGE_UPLOAD_FILE_EXTENSIONS, STORAGE_UPLOAD_MAX_BYTES, type UploadPurpose } from '@/lib/storage/contracts'
 
 const MAX_MULTIPART_REQUEST_BYTES = STORAGE_UPLOAD_MAX_BYTES + 256 * 1024
 const PURPOSES = new Set<UploadPurpose>([
   'application-document',
   'lead-document',
+  'agency-document',
   'patient-document',
   'caregiver-certification',
   'license-document',
@@ -17,17 +19,6 @@ const PURPOSES = new Set<UploadPurpose>([
   'patient-incident',
   'playbook-template',
 ])
-const FILE_EXTENSIONS: Record<string, string> = {
-  'application/pdf': 'pdf',
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-  'text/plain': 'txt',
-}
 
 export async function POST(request: Request) {
   const session = await getSession()
@@ -54,7 +45,9 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Invalid upload request' }, { status: 400 })
   }
 
-  const extension = FILE_EXTENSIONS[file.type.toLowerCase()]
+  const mime = file.type.toLowerCase()
+  const extension = Object.prototype.hasOwnProperty.call(STORAGE_UPLOAD_FILE_EXTENSIONS, mime)
+    ? STORAGE_UPLOAD_FILE_EXTENSIONS[mime] : undefined
   if (!extension) return Response.json({ error: 'Unsupported file type' }, { status: 400 })
 
   const authorized = await withUserContext(
@@ -68,14 +61,18 @@ export async function POST(request: Request) {
 
   const path = `${authorized.pathPrefix}${randomUUID()}.${extension}`
   const { error } = await uploadFile(authorized.bucket, path, file, { contentType: file.type })
-  if (error) return Response.json({ error: 'File upload failed' }, { status: 500 })
+  if (error) {
+    reportUploadFailure('object-upload', error)
+    return Response.json({ error: 'File upload failed' }, { status: 500 })
+  }
 
   try {
     await withUserContext(
       session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null,
       () => auditStoredObjectAccess(session.user.id, authorized, 'UPLOAD')
     )
-  } catch {
+  } catch (error) {
+    reportUploadFailure('upload-audit', error)
     await removeFiles(authorized.bucket, [path])
     return Response.json({ error: 'File upload could not be recorded' }, { status: 500 })
   }

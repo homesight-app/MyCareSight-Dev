@@ -13,6 +13,7 @@ export type StorageBucket = typeof STORAGE_BUCKET[keyof typeof STORAGE_BUCKET]
 export type UploadPurpose =
   | 'application-document'
   | 'lead-document'
+  | 'agency-document'
   | 'patient-document'
   | 'caregiver-certification'
   | 'license-document'
@@ -28,3 +29,15 @@ export type StoredFileUpload = {
 export const STORAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 // Existing migrated documents can exceed the current new-upload limit.
 export const STORAGE_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024
+
+export const STORAGE_UPLOAD_FILE_EXTENSIONS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'text/plain': 'txt',
+}

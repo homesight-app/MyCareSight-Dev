@@ -67,6 +67,7 @@ beforeAll(async () => {
     CREATE TABLE license_requirements(id uuid PRIMARY KEY);
     CREATE TABLE playbooks(id uuid PRIMARY KEY);
     CREATE TABLE leads(id uuid PRIMARY KEY, agency_id uuid);
+    CREATE TABLE agencies(id uuid PRIMARY KEY);
     CREATE TABLE lead_documents(id uuid PRIMARY KEY, lead_id uuid, file_url text, file_name text, document_name text);
     CREATE TABLE agency_documents(id uuid PRIMARY KEY, agency_id uuid, file_url text, file_name text, document_name text);
     CREATE TABLE audit_log(
@@ -78,7 +79,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.exec(`
-    TRUNCATE audit_log, agency_documents, lead_documents, leads, playbooks, license_requirements, playbook_templates, license_requirement_templates, patient_incidents,
+    TRUNCATE audit_log, agency_documents, agencies, lead_documents, leads, playbooks, license_requirements, playbook_templates, license_requirement_templates, patient_incidents,
       patients, caregiver_credentials, license_documents, licenses, application_documents,
       applications, caregiver_members, user_agency_roles, user_profiles;
   `)
@@ -94,9 +95,30 @@ beforeEach(async () => {
   await db.query(`INSERT INTO license_requirements VALUES ($1)`, [REQUIREMENT])
   await db.query(`INSERT INTO playbooks VALUES ($1)`, [PLAYBOOK])
   await db.query(`INSERT INTO leads VALUES ($1,$2)`, [LEAD, AGENCY])
+  await db.query(`INSERT INTO agencies VALUES ($1),($2)`, [AGENCY, OTHER_AGENCY])
   await db.query(`INSERT INTO lead_documents VALUES ($1,$2,'${LEAD}/synthetic.pdf','Original Lead File.pdf','Lead document')`, [LEAD_DOCUMENT, LEAD])
   await db.query(`INSERT INTO agency_documents VALUES ($1,$2,'${AGENCY}/synthetic.pdf','Original Agency File.pdf','Agency document')`, [AGENCY_DOCUMENT, AGENCY])
   login(OWNER)
+})
+
+test('scopes agency uploads to active managers and platform staff, denying foreign, revoked and caregiver access', async () => {
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).toMatchObject({
+    agencyId: AGENCY, recordId: AGENCY, tableName: 'agencies', bucket: 'agency-documents', pathPrefix: `${AGENCY}/`,
+  })
+  expect(await authorizeStorageUpload('agency-document', OTHER_AGENCY)).toBeNull()
+  await db.query(`UPDATE user_profiles SET role='care_coordinator' WHERE id=$1`, [OWNER])
+  await db.query(`UPDATE user_agency_roles SET role='care_coordinator' WHERE user_id=$1`, [OWNER])
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
+  await db.exec(`UPDATE user_agency_roles SET status='pending'`)
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).toBeNull()
+  login(STAFF)
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).toBeNull()
+  login(ADMIN)
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
+  await db.query(`UPDATE user_profiles SET role='expert' WHERE id=$1`, [ADMIN])
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).not.toBeNull()
+  await db.query(`UPDATE user_profiles SET is_active=false WHERE id=$1`, [ADMIN])
+  expect(await authorizeStorageUpload('agency-document', AGENCY)).toBeNull()
 })
 
 afterAll(async () => { await db.close() })

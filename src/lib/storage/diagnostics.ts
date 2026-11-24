@@ -33,3 +33,13 @@ export function reportSigningFailure(stage: SigningStage, error: unknown): void 
 export function reportReadFailure(stage: 'blob-properties' | 'blob-download', error: unknown): void {
   console.error('[storage] Read failed', { stage, ...safeFailureDetails(error) })
 }
+
+export type AgencyUploadStage = 'authentication' | 'upload-proof' | 'agency-authorization' | 'metadata-save' | 'audit' | 'database-commit' | 'cache-invalidation'
+export function reportAgencyUploadFailure(stage: AgencyUploadStage): void {
+  // Never include input fields, file names, paths or raw errors.
+  console.error('[agency-documents] Upload failed', { stage })
+}
+
+export function reportUploadFailure(stage: 'object-upload' | 'upload-audit', error: unknown): void {
+  console.error('[storage] Upload failed', { stage, ...safeFailureDetails(error) })
+}

@@ -21,7 +21,8 @@ import {
 } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
-import { createSignedStorageUrl, STORAGE_BUCKET } from '@/lib/storage'
+import { STORAGE_BUCKET } from '@/lib/storage/contracts'
+import { fetchStoredFile } from '@/lib/storage/browser'
 import {
   updateCertificationDetails,
   deleteLicenseDocument,
@@ -301,10 +302,7 @@ function DocumentsSection({
   const handleDownload = async (doc: LicenseDocument) => {
     setDownloadingId(doc.id)
     try {
-      const signedUrl = await createSignedStorageUrl(STORAGE_BUCKET.APPLICATION, doc.document_url)
-      if (!signedUrl) throw new Error('Failed to generate URL')
-      const response = await fetch(signedUrl)
-      const blob = await response.blob()
+      const blob = await fetchStoredFile(STORAGE_BUCKET.APPLICATION, doc.document_url)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url

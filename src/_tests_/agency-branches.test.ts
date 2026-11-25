@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { PGlite } from '@electric-sql/pglite'
 import { getSession } from '@/lib/auth'
-import { assignRecordBranches, branchOptions, changeBranchState, getRecordBranchAssignment, listBranches, requestProgramWithBranches, saveBranch } from '@/lib/repositories/agency-branches'
+import { assignRecordBranches, branchOptions, changeBranchState, getRecordBranchAssignment, listBranches, readAgencyInfo, requestProgramWithBranches, saveBranch, updateAgencyInfo } from '@/lib/repositories/agency-branches'
 import { getLeadStageCounts } from '@/lib/supabase/query/leads'
 import { getPatientsByAgencyId, getPatientCountsByAgencyId } from '@/lib/supabase/query/patients'
 import { getApplicationsWithProgramsPaginated } from '@/lib/supabase/query/playbooks'
@@ -63,6 +63,12 @@ beforeAll(async () => {
     SET ROLE mycaresight_schema_owner;
     CREATE TABLE agencies(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL, physical_street_address text, physical_city text,
       physical_state text, physical_zip_code text, phone_number text, email text);
+    ALTER TABLE agencies ADD COLUMN business_type text, ADD COLUMN tax_id text, ADD COLUMN primary_license_number text,
+      ADD COLUMN website text, ADD COLUMN same_as_physical boolean, ADD COLUMN mailing_street_address text,
+      ADD COLUMN mailing_city text, ADD COLUMN mailing_state text, ADD COLUMN mailing_zip_code text,
+      ADD COLUMN legal_entity_name text, ADD COLUMN updated_at timestamptz DEFAULT now();
+    CREATE TABLE agency_admins(user_id uuid, agency_id uuid, company_name text);
+    GRANT SELECT, UPDATE ON agency_admins TO mycaresight_app;
     CREATE TABLE user_profiles(id uuid PRIMARY KEY, agency_id uuid, role text, is_active boolean);
     CREATE TABLE user_agency_roles(user_id uuid, agency_id uuid, role text, status text);
     CREATE TABLE leads(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), agency_id uuid REFERENCES agencies, lead_type text, converted_at timestamptz,
@@ -120,6 +126,7 @@ beforeAll(async () => {
   await db.query(`INSERT INTO applications(id,agency_id) VALUES ($1,$2)`, [APP, AGENCY])
   await db.query(`INSERT INTO playbooks VALUES ($1,'Synthetic Catalog',NULL,'CA',true)`, [id(50)])
   await db.query(`INSERT INTO user_profiles VALUES ($1,NULL,'admin',true)`, [id(4)])
+  await db.query(`INSERT INTO agency_admins VALUES ($1,$3,'Synthetic Agency'),($2,$4,'Synthetic Other')`, [OWNER, FOREIGN, AGENCY, OTHER])
   await db.exec(readFileSync(path.join(process.cwd(), 'scripts/manual/agency-branches/001-foundation.sql'), 'utf8'))
   main = (await db.query<{ id: string }>(`SELECT id FROM agency_branches WHERE agency_id=$1 AND is_default`, [AGENCY])).rows[0].id
 }, 60000)
@@ -322,4 +329,115 @@ test('the standalone operator verifier reports valid metadata and zero aggregate
   const rows = results.flatMap(result => result.rows)
   expect(rows.some(row => row.agencies_without_default === 0 && row.programs_without_branch === 0)).toBe(true)
   expect(rows.some(row => row.patients_branch_required === true && row.branch_rls_forced === true && row.validated_record_constraints === true)).toBe(true)
+  expect(rows.some(row => row.branch_triggers_valid === true)).toBe(true)
+  expect(rows.some(row => row.branch_foreign_keys_valid === true)).toBe(true)
+})
+
+test('a program cannot commit without a branch even if its default trigger was disabled', async () => {
+  await db.exec('RESET ROLE; ALTER TABLE applications DISABLE TRIGGER application_branch_default; SET LOCAL ROLE mycaresight_app')
+  await db.query('INSERT INTO applications(id,agency_id) VALUES ($1,$2)', [id(71), AGENCY])
+  await expect(db.exec('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toMatchObject({ code: '23514' })
+})
+
+test('an application becoming agency-owned gets a default, without changing explicit existing branch links', async () => {
+  await db.query('INSERT INTO applications(id,agency_id,caregiver_member_id) VALUES ($1,$2,$3)', [id(71), AGENCY, id(72)])
+  await db.query('UPDATE applications SET caregiver_member_id=NULL WHERE id=$1', [id(71)])
+  expect((await getRecordBranchAssignment('application', id(71))).branchIds).toEqual([main])
+  const west = await saveBranch(form)
+  await assignRecordBranches('application', APP, [west])
+  await db.query('UPDATE applications SET caregiver_member_id=$1 WHERE id=$2', [id(72), APP])
+  await db.query('UPDATE applications SET caregiver_member_id=NULL WHERE id=$1', [APP])
+  expect((await getRecordBranchAssignment('application', APP)).branchIds).toEqual([west])
+  await db.exec('SET CONSTRAINTS ALL IMMEDIATE')
+})
+
+function verifierWithinTestTransaction() {
+  return readFileSync(path.join(process.cwd(), 'scripts/manual/agency-branches/002-verify.sql'), 'utf8')
+    .replace(/^BEGIN READ ONLY;\s*$/m, '').replace(/^ROLLBACK;\s*$/m, '')
+}
+
+test('the verifier detects disabled branch triggers before any missing-row gap exists', async () => {
+  await db.exec('RESET ROLE; ALTER TABLE applications DISABLE TRIGGER application_branch_default')
+  const results = await db.exec(verifierWithinTestTransaction())
+  expect(results.flatMap(result => result.rows).some(row => row.branch_triggers_valid === false)).toBe(true)
+})
+
+test.each(['missing', 'weakened'])('the verifier detects a %s program same-agency foreign key', async mode => {
+  await db.exec('RESET ROLE; ALTER TABLE application_branches DROP CONSTRAINT application_branches_branch_id_agency_id_fkey')
+  if (mode === 'weakened') await db.exec(`ALTER TABLE application_branches ADD CONSTRAINT application_branches_branch_id_agency_id_fkey
+    FOREIGN KEY (branch_id) REFERENCES agency_branches(id) ON DELETE RESTRICT`)
+  const results = await db.exec(verifierWithinTestTransaction())
+  expect(results.flatMap(result => result.rows).some(row => row.branch_foreign_keys_valid === false)).toBe(true)
+})
+
+test('deleting every link from a surviving agency program is rejected at commit', async () => {
+  await branchOptions()
+  await db.query('DELETE FROM application_branches WHERE application_id=$1', [APP])
+  await expect(db.exec('SET CONSTRAINTS ALL IMMEDIATE')).rejects.toMatchObject({ code: '23514' })
+})
+
+test('deleting a program still cascades its links, including a program created in the same transaction', async () => {
+  await branchOptions()
+  await db.query('INSERT INTO applications(id,agency_id) VALUES ($1,$2)', [id(71), AGENCY])
+  await db.query('DELETE FROM applications WHERE id=ANY($1::uuid[])', [[APP, id(71)]])
+  await db.exec('SET CONSTRAINTS ALL IMMEDIATE')
+  expect((await db.query('SELECT application_id FROM application_branches')).rows).toEqual([])
+})
+
+test.each(['inactive-profile', 'mismatched-role'])('fresh authorization rejects %s even with a valid session', async mode => {
+  await db.exec('RESET ROLE')
+  if (mode === 'inactive-profile') await db.query('UPDATE user_profiles SET is_active=false WHERE id=$1', [OWNER])
+  else await db.query("UPDATE user_agency_roles SET role='care_coordinator' WHERE user_id=$1", [OWNER])
+  await db.exec('SET LOCAL ROLE mycaresight_app')
+  await expect(readAgencyInfo()).rejects.toThrow('Forbidden')
+  await expect(saveBranch(form)).rejects.toThrow('Forbidden')
+})
+
+test('Agency Info writes only its displayed fields, keeps branch addresses independent and preserves other owners', async () => {
+  await db.exec('RESET ROLE')
+  await db.query("UPDATE agencies SET legal_entity_name='Synthetic Legal Entity' WHERE id=$1", [AGENCY])
+  await db.exec('SET LOCAL ROLE mycaresight_app')
+  await updateAgencyInfo({ companyName: 'Synthetic Renamed', businessType: 'Synthetic Type', taxId: 'SYNTHETIC-EIN',
+    primaryLicenseNumber: 'SYNTHETIC-LICENSE', physicalStreetAddress: 'Synthetic Address', physicalCity: 'Synthetic New City',
+    physicalState: 'California', physicalZipCode: '00000', sameAsPhysical: true })
+  expect((await readAgencyInfo()).name).toBe('Synthetic Renamed')
+  expect((await db.query('SELECT legal_entity_name FROM agencies WHERE id=$1', [AGENCY])).rows[0]).toEqual({ legal_entity_name: 'Synthetic Legal Entity' })
+  expect((await listBranches(0, '')).rows[0].city).toBe('Synthetic City')
+  expect((await db.query('SELECT company_name FROM agency_admins WHERE user_id=$1', [FOREIGN])).rows[0]).toEqual({ company_name: 'Synthetic Other' })
+})
+
+test('the moved Agency Info workflow remains usable before the branch foundation is installed', async () => {
+  delete process.env.AGENCY_BRANCHES_ENABLED
+  await db.exec('RESET ROLE; DROP TABLE agency_branches CASCADE; DROP TABLE application_branches CASCADE; SET LOCAL ROLE mycaresight_app')
+  expect((await readAgencyInfo()).name).toBe('Synthetic Agency')
+})
+
+function upgradeWithinTestTransaction() {
+  return readFileSync(path.join(process.cwd(), 'scripts/manual/agency-branches/003-program-link-hardening.sql'), 'utf8')
+    .replace(/^BEGIN;\s*$/m, '').replace(/^COMMIT;\s*$/m, '')
+}
+
+test('the operator upgrade can refresh an earlier foundation repeatedly without replacing explicit program links', async () => {
+  const west = await saveBranch(form)
+  await assignRecordBranches('application', APP, [west])
+  await db.exec(`SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+    RESET ROLE; DROP TRIGGER application_branch_required_on_application ON applications;
+    ALTER TABLE applications DISABLE TRIGGER application_branch_default`)
+  await db.exec(upgradeWithinTestTransaction())
+  await db.exec(upgradeWithinTestTransaction())
+  await db.exec('SET LOCAL ROLE mycaresight_app')
+  expect((await getRecordBranchAssignment('application', APP)).branchIds).toEqual([west])
+  await db.query('INSERT INTO applications(id,agency_id,caregiver_member_id) VALUES ($1,$2,$3)', [id(71), AGENCY, id(72)])
+  await db.query('UPDATE applications SET caregiver_member_id=NULL WHERE id=$1', [id(71)])
+  expect((await getRecordBranchAssignment('application', id(71))).branchIds).toEqual([main])
+  await db.exec('SET CONSTRAINTS ALL IMMEDIATE')
+  const rows = (await db.exec(verifierWithinTestTransaction())).flatMap(result => result.rows)
+  expect(rows.some(row => row.branch_triggers_valid === true)).toBe(true)
+})
+
+test('the upgrade stops for pre-existing unlinked programs instead of guessing their branches', async () => {
+  await db.exec(`RESET ROLE; DROP TRIGGER application_branch_required_on_application ON applications;
+    ALTER TABLE applications DISABLE TRIGGER application_branch_default`)
+  await db.query('INSERT INTO applications(id,agency_id) VALUES ($1,$2)', [id(71), AGENCY])
+  await expect(db.exec(upgradeWithinTestTransaction())).rejects.toMatchObject({ code: '23514' })
 })

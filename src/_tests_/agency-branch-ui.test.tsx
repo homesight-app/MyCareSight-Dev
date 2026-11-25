@@ -5,6 +5,7 @@ import AgencyConfigurationContent from '@/components/AgencyConfigurationContent'
 import AgencyInfoSection from '@/components/AgencyInfoSection'
 import ProgramBranchRequestForm from '@/components/ProgramBranchRequestForm'
 import { assignRecordBranchesAction, branchOptionsAction, getRecordBranchesAction, listBranchesAction, requestProgramBranchesAction, saveAgencyInfoAction, saveBranchAction } from '@/app/actions/agency-branches'
+import { saveAgencyConfiguration } from '@/app/actions/agency-configuration'
 
 const refresh = jest.fn()
 jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: jest.fn() }) }))
@@ -125,4 +126,38 @@ test('program request reports its busy state to the shared modal and prevents du
   complete({ success: true, id: recordId })
   await waitFor(() => expect(saved).toHaveBeenCalledTimes(1))
   expect(busy).toHaveBeenLastCalledWith(false)
+})
+
+test('a settings transport failure restores Save and preserves entered values for retry', async () => {
+  jest.mocked(saveAgencyConfiguration).mockRejectedValueOnce(new Error('synthetic transport failure'))
+    .mockResolvedValueOnce({ error: null })
+  render(<AgencyConfigurationContent agencyId={recordId} userRole="care_coordinator" initialStages={[]} initialConfig={{
+    work_week_start: 0, allow_weekends: true, weekend_rate_multiplier: null, full_time_hours_per_week: 40,
+    overtime_threshold_weekly: 40, overtime_threshold_daily: null, overtime_rate_multiplier: 1.5,
+    holidays: [], mileage_reimbursement_enabled: false, mileage_reimbursement_start_date: null, mileage_rate_per_mile: null,
+  }} />)
+  const week = screen.getByRole('combobox')
+  fireEvent.change(week, { target: { value: '1' } })
+  fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+  expect(await screen.findByText('Unable to save configuration. Refresh before retrying.')).toBeInTheDocument()
+  expect(week).toHaveValue('1')
+  const retry = screen.getByRole('button', { name: /^Save$/ })
+  expect(retry).toBeEnabled()
+  fireEvent.click(retry)
+  await waitFor(() => expect(saveAgencyConfiguration).toHaveBeenCalledTimes(2))
+  expect(jest.mocked(saveAgencyConfiguration).mock.calls[1][0].workWeekStart).toBe(1)
+})
+
+test('branch contact errors are associated with the corresponding input and prevent a write', async () => {
+  render(<AgencyBranchSettings />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add Branch' }))
+  fireEvent.change(screen.getByLabelText(/Branch name/), { target: { value: 'Synthetic West' } })
+  fireEvent.change(screen.getByLabelText(/Branch code/), { target: { value: 'west' } })
+  fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '123' } })
+  fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'invalid' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save Branch' }))
+  await waitFor(() => expect(screen.getByLabelText('Email')).toHaveAttribute('aria-invalid', 'true'))
+  expect(screen.getByLabelText('Email')).toHaveAttribute('aria-describedby', 'branch-email-error')
+  expect(screen.getByLabelText('Phone')).toHaveAttribute('aria-describedby', 'branch-phone-error')
+  expect(saveBranchAction).not.toHaveBeenCalled()
 })

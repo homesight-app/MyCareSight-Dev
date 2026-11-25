@@ -109,10 +109,12 @@ function BranchForm({ branch, onCancel, onSaved }: { branch: AgencyBranch | null
           aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `branch-${key}-error` : undefined} />
         {errors[key] && <p id={`branch-${key}-error`} className="text-danger text-sm">{errors[key]?.message}</p>}
       </div>)}
-      <div><label htmlFor="branch-phone">Phone</label><PhoneInput id="branch-phone" {...register('phone')} className={inputClass} />
-        {errors.phone && <p role="alert" className="text-danger">{errors.phone.message}</p>}</div>
-      <div><label htmlFor="branch-email">Email</label><EmailInput id="branch-email" {...register('email')} className={inputClass} />
-        {errors.email && <p role="alert" className="text-danger">{errors.email.message}</p>}</div>
+      <div><label htmlFor="branch-phone">Phone</label><PhoneInput id="branch-phone" {...register('phone')} className={inputClass}
+        aria-invalid={!!errors.phone} aria-describedby={errors.phone ? 'branch-phone-error' : undefined} />
+        {errors.phone && <p id="branch-phone-error" role="alert" className="text-danger">{errors.phone.message}</p>}</div>
+      <div><label htmlFor="branch-email">Email</label><EmailInput id="branch-email" {...register('email')} className={inputClass}
+        aria-invalid={!!errors.email} aria-describedby={errors.email ? 'branch-email-error' : undefined} />
+        {errors.email && <p id="branch-email-error" role="alert" className="text-danger">{errors.email.message}</p>}</div>
     </fieldset>
     <div className="flex gap-3"><Button type="submit" loading={isSubmitting}>Save Branch</Button><Button type="button" variant="secondary" disabled={isSubmitting} onClick={onCancel}>Cancel</Button></div>
   </form>

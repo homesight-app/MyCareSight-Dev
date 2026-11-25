@@ -31,4 +31,43 @@ SELECT
     WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN
       ('branch_create_first', 'branch_require_default', 'branch_assign_default', 'branch_patient_history_guard', 'branch_application_default', 'branch_application_required')
       AND acl.grantee = 0 AND acl.privilege_type = 'EXECUTE') AS trigger_functions_not_public;
+
+-- A zero row-gap count alone cannot prove that future writes will get defaults.
+WITH expected(relation, trigger_name, function_name, trigger_type, deferred) AS (VALUES
+  ('agencies', 'branch_agency_created', 'branch_create_first', 5, false),
+  ('agency_branches', 'branches_require_default', 'branch_require_default', 25, true),
+  ('leads', 'leads_branch_default', 'branch_assign_default', 23, false),
+  ('patients', 'patients_branch_default', 'branch_assign_default', 23, false),
+  ('patients', 'patients_branch_history', 'branch_patient_history_guard', 19, false),
+  ('applications', 'application_branch_default', 'branch_application_default', 21, false),
+  ('application_branches', 'application_branch_required', 'branch_application_required', 9, true),
+  ('applications', 'application_branch_required_on_application', 'branch_application_required', 21, true)
+)
+SELECT bool_and(EXISTS (
+  SELECT 1 FROM pg_trigger t
+  WHERE t.tgrelid = to_regclass('public.' || e.relation) AND t.tgname = e.trigger_name
+    AND t.tgfoid = to_regprocedure('public.' || e.function_name || '()')
+    AND t.tgenabled = 'O' AND NOT t.tgisinternal AND t.tgtype = e.trigger_type
+    AND t.tgdeferrable = e.deferred AND t.tginitdeferred = e.deferred
+    AND (e.trigger_name <> 'application_branch_default' OR EXISTS (
+      SELECT 1 FROM pg_attribute a WHERE a.attrelid = t.tgrelid AND a.attname = 'caregiver_member_id'
+        AND a.attnum = ANY(t.tgattr::smallint[])
+    ))
+)) AS branch_triggers_valid FROM expected e;
+
+WITH expected(relation, local_columns, referenced_relation, referenced_columns, delete_action) AS (VALUES
+  ('leads', ARRAY['branch_id','agency_id'], 'agency_branches', ARRAY['id','agency_id'], 'r'),
+  ('patients', ARRAY['branch_id','agency_id'], 'agency_branches', ARRAY['id','agency_id'], 'r'),
+  ('application_branches', ARRAY['application_id','agency_id'], 'applications', ARRAY['id','agency_id'], 'c'),
+  ('application_branches', ARRAY['branch_id','agency_id'], 'agency_branches', ARRAY['id','agency_id'], 'r')
+)
+SELECT bool_and(EXISTS (
+  SELECT 1 FROM pg_constraint c
+  WHERE c.conrelid = to_regclass('public.' || e.relation) AND c.contype = 'f' AND c.convalidated
+    AND c.confrelid = to_regclass('public.' || e.referenced_relation) AND c.confdeltype::text = e.delete_action
+    AND ARRAY(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY k(attnum, ordinal)
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum ORDER BY k.ordinal) = e.local_columns
+    AND ARRAY(SELECT a.attname::text FROM unnest(c.confkey) WITH ORDINALITY k(attnum, ordinal)
+      JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum ORDER BY k.ordinal) = e.referenced_columns
+)) AS branch_foreign_keys_valid FROM expected e;
 ROLLBACK;

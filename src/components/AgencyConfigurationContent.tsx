@@ -118,14 +118,16 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
     setIsSaving(true)
     setSaveError(null)
     setSaveSuccess(false)
-    const result = await saveAgencyConfiguration(data)
-    setIsSaving(false)
-    if (result.error) {
-      setSaveError(result.error)
-    } else {
-      setSaveSuccess(true)
-      setTimeout(() => setSaveSuccess(false), 3000)
-    }
+    try {
+      const result = await saveAgencyConfiguration(data)
+      if (result.error) setSaveError(result.error)
+      else {
+        setSaveSuccess(true)
+        setTimeout(() => setSaveSuccess(false), 3000)
+      }
+    } catch {
+      setSaveError('Unable to save configuration. Refresh before retrying.')
+    } finally { setIsSaving(false) }
   }
 
   const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent'
@@ -386,7 +388,7 @@ function SaveRow({ isSaving, saveSuccess, saveError }: { isSaving: boolean; save
         {isSaving ? 'Saving…' : 'Save'}
       </Button>
       {saveSuccess && <span className="text-green-600 text-sm font-medium">Saved.</span>}
-      {saveError && <span className="text-red-600 text-sm">{saveError}</span>}
+      {saveError && <span role="alert" className="text-red-600 text-sm">{saveError}</span>}
     </div>
   )
 }

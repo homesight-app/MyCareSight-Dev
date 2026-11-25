@@ -44,8 +44,23 @@ test.beforeAll(async () => {
     import Settings from '@/components/AgencyBranchSettings';
     import Request from '@/components/ProgramBranchRequestForm';
     import Info from '@/components/AgencyInfoPanel';
+    import DataTable from '@/components/ui/DataTable';
+    function SharedTableReview(){
+      const [page,setPage]=React.useState(0),[search,setSearch]=React.useState(''),[group,setGroup]=React.useState('all');
+      const [sort,setSort]=React.useState({key:'name',dir:'asc'});
+      const all=[{id:'one',name:'Synthetic Alpha',group:'A'},{id:'two',name:'Synthetic Beta',group:'B'},{id:'three',name:'Synthetic Gamma',group:'A'}];
+      const selected=all.filter(row=>(group==='all'||row.group===group)&&row.name.toLowerCase().includes(search.toLowerCase()))
+        .sort((a,b)=>sort.dir==='asc'?a.name.localeCompare(b.name):b.name.localeCompare(a.name));
+      window.tableQuery={page,search,group,sort};
+      return React.createElement(DataTable,{label:'Synthetic shared table',entityLabel:'fixtures',rows:selected.slice(page*2,page*2+2),
+        columns:[{key:'name',label:'Name',sortable:true,render:row=>row.name},{key:'group',label:'Group',render:row=>row.group}],
+        getRowKey:row=>row.id,getRowLabel:row=>row.name,pagination:{page,pageSize:2,totalCount:selected.length,onPageChange:setPage},
+        search:{value:search,onChange:setSearch},filters:[{key:'group',label:'Filter group',value:group,options:[{value:'all',label:'All groups'},{value:'A',label:'Group A'},{value:'B',label:'Group B'}],onChange:setGroup}],
+        sort:{value:sort,onChange:key=>setSort(current=>({key,dir:current.dir==='asc'?'desc':'asc'}))},
+        addAction:{label:'Add Fixture',onClick(){window.tableAdded=true}},rowNavigation:{columnKey:'name',onOpen(row){window.tableOpened=row.id}}});
+    }
     const root = createRoot(document.getElementById('root'));
-    window.mountBranchReview = kind => root.render(kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
+    window.mountBranchReview = kind => root.render(kind==='table'?React.createElement(SharedTableReview):kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
       React.createElement(Request,{playbookId:'${recordId}',state:'CA',onSaved(){window.branchHarness.refreshes++}}):
       React.createElement(Assignment,{kind,recordId:'${recordId}'}));`)
   await new Promise<void>((resolve, reject) => {
@@ -146,6 +161,7 @@ test('agency summary uses supplied data; keyboard tabs lazy-load one branch tabl
   await tab.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('table', { name: 'Agency branches' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Edit Synthetic Main' })).toBeVisible()
   expect(await page.evaluate(() => (window as any).branchHarness.branchReads)).toBe(1)
   await page.getByRole('tab', { name: 'Agency Info', exact: true }).click()
   await tab.click()
@@ -162,4 +178,30 @@ test('agency summary uses supplied data; keyboard tabs lazy-load one branch tabl
   expect(await page.evaluate(() => (window as any).branchHarness.branchReads)).toBe(1)
   await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect.poll(() => page.evaluate(() => (window as any).branchHarness.branchReads)).toBe(2)
+})
+
+test('shared table supports keyboard sorting, pagination, filters, search and row opening', async ({ page }, info) => {
+  await page.evaluate(() => (window as any).mountBranchReview('table'))
+  await expect(page.getByText('Showing 1–2 of 3 fixtures')).toBeVisible()
+  await page.getByRole('button', { name: 'Next', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Showing 3–3 of 3 fixtures')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open Synthetic Gamma' })).toBeVisible()
+  await page.getByRole('button', { name: 'Sort by Name' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('columnheader', { name: 'Sort by Name' })).toHaveAttribute('aria-sort', 'descending')
+  await expect(page.getByText('Showing 1–2 of 3 fixtures')).toBeVisible()
+  await page.getByRole('combobox', { name: 'Filter group' }).selectOption('A')
+  await expect(page.getByText('Showing 1–2 of 2 fixtures')).toBeVisible()
+  await page.getByRole('textbox', { name: 'Search fixtures' }).fill('Alpha')
+  await expect(page.getByText('Showing 1–1 of 1 fixtures')).toBeVisible()
+  await page.getByRole('button', { name: 'Open Synthetic Alpha' }).focus()
+  await page.keyboard.press('Enter')
+  expect(await page.evaluate(() => (window as any).tableOpened)).toBe('one')
+  await page.screenshot({ path: info.outputPath('synthetic-shared-table.png') })
+  await page.getByRole('combobox', { name: 'Filter group' }).selectOption('B')
+  await expect(page.getByText('Page 1 of 1')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: 'Add Fixture' }).click()
+  expect(await page.evaluate(() => (window as any).tableAdded)).toBe(true)
 })

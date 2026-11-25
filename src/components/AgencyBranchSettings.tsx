@@ -14,14 +14,21 @@ import { branchFormSchema, type BranchFormData } from '@/lib/schemas/agency-bran
 import type { AgencyBranch } from '@/lib/agency-branches'
 import { BRANCH_PAGE_SIZE } from '@/lib/agency-branches'
 import { useTableState } from '@/hooks/useTableState'
-import SearchInput from '@/components/ui/SearchInput'
-import TablePagination from '@/components/ui/TablePagination'
-import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
-import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import StatusBadge from '@/components/ui/StatusBadge'
-import { Plus, RefreshCw } from 'lucide-react'
+import DataTable, { type DataTableColumn } from '@/components/ui/DataTable'
 
 const inputClass = 'w-full rounded-ui-control border border-secondary-border px-3 py-2 focus-visible:ring-2 focus-visible:ring-focus'
+
+const branchColumns: DataTableColumn<AgencyBranch>[] = [
+  { key: 'name', label: 'Name', sortable: true, render: branch => <>
+    <span>{branch.name}</span>{branch.is_default && <span className="ml-2 text-xs text-brand">Default</span>}
+    <span className="block text-xs font-normal text-foreground-muted">{branch.code}</span>
+  </> },
+  { key: 'city', label: 'City', sortable: true, render: branch => branch.city || '—' },
+  { key: 'state', label: 'State', sortable: true, render: branch => branch.state || '—' },
+  { key: 'timezone', label: 'Time zone', render: branch => branch.timezone },
+  { key: 'status', label: 'Status', retainEmphasis: true, render: branch => <StatusBadge status={branch.status} /> },
+]
 
 export default function AgencyBranchSettings({ agencyId, canManage = true }: { agencyId?: string; canManage?: boolean }) {
   const [rows, setRows] = useState<AgencyBranch[]>([])
@@ -81,42 +88,21 @@ export default function AgencyBranchSettings({ agencyId, canManage = true }: { a
     <p>New agency leads, clients and enrolled programs start in your default branch. Changing the default keeps existing assignments.</p>
     <p className="text-sm text-foreground-muted">Agency administrators retain access across all branches. Branch time zones describe the office; scheduling still uses the service location.</p>
     {editing ? <BranchForm key={editing === 'new' ? 'new' : editing.id} branch={editing === 'new' ? null : editing} agencyId={agencyId}
-      onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); refresh() }} /> : <>
-      <div className="rounded-xl border border-secondary-border bg-white overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 p-4">
-          <label className="flex-1 min-w-48"><span className="sr-only">Search branches</span><SearchInput value={search} onChange={setSearch} placeholder="Search branches by name or code…" /></label>
-          <Button type="button" variant="secondary" disabled={loading || busy} onClick={refresh}><RefreshCw className="w-4 h-4" />Refresh</Button>
-          {canManage && <Button type="button" disabled={busy} onClick={() => setEditing('new')}><Plus className="w-4 h-4" />Add Branch</Button>}
-        </div>
-      {error && <div role="alert">{error} <Button variant="secondary" onClick={refresh}>Retry</Button></div>}
-      {loading ? <p role="status">Loading branches…</p> : !error && <>
-        <div className="overflow-x-auto"><table className="w-full text-sm" aria-label="Agency branches"><thead><tr className="border-b border-gray-100 bg-gray-50/60">
-          <th className="w-10 px-2 py-2.5"><span className="sr-only">Actions</span></th>
-          <SortableColumnHeader label="Name" sortKey="name" currentSort={sort} onSort={setSort} />
-          <SortableColumnHeader label="City" sortKey="city" currentSort={sort} onSort={setSort} />
-          <SortableColumnHeader label="State" sortKey="state" currentSort={sort} onSort={setSort} />
-          <th className="px-4 py-2.5 text-left">Time zone</th><th className="px-4 py-2.5 text-left">Status</th>
-        </tr></thead><tbody className="divide-y divide-gray-50">{rows.map(branch => <tr key={branch.id}
-          className={canManage && !busy ? 'cursor-pointer hover:bg-gray-50/50' : ''}
-          onClick={event => { if (canManage && !busy && !(event.target as Element).closest('button,a')) setEditing(branch) }}>
-          <td className="w-10 px-2 py-3" onClick={event => event.stopPropagation()}>{canManage && !busy && <RecordActionsMenu label={`Actions for ${branch.name}`} actions={[
-            { label: 'Edit', onClick: () => setEditing(branch) },
-            { label: 'Make Default', hidden: branch.is_default || branch.status !== 'active', onClick: () => change(branch.id, 'default') },
-            { label: branch.status === 'active' ? 'Deactivate' : 'Activate', hidden: branch.is_default, destructive: branch.status === 'active', onClick: () => change(branch.id, branch.status === 'active' ? 'deactivate' : 'activate') },
-          ]} />}</td>
-          <td className={`px-4 py-3 ${branch.status === 'inactive' ? 'opacity-60' : ''}`}>
-            {canManage ? <button type="button" disabled={busy} aria-label={`Edit ${branch.name}`} onClick={() => setEditing(branch)} className="text-left font-medium hover:text-brand focus-visible:ring-2 focus-visible:ring-focus">{branch.name}</button> : branch.name}
-            {branch.is_default && <span className="ml-2 text-xs text-brand">Default</span>}
-            <p className="text-xs text-foreground-muted">{branch.code}</p>
-          </td>
-          <td className={`px-4 py-3 ${branch.status === 'inactive' ? 'opacity-60' : ''}`}>{branch.city || '—'}</td><td className={`px-4 py-3 ${branch.status === 'inactive' ? 'opacity-60' : ''}`}>{branch.state || '—'}</td>
-          <td className={`px-4 py-3 ${branch.status === 'inactive' ? 'opacity-60' : ''}`}>{branch.timezone}</td><td className="px-4 py-3"><StatusBadge status={branch.status} /></td>
-        </tr>)}</tbody></table></div>
-        {!rows.length && <p>No branches match this search.</p>}
-      </>}
-      </div>
-      {!loading && !error && <TablePagination page={page} pageSize={BRANCH_PAGE_SIZE} totalCount={totalCount} onPageChange={setPage} entityLabel="branches" />}
-    </>}
+      onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); refresh() }} /> : <DataTable label="Agency branches" entityLabel="branches" rows={rows} columns={branchColumns}
+      getRowKey={branch => branch.id} getRowLabel={branch => branch.name}
+      pagination={{ page, pageSize: BRANCH_PAGE_SIZE, totalCount, onPageChange: setPage }}
+      search={{ value: search, onChange: setSearch, placeholder: 'Search branches by name or code…' }}
+      sort={{ value: sort, onChange: setSort }} loading={loading} error={error} disabled={busy}
+      onRefresh={refresh} onRetry={refresh} emptyMessage="No branches match this search."
+      addAction={canManage ? { label: 'Add Branch', onClick: () => setEditing('new') } : undefined}
+      rowNavigation={canManage ? { columnKey: 'name', onOpen: branch => setEditing(branch), getLabel: branch => 'Edit ' + branch.name } : undefined}
+      isRowInactive={branch => branch.status === 'inactive'}
+      rowActions={canManage ? branch => [
+        { label: 'Edit', onClick: () => setEditing(branch) },
+        { label: 'Make Default', hidden: branch.is_default || branch.status !== 'active', onClick: () => change(branch.id, 'default') },
+        { label: branch.status === 'active' ? 'Deactivate' : 'Activate', hidden: branch.is_default, destructive: branch.status === 'active', onClick: () => change(branch.id, branch.status === 'active' ? 'deactivate' : 'activate') },
+      ] : undefined}
+    />}
   </section>
 }
 

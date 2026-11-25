@@ -29,11 +29,15 @@ The new reusable `StateSelect` uses the existing `US_STATES` list, now derived f
 - Agency Info now starts with a read-only summary using `AgencySummaryCard`, extracted from the existing admin agency view while preserving its fields, labels and link behavior. The owner overview adds existing license/mailing details and an Edit Agency Info action. The existing validated editor loads only when requested and supports Cancel; no second form or admin organization-save path is introduced.
 - Configuration streams one authorized agency projection through a server Suspense boundary. It no longer waits for client component download and a subsequent read action to display the agency. The sidebar can render while the read resolves. A safe local Retry handles a failed server read without automatically repeating it. Membership checks and identifier-only read auditing remain in the transaction. Redundant actor-setting SQL is skipped only when the initial verified context already matches the freshly checked profile; membership authorization is never cached or skipped.
 - Branches is a tab within Agency Info; the old `?section=branches` URL still opens it. The branch bundle and data request start only on first selection. Agency Info and previously opened branch content remain mounted while changing configuration sections. The admin agency view uses the same summary and branch table and likewise defers branch work until selection. Its other existing tab preload queries are unchanged; this is not a claim that the entire admin record loader has been optimized.
-- The table reuses `useTableState`, `SearchInput`, `SortableColumnHeader`, `RecordActionsMenu`, `StatusBadge` and `TablePagination`. It has a search/Add toolbar, clickable rows with keyboard-accessible name buttons, and the existing editor and default/activation actions. Search, sort and pagination execute in SQL with stable ID ties, a 25-row page plus one-row lookahead and a matching window count. The shared table hook owns interaction state; its client sorting/slicing helpers are deliberately not used for server pages.
+- The screen uses the shared `DataTable` shell, composed from existing search, filter, button, sorting, action-menu and pagination controls. `useTableState` still owns feature query state and `StatusBadge` remains a feature cell renderer. The shell provides the toolbar, clickable rows, feedback and pagination; the existing editor and default/activation callbacks stay in Branches. Search, sort and pagination execute in SQL with stable ID ties, a 25-row page plus one-row lookahead and a matching window count. Client sorting/slicing helpers are deliberately not used for server pages.
 - Per-record component memory caches at most 12 successful page/search/sort variants and deduplicates in-flight requests; no browser storage or global user cache is used. Tab re-entry and cached page navigation avoid extra reads. Refresh and successful changes invalidate this cache. Query failure remains local and retryable, and stale responses do not replace a later selection. Each actual deferred server request still authenticates, authorizes and audits independently.
 - An explicit target agency ID is accepted only for branch setup and only after verifying the current profile is an active platform administrator. The target agency must exist, each record read/update stays scoped to it, and existing RLS remains enabled. Owners/coordinators cannot use that argument to cross agency boundaries. Ordinary assignment/program actions retain their existing owner checks. Existing branch RLS already permits platform-admin setup, so no SQL, grants or policy changes are needed.
 
 Expected result size remains one agency summary and no unopened branch/editor payload, then at most 26 branch rows per request (25 displayed), under the existing 100-branch creation limit. A normal owner branch read uses three repository statements (fresh membership check, bounded read/count, audit), in addition to the existing auth/transaction boundary. The shared summary extraction does not add an admin-page database read. Actual Azure/Neon latency, cold starts, concurrent behavior and a 10x cloud benchmark have not been measured in this local review.
+
+### Shared table foundation
+
+The user separately approves the shared table foundation after requesting an inventory first. No generic record table existed; the new shell reuses the existing controls rather than adding a library. Only Branches adopts it in both portals. Search/filter/sort controls are configurable, pagination is required, and record/query/permission rules remain outside the shell. Branches keeps its existing server search/sort/paging behavior; no new domain filter or backend change is silently introduced. Existing tables remain on their current implementations. See [the shared table contract and consumer inventory](../../src/components/ui/TABLES.md). This does not advance the deferred personnel/care-operation phase.
 
 ## Phase 2: personnel scope and care operations
 
@@ -126,9 +130,17 @@ November 25 follow-up validation for automatic codes and state dropdowns:
 - Final TypeScript passed. Full lint passed with the same 15 pre-existing warnings; final changed test/panel lint passed. Whitespace and migration control passed with the unchanged 43 legacy files / 9 managed migrations. No SQL scripts changed or ran.
 - Isolated build exited 0 and compiled/generated **77/77 pages**. Its temporary Windows dependency junction still caused the documented standalone tracing EPERM warning; normal CI/Linux packaging remains required. Temporary build copies were removed. No live Azure/Neon timing, UAT credentials, deployed workflow run or 10x cloud benchmark was used. Apply the existing development/UAT gates; revert this code batch to roll back the view/endpoint changes while retaining schema and assignments.
 
+### Shared DataTable foundation validation
+
+- Inventory confirmed no generic record-table shell before implementation. Added `DataTable` by composing existing controls, with required pagination and configurable search/filter/sort/Add/Refresh/row actions. Only Branches adopts it. Its query state, authorization, backend filtering/sorting, 25-row pages and local cache are unchanged. No new domain filter, dependency or database script is introduced.
+- Full synthetic suite: **127 suites / 775 tests passed**. Seven focused suites passed **89 tests**, including 13 direct shared-table/compatibility cases. Coverage includes server totals without double slicing, first/last/empty page states, disabled controls, search/filter/sort page resets, loading/error feedback, click isolation for links/inputs/buttons/portalled menus, row navigation and unchanged legacy control defaults.
+- Final **33 UI tests and 5 styled Chromium checks passed**, covering keyboard sort buttons/aria-sort, pagination, filter/search controls, Add, row opening, lazy branch loading/tab caching and the existing narrow-screen check using real application CSS and intercepted local-only requests. Synthetic desktop/mobile/shared-filter screenshots were visually reviewed. Final TypeScript and lint passed (15 existing warnings, no errors); whitespace and migration-control checks passed. Hosted before/after pixel baselines, screen-reader testing and cloud/10x timing remain unexecuted.
+- The isolated Next build compiled/generated **77/77 pages**, exited 0 and removed its temporary copy. Its known Windows standalone-junction EPERM warning remains; CI/Linux packaging is required. Final header-class alignment is covered by focused/browser verification rather than a repeated standalone-package build. Existing operator-controlled UAT, no-push/deployment boundaries and rollback instructions still apply.
+
 ## Changed file inventory
 
 - `docs/hipaa/compliance-log.md`
+- `docs/design/UI_DESIGN_SYSTEM.md`
 - `docs/plans/agency-branches-rollout.md`
 - `docs/plans/agency-multi-location.md`
 - `docs/plans/deferred-initiatives.md`
@@ -143,6 +155,7 @@ November 25 follow-up validation for automatic codes and state dropdowns:
 - `src/_tests_/agency-services-tenant-isolation.test.ts`
 - `src/_tests_/agency-setup-performance.test.tsx`
 - `src/_tests_/us-state.test.tsx`
+- `src/_tests_/data-table.test.tsx`
 - `src/app/actions/agencies.ts`
 - `src/app/actions/agency-branches.ts`
 - `src/app/actions/agency-configuration.ts`
@@ -175,6 +188,10 @@ November 25 follow-up validation for automatic codes and state dropdowns:
 - `src/components/RecordBranchAssignment.tsx`
 - `src/components/ReviewPlaybookRequestModal.tsx`
 - `src/components/ui/StateSelect.tsx`
+- `src/components/ui/DataTable.tsx`
+- `src/components/ui/SortableColumnHeader.tsx`
+- `src/components/ui/TablePagination.tsx`
+- `src/components/ui/TABLES.md`
 - `src/lib/agency-branches.ts`
 - `src/lib/constants.ts`
 - `src/lib/repositories/agency-branches.ts`

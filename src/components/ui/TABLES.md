@@ -1,6 +1,45 @@
 # Standard Table Pattern
 
-Reference for building new data tables. Follow this pattern exactly so all tables behave and look the same.
+Use the shared `DataTable` for new standard record tables. Existing tables do not need a bulk rewrite; the legacy building-block recipe below remains for their maintenance and specialized exceptions.
+
+## Shared DataTable: first approved adoption
+
+The November 25 user-approved batch adds `src/components/ui/DataTable.tsx` and adopts it only for Branches, shared by the agency and admin portals. Inventory first confirmed that no generic shell existed: `LicenseTypesTable` owns license-specific workflows, `TemplateEditor`'s table toolbar edits rich-text tables, and `useTableState`/the existing UI controls are building blocks. No new library is required.
+
+`DataTable` composes the existing `PrimaryButton`, `SearchInput`, `FilterSelect`, `SortableColumnHeader`, `RecordActionsMenu` and `TablePagination`. Do not rebuild the toolbar, table body, loading/empty/error states, row interaction handling or pagination for another standard table.
+
+| Configuration | Responsibility |
+|---|---|
+| `rows`, `columns`, `getRowKey`, `getRowLabel` | Caller supplies the authorized current page, stable keys and feature-owned cell rendering. Never use array position as record identity. |
+| `pagination` (required) | Zero-based page, positive page size, complete filtered total and page-change callback. The existing pager is built in, outside the table container. |
+| `search`, `filters`, `sort` | Optional controlled values and callbacks. The component renders the controls and resets page to zero on a change. Filter definitions include their own options and any All choice. |
+| `addAction`, `onRefresh` | Optional permitted actions in the shared toolbar. The feature owns creation, modals, requests and refresh invalidation. |
+| `rowNavigation` | Optional record-opening callback and primary column key. The primary cell has a native keyboard-accessible button; clicking ordinary cells opens the same record. |
+| `rowActions`, `isRowInactive` | Feature-supplied permitted actions and visual inactive state. Status columns can set `retainEmphasis`; action cells are never dimmed. Inactive styling does not authorize or deny access. |
+| `loading`, `error`, `onRetry`, `disabled` | Standard feedback and interaction locks. Loading/error replaces stale rows; headers stay mounted. Retry uses the caller callback, defaulting to Refresh. |
+
+The complete typed API is exported from [DataTable.tsx](./DataTable.tsx). See [AgencyBranchSettings.tsx](../AgencyBranchSettings.tsx) for the real bounded-query integration, including request deduplication, stale-response handling and cache invalidation.
+
+### Data, performance and authorization contract
+
+- `DataTable` never fetches, authorizes, filters, sorts or slices record collections itself. It renders the page the feature supplied. Search/filter/sort controls emit state changes; feature repositories retain the actual matching, sorting and pagination semantics.
+- For server pages, pass the filtered server total, not `rows.length`. Never apply `applyPageSlice` or client sorting/filtering to an already fetched server page. `useTableState` remains useful for controlled interaction state; query on the resulting state changes rather than issuing separate requests from each callback. Its redundant page-zero state updates are batched, not extra fetches.
+- Every actual deferred request must independently authorize tenant/record scope, validate query inputs, enforce limits and write required audits. Only expose permitted actions. The shared table is not an access boundary, generic CRUD endpoint or store for PHI/session data.
+- Keep record/tab caches and request cancellation/deduplication in the owning feature. The shell adds no database request, browser storage, global row cache, logging or third-party integration.
+- Branches retains a 25-row page plus one-row lookahead, server count, a 100-branch creation limit and its current-record cache. Only the visible page reaches the DOM. No 10x cloud benchmark is implied by generic synthetic fixtures.
+- The primary navigation cell must render noninteractive text/badges. Put independent controls in other columns; native inputs, buttons and links do not open the row. Custom widgets can mark their container `data-table-no-row-click`. Portalled menus do not trigger row opening.
+- Keep calendar, scheduling, EVV, clinical, document-editor and other specialized interactions in their feature components. Do not force them into this shell.
+
+### Compatibility and current rollout
+
+- `SortableColumnHeader` adds opt-in `buttonHeader` and `disabled` props. `DataTable` opts into keyboard buttons and `aria-sort`; existing callers keep their legacy markup/click behavior by default.
+- `TablePagination` adds optional `disabled=false`. Existing callers retain their page sizes, labels, totals and behavior. The shared shell blocks paging during a request or feature mutation.
+- Existing direct consumers were inventoried: `AdminProgramsContent`, `AgencyCaregiversTab`, `AgencyCertificationsContent`, `AgencyDocumentsTab`, `AgencyPeopleTab`, `LicenseTypesTable`, `PlaybookLibraryContent`, `StaffManagementClient`, `TemplatesContent`, and `UserManagementTabs`. They are not migrated in this batch.
+- Adopt additional tables only in separately approved, independently checked batches. This batch changes no query, schema, authorization rule, density token, root font size or existing feature workflow.
+
+## Legacy building-block recipe
+
+The following documents existing direct usage; prefer the shared shell for new standard tables.
 
 ---
 

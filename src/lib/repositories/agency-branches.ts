@@ -8,6 +8,7 @@ import { assertAgencyCapability } from '@/lib/feature-access'
 
 export class BranchError extends Error {}
 type Actor = { id: string; agencyId: string; role: 'company_owner' | 'care_coordinator' }
+type SetupActor = Omit<Actor, 'role'> & { role: Actor['role'] | 'admin' }
 
 /** Fresh active profile AND exact active membership; no submitted tenant/role. */
 export async function withBranchActor<T>(ownerOnly: boolean, run: (actor: Actor) => Promise<T>, requireFeature = true): Promise<T> {
@@ -24,30 +25,53 @@ export async function withBranchActor<T>(ownerOnly: boolean, run: (actor: Actor)
       LIMIT 1
     `
     if (!profile || (ownerOnly && profile.role !== 'company_owner')) throw new BranchError('Forbidden')
-    await sql`SELECT set_config('app.current_user_role', ${profile.role}, true), set_config('app.current_agency_id', ${profile.agency_id}, true)`
+    if (session.profile?.role !== profile.role || session.profile?.agency_id !== profile.agency_id) {
+      await sql`SELECT set_config('app.current_user_role', ${profile.role}, true), set_config('app.current_agency_id', ${profile.agency_id}, true)`
+    }
     return run({ id: profile.id, agencyId: profile.agency_id, role: profile.role })
   })
 }
 
-async function audit(actor: Actor, operation: string, recordId: string | null, table = 'agency_branches', identifiers: Record<string, unknown> = {}) {
+/** Explicit cross-agency setup is platform-admin only, never a submitted tenant grant. */
+async function withSetupActor<T>(ownerOnly: boolean, agencyId: string | undefined, run: (actor: SetupActor) => Promise<T>): Promise<T> {
+  if (agencyId === undefined) return withBranchActor(ownerOnly, run)
+  if (!agencyBranchesEnabled()) throw new BranchError('Branch setup is not enabled yet.')
+  const session = await getSession()
+  if (!session) throw new BranchError('Not authenticated')
+  return withUserContext(session.user.id, session.profile?.role ?? '', session.profile?.agency_id ?? null, async () => {
+    const [admin] = await sql`SELECT id FROM public.user_profiles WHERE id = ${session.user.id}::uuid AND role = 'admin' AND is_active = true LIMIT 1`
+    if (!admin) throw new BranchError('Forbidden')
+    await sql`SELECT set_config('app.current_user_role', 'admin', true), set_config('app.current_agency_id', ${agencyId}, true)`
+    const [agency] = await sql`SELECT id FROM public.agencies WHERE id = ${agencyId}::uuid LIMIT 1`
+    if (!agency) throw new BranchError('Agency not found.')
+    return run({ id: session.user.id, agencyId, role: 'admin' })
+  })
+}
+
+async function audit(actor: SetupActor, operation: string, recordId: string | null, table = 'agency_branches', identifiers: Record<string, unknown> = {}) {
   await sql`INSERT INTO public.audit_log(agency_id, table_name, record_id, action, performed_by_user_id, details)
     VALUES (${actor.agencyId}::uuid, ${table}, ${recordId}::uuid, ${operation.startsWith('read_') ? 'READ' : operation.startsWith('create_') ? 'CREATE' : 'UPDATE'},
       ${actor.id}::uuid, ${JSON.stringify({ operation, ...identifiers })}::jsonb)`
 }
 
-async function lockAgency(actor: Actor) {
+async function lockAgency(actor: SetupActor) {
   const rows = await sql`SELECT id FROM public.agencies WHERE id = ${actor.agencyId}::uuid FOR UPDATE`
   if (!rows.length) throw new BranchError('Agency not found.')
 }
 
-export async function listBranches(page: number, search: string) {
-  return withBranchActor(false, async actor => {
-    const rows = await sql<AgencyBranch[]>`SELECT id, agency_id, code, name, is_default, status, timezone,
+export type BranchSort = { key: 'name' | 'city' | 'state' | 'status' | 'code'; dir: 'asc' | 'desc' }
+
+export async function listBranches(page: number, search: string, sort: BranchSort = { key: 'name', dir: 'asc' }, agencyId?: string) {
+  return withSetupActor(false, agencyId, async actor => {
+    const column = sort.key === 'city' ? sql`city` : sort.key === 'state' ? sql`state` : sort.key === 'status' ? sql`status` : sort.key === 'code' ? sql`code` : sql`name`
+    const direction = sort.dir === 'desc' ? sql`DESC` : sql`ASC`
+    const rows = await sql<(AgencyBranch & { total_count: number })[]>`SELECT id, agency_id, code, name, is_default, status, timezone,
+      count(*) OVER()::int AS total_count,
       street_address, city, state, zip_code, phone, email FROM public.agency_branches
       WHERE agency_id = ${actor.agencyId}::uuid AND (name ILIKE ${'%' + search + '%'} OR code ILIKE ${'%' + search + '%'})
-      ORDER BY code, id LIMIT ${BRANCH_PAGE_SIZE + 1} OFFSET ${page * BRANCH_PAGE_SIZE}`
+      ORDER BY ${column} ${direction} NULLS LAST, id LIMIT ${BRANCH_PAGE_SIZE + 1} OFFSET ${page * BRANCH_PAGE_SIZE}`
     await audit(actor, 'read_branches', null)
-    return { rows: rows.slice(0, BRANCH_PAGE_SIZE), hasMore: rows.length > BRANCH_PAGE_SIZE }
+    return { rows: rows.slice(0, BRANCH_PAGE_SIZE).map(({ total_count: _totalCount, ...branch }) => branch), hasMore: rows.length > BRANCH_PAGE_SIZE, totalCount: Number(rows[0]?.total_count ?? 0) }
   })
 }
 
@@ -67,8 +91,8 @@ export async function branchOptions() {
   })
 }
 
-export async function saveBranch(data: BranchFormData) {
-  return withBranchActor(true, async actor => {
+export async function saveBranch(data: BranchFormData, agencyId?: string) {
+  return withSetupActor(true, agencyId, async actor => {
     await lockAgency(actor)
     const [tz] = await sql`SELECT 1 FROM pg_timezone_names WHERE name = ${data.timezone} LIMIT 1`
     if (!tz) throw new BranchError('Choose a valid time zone.')
@@ -99,8 +123,8 @@ export async function saveBranch(data: BranchFormData) {
   })
 }
 
-export async function changeBranchState(branchId: string, operation: 'default' | 'activate' | 'deactivate') {
-  return withBranchActor(true, async actor => {
+export async function changeBranchState(branchId: string, operation: 'default' | 'activate' | 'deactivate', agencyId?: string) {
+  return withSetupActor(true, agencyId, async actor => {
     await lockAgency(actor)
     const [branch] = await sql`SELECT id, is_default, status FROM public.agency_branches
       WHERE id = ${branchId}::uuid AND agency_id = ${actor.agencyId}::uuid FOR UPDATE`
@@ -193,7 +217,7 @@ export async function assignRecordBranches(kind: BranchRecordKind, recordId: str
 
 export async function readAgencyInfo() {
   return withBranchActor(true, async actor => {
-    const [data] = await sql`SELECT name, business_type, tax_id, primary_license_number, website,
+    const [data] = await sql<import('@/lib/agency-branches').AgencyInfoRecord[]>`SELECT id, name, business_type, tax_id, primary_license_number, website,
       physical_street_address, physical_city, physical_state, physical_zip_code, same_as_physical,
       mailing_street_address, mailing_city, mailing_state, mailing_zip_code
       FROM public.agencies WHERE id = ${actor.agencyId}::uuid LIMIT 1`

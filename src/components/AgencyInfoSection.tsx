@@ -47,7 +47,12 @@ const emptyCompanyDefaults = {
 }
 
 
-export default function AgencyInfoSection({ initialAgency }: { initialAgency: InitialAgency }) {
+export default function AgencyInfoSection({ initialAgency, embedded = false, onCancel, onSaved }: {
+  initialAgency: InitialAgency
+  embedded?: boolean
+  onCancel?: () => void
+  onSaved?: (data: InitialAgency) => void
+}) {
  const router = useRouter()
  const [isLoading, setIsLoading] = useState(false)
  const [isEditingCompany, setIsEditingCompany] = useState(true)
@@ -114,6 +119,11 @@ export default function AgencyInfoSection({ initialAgency }: { initialAgency: In
       }
 
       toast.success('Agency information saved')
+      onSaved?.({ name: data.companyName, business_type: data.businessType, tax_id: data.taxId,
+        primary_license_number: data.primaryLicenseNumber, website: data.website,
+        physical_street_address: data.physicalStreetAddress, physical_city: data.physicalCity, physical_state: data.physicalState,
+        physical_zip_code: data.physicalZipCode, same_as_physical: data.sameAsPhysical,
+        mailing_street_address: data.mailingStreetAddress, mailing_city: data.mailingCity, mailing_state: data.mailingState, mailing_zip_code: data.mailingZipCode })
       setIsEditingCompany(false)
       router.refresh()
 
@@ -129,18 +139,18 @@ export default function AgencyInfoSection({ initialAgency }: { initialAgency: In
 return (
           <div className="space-y-6">
             {/* Page Header */}
-            <div className="mb-6">
+            {!embedded && <div className="mb-6">
               <div className="flex items-center gap-2 mb-2">
                 <FileText className="w-6 h-6 text-gray-600" />
                 <h2 className="text-xl font-bold text-gray-900">Agency Info</h2>
               </div>
               <p className="text-gray-600 text-sm">Update your agency information and business details. Manage office addresses under Branches; changes here do not update branch addresses.</p>
-            </div>
+            </div>}
 
 
 
             {/* Company Overview Card */}
-            <div className="bg-white border border-gray-200 rounded-xl p-6 flex items-center justify-between">
+            {!embedded && <div className="bg-white border border-gray-200 rounded-xl p-6 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-blue-500 rounded-lg flex items-center justify-center">
                   <Building className="w-8 h-8 text-white" />
@@ -158,7 +168,7 @@ return (
                 <Clock className="w-4 h-4" />
                 {isEditingCompany ? 'View Details' : 'Edit Details'}
               </button>
-            </div>
+            </div>}
 
             {/* Agency Info Form */}
             {isEditingCompany && (
@@ -363,7 +373,8 @@ return (
                 </div>
 
                 {/* Submit Button */}
-                <div className="flex justify-end pt-4 border-t border-gray-200">
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                  {onCancel && <Button type="button" variant="secondary" disabled={isLoading} onClick={onCancel}>Cancel</Button>}
                   <Button type="submit" loading={isLoading}>Save Changes</Button>
                 </div>
                 </fieldset>

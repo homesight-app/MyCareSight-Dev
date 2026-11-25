@@ -8,6 +8,7 @@ import { listLeadIntegrationCredentials } from '@/lib/repositories/lead-integrat
 import { websiteLeadIntegrationEnabled } from '@/lib/features/website-lead-integration'
 import { getConfigurationValues } from '@/app/actions/configuration-values'
 import { withUserContext } from '@/db'
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
 
 export default async function AdminAgencyDetailPage({
   params,
@@ -69,6 +70,7 @@ export default async function AdminAgencyDetailPage({
 
   return (
       <AgencyDetailContent
+        branchesEnabled={agencyBranchesEnabled()}
         agency={agency}
         licenses={(licenses ?? []) as unknown as Parameters<typeof AgencyDetailContent>[0]['licenses']}
         certificationCategoryOptions={(certificationCategories ?? []).filter(category => category.is_active).map(category => ({ id: category.id, name: category.name }))}

@@ -2,6 +2,8 @@
 import { getSession } from '@/lib/auth'
 import AgencyConfigurationContent from '@/components/AgencyConfigurationContent'
 import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import { Suspense } from 'react'
+import AgencyInfoServer from '@/components/AgencyInfoServer'
 
 export default async function AgencyConfigurationPage({ searchParams }: { searchParams: Promise<{ section?: string }> }) {
   const params = await searchParams
@@ -18,6 +20,7 @@ export default async function AgencyConfigurationPage({ searchParams }: { search
 
   const agencyId = profile.agency_id ?? null
   const userRole = profile.role ?? null
+  const branchesEnabled = agencyBranchesEnabled()
 
   return (
     <AgencyConfigurationContent
@@ -26,8 +29,11 @@ export default async function AgencyConfigurationPage({ searchParams }: { search
       agencyId={agencyId}
       userRole={userRole}
       initialStages={[]}
-      branchesEnabled={agencyBranchesEnabled()}
+      branchesEnabled={branchesEnabled}
       initialSection={params.section}
+      agencyPanel={userRole === 'company_owner' && agencyId ? <Suspense fallback={<p role="status">Loading agency information…</p>}>
+        <AgencyInfoServer branchesEnabled={branchesEnabled} initialTab={params.section === 'branches' ? 'branches' : 'overview'} />
+      </Suspense> : undefined}
     />
   )
 }

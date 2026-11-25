@@ -1,18 +1,27 @@
 /** @jest-environment node */
 import { revalidateTag } from 'next/cache'
 import * as repository from '@/lib/repositories/agency-branches'
-import { assignRecordBranchesAction, requestProgramBranchesAction, saveBranchAction } from '@/app/actions/agency-branches'
+import { assignRecordBranchesAction, listBranchesAction, requestProgramBranchesAction, saveBranchAction } from '@/app/actions/agency-branches'
 
 jest.mock('server-only', () => ({}), { virtual: true })
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), revalidateTag: jest.fn() }))
 jest.mock('@/lib/repositories/agency-branches', () => ({
-  BranchError: class BranchError extends Error {}, saveBranch: jest.fn(), assignRecordBranches: jest.fn(), requestProgramWithBranches: jest.fn(),
+  BranchError: class BranchError extends Error {}, saveBranch: jest.fn(), assignRecordBranches: jest.fn(), requestProgramWithBranches: jest.fn(), listBranches: jest.fn(),
 }))
 
 const id = '30000000-0000-4000-8000-000000000001'
 const branch = { name: 'Synthetic West', timezone: 'America/Los_Angeles', street_address: '', city: '', state: '', zip_code: '', phone: '', email: '' }
 
 beforeEach(() => jest.resetAllMocks())
+
+test('branch search validates scope, paging and sort identifiers before reaching the repository', async () => {
+  expect(await listBranchesAction({ page: 0, search: '', sort: { key: 'name; DROP TABLE agencies', dir: 'asc' } })).toMatchObject({ success: false })
+  expect(await listBranchesAction({ page: -1, search: '' })).toMatchObject({ success: false })
+  expect(await listBranchesAction({ page: 0, search: '', agencyId: 'not-an-id' })).toMatchObject({ success: false })
+  expect(repository.listBranches).not.toHaveBeenCalled()
+  expect(await saveBranchAction(branch, 'not-an-id')).toMatchObject({ success: false })
+  expect(repository.saveBranch).not.toHaveBeenCalled()
+})
 
 test('invalid form data and oversized/multiple client branch assignments never reach a write', async () => {
   expect(await saveBranchAction({ ...branch, state: 'INVALID STATE', timezone: 'invalid' })).toMatchObject({ success: false, fieldErrors: expect.any(Object) })

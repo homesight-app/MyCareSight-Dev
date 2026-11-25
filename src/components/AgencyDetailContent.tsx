@@ -6,12 +6,10 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft,
-  Building2,
   CheckCircle2,
   Clock,
   AlertCircle,
   Plus,
-  Globe,
   MapPin,
   Hash,
   Briefcase,
@@ -60,6 +58,9 @@ import Button from '@/components/ui/PrimaryButton'
 import StatusBadge from '@/components/ui/StatusBadge'
 import Tabs from '@/components/ui/Tabs'
 import SearchInput from '@/components/ui/SearchInput'
+import AgencySummaryCard from '@/components/AgencySummaryCard'
+import dynamic from 'next/dynamic'
+const AgencyBranchSettings = dynamic(() => import('@/components/AgencyBranchSettings'), { loading: () => <p role="status">Loading branches?</p> })
 
 interface Agency {
   id: string
@@ -246,6 +247,7 @@ interface AgencyDetailContentProps {
   agencyLeadDocuments?: AgencyLeadDocument[]
   featurePlans?: FeaturePlanSummary[]
   integrationCredentials?: LeadIntegrationCredentialSummary[]
+  branchesEnabled?: boolean
   canManageIntegrations?: boolean
 }
 
@@ -364,20 +366,22 @@ export default function AgencyDetailContent({
   featurePlans = [],
   integrationCredentials = [],
   canManageIntegrations = false,
+  branchesEnabled = false,
   certificationCategoryOptions,
 }: AgencyDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const rawTab = searchParams.get('tab')
-  const initialTab: 'licenses' | 'organization' | 'people' | 'caregivers' | 'leads' | 'notes' | 'documents' =
-    rawTab === 'organization' ? 'organization'
+  const initialTab: 'branches' | 'licenses' | 'organization' | 'people' | 'caregivers' | 'leads' | 'notes' | 'documents' =
+    rawTab === 'branches' && branchesEnabled ? 'branches' : rawTab === 'organization' ? 'organization'
     : rawTab === 'people' ? 'people'
     : rawTab === 'caregivers' ? 'caregivers'
     : rawTab === 'leads' ? 'leads'
     : rawTab === 'notes' ? 'notes'
     : rawTab === 'documents' ? 'documents'
     : 'licenses'
-  const [activeTab, setActiveTab] = useState<'licenses' | 'organization' | 'people' | 'caregivers' | 'leads' | 'notes' | 'documents'>(initialTab)
+  const [branchesOpened, setBranchesOpened] = useState(initialTab === 'branches')
+  const [activeTab, setActiveTab] = useState<'branches' | 'licenses' | 'organization' | 'people' | 'caregivers' | 'leads' | 'notes' | 'documents'>(initialTab)
   const [peopleTabActivated, setPeopleTabActivated] = useState(initialTab === 'people')
   const [caregiversTabActivated, setCaregiversTabActivated] = useState(initialTab === 'caregivers')
   const [notesTabActivated, setNotesTabActivated] = useState(initialTab === 'notes')
@@ -652,14 +656,7 @@ export default function AgencyDetailContent({
   const programStatuses = useMemo(() => Array.from(new Set(programs.map(p => p.status))).sort(), [programs])
 
 
-  const physicalAddress = [
-    agency.physical_street_address,
-    agency.physical_city,
-    agency.physical_state,
-    agency.physical_zip_code,
-  ]
-    .filter(Boolean)
-    .join(', ')
+
 
   return (
     <div className="space-y-6">
@@ -672,70 +669,7 @@ export default function AgencyDetailContent({
         Back to Agencies
       </Link>
 
-      {/* Agency info card */}
-      <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
-        <div className="flex items-start gap-4 mb-6">
-          <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Building2 className="w-7 h-7 text-blue-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{agency.name}</h1>
-            {agency.business_type && (
-              <p className="text-sm text-gray-500 mt-0.5">{agency.business_type}</p>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-          {agency.tax_id && (
-            <div className="flex items-start gap-2">
-              <Hash className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Tax ID</p>
-                <p className="text-gray-900">{agency.tax_id}</p>
-              </div>
-            </div>
-          )}
-          {agency.website && (
-            <div className="flex items-start gap-2">
-              <Globe className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Website</p>
-                <a
-                  href={agency.website.startsWith('http') ? agency.website : `https://${agency.website}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-brand hover:underline"
-                >
-                  {agency.website}
-                </a>
-              </div>
-            </div>
-          )}
-          {physicalAddress && (
-            <div className="flex items-start gap-2">
-              <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Address</p>
-                <p className="text-gray-900">{physicalAddress}</p>
-              </div>
-            </div>
-          )}
-          {agencyAdmins.length > 0 && (
-            <div className="flex items-start gap-2 sm:col-span-2">
-              <Users className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Agency Admins</p>
-                <p className="text-gray-900">
-                  {agencyAdmins
-                    .map((a) => a.contact_name || a.contact_email || 'Unknown')
-                    .join(', ')}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      <AgencySummaryCard agency={agency} agencyAdmins={agencyAdmins} />
 
       {/* Tab bar */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
@@ -745,6 +679,7 @@ export default function AgencyDetailContent({
             { key: 'licenses', label: 'Certifications' },
             { key: 'leads', label: `Leads${agencyLeads.length > 0 ? ` (${agencyLeads.length})` : ''}` },
             { key: 'organization', label: 'Organization' },
+            ...(branchesEnabled ? [{ key: 'branches', label: 'Branches' }] : []),
             { key: 'people', label: 'People' },
             { key: 'caregivers', label: 'Caregivers' },
             { key: 'notes', label: 'Notes' },
@@ -754,6 +689,7 @@ export default function AgencyDetailContent({
           onChange={(key) => {
             const tab = key as typeof activeTab
             setActiveTab(tab)
+            if (tab === 'branches') setBranchesOpened(true)
             if (tab === 'people') setPeopleTabActivated(true)
             if (tab === 'caregivers') setCaregiversTabActivated(true)
             if (tab === 'notes') setNotesTabActivated(true)
@@ -1522,6 +1458,8 @@ export default function AgencyDetailContent({
           </div>
         )
       })()}
+
+      <div hidden={activeTab !== 'branches'}>{branchesOpened && branchesEnabled && <AgencyBranchSettings key={agency.id} agencyId={agency.id} canManage={canEdit} />}</div>
 
       {/* People tab — lazy-mounted on first activation, kept in DOM after that */}
       <div className={activeTab === 'people' ? '' : 'hidden'}>

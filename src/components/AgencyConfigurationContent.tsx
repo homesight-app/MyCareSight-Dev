@@ -1,16 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Trash2, Calendar, Clock, DollarSign, Car, GitBranch, Building, MapPin } from 'lucide-react'
+import { Plus, Trash2, Calendar, Clock, DollarSign, Car, GitBranch, Building } from 'lucide-react'
 import Button from '@/components/ui/PrimaryButton'
 import { saveAgencyConfiguration, loadAgencyConfigurationAction, loadAgencyPipelineAction, type HolidayEntry } from '@/app/actions/agency-configuration'
 import AgencyLeadStageSettings from '@/components/AgencyLeadStageSettings'
 import dynamic from 'next/dynamic'
 const AgencyInfoLoader = dynamic(() => import('@/components/AgencyInfoLoader'))
-const AgencyBranchSettings = dynamic(() => import('@/components/AgencyBranchSettings'))
 import type { AgencyLeadStage } from '@/lib/constants/lead-configs'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -56,21 +55,21 @@ interface Props {
   initialStages: AgencyLeadStage[]
   branchesEnabled?: boolean
   initialSection?: string
+  agencyPanel?: ReactNode
 }
 
-type Category = 'schedule' | 'pay_rules' | 'mileage' | 'pipeline' | 'agency' | 'branches'
+type Category = 'schedule' | 'pay_rules' | 'mileage' | 'pipeline' | 'agency'
 
 const CATEGORIES: { key: Category; label: string; icon: typeof Calendar; ownerOnly?: boolean }[] = [
   { key: 'agency', label: 'Agency Info', icon: Building, ownerOnly: true },
-  { key: 'branches', label: 'Branches', icon: MapPin, ownerOnly: true },
   { key: 'schedule',   label: 'Work Schedule',     icon: Calendar },
   { key: 'pay_rules',  label: 'Pay Rules',         icon: DollarSign },
   { key: 'mileage',    label: 'Mileage',            icon: Car },
   { key: 'pipeline',   label: 'Lead Pipeline',      icon: GitBranch, ownerOnly: true },
 ]
 
-export default function AgencyConfigurationContent({ initialConfig, agencyId, userRole, initialStages, branchesEnabled = false, initialSection }: Props) {
-  const [activeCategory, setActiveCategory] = useState<Category>(userRole === 'company_owner' ? (initialSection === 'branches' && branchesEnabled ? 'branches' : 'agency') : 'schedule')
+export default function AgencyConfigurationContent({ initialConfig, agencyId, userRole, initialStages, branchesEnabled = false, initialSection, agencyPanel }: Props) {
+  const [activeCategory, setActiveCategory] = useState<Category>(userRole === 'company_owner' ? 'agency' : 'schedule')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -133,7 +132,7 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
   const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent'
   const labelCls = 'block text-sm font-medium text-gray-700 mb-1'
 
-  const visibleCategories = CATEGORIES.filter(c => (!c.ownerOnly || userRole === 'company_owner') && (c.key !== 'branches' || branchesEnabled))
+  const visibleCategories = CATEGORIES.filter(c => !c.ownerOnly || userRole === 'company_owner')
 
   return (
     <div className="flex gap-6 min-h-0">
@@ -368,8 +367,9 @@ export default function AgencyConfigurationContent({ initialConfig, agencyId, us
           </div>
         )}
 
-        {activeCategory === 'agency' && agencyId && userRole === 'company_owner' && <AgencyInfoLoader />}
-        {activeCategory === 'branches' && agencyId && userRole === 'company_owner' && branchesEnabled && <AgencyBranchSettings />}
+        {agencyId && userRole === 'company_owner' && <div hidden={activeCategory !== 'agency'}>
+          {agencyPanel ?? <AgencyInfoLoader branchesEnabled={branchesEnabled} initialTab={initialSection === 'branches' ? 'branches' : 'overview'} />}
+        </div>}
 
       </div>
     </div>

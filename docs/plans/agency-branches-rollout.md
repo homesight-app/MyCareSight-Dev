@@ -7,11 +7,11 @@ No push, remote merge, deployment, live schema query or database execution is au
 ## Phase 1: agency-administrator onboarding
 
 - Configuration opens Agency Info for agency owners. The existing company editor is moved out of personal Profile, with shared validation, current owner/membership authorization and transactional audit. Existing legal/onboarding fields absent from that form are preserved. The old action delegates to the same boundary for previously opened profile tabs.
-- Configuration → Branches supports adding/editing offices, contact/address/timezone details, changing the default and activating/deactivating unused branches. Agency creation creates Main Branch. Existing agencies receive Main Branch with a one-time copy of their existing physical address. Existing leads/clients and agency program applications retain their IDs and receive that default.
+- Configuration → Agency Info → Branches supports adding/editing offices, contact/address/timezone details, changing the default and activating/deactivating unused branches. The admin agency record exposes the same lazy Branches tab. Agency creation creates Main Branch. Existing agencies receive Main Branch with a one-time copy of their existing physical address. Existing leads/clients and agency program applications retain their IDs and receive that default.
 - Agency-owned leads and clients have one current branch. New records use the agency default, independently of a list filter. Change assignments through the record's Branches control. Platform sales leads with no agency remain branchless.
 - Lead-to-client conversion preserves the lead's selected branch. Existing visits are never moved. Phase 1 rejects branch transfers for clients that already have visits; Phase 2 must introduce historical attribution and the reviewed transfer workflow first.
 - The HomeSights Services page program-request entry reuses the existing shared catalog and review modal. Other legacy creation entry points receive the default branch and can edit associations afterward. Owners select one or several branches before submitting. One application, workflow and common document set is created atomically. Request IDs make retries from the same review form idempotent. Existing enrolled programs can change associations through their detail page. Association does not establish legal license coverage for another office/state.
-- Agency administrators retain all-branch visibility. The user explicitly confirms coordinator branch restrictions are Phase 2. Existing coordinators retain their current agency-wide permissions; new branch management/assignment controls are owner-only. There is no branch-level isolation claim in Phase 1. Storage, documents, exports, caches and existing child workflows retain agency-level authorization.
+- Agency administrators retain all-branch visibility. The user explicitly confirms coordinator branch restrictions are Phase 2. Existing coordinators retain their current agency-wide permissions; agency-portal branch management/assignment controls remain owner-only. Platform administrators can manage branch setup from an explicitly scoped admin agency record, with fresh active-role checks on every request. There is no branch-level isolation claim in Phase 1. Storage, documents, exports, caches and existing child workflows retain agency-level authorization.
 - Agency-facing Branding is removed from Configuration; existing assets, runtime appearance and platform branding are preserved.
 
 Agency Info contains agency-level legal/business and mailing addresses. Each office's address is maintained under Branches. Editing one does not silently update the other. Default backfilled timezones are `UTC` until the administrator reviews the office timezone; timezone is not inferred from an incomplete address and does not establish payroll or scheduling rules.
@@ -23,6 +23,17 @@ Existing Work Schedule, Pay Rules, Mileage and Lead Pipeline behavior remains ag
 The branch primary key is its UUID; leads, clients and enrolled programs reference that UUID. The separate code is used for display/search/stable ordering. New office codes are generated on the server as `br-` plus a random UUID without hyphens; they are never accepted from the form or a submitted payload. Editing a branch preserves its existing code. Duplicate names are allowed. Existing automatically created `main` codes remain intact. The independent `is_default` flag can move to another active branch without renaming it, changing either identifier or rewriting existing record assignments. Code is shown as read-only text after creation, not a required user field.
 
 The new reusable `StateSelect` uses the existing `US_STATES` list, now derived from one alphabetical name/abbreviation catalog without changing the list's 50 names or its string-array API. Branch addresses and Agency Info physical/mailing addresses use that component. Legacy names/abbreviations normalize to the same full names on form load and validated save; unknown values stay visible for correction and are rejected by active address validation. Hidden, unused mailing fields do not block a same-as-physical save. Unrelated forms/catalog jurisdiction behavior has not been rewritten. These changes require no new SQL or reapplication of the foundation.
+
+### November 25: shared agency overview and deferred branch table
+
+- Agency Info now starts with a read-only summary using `AgencySummaryCard`, extracted from the existing admin agency view while preserving its fields, labels and link behavior. The owner overview adds existing license/mailing details and an Edit Agency Info action. The existing validated editor loads only when requested and supports Cancel; no second form or admin organization-save path is introduced.
+- Configuration streams one authorized agency projection through a server Suspense boundary. It no longer waits for client component download and a subsequent read action to display the agency. The sidebar can render while the read resolves. A safe local Retry handles a failed server read without automatically repeating it. Membership checks and identifier-only read auditing remain in the transaction. Redundant actor-setting SQL is skipped only when the initial verified context already matches the freshly checked profile; membership authorization is never cached or skipped.
+- Branches is a tab within Agency Info; the old `?section=branches` URL still opens it. The branch bundle and data request start only on first selection. Agency Info and previously opened branch content remain mounted while changing configuration sections. The admin agency view uses the same summary and branch table and likewise defers branch work until selection. Its other existing tab preload queries are unchanged; this is not a claim that the entire admin record loader has been optimized.
+- The table reuses `useTableState`, `SearchInput`, `SortableColumnHeader`, `RecordActionsMenu`, `StatusBadge` and `TablePagination`. It has a search/Add toolbar, clickable rows with keyboard-accessible name buttons, and the existing editor and default/activation actions. Search, sort and pagination execute in SQL with stable ID ties, a 25-row page plus one-row lookahead and a matching window count. The shared table hook owns interaction state; its client sorting/slicing helpers are deliberately not used for server pages.
+- Per-record component memory caches at most 12 successful page/search/sort variants and deduplicates in-flight requests; no browser storage or global user cache is used. Tab re-entry and cached page navigation avoid extra reads. Refresh and successful changes invalidate this cache. Query failure remains local and retryable, and stale responses do not replace a later selection. Each actual deferred server request still authenticates, authorizes and audits independently.
+- An explicit target agency ID is accepted only for branch setup and only after verifying the current profile is an active platform administrator. The target agency must exist, each record read/update stays scoped to it, and existing RLS remains enabled. Owners/coordinators cannot use that argument to cross agency boundaries. Ordinary assignment/program actions retain their existing owner checks. Existing branch RLS already permits platform-admin setup, so no SQL, grants or policy changes are needed.
+
+Expected result size remains one agency summary and no unopened branch/editor payload, then at most 26 branch rows per request (25 displayed), under the existing 100-branch creation limit. A normal owner branch read uses three repository statements (fresh membership check, bounded read/count, audit), in addition to the existing auth/transaction boundary. The shared summary extraction does not add an admin-page database read. Actual Azure/Neon latency, cold starts, concurrent behavior and a 10x cloud benchmark have not been measured in this local review.
 
 ## Phase 2: personnel scope and care operations
 
@@ -40,7 +51,7 @@ Prepared manual files:
 
 These are deliberately outside the managed migration manifest and CI auto-apply directory. Do not move them into automatic migration discovery. The operator must record script checksums and execution evidence separately in the release record. Preparation does not authorize production execution.
 
-The foundation runs in one transaction as `mycaresight_schema_owner`. Transactional write/DDL locks prevent records slipping between backfill and trigger installation; lock acquisition fails after five seconds rather than waiting indefinitely. Choose a short operator-controlled schema window. It adds branch tables, same-agency foreign keys, indexed filters, default/backfill triggers, and FORCE RLS on new tables. Existing patient RLS remains enabled/FORCE throughout; a schema-owner-only backfill policy is created and removed within the transaction. No runtime DELETE privilege is granted on branches. New trigger functions do not grant PUBLIC/runtime direct execution. New policies permit active agency managers to read and active owners/platform administrators to manage the new relations; application endpoints further restrict this release to the current agency owner.
+The foundation runs in one transaction as `mycaresight_schema_owner`. Transactional write/DDL locks prevent records slipping between backfill and trigger installation; lock acquisition fails after five seconds rather than waiting indefinitely. Choose a short operator-controlled schema window. It adds branch tables, same-agency foreign keys, indexed filters, default/backfill triggers, and FORCE RLS on new tables. Existing patient RLS remains enabled/FORCE throughout; a schema-owner-only backfill policy is created and removed within the transaction. No runtime DELETE privilege is granted on branches. New trigger functions do not grant PUBLIC/runtime direct execution. New policies permit active agency managers to read and active owners/platform administrators to manage the new relations; application endpoints require the current agency owner for agency workflows, or a freshly verified platform administrator for explicit agency branch setup.
 
 One active default is enforced by a partial unique index and a deferred invariant. Default changes lock the agency row; new-default selection never rewrites existing assignments. Program associations use same-agency foreign keys and cannot be emptied at commit. Deferred checks cover both applications and association deletions; caregiver-to-agency scope changes receive a default only when no explicit association exists. The parent check uses NO KEY UPDATE to serialize integrity checks without conflicting with ordinary child foreign-key KEY SHARE locks. Deleting an application still permits its legitimate link cascade. Stable branch codes cannot be renamed through the application. Branch retirement with linked records is held, rather than deleting history. Assignment changes and program creation commit with identifier-only audit events.
 
@@ -108,6 +119,13 @@ November 25 follow-up validation for automatic codes and state dropdowns:
 - Isolated build exited 0, compiled and generated **77/77 pages** with synthetic configuration and no copied environment files. The temporary Windows junction still causes the documented standalone tracing EPERM warning; normal CI/Linux packaging is required. The temporary build directory was removed.
 - Whitespace and migration-control checks passed; the managed manifest remains unchanged. No manual SQL was run. Existing bounds, deferred loading, rollout/rollback and unexecuted live/hosted/10x checks above remain applicable. Hosted full-workflow and styled before/after visual comparison were not run.
 
+### Latest November 25 shared-overview/table validation
+
+- Full synthetic suite: **126 suites / 762 tests passed**. The six focused branch/setup/state suites passed **76 tests** before the full run. Includes actual SQL/RLS platform-admin scope, owner/coordinator denial, inactive-admin denial, stable scoped sorting/counts, retained membership checks and the three-statement owner read budget. Server/client tests cover a projected summary, safe manual retry, no unopened branch/editor requests, retained tabs/configuration sections, server pagination/search/sort, cached page navigation, row editing and the admin shared view.
+- All **4 isolated Chromium tests passed** with the real application CSS and intercepted local-only bundle/chunk requests. A follow-up narrow-screen run also passed: shared summary/tab keyboard use, one first-open request, no tab re-entry request, explicit Refresh, row-name keyboard editing, and no document-width overflow at 390px. Synthetic desktop/mobile screenshots were visually inspected in ignored test output. No full hosted before/after pixel baseline, screen-reader audit or portal-layout responsive acceptance is claimed.
+- Final TypeScript passed. Full lint passed with the same 15 pre-existing warnings; final changed test/panel lint passed. Whitespace and migration control passed with the unchanged 43 legacy files / 9 managed migrations. No SQL scripts changed or ran.
+- Isolated build exited 0 and compiled/generated **77/77 pages**. Its temporary Windows dependency junction still caused the documented standalone tracing EPERM warning; normal CI/Linux packaging remains required. Temporary build copies were removed. No live Azure/Neon timing, UAT credentials, deployed workflow run or 10x cloud benchmark was used. Apply the existing development/UAT gates; revert this code batch to roll back the view/endpoint changes while retaining schema and assignments.
+
 ## Changed file inventory
 
 - `docs/hipaa/compliance-log.md`
@@ -123,6 +141,7 @@ November 25 follow-up validation for automatic codes and state dropdowns:
 - `src/_tests_/agency-branch-ui.test.tsx`
 - `src/_tests_/agency-branches.test.ts`
 - `src/_tests_/agency-services-tenant-isolation.test.ts`
+- `src/_tests_/agency-setup-performance.test.tsx`
 - `src/_tests_/us-state.test.tsx`
 - `src/app/actions/agencies.ts`
 - `src/app/actions/agency-branches.ts`
@@ -135,13 +154,18 @@ November 25 follow-up validation for automatic codes and state dropdowns:
 - `src/app/pages/agency/leads/[id]/page.tsx`
 - `src/app/pages/agency/leads/page.tsx`
 - `src/app/pages/agency/profile/page.tsx`
+- `src/app/pages/admin/agencies/[id]/page.tsx`
 - `src/app/pages/agency/programs/[applicationId]/page.tsx`
 - `src/app/pages/agency/programs/page.tsx`
 - `src/components/AgencyBranchFilter.tsx`
 - `src/components/AgencyBranchSettings.tsx`
+- `src/components/AgencyDetailContent.tsx`
 - `src/components/AgencyConfigurationContent.tsx`
 - `src/components/AgencyInfoLoader.tsx`
 - `src/components/AgencyInfoSection.tsx`
+- `src/components/AgencyInfoPanel.tsx`
+- `src/components/AgencyInfoServer.tsx`
+- `src/components/AgencySummaryCard.tsx`
 - `src/components/AgencyProgramsContent.tsx`
 - `src/components/ApplyForNewLicenseButton.tsx`
 - `src/components/ClientsContent.tsx`

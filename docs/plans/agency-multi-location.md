@@ -76,12 +76,13 @@ This creates a concrete boundary: offline schema review cannot change the databa
 
 ### First product release: Agency Info and branch setup
 
-User proposes moving Company Info/Company Details from the profile into Configuration, renaming it **Agency Info**, and managing the main/default and additional branches there. Recommended information architecture below is a planning proposal, not an implemented navigation change.
+User proposes moving Company Info/Company Details from the profile into Configuration, renaming it **Agency Info**, and managing the main/default and additional branches there. The November 25 Phase 1 implementation follows the navigation below; later authorization and care-operation changes remain deferred.
 
 ```text
 Configuration
   Agency Info
-  Branches
+    Agency Info tab   [shared agency summary; editor on demand]
+    Branches tab      [lazy searchable table; also in admin agency view]
   Lead Pipeline       [existing permission/capability applies]
   Work Schedule       [care operations only]
   Pay Rules           [care operations only]
@@ -93,7 +94,7 @@ Personal Profile
   Agency Info link    [optional compatibility/discoverability link]
 ```
 
-Use Agency Info as the agency-admin default Configuration section. Prefer Branches as a sibling section rather than hiding every office within a long legal-information form. Both belong to Configuration; a one-branch agency sees a simple default-branch card with an Add Branch action. User's “main branch” means the first/default operational branch, not a second agency/legal entity. “Default” is a routing designation and can be changed independently of the legal office.
+Use Agency Info as the agency-admin default Configuration section. The confirmed November 25 design puts Branches in a lazy tab under Agency Info and adds the same tab to the admin agency record. A one-branch agency sees the same searchable table with its default badge and Add Branch action. User's “main branch” means the first/default operational branch, not a second agency/legal entity. “Default” is a routing designation and can be changed independently of the legal office.
 
 Remove agency Branding navigation and its configuration-only editor/data loading in the implementation slice. Local code contains `AgencyBrandingSection` and branding actions/readers, so do not assume the runtime infrastructure is absent: inventory consumers and retain layout/logo/theme readers and shared platform branding as needed to preserve existing appearance. Do not drop branding columns, delete logo files, reset saved colors or remove shared `BrandingForm` merely to remove the agency settings section. No replacement tenant customization UI is planned.
 

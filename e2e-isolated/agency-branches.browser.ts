@@ -2,9 +2,12 @@ import { test, expect } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import webpack from 'webpack'
+import postcss from 'postcss'
+import tailwindcss from 'tailwindcss'
 
 let directory: string
 let bundle: string
+let css: string
 const main = '20000000-0000-4000-8000-000000000001'
 const west = '20000000-0000-4000-8000-000000000002'
 const recordId = '20000000-0000-4000-8000-000000000003'
@@ -15,7 +18,7 @@ test.beforeAll(async () => {
   directory = fs.mkdtempSync(path.join(cache, 'agency-branches-'))
   const loader = path.join(directory, 'typescript-loader.cjs')
   fs.writeFileSync(loader, `const ts = require(${JSON.stringify(require.resolve('typescript'))}); module.exports = function(source) {
-    return ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText;
+    return ts.transpileModule(source, { fileName: this.resourcePath, compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText;
   };`)
   const actions = path.join(directory, 'actions.js')
   fs.writeFileSync(actions, `
@@ -24,8 +27,9 @@ test.beforeAll(async () => {
     window.branchHarness = {reads:0, writes:[], refreshes:0, fail:false};
     export async function getRecordBranchesAction(){window.branchHarness.reads++;return {success:true,data:{branchIds:[ids.main],branches,canEdit:true}}}
     export async function assignRecordBranchesAction(input){window.branchHarness.writes.push(input);return window.branchHarness.fail?{success:false,error:'Refresh before retrying.'}:{success:true}}
-    export async function listBranchesAction(){return {success:true,data:{rows:[],hasMore:false}}}
+    export async function listBranchesAction(input){window.branchHarness.branchReads++;window.branchHarness.listRequests.push(input);return {success:true,data:{rows:[{id:ids.main,agency_id:ids.recordId,name:'Synthetic Main',code:'main',is_default:true,status:'active',timezone:'UTC',street_address:null,city:'Synthetic City',state:'California',zip_code:null,phone:null,email:null}],hasMore:false,totalCount:1}}}
     export async function saveBranchAction(input){window.branchHarness.writes.push(input);return {success:true,id:ids.west}}
+    export async function saveAgencyInfoAction(input){window.branchHarness.writes.push(input);return {success:true}}
     export async function changeBranchStateAction(){return {success:true}}
     export async function branchOptionsAction(){return {success:true,data:branches}}
     export async function requestProgramBranchesAction(input){window.branchHarness.writes.push(input);return {success:true,id:input.requestId}}
@@ -39,13 +43,15 @@ test.beforeAll(async () => {
     import Assignment from '@/components/RecordBranchAssignment';
     import Settings from '@/components/AgencyBranchSettings';
     import Request from '@/components/ProgramBranchRequestForm';
+    import Info from '@/components/AgencyInfoPanel';
     const root = createRoot(document.getElementById('root'));
-    window.mountBranchReview = kind => root.render(kind==='settings'?React.createElement(Settings):kind==='request'?
+    window.mountBranchReview = kind => root.render(kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
       React.createElement(Request,{playbookId:'${recordId}',state:'CA',onSaved(){window.branchHarness.refreshes++}}):
       React.createElement(Assignment,{kind,recordId:'${recordId}'}));`)
   await new Promise<void>((resolve, reject) => {
     const compiler = webpack({ mode: 'development', target: 'web', devtool: false, entry,
-      output: { path: directory, filename: 'review.js' },
+      plugins: [new webpack.DefinePlugin({ process: JSON.stringify({ env: { NODE_ENV: 'development' }, browser: true }) })],
+      output: { path: directory, filename: 'review.js', publicPath: 'https://app.example.test/assets/' },
       resolve: { extensions: ['.ts', '.tsx', '.js'], alias: {
         '@/app/actions/agency-branches$': actions, 'next/navigation$': navigation, 'sonner$': toast, '@': path.resolve('src'),
       } },
@@ -58,6 +64,7 @@ test.beforeAll(async () => {
     }))
   })
   bundle = fs.readFileSync(path.join(directory, 'review.js'), 'utf8')
+  css = (await postcss([tailwindcss(path.resolve('tailwind.config.ts'))]).process(fs.readFileSync('src/app/globals.css', 'utf8'), { from: path.resolve('src/app/globals.css') })).css
 })
 
 test.afterAll(() => {
@@ -65,9 +72,24 @@ test.afterAll(() => {
 })
 
 test.beforeEach(async ({ page }) => {
-  await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body><div id="root"></div></body></html>' }))
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.route('**/*', route => {
+    const url = new URL(route.request().url())
+    if (url.origin === 'https://app.example.test' && url.pathname.startsWith('/assets/')) {
+      const name = path.basename(url.pathname)
+      const file = path.join(directory, name)
+      if (name.endsWith('.js') && fs.existsSync(file)) return route.fulfill({ contentType: 'application/javascript', body: fs.readFileSync(file, 'utf8') })
+      return route.fulfill({ status: 404, body: '' })
+    }
+    if (url.origin !== 'https://app.example.test' || url.pathname !== '/') return route.fulfill({ status: 404, body: '' })
+    return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body><div id="root"></div></body></html>' })
+  })
   await page.goto('https://app.example.test/')
+  await page.addStyleTag({ content: css })
   await page.addScriptTag({ content: bundle })
+  if (!await page.evaluate(() => typeof (window as any).mountBranchReview === 'function')) throw new Error(`Synthetic harness failed: ${errors.slice(0, 3).join('; ')}`)
+  await page.evaluate(() => { (window as any).branchHarness.branchReads = 0; (window as any).branchHarness.listRequests = [] })
 })
 
 test('keyboard assignment loads on demand and submits a single selected branch', async ({ page }) => {
@@ -114,4 +136,30 @@ test('enrollment selects two branches but submits one program request', async ({
   const request = await page.evaluate(() => (window as any).branchHarness.writes[0])
   expect(request.branchIds).toEqual([main, west])
   expect(request.playbook_id).toBe(recordId)
+})
+
+test('agency summary uses supplied data; keyboard tabs lazy-load one branch table and preserve it', async ({ page }, info) => {
+  await page.evaluate(() => (window as any).mountBranchReview('agency'))
+  await expect(page.getByRole('heading', { name: 'Synthetic Browser Agency' })).toBeVisible()
+  expect(await page.evaluate(() => (window as any).branchHarness.branchReads)).toBe(0)
+  const tab = page.getByRole('tab', { name: 'Branches', exact: true })
+  await tab.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('table', { name: 'Agency branches' })).toBeVisible()
+  expect(await page.evaluate(() => (window as any).branchHarness.branchReads)).toBe(1)
+  await page.getByRole('tab', { name: 'Agency Info', exact: true }).click()
+  await tab.click()
+  expect(await page.evaluate(() => (window as any).branchHarness.branchReads)).toBe(1)
+  await page.screenshot({ path: info.outputPath('synthetic-branch-table.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: info.outputPath('synthetic-branch-table-mobile.png') })
+  await page.getByRole('button', { name: 'Edit Synthetic Main' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByLabel('Branch name', { exact: false })).toHaveValue('Synthetic Main')
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByRole('table', { name: 'Agency branches' })).toBeVisible()
+  expect(await page.evaluate(() => (window as any).branchHarness.branchReads)).toBe(1)
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.branchReads)).toBe(2)
 })

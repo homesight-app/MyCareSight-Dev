@@ -18,6 +18,7 @@ jest.mock('@/lib/storage', () => ({ STORAGE_BUCKET: {} }))
 jest.mock('@/lib/storage/client', () => ({ removeFiles: jest.fn() }))
 jest.mock('@/lib/feature-access', () => ({ assertAgencyCapability: jest.fn().mockResolvedValue(undefined) }))
 let db: PGlite
+let queryShapes: string[] = []
 jest.mock('@/db', () => {
   const tag = (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values,
     then(resolve: (rows: unknown[]) => unknown, reject: (error: unknown) => unknown) {
@@ -29,7 +30,9 @@ jest.mock('@/db', () => {
         params.push(value)
         return text + chunk + '$' + params.length
       }, '')
-      return db.query(compile(this), params).then(result => result.rows).then(resolve, reject)
+      const query = compile(this)
+      queryShapes.push(query)
+      return db.query(query, params).then(result => result.rows).then(resolve, reject)
     },
   })
   tag.json = (value: unknown) => JSON.stringify(value)
@@ -131,7 +134,7 @@ beforeAll(async () => {
   main = (await db.query<{ id: string }>(`SELECT id FROM agency_branches WHERE agency_id=$1 AND is_default`, [AGENCY])).rows[0].id
 }, 60000)
 
-beforeEach(async () => { process.env.AGENCY_BRANCHES_ENABLED = 'true'; login(); await db.exec('BEGIN; SET LOCAL ROLE mycaresight_app;') })
+beforeEach(async () => { queryShapes = []; process.env.AGENCY_BRANCHES_ENABLED = 'true'; login(); await db.exec('BEGIN; SET LOCAL ROLE mycaresight_app;') })
 afterEach(async () => { await db.exec('ROLLBACK'); delete process.env.AGENCY_BRANCHES_ENABLED })
 afterAll(async () => { await db.close() })
 
@@ -261,8 +264,47 @@ test('branch list is bounded and paged on the server with deterministic order', 
   expect(first.rows).toHaveLength(25)
   expect(first.hasMore).toBe(true)
   expect(second.rows).toHaveLength(3)
+  expect(first.totalCount).toBe(28)
+  expect(second.totalCount).toBe(28)
   expect(new Set([...first.rows, ...second.rows].map(row => row.id)).size).toBe(28)
   expect((await listBranches(0, 'office-26')).rows).toHaveLength(1)
+  expect((await listBranches(0, 'office-', { key: 'name', dir: 'desc' })).rows[0].name).toBe('office-26')
+})
+
+test('normal branch reads retain current membership checks without a redundant actor-context update', async () => {
+  jest.mocked(getSession).mockResolvedValue({ user: { id: OWNER }, profile: { role: 'company_owner', agency_id: AGENCY } } as Awaited<ReturnType<typeof getSession>>)
+  await listBranches(0, '')
+  expect(queryShapes).toHaveLength(3) // Current membership, one bounded read/count, identifier-only audit.
+  expect(queryShapes[0]).toContain("m.status = 'active'")
+  expect(queryShapes.some(query => query.includes('set_config'))).toBe(false)
+})
+
+test('a platform administrator can manage branches only through an explicit verified agency scope', async () => {
+  login(id(4))
+  const branch = await saveBranch(form, OTHER)
+  expect((await listBranches(0, '', undefined, OTHER)).rows.find(row => row.id === branch)).toMatchObject({ agency_id: OTHER })
+  await saveBranch({ ...form, id: branch, name: 'Synthetic Admin Edit' }, OTHER)
+  await changeBranchState(branch, 'default', OTHER)
+  expect((await listBranches(0, 'Synthetic Admin Edit', undefined, OTHER)).rows[0]).toMatchObject({ id: branch, is_default: true })
+  expect((await db.query('SELECT performed_by_user_id,agency_id FROM audit_log WHERE record_id=$1 ORDER BY action', [branch])).rows)
+    .toEqual(expect.arrayContaining([expect.objectContaining({ performed_by_user_id: id(4), agency_id: OTHER })]))
+  await expect(saveBranch({ ...form, id: branch }, AGENCY)).rejects.toThrow('Branch not found')
+})
+
+test('owners and coordinators cannot use an explicit agency argument as a platform-admin grant', async () => {
+  await expect(listBranches(0, '', undefined, OTHER)).rejects.toThrow('Forbidden')
+  await expect(saveBranch(form, OTHER)).rejects.toThrow('Forbidden')
+  await expect(changeBranchState(main, 'default', OTHER)).rejects.toThrow('Forbidden')
+  login(COORDINATOR)
+  await expect(listBranches(0, '', undefined, AGENCY)).rejects.toThrow('Forbidden')
+})
+
+test('an inactive platform administrator is rejected even if the browser session still says admin', async () => {
+  await db.exec('RESET ROLE')
+  await db.query('UPDATE user_profiles SET is_active=false WHERE id=$1', [id(4)])
+  await db.exec('SET LOCAL ROLE mycaresight_app')
+  jest.mocked(getSession).mockResolvedValue({ user: { id: id(4) }, profile: { role: 'admin' } } as Awaited<ReturnType<typeof getSession>>)
+  await expect(listBranches(0, '', undefined, OTHER)).rejects.toThrow('Forbidden')
 })
 
 test('lead stage aggregates, client page and counts use the same selected branch', async () => {

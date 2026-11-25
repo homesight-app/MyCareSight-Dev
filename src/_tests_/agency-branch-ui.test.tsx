@@ -26,7 +26,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   jest.mocked(getRecordBranchesAction).mockResolvedValue({ success: true, data: { branchIds: [main], branches, canEdit: true } })
   jest.mocked(assignRecordBranchesAction).mockResolvedValue({ success: true })
-  jest.mocked(listBranchesAction).mockResolvedValue({ success: true, data: { rows: [], hasMore: false } })
+  jest.mocked(listBranchesAction).mockResolvedValue({ success: true, data: { rows: [], hasMore: false, totalCount: 0 } })
 })
 
 test('record shell makes no branch request until its branch control is opened', async () => {
@@ -91,7 +91,7 @@ test('editing a legacy branch keeps its code read-only and selects the existing 
   jest.mocked(listBranchesAction).mockResolvedValue({ success: true, data: { rows: [{
     id: west, agency_id: recordId, code: 'legacy-office', name: 'Synthetic West', status: 'active', is_default: false,
     timezone: 'America/Los_Angeles', state: 'CA', street_address: null, city: null, zip_code: null, phone: null, email: null,
-  }], hasMore: false } })
+  }], hasMore: false, totalCount: 1 } })
   jest.mocked(saveBranchAction).mockResolvedValue({ success: true, id: west })
   render(<AgencyBranchSettings />)
   fireEvent.click(await screen.findByRole('button', { name: 'Edit Synthetic West' }))

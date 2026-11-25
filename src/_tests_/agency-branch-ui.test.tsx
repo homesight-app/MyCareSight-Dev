@@ -75,7 +75,7 @@ test('branch form validates shared fields before sending a write', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Add Branch' }))
   fireEvent.click(screen.getByRole('button', { name: 'Save Branch' }))
   expect(await screen.findByText('Name is required')).toBeInTheDocument()
-  expect(screen.getByText('Code is required')).toBeInTheDocument()
+  expect(screen.queryByLabelText(/Branch code/)).not.toBeInTheDocument()
   expect(saveBranchAction).not.toHaveBeenCalled()
   expect(screen.getByLabelText(/Branch name/)).toHaveAttribute('aria-describedby', 'branch-name-error')
 })
@@ -87,6 +87,23 @@ test('configuration hides branding and does not fetch unopened branch panels', (
   expect(listBranchesAction).not.toHaveBeenCalled()
 })
 
+test('editing a legacy branch keeps its code read-only and selects the existing state abbreviation', async () => {
+  jest.mocked(listBranchesAction).mockResolvedValue({ success: true, data: { rows: [{
+    id: west, agency_id: recordId, code: 'legacy-office', name: 'Synthetic West', status: 'active', is_default: false,
+    timezone: 'America/Los_Angeles', state: 'CA', street_address: null, city: null, zip_code: null, phone: null, email: null,
+  }], hasMore: false } })
+  jest.mocked(saveBranchAction).mockResolvedValue({ success: true, id: west })
+  render(<AgencyBranchSettings />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit Synthetic West' }))
+  expect(screen.getByText('Branch code: legacy-office')).toBeInTheDocument()
+  expect(screen.queryByLabelText(/Branch code/)).not.toBeInTheDocument()
+  expect(screen.getByRole('combobox', { name: 'State' })).toHaveValue('California')
+  fireEvent.change(screen.getByRole('combobox', { name: 'State' }), { target: { value: 'Florida' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save Branch' }))
+  await waitFor(() => expect(saveBranchAction).toHaveBeenCalledWith(expect.objectContaining({ id: west, state: 'Florida' })))
+  expect(jest.mocked(saveBranchAction).mock.calls[0][0]).not.toHaveProperty('code')
+})
+
 test('relocated agency form preserves separate mailing-address entry and accessible field errors', async () => {
   jest.mocked(saveAgencyInfoAction).mockResolvedValue({ success: true })
   render(<AgencyInfoSection initialAgency={{ name: 'Synthetic Agency', business_type: 'Synthetic Business', tax_id: 'SYNTHETIC-EIN',
@@ -96,7 +113,8 @@ test('relocated agency form preserves separate mailing-address entry and accessi
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   expect(await screen.findByText('Mailing address fields are required when not same as physical address')).toBeInTheDocument()
   expect(saveAgencyInfoAction).not.toHaveBeenCalled()
-  for (const [field, value] of Object.entries({ mailingStreetAddress: 'Synthetic Mailing Office', mailingCity: 'Synthetic City', mailingState: 'CA', mailingZipCode: '00000' })) {
+  expect(screen.getAllByRole('combobox', { name: /^State/ })[0]).toHaveValue('California')
+  for (const [field, value] of Object.entries({ mailingStreetAddress: 'Synthetic Mailing Office', mailingCity: 'Synthetic City', mailingState: 'California', mailingZipCode: '00000' })) {
     fireEvent.change(document.getElementById(`agency-${field}`)!, { target: { value } })
   }
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
@@ -152,7 +170,6 @@ test('branch contact errors are associated with the corresponding input and prev
   render(<AgencyBranchSettings />)
   fireEvent.click(screen.getByRole('button', { name: 'Add Branch' }))
   fireEvent.change(screen.getByLabelText(/Branch name/), { target: { value: 'Synthetic West' } })
-  fireEvent.change(screen.getByLabelText(/Branch code/), { target: { value: 'west' } })
   fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '123' } })
   fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'invalid' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save Branch' }))

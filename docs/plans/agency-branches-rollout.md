@@ -1,6 +1,6 @@
 # Agency branches: two-phase delivery and operator rollout
 
-Updated: 2026-11-24. Local branch: `feature/agency-branches`, based on `main` at `9efb738`.
+Updated: 2026-11-25. Local branch: `feature/agency-branches`, based on `main` at `9efb738`.
 The user explicitly authorized development after confirming the migration fixes work.
 No push, remote merge, deployment, live schema query or database execution is authorized for the agent.
 
@@ -17,6 +17,12 @@ No push, remote merge, deployment, live schema query or database execution is au
 Agency Info contains agency-level legal/business and mailing addresses. Each office's address is maintained under Branches. Editing one does not silently update the other. Default backfilled timezones are `UTC` until the administrator reviews the office timezone; timezone is not inferred from an incomplete address and does not establish payroll or scheduling rules.
 
 Existing Work Schedule, Pay Rules, Mileage and Lead Pipeline behavior remains agency-wide. Their data now loads only when opened, without blocking Agency Info or branch setup. Their existing legacy form/server schemas remain separate; consolidating those policy schemas and introducing branch overrides is outside this batch. The new branch and relocated Agency Info forms use shared Zod schemas, React Hook Form, inline field errors and guarded server mutations. Required agency text is trimmed so whitespace cannot satisfy a required field. Agency Info requires an already provisioned agency and active owner membership; it does not create agencies or activate pending owners from personal Profile.
+
+### November 25: automatic codes and shared state selection
+
+The branch primary key is its UUID; leads, clients and enrolled programs reference that UUID. The separate code is used for display/search/stable ordering. New office codes are generated on the server as `br-` plus a random UUID without hyphens; they are never accepted from the form or a submitted payload. Editing a branch preserves its existing code. Duplicate names are allowed. Existing automatically created `main` codes remain intact. The independent `is_default` flag can move to another active branch without renaming it, changing either identifier or rewriting existing record assignments. Code is shown as read-only text after creation, not a required user field.
+
+The new reusable `StateSelect` uses the existing `US_STATES` list, now derived from one alphabetical name/abbreviation catalog without changing the list's 50 names or its string-array API. Branch addresses and Agency Info physical/mailing addresses use that component. Legacy names/abbreviations normalize to the same full names on form load and validated save; unknown values stay visible for correction and are rejected by active address validation. Hidden, unused mailing fields do not block a same-as-physical save. Unrelated forms/catalog jurisdiction behavior has not been rewritten. These changes require no new SQL or reapplication of the foundation.
 
 ## Phase 2: personnel scope and care operations
 
@@ -51,7 +57,7 @@ If an earlier copy of `001-foundation.sql` was already installed, do not rerun i
 
 ## Synthetic acceptance
 
-- Create an agency through its existing provisioning flow: exactly one active Main Branch is created. Review timezone/address and add a second branch. Duplicate codes and cross-agency IDs are rejected.
+- Create an agency through its existing provisioning flow: exactly one active Main Branch is created. Review timezone/address and add a second branch without entering a code. Codes are generated uniquely, remain stable on edits and default changes, and cannot be overridden by submitted values. Cross-agency IDs are rejected.
 - Change the default: prior assignments stay unchanged; new agency leads, clients and requests default correctly. Default cannot be deactivated and an agency cannot commit with no default.
 - Create a lead in one branch, convert it and confirm the client keeps that branch. Move a client without visits; confirm other records are unaffected. Transfers for clients with visits are held.
 - Filter each list by branch, then change search/status/sort/page and use back/forward. Rows, totals and summaries remain consistent, with no duplicated programs. Clear filters before looking for a new record created in the agency default.
@@ -60,6 +66,7 @@ If an earlier copy of `001-foundation.sql` was already installed, do not rerun i
 - A caregiver-linked application becoming agency-owned receives a default without replacing explicit links. Removing all links fails at commit, including if automatic default assignment is disabled. Deleting the application itself still succeeds. The verifier flags disabled triggers and missing or weakened composite foreign keys.
 - Verify another agency's IDs, revoked/invited/pending memberships, a coordinator's attempted write and an audit write failure all fail closed. Existing coordinator agency-wide reads remain unchanged.
 - Verify Agency Info saves the same displayed fields and preserves other legal/onboarding values. Existing Work/Pay/Mileage settings retain their stored values when opened; unopened settings and branch controls issue no data request. Personal Profile retains its personal/account workflow and links to Configuration.
+- Verify the branch and both Agency Info state fields are dropdowns. Existing abbreviations select the correct full name; unknown legacy values remain visible for correction, and invalid active state values fail server validation. A separate mailing address can select a different state.
 - Check keyboard navigation, inline errors, busy-state recovery, smaller screens, real deployed styling, and existing upload/download/login flows. Branch contact errors must be associated with their fields. A rejected configuration-save request restores Save, reports a safe error and retains entered values; work/pay/mileage calculations are unchanged. Fixtures and screenshots must be synthetic.
 
 ## Performance boundaries
@@ -67,6 +74,8 @@ If an earlier copy of `001-foundation.sql` was already installed, do not rerun i
 Design targets: about 10 branches per agency, tested at 10x (100). This release explicitly caps branch creation/selectors at 100 total branches including inactive ones; exceeding an externally created inventory fails the selector rather than hiding assignments. Branch management reads 26 rows to display 25 plus a next-page indicator; ordering is stable by code and ID and search executes in SQL. Branch option loads cap at 101 to detect overflow and are fetched only when the corresponding control opens.
 
 Lead/client/program lists retain 50-row server pages and preserve the branch filter during other URL updates. Same-agency branch indexes support lead/client predicates; application filtering uses indexed EXISTS, avoiding row/progress multiplication. Lead counts are grouped in SQL rather than loading every lead. Program progress is aggregated only for the selected page and returns fixed-size count summaries rather than all checklist rows. The pending-request preview is bounded at 50 with an explicit overflow notice; older requests remain accessible in the main paginated list. Existing global catalog selection patterns are reused, not rewritten.
+
+The shared state dropdown renders a fixed 50-state local list and adds no database request. Code generation occurs in the existing authorized creation transaction; it introduces no extra query or unbounded scan. Existing branch/list bounds remain unchanged.
 
 No 10x live load benchmark was run. The synthetic SQL tests exercise filtering, count/progress consistency and pagination; actual cloud latency, query plans, deployment configuration and concurrent production behavior remain UAT/operator checks.
 
@@ -91,6 +100,14 @@ Not executed: live development/UAT schema or role verification, manual cloud dat
 
 Recommendation: **PROCEED SELECTIVELY** to the operator-controlled development/UAT sequence above. Phase 1 is locally prepared, not production-accepted. Phase 2 remains deferred.
 
+November 25 follow-up validation for automatic codes and state dropdowns:
+
+- Full synthetic Jest suite: **125 suites / 749 tests passed**; focused branch/state suites: **63 tests passed**. Covers generated distinct codes for same-name offices, stable codes when editing/defaulting, discarded submitted codes, current state mapping, invalid active states, separate mailing addresses and audit rollback.
+- All **3 isolated Chromium checks passed**, including creation without a code field and selecting California from the shared dropdown. The synthetic screenshot reflects the updated form. No live browser requests or application credentials were used.
+- TypeScript passed. Full lint passed with the same 15 pre-existing warnings and no errors; the final changed-file lint check passed without warnings.
+- Isolated build exited 0, compiled and generated **77/77 pages** with synthetic configuration and no copied environment files. The temporary Windows junction still causes the documented standalone tracing EPERM warning; normal CI/Linux packaging is required. The temporary build directory was removed.
+- Whitespace and migration-control checks passed; the managed manifest remains unchanged. No manual SQL was run. Existing bounds, deferred loading, rollout/rollback and unexecuted live/hosted/10x checks above remain applicable. Hosted full-workflow and styled before/after visual comparison were not run.
+
 ## Changed file inventory
 
 - `docs/hipaa/compliance-log.md`
@@ -106,6 +123,7 @@ Recommendation: **PROCEED SELECTIVELY** to the operator-controlled development/U
 - `src/_tests_/agency-branch-ui.test.tsx`
 - `src/_tests_/agency-branches.test.ts`
 - `src/_tests_/agency-services-tenant-isolation.test.ts`
+- `src/_tests_/us-state.test.tsx`
 - `src/app/actions/agencies.ts`
 - `src/app/actions/agency-branches.ts`
 - `src/app/actions/agency-configuration.ts`
@@ -132,10 +150,13 @@ Recommendation: **PROCEED SELECTIVELY** to the operator-controlled development/U
 - `src/components/ProgramBranchRequestForm.tsx`
 - `src/components/RecordBranchAssignment.tsx`
 - `src/components/ReviewPlaybookRequestModal.tsx`
+- `src/components/ui/StateSelect.tsx`
 - `src/lib/agency-branches.ts`
+- `src/lib/constants.ts`
 - `src/lib/repositories/agency-branches.ts`
 - `src/lib/schemas/agency-branches.ts`
 - `src/lib/schemas/profile.ts`
+- `src/lib/schemas/us-state.ts`
 - `src/lib/supabase/query/leads.ts`
 - `src/lib/supabase/query/patients.ts`
 - `src/lib/supabase/query/playbooks.ts`

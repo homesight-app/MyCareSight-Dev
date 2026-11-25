@@ -1,18 +1,16 @@
 import { z } from 'zod'
 import { optionalEmailZodField, phoneZodField } from '@/lib/validation'
+import { usStateField } from '@/lib/schemas/us-state'
 
 export const branchFormSchema = z.object({
   id: z.uuid().optional(),
-  code: z.string().trim().min(1, 'Code is required').max(40).regex(/^[a-z0-9][a-z0-9_-]*$/, 'Use lowercase letters, numbers, underscores or hyphens'),
   name: z.string().trim().min(1, 'Name is required').max(120),
   timezone: z.string().trim().min(1).max(100).refine(value => {
     try { new Intl.DateTimeFormat('en-US', { timeZone: value }); return true } catch { return false }
   }, 'Choose a valid time zone'),
   street_address: z.string().trim().max(300),
   city: z.string().trim().max(100),
-  // Existing agency addresses store both full state names and abbreviations.
-  // Keep those editable; jurisdiction-specific policy normalization is Phase 2.
-  state: z.string().trim().max(100),
+  state: usStateField,
   zip_code: z.string().trim().max(10),
   phone: phoneZodField,
   email: optionalEmailZodField,

@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { normalizeUSState, US_STATES } from '@/lib/constants'
+import { usStateField } from '@/lib/schemas/us-state'
 
 export const profileSchema = z.object({
   fullName: z.string().min(2, 'Full name must be at least 2 characters'),
@@ -29,12 +31,12 @@ export const companyDetailsSchema = z.object({
   website: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
   physicalStreetAddress: z.string().trim().min(1, 'Street address is required'),
   physicalCity: z.string().trim().min(1, 'City is required'),
-  physicalState: z.string().trim().min(1, 'State is required'),
+  physicalState: usStateField.refine(value => value !== '', 'State is required'),
   physicalZipCode: z.string().trim().min(1, 'ZIP code is required'),
   sameAsPhysical: z.boolean().default(true),
   mailingStreetAddress: z.string().optional(),
   mailingCity: z.string().optional(),
-  mailingState: z.string().optional(),
+  mailingState: z.string().trim().transform(normalizeUSState).optional(),
   mailingZipCode: z.string().optional(),
 }).refine((data) => {
   if (!data.sameAsPhysical) {
@@ -44,6 +46,10 @@ export const companyDetailsSchema = z.object({
 }, {
   message: 'Mailing address fields are required when not same as physical address',
   path: ['mailingStreetAddress'],
+}).superRefine((data, ctx) => {
+  if (!data.sameAsPhysical && data.mailingState && !US_STATES.includes(data.mailingState)) {
+    ctx.addIssue({ code: 'custom', path: ['mailingState'], message: 'Select a valid state' })
+  }
 })
 
 export type CompanyDetailsFormInput = z.input<typeof companyDetailsSchema>

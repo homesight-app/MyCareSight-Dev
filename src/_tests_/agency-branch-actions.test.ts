@@ -10,12 +10,12 @@ jest.mock('@/lib/repositories/agency-branches', () => ({
 }))
 
 const id = '30000000-0000-4000-8000-000000000001'
-const branch = { code: 'west', name: 'Synthetic West', timezone: 'America/Los_Angeles', street_address: '', city: '', state: '', zip_code: '', phone: '', email: '' }
+const branch = { name: 'Synthetic West', timezone: 'America/Los_Angeles', street_address: '', city: '', state: '', zip_code: '', phone: '', email: '' }
 
 beforeEach(() => jest.resetAllMocks())
 
 test('invalid form data and oversized/multiple client branch assignments never reach a write', async () => {
-  expect(await saveBranchAction({ ...branch, code: 'INVALID CODE', timezone: 'invalid' })).toMatchObject({ success: false, fieldErrors: expect.any(Object) })
+  expect(await saveBranchAction({ ...branch, state: 'INVALID STATE', timezone: 'invalid' })).toMatchObject({ success: false, fieldErrors: expect.any(Object) })
   expect(await assignRecordBranchesAction({ kind: 'client', recordId: id, branchIds: [id, id] })).toMatchObject({ success: false })
   expect(repository.saveBranch).not.toHaveBeenCalled()
   expect(repository.assignRecordBranches).not.toHaveBeenCalled()
@@ -26,6 +26,12 @@ test('private raw failures are replaced with fixed non-content messages', async 
   const response = await saveBranchAction(branch)
   expect(response.success).toBe(false)
   expect(JSON.stringify(response)).not.toContain('synthetic-private-value')
+})
+
+test('branch writes need no supplied code and discard forged codes while normalizing state', async () => {
+  jest.mocked(repository.saveBranch).mockResolvedValue(id)
+  expect(await saveBranchAction({ ...branch, code: 'forged-code', state: 'ca' })).toEqual({ success: true, id })
+  expect(repository.saveBranch).toHaveBeenCalledWith({ ...branch, state: 'California' })
 })
 
 test('a cache error after commit does not invite a repeated branch creation', async () => {

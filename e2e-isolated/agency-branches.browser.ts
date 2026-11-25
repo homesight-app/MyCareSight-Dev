@@ -94,11 +94,15 @@ test('branch setup validates accessibly and saves synthetic office information',
   await expect(page.getByText('Name is required')).toBeVisible()
   await expect(page.getByLabel('Branch name', { exact: false })).toBeFocused()
   await page.getByLabel('Branch name', { exact: false }).fill('Synthetic West Office')
-  await page.getByLabel('Branch code', { exact: false }).fill('west')
+  await expect(page.getByLabel('Branch code', { exact: false })).toHaveCount(0)
+  await page.getByRole('combobox', { name: 'State', exact: true }).selectOption('California')
   await page.getByLabel('Time zone', { exact: false }).fill('America/Los_Angeles')
   await page.screenshot({ path: info.outputPath('synthetic-branch-form.png') })
   await page.getByRole('button', { name: 'Save Branch' }).click()
   await expect.poll(() => page.evaluate(() => (window as any).branchHarness.writes.length)).toBe(1)
+  const submitted = await page.evaluate(() => (window as any).branchHarness.writes[0])
+  expect(submitted.state).toBe('California')
+  expect(submitted).not.toHaveProperty('code')
 })
 
 test('enrollment selects two branches but submits one program request', async ({ page }) => {

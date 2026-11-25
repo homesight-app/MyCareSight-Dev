@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { Building, Clock, FileText } from 'lucide-react'
 import { toast } from 'sonner'
 import Button from '@/components/ui/PrimaryButton'
+import StateSelect from '@/components/ui/StateSelect'
+import { normalizeUSState } from '@/lib/constants'
 import { companyDetailsSchema, type CompanyDetailsFormInput, type CompanyDetailsFormOutput } from '@/lib/schemas/profile'
 import { saveAgencyInfoAction } from '@/app/actions/agency-branches'
 
@@ -68,12 +70,12 @@ export default function AgencyInfoSection({ initialAgency }: { initialAgency: In
           website: initialAgency.website ?? '',
           physicalStreetAddress: initialAgency.physical_street_address ?? '',
           physicalCity: initialAgency.physical_city ?? '',
-          physicalState: initialAgency.physical_state ?? '',
+          physicalState: normalizeUSState(initialAgency.physical_state ?? ''),
           physicalZipCode: initialAgency.physical_zip_code ?? '',
           sameAsPhysical: initialAgency.same_as_physical ?? true,
           mailingStreetAddress: initialAgency.mailing_street_address ?? '',
           mailingCity: initialAgency.mailing_city ?? '',
-          mailingState: initialAgency.mailing_state ?? '',
+          mailingState: normalizeUSState(initialAgency.mailing_state ?? ''),
           mailingZipCode: initialAgency.mailing_zip_code ?? '',
         }
       : emptyCompanyDefaults,
@@ -261,7 +263,7 @@ return (
                       <label htmlFor="agency-physicalState" className="block text-sm font-semibold text-gray-700 mb-2">
                         State <span className="text-red-600">*</span>
                       </label>
-                      <input id="agency-physicalState" {...registerCompany('physicalState')} aria-invalid={!!companyErrors.physicalState} aria-describedby={companyErrors.physicalState ? 'agency-physicalState-error' : undefined}
+                      <StateSelect id="agency-physicalState" {...registerCompany('physicalState')} currentValue={watchCompany('physicalState')} required aria-invalid={!!companyErrors.physicalState} aria-describedby={companyErrors.physicalState ? 'agency-physicalState-error' : undefined}
                         className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-gray-50"
                       />
                       {companyErrors.physicalState && (
@@ -337,7 +339,7 @@ return (
                         <label htmlFor="agency-mailingState" className="block text-sm font-semibold text-gray-700 mb-2">
                           State <span className="text-red-600">*</span>
                         </label>
-                      <input id="agency-mailingState" {...registerCompany('mailingState')} aria-invalid={!!companyErrors.mailingState} aria-describedby={companyErrors.mailingState ? 'agency-mailingState-error' : undefined}
+                      <StateSelect id="agency-mailingState" {...registerCompany('mailingState')} currentValue={watchCompany('mailingState')} required aria-invalid={!!companyErrors.mailingState} aria-describedby={companyErrors.mailingState ? 'agency-mailingState-error' : undefined}
                           className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-gray-50"
                         />
                         {companyErrors.mailingState && (

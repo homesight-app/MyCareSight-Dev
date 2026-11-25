@@ -49,7 +49,7 @@ jest.mock('@/db', () => {
 
 const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const OWNER = id(1), COORDINATOR = id(2), FOREIGN = id(3), AGENCY = id(10), OTHER = id(11), LEAD = id(20), CLIENT = id(30), APP = id(40)
-const form = { code: 'west', name: 'Synthetic West', timezone: 'America/Los_Angeles', street_address: '', city: '', state: '', zip_code: '', phone: '', email: '' }
+const form = { name: 'Synthetic West', timezone: 'America/Los_Angeles', street_address: '', city: '', state: '', zip_code: '', phone: '', email: '' }
 let main: string
 
 function login(userId = OWNER) { jest.mocked(getSession).mockResolvedValue({ user: { id: userId }, profile: {} } as Awaited<ReturnType<typeof getSession>>) }
@@ -223,9 +223,19 @@ test('RLS hides foreign branch records and denies coordinator updates independen
   await expect(db.query(`INSERT INTO agency_branches(agency_id,code,name) VALUES ($1,'forged','Forbidden')`, [AGENCY])).rejects.toMatchObject({ code: '42501' })
 })
 
-test('rejects deactivating the default and preserves stable codes', async () => {
+test('codes are generated independently of names and remain stable through edits and default changes', async () => {
   await expect(changeBranchState(main, 'deactivate')).rejects.toThrow('another default')
-  await expect(saveBranch({ ...form, id: main })).rejects.toThrow('codes cannot be changed')
+  const first = await saveBranch(form)
+  const second = await saveBranch(form)
+  const before = (await listBranches(0, '')).rows
+  const code = before.find(row => row.id === first)!.code
+  expect(code).toMatch(/^br-[a-f0-9]{32}$/)
+  expect(before.find(row => row.id === second)!.code).not.toBe(code)
+  await saveBranch({ ...form, id: first, name: 'Synthetic Renamed Office' })
+  await changeBranchState(first, 'default')
+  const after = (await listBranches(0, '')).rows
+  expect(after.find(row => row.id === first)).toMatchObject({ code, is_default: true, name: 'Synthetic Renamed Office' })
+  expect(after.find(row => row.id === main)).toMatchObject({ code: 'main', is_default: false })
 })
 
 test('holds transfers for clients with visits until historical attribution is implemented', async () => {
@@ -245,7 +255,7 @@ test('does not access the database when the branch feature is disabled', async (
 })
 
 test('branch list is bounded and paged on the server with deterministic order', async () => {
-  for (let i = 0; i < 27; i++) await saveBranch({ ...form, code: `office-${String(i).padStart(2, '0')}` })
+  for (let i = 0; i < 27; i++) await saveBranch({ ...form, name: `office-${String(i).padStart(2, '0')}` })
   const first = await listBranches(0, '')
   const second = await listBranches(1, '')
   expect(first.rows).toHaveLength(25)
@@ -320,7 +330,7 @@ test('an invalid enrollment branch or catalog state cannot leave an application 
 test('an audit failure rolls back the branch write', async () => {
   await db.exec('RESET ROLE; REVOKE INSERT ON audit_log FROM mycaresight_app; SET LOCAL ROLE mycaresight_app')
   await expect(saveBranch(form)).rejects.toMatchObject({ code: '42501' })
-  expect((await db.query('SELECT id FROM agency_branches WHERE code=$1', [form.code])).rows).toEqual([])
+  expect((await db.query('SELECT id FROM agency_branches WHERE name=$1', [form.name])).rows).toEqual([])
 })
 
 test('the standalone operator verifier reports valid metadata and zero aggregate gaps', async () => {

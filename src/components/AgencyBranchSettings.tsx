@@ -7,6 +7,8 @@ import { toast } from 'sonner'
 import Button from '@/components/ui/PrimaryButton'
 import PhoneInput from '@/components/ui/PhoneInput'
 import EmailInput from '@/components/ui/EmailInput'
+import StateSelect from '@/components/ui/StateSelect'
+import { normalizeUSState } from '@/lib/constants'
 import { changeBranchStateAction, listBranchesAction, saveBranchAction } from '@/app/actions/agency-branches'
 import { branchFormSchema, type BranchFormData } from '@/lib/schemas/agency-branches'
 import type { AgencyBranch } from '@/lib/agency-branches'
@@ -84,10 +86,10 @@ export default function AgencyBranchSettings() {
 }
 
 function BranchForm({ branch, onCancel, onSaved }: { branch: AgencyBranch | null; onCancel: () => void; onSaved: () => void }) {
-  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<BranchFormData>({
+  const { register, handleSubmit, setError, watch, formState: { errors, isSubmitting } } = useForm<BranchFormData>({
     resolver: zodResolver(branchFormSchema), mode: 'onBlur',
-    defaultValues: { id: branch?.id, code: branch?.code ?? '', name: branch?.name ?? '', timezone: branch?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-      street_address: branch?.street_address ?? '', city: branch?.city ?? '', state: branch?.state ?? '', zip_code: branch?.zip_code ?? '', phone: branch?.phone ?? '', email: branch?.email ?? '' },
+    defaultValues: { id: branch?.id, name: branch?.name ?? '', timezone: branch?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      street_address: branch?.street_address ?? '', city: branch?.city ?? '', state: normalizeUSState(branch?.state ?? ''), zip_code: branch?.zip_code ?? '', phone: branch?.phone ?? '', email: branch?.email ?? '' },
   })
   const save = handleSubmit(async data => {
     try {
@@ -98,15 +100,19 @@ function BranchForm({ branch, onCancel, onSaved }: { branch: AgencyBranch | null
       } else toast.error(result.error)
     } catch { toast.error('Unable to save the branch. Refresh before retrying.') }
   })
-  const fields = [ ['name', 'Branch name', true], ['code', 'Branch code', true], ['timezone', 'Time zone', true],
+  const fields = [ ['name', 'Branch name', true], ['timezone', 'Time zone', true],
     ['street_address', 'Street address'], ['city', 'City'], ['state', 'State'], ['zip_code', 'ZIP code'] ] as const
   return <form noValidate onSubmit={save} className="space-y-4">
     <h3 className="font-semibold">{branch ? 'Edit Branch' : 'Add Branch'}</h3>
+    {branch && <p className="text-sm text-foreground-muted">Branch code: {branch.code}</p>}
     <fieldset disabled={isSubmitting} className="grid gap-4 md:grid-cols-2">
       {fields.map(([key, label, required]) => <div key={key}>
         <label htmlFor={`branch-${key}`}>{label}{required && <span className="text-danger"> *</span>}</label>
-        <input id={`branch-${key}`} {...register(key)} readOnly={key === 'code' && !!branch} required={!!required} className={inputClass}
-          aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `branch-${key}-error` : undefined} />
+        {key === 'state'
+          ? <StateSelect id="branch-state" {...register('state')} currentValue={watch('state')} className={inputClass}
+            aria-invalid={!!errors.state} aria-describedby={errors.state ? 'branch-state-error' : undefined} />
+          : <input id={`branch-${key}`} {...register(key)} required={!!required} className={inputClass}
+            aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `branch-${key}-error` : undefined} />}
         {errors[key] && <p id={`branch-${key}-error`} className="text-danger text-sm">{errors[key]?.message}</p>}
       </div>)}
       <div><label htmlFor="branch-phone">Phone</label><PhoneInput id="branch-phone" {...register('phone')} className={inputClass}

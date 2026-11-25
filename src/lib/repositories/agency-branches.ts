@@ -1,4 +1,5 @@
 import 'server-only'
+import { randomUUID } from 'node:crypto'
 import sql, { withUserContext } from '@/db'
 import { getSession } from '@/lib/auth'
 import { agencyBranchesEnabled, BRANCH_OPTION_LIMIT, BRANCH_PAGE_SIZE, type AgencyBranch, type BranchRecordKind } from '@/lib/agency-branches'
@@ -73,10 +74,9 @@ export async function saveBranch(data: BranchFormData) {
     if (!tz) throw new BranchError('Choose a valid time zone.')
     let recordId: string
     if (data.id) {
-      const [existing] = await sql`SELECT id, code FROM public.agency_branches
+      const [existing] = await sql`SELECT id FROM public.agency_branches
         WHERE id = ${data.id}::uuid AND agency_id = ${actor.agencyId}::uuid FOR UPDATE`
       if (!existing) throw new BranchError('Branch not found.')
-      if (existing.code !== data.code) throw new BranchError('Branch codes cannot be changed after creation.')
       const rows = await sql`UPDATE public.agency_branches SET name = ${data.name}, timezone = ${data.timezone},
         street_address = ${data.street_address || null}, city = ${data.city || null}, state = ${data.state || null},
         zip_code = ${data.zip_code || null}, phone = ${data.phone || null}, email = ${data.email || null}, updated_at = now()
@@ -86,8 +86,11 @@ export async function saveBranch(data: BranchFormData) {
     } else {
       const [count] = await sql`SELECT count(*)::int AS count FROM public.agency_branches WHERE agency_id = ${actor.agencyId}::uuid`
       if (Number(count.count) >= BRANCH_OPTION_LIMIT) throw new BranchError('The initial release supports up to 100 branches per agency.')
+      // A display/reference code, independent of the UUID PK and default status.
+      // Generated only on the server; submitted codes never affect persistence.
+      const code = `br-${randomUUID().replaceAll('-', '')}`
       const [row] = await sql`INSERT INTO public.agency_branches(agency_id, code, name, timezone, street_address, city, state, zip_code, phone, email)
-        VALUES (${actor.agencyId}::uuid, ${data.code}, ${data.name}, ${data.timezone}, ${data.street_address || null},
+        VALUES (${actor.agencyId}::uuid, ${code}, ${data.name}, ${data.timezone}, ${data.street_address || null},
           ${data.city || null}, ${data.state || null}, ${data.zip_code || null}, ${data.phone || null}, ${data.email || null}) RETURNING id`
       recordId = row.id
     }

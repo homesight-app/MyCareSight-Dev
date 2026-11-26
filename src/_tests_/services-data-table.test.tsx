@@ -39,6 +39,8 @@ test('uses shared search/filter/pagination and retains the existing request flow
   const toolbar = screen.getByRole('group', { name: 'Services controls' })
   expect(within(toolbar).getByRole('textbox', { name: 'Search services' })).toBeVisible()
   expect(within(toolbar).getByRole('combobox', { name: 'Filter services by branch' })).toBeVisible()
+  expect(within(toolbar).getByRole('button', { name: 'Request Service' })).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'My Services' }).closest('.max-w-6xl')).toBeNull()
   expect(screen.queryByRole('button', { name: /All branches/ })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Request Service' })).toHaveAttribute('data-programs-only', 'true')
   expect(screen.getByRole('button', { name: 'Request Service' })).toHaveAttribute('data-branch-selection', 'true')

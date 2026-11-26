@@ -152,6 +152,15 @@ test('read-only tables can omit editing and toolbar controls', () => {
   expect(screen.queryByRole('button', { name: 'Add Record' })).not.toBeInTheDocument()
 })
 
+test('feature-owned workflow controls render inside the shared toolbar and inherit its disabled state', () => {
+  const value = props()
+  const { rerender } = render(<DataTable {...value} search={undefined} filters={[]} addAction={undefined} onRefresh={undefined}
+    toolbarActions={<button type="button">Existing request flow</button>} />)
+  expect(within(screen.getByRole('group', { name: 'Synthetic records controls' })).getByRole('button', { name: 'Existing request flow' })).toBeEnabled()
+  rerender(<DataTable {...value} disabled toolbarActions={<button type="button">Existing request flow</button>} />)
+  expect(screen.getByRole('button', { name: 'Existing request flow' })).toBeDisabled()
+})
+
 test('existing sortable headers keep their legacy click behavior unless explicitly opted in', () => {
   const sort = jest.fn()
   render(<table><thead><tr><SortableColumnHeader label="Legacy name" sortKey="name" currentSort={null} onSort={sort} /></tr></thead></table>)

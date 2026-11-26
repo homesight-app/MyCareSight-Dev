@@ -128,11 +128,10 @@ export default function AgencyProgramsContent({ programs, totalCount, page, page
       ...(query.branch && !choices.some(branch => branch.id === query.branch) ? [{ value: query.branch, label: 'Selected branch' }] : [])],
     onChange: (branch: string) => changeQuery({ branch }) }] : []
 
-  return <div className="p-6 max-w-6xl mx-auto">
-    <div className="mb-6 flex items-start justify-between gap-4">
+  return <div className="w-full min-w-0">
+    <div className="mb-6">
       <div><h1 className="text-2xl font-bold text-gray-900">My Services</h1>
         <p className="text-sm text-gray-500 mt-1">Track your HomeSights service engagements, requirements, and progress.</p></div>
-      <div className="flex-shrink-0 w-48"><ApplyForNewLicenseButton programsOnly label="Request Service" branchSelectionEnabled={branchSelectionEnabled} /></div>
     </div>
     {pendingRequests.length > 0 && <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
       <button type="button" aria-expanded={pendingExpanded} onClick={() => setPendingExpanded(value => !value)}
@@ -160,7 +159,8 @@ export default function AgencyProgramsContent({ programs, totalCount, page, page
       pagination={{ page, pageSize, totalCount, onPageChange: next => changeQuery({ page: next }) }}
       search={{ value: query.q, onChange: value => changeQuery({ q: value }), placeholder: 'Search services...' }} filters={filters}
       loading={isPending} disabled={blocked} error={error} onRefresh={refresh} onRetry={refresh}
-      emptyMessage={query.q ? 'No services match your search.' : query.branch ? 'No services match this branch.' : 'No active services yet. Request a service above to get started.'}
+      toolbarActions={<ApplyForNewLicenseButton programsOnly label="Request Service" branchSelectionEnabled={branchSelectionEnabled} />}
+      emptyMessage={query.q ? 'No services match your search.' : query.branch ? 'No services match this branch.' : 'No active services yet. Request a service to get started.'}
       rowNavigation={{ columnKey: 'name', getLabel: program => `Open service ${program.application_name}`, onOpen: program => router.push(`/pages/agency/programs/${program.id}`) }}
       rowActions={program => [{ label: 'View Service', icon: Eye, href: `/pages/agency/programs/${program.id}` }]} />
   </div>

@@ -40,6 +40,8 @@ export interface DataTableProps<T> {
   filters?: readonly DataTableFilter[]
   sort?: { value: { key: string; dir: 'asc' | 'desc' } | null; onChange: (key: string) => void }
   addAction?: { label: string; onClick: () => void; disabled?: boolean }
+  /** Existing feature-owned action/flow. No data or workflow logic belongs in the table. */
+  toolbarActions?: ReactNode
   onRefresh?: () => void
   onRetry?: () => void
   rowNavigation?: { columnKey: string; onOpen: (row: T) => void; getLabel?: (row: T) => string }
@@ -53,10 +55,10 @@ export interface DataTableProps<T> {
 
 /** Shared, controlled table UI. Query rules, authorization and workflows stay with the caller. */
 export default function DataTable<T>({ label, entityLabel, rows, columns, getRowKey, getRowLabel, pagination, search,
-  filters = [], sort, addAction, onRefresh, onRetry = onRefresh, rowNavigation, rowActions, isRowInactive,
+  filters = [], sort, addAction, toolbarActions, onRefresh, onRetry = onRefresh, rowNavigation, rowActions, isRowInactive,
   loading = false, disabled = false, error, emptyMessage = `No ${entityLabel} found.` }: DataTableProps<T>) {
   const span = columns.length + (rowActions ? 1 : 0)
-  const hasToolbar = !!search || filters.length > 0 || !!onRefresh || !!addAction
+  const hasToolbar = !!search || filters.length > 0 || !!onRefresh || !!addAction || !!toolbarActions
   const resetPage = () => pagination.onPageChange(0)
   return <div className="space-y-4">
     <div className="rounded-xl border border-secondary-border bg-white overflow-hidden">
@@ -68,6 +70,7 @@ export default function DataTable<T>({ label, entityLabel, rows, columns, getRow
           disabled={disabled} onChange={value => { if (!disabled) { filter.onChange(value); resetPage() } }} />)}
         {onRefresh && <Button type="button" variant="secondary" disabled={loading || disabled} onClick={onRefresh} icon={RefreshCw}>Refresh</Button>}
         {addAction && <Button type="button" disabled={disabled || addAction.disabled} onClick={addAction.onClick} icon={Plus}>{addAction.label}</Button>}
+        {toolbarActions}
       </fieldset>}
       <div className="overflow-x-auto"><table className="w-full text-sm" aria-label={label} aria-busy={loading}>
         <thead><tr className="border-b border-gray-100 bg-gray-50/60">

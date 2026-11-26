@@ -43,6 +43,12 @@ test.beforeAll(async () => {
     export async function requestProgramBranchesAction(input){window.branchHarness.writes.push(input);return {success:true,id:input.requestId}}
     export async function updatePatientStatus(id,status){window.branchHarness.writes.push({id,status});window.clientRows=window.clientRows.map(row=>row.id===id?{...row,status}:row);return {error:null}}
     export async function cancelProgramRequest(id){window.branchHarness.writes.push({cancel:id});return {error:null}}
+    export async function getLicenseTypes(){return {data:[],error:null}}
+    export async function getStandalonePlaybooksByState(){return {data:[{id:ids.recordId,name:'Synthetic Catalog Service',state:null}],error:null}}
+    export async function getConfigurationValuesWithSubcategories(){return {data:[],error:null}}
+    export async function createApplicationForAgency(){return {error:null}}
+    export async function createProgramForAgency(){return {error:null}}
+    export async function submitProgramRequest(){return {error:null}}
   `)
   const navigation = path.join(directory, 'navigation.js')
   fs.writeFileSync(navigation, `const router={refresh(){window.branchHarness.refreshes++;window.refreshClient?.()},push(value){window.branchHarness.pushes.push(value);if(value.startsWith('?'))window.renderClientQuery?.(value)}};export function useRouter(){return router}`)
@@ -50,8 +56,6 @@ test.beforeAll(async () => {
   fs.writeFileSync(addClient, `import React from 'react';export default function AddClient({isOpen,onClose,onSuccess}){return isOpen?React.createElement('div',{role:'dialog','aria-label':'Existing add client'},React.createElement('button',{onClick:onSuccess},'Save synthetic client'),React.createElement('button',{onClick:onClose},'Cancel')):null}`)
   const toast = path.join(directory, 'toast.js')
   fs.writeFileSync(toast, 'export const toast = {success(){},error(){}}')
-  const requestService = path.join(directory, 'request-service.js')
-  fs.writeFileSync(requestService, `import React from 'react';import Button from '@/components/ui/PrimaryButton';import {Plus} from 'lucide-react';export default function RequestService({label,programsOnly,branchSelectionEnabled}){return React.createElement(Button,{icon:Plus,onClick(){window.serviceRequest={programsOnly,branchSelectionEnabled}}},label)}`)
   const entry = path.join(directory, 'entry.js')
   fs.writeFileSync(entry, `import React from 'react'; import {createRoot} from 'react-dom/client';
     import Assignment from '@/components/RecordBranchAssignment';
@@ -111,7 +115,7 @@ test.beforeAll(async () => {
         '@/app/actions/client-personal-info$': actions, '@/app/actions/leads$': actions, '@/app/actions/agencies$': actions,
         '@/app/actions/agency-lead-stages$': actions, '@/app/actions/agency-people$': actions,
         '@/app/actions/query-bridge$': actions, '@/components/AddNewClientModal$': addClient,
-        '@/app/actions/applications$': actions, '@/components/ApplyForNewLicenseButton$': requestService,
+        '@/app/actions/applications$': actions,
         '@': path.resolve('src'),
       } },
       module: { rules: [{ test: /\.tsx?$/, exclude: /node_modules/, use: loader }] },
@@ -178,19 +182,31 @@ test('services table filters branches, preserves progress/paging and opens recor
 
 test('services table keeps the Request Service entry and pending-request cancellation', async ({ page }) => {
   await page.evaluate(() => (window as any).mountBranchReview('services'))
-  await page.getByRole('button', { name: 'Request Service' }).click()
-  expect(await page.evaluate(() => (window as any).serviceRequest)).toEqual({ programsOnly: true, branchSelectionEnabled: true })
+  const toolbar = page.getByRole('group', { name: 'Services controls' })
+  await toolbar.getByRole('button', { name: 'Request Service' }).click()
+  await expect(page.getByRole('heading', { name: 'Select Program Type' })).toBeVisible()
+  await page.getByRole('combobox').filter({ has: page.getByRole('option', { name: 'California', exact: true }) }).selectOption('California')
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: /Synthetic Catalog Service/ }).click()
+  await expect(page.getByRole('button', { name: 'Submit Program Request' })).toBeVisible()
+  await page.getByRole('checkbox', { name: 'West', exact: true }).check()
+  await page.getByRole('button', { name: 'Submit Program Request' }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.writes.length)).toBe(1)
+  expect(await page.evaluate(() => (window as any).branchHarness.writes[0].branchIds)).toEqual([main, west])
+  await expect(page.getByRole('heading', { name: 'Select Program Type' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Pending Requests (1)' }).click()
   await page.getByRole('button', { name: 'Cancel request' }).click()
-  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.writes)).toEqual([{ cancel: 'pending-service' }])
-  expect(await page.evaluate(() => (window as any).branchHarness.refreshes)).toBe(1)
-  expect(await page.evaluate(() => (window as any).branchHarness.pushes)).toEqual([])
+  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.writes.at(-1))).toEqual({ cancel: 'pending-service' })
+  expect(await page.evaluate(() => (window as any).branchHarness.refreshes)).toBe(2)
+  expect(await page.evaluate(() => (window as any).branchHarness.pushes)).toEqual(['/pages/agency/programs'])
 })
 
 test('services table synthetic visual review at desktop and narrow widths', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.evaluate(() => (window as any).mountBranchReview('services'))
   await expect(page.getByRole('table', { name: 'Services', exact: true })).toBeVisible()
+  expect(await page.getByRole('table', { name: 'Services', exact: true }).evaluate(table => table.getBoundingClientRect().width)).toBeGreaterThan(1300)
+  await expect(page.getByRole('group', { name: 'Services controls' }).getByRole('button', { name: 'Request Service' })).toBeVisible()
   const captures = path.resolve('node_modules/.cache/services-table-review')
   fs.mkdirSync(captures, { recursive: true })
   await page.screenshot({ path: path.join(captures, 'services-desktop.png') })

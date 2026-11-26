@@ -6,6 +6,9 @@ import PrimaryButton from '@/components/ui/PrimaryButton'
 import { SESSION_ACTIVITY_INTERVAL_MS, SESSION_WARNING_SECONDS, type SessionDeadline } from '@/lib/auth/session-policy'
 
 const endpoint = '/api/session/status'
+// Next dev compiles this route on first use, before its database work can begin.
+// Keep the normal budget for subsequent requests and every production request.
+const initialCheckTimeoutMs = process.env.NODE_ENV === 'development' ? 60_000 : 10_000
 type Phase = 'normal' | 'warning' | 'unavailable' | 'ending'
 const protectedPath = (path: string) => /^\/pages\/(admin|expert|agency|caregiver)(\/|$)/.test(path)
 
@@ -42,6 +45,7 @@ function SessionMonitor({ children }: { children: React.ReactNode }) {
     let returnTimer: ReturnType<typeof setTimeout> | undefined
     let warningCheckedFor = 0
     let expiredCheckedFor = 0
+    let firstCheck = true
     const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('portal-session-lifecycle')
     const now = () => deadline ? deadline.serverNow + Math.max(0, Date.now() - receivedAt) : Date.now()
     const remainingMs = () => deadline ? deadline.expiresAt - now() : Infinity
@@ -68,7 +72,12 @@ function SessionMonitor({ children }: { children: React.ReactNode }) {
       if (pending) return pending
       const controller = new AbortController()
       activeController = controller
-      const timeout = setTimeout(() => controller.abort(), 10_000)
+      const timeoutMs = firstCheck ? initialCheckTimeoutMs : 10_000
+      firstCheck = false
+      let timedOut = false
+      let failureStage: 'network' | 'http' | 'response' = 'network'
+      let httpStatus: number | undefined
+      const timeout = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
       const started = Date.now()
       if (activity) { lastSent = started; pendingActivity = false }
       setBusy(true)
@@ -78,7 +87,10 @@ function SessionMonitor({ children }: { children: React.ReactNode }) {
           const result = await fetch(endpoint, { method: activity ? 'POST' : 'GET', credentials: 'same-origin', cache: 'no-store', signal: controller.signal })
           if (disposed || ending) return
           if (result.status === 401) { end(true); return }
+          failureStage = 'http'
+          httpStatus = result.status
           if (!result.ok) throw new Error('unavailable')
+          failureStage = 'response'
           const value = await result.json() as SessionDeadline
           if (![value.serverNow, value.expiresAt, value.absoluteExpiresAt].every(Number.isFinite)
             || value.expiresAt > value.absoluteExpiresAt) throw new Error('unavailable')
@@ -91,7 +103,15 @@ function SessionMonitor({ children }: { children: React.ReactNode }) {
             && !(value.expiresAt === value.absoluteExpiresAt && absoluteWarningAcknowledged.current) ? 'warning' : 'normal')
           if (activity) channel?.postMessage('activity')
         } catch {
-          if (!disposed && !ending) setPhase('unavailable')
+          if (!disposed && !ending) {
+            // Fixed classifications only: no URL, cookie, account, response body or raw error.
+            console.warn('[auth] Session lifecycle check unavailable', {
+              stage: timedOut ? 'timeout' : failureStage,
+              method: activity ? 'POST' : 'GET',
+              ...(httpStatus === undefined ? {} : { httpStatus }),
+            })
+            setPhase('unavailable')
+          }
         } finally {
           clearTimeout(timeout)
           if (!disposed) setBusy(false)

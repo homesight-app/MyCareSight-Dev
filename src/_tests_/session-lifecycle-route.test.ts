@@ -109,6 +109,7 @@ test('an explicitly invalid configuration is never bypassed on localhost', async
 test.each([
   ['http://localhost:3000', 'http://127.0.0.1:3000', false],
   ['http://localhost:3000', 'http://localhost:3001', false],
+  ['http://localhost:3000', 'http://localhost:3002', false],
   ['https://app.example.test', 'http://localhost:3000', true],
 ])('local origin %s versus %s does not reject a real same-origin activity report', async (configured, actual, secureCookie) => {
   Object.assign(process.env, { NODE_ENV: 'development', AUTH_URL: configured })

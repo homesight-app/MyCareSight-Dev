@@ -42,12 +42,27 @@ test.afterAll(() => {
 })
 
 type Store = { lastActivity: number; absolute: number; signedOut: boolean }
-async function mount(page: Page, options: { absoluteMinutes?: number; unavailable?: boolean; path?: string; store?: Store } = {}) {
+async function mount(page: Page, options: { absoluteMinutes?: number; unavailable?: boolean; path?: string; store?: Store; initialDelayMs?: number } = {}) {
   const start = new Date('2026-01-01T00:00:00Z').getTime()
   const store = options.store ?? { lastActivity: start, absolute: start + (options.absoluteMinutes ?? 480) * 60_000, signedOut: false }
   const requests: string[] = []
   let unavailable = options.unavailable ?? false
   await page.clock.install({ time: new Date(start) })
+  if (options.initialDelayMs) await page.addInitScript(delay => {
+    const original = window.fetch.bind(window)
+    let first = true
+    window.fetch = (input, init) => {
+      if (!first) return original(input, init)
+      first = false
+      return new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => { void original(input, init).then(resolve, reject) }, delay)
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(new DOMException('Synthetic delayed response aborted', 'AbortError'))
+        }, { once: true })
+      })
+    }
+  }, options.initialDelayMs)
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())
     if (url.origin !== 'https://app.example.test') return route.abort()
@@ -67,12 +82,39 @@ async function mount(page: Page, options: { absoluteMinutes?: number; unavailabl
     if (route.request().isNavigationRequest()) return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><link rel="stylesheet" href="/assets/style.css"></head><body><div id="root"></div><script src="/assets/review.js"></script></body></html>' })
     return route.abort()
   })
-  const initial = options.path ? null : page.waitForResponse(response => response.url().endsWith('/api/session/status'))
+  const initial = options.path || options.initialDelayMs ? null : page.waitForResponse(response => response.url().endsWith('/api/session/status'))
   await page.goto('https://app.example.test' + (options.path ?? '/pages/agency/clients'))
   await expect(page.getByRole('heading', { name: 'Synthetic portal' })).toBeVisible()
   if (initial) { await (await initial).finished(); await page.clock.runFor(100) }
   return { requests, store, setUnavailable(value: boolean) { unavailable = value } }
 }
+
+test('first local check tolerates route startup beyond ten seconds without a false outage', async ({ page }) => {
+  const state = await mount(page, { initialDelayMs: 12_000 })
+  await page.clock.runFor(10_500)
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+  await page.clock.runFor(2000)
+  await expect.poll(() => state.requests).toEqual(['GET'])
+  await page.getByLabel('Synthetic draft').fill('Synthetic active draft')
+  await page.clock.runFor(100)
+  await expect.poll(() => state.requests).toEqual(['GET', 'POST'])
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+})
+
+test('unresponsive local startup remains bounded, reports a safe timeout and recovers on explicit retry', async ({ page }) => {
+  const failures: string[] = []
+  page.on('console', message => { if (message.type() === 'warning') failures.push(message.text()) })
+  const state = await mount(page, { initialDelayMs: 65_000 })
+  await page.clock.fastForward(60_001)
+  await expect(page.getByRole('heading', { name: 'Session verification unavailable' })).toBeVisible()
+  expect(failures.join(' ')).toContain('stage: timeout')
+  expect(state.requests).toEqual([])
+  await page.clock.fastForward(30_000)
+  expect(state.requests).toEqual([])
+  await page.getByRole('button', { name: 'Retry verification' }).click()
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+  expect(state.requests).toEqual(['GET'])
+})
 
 test('warns after fifteen idle minutes, contains keyboard focus, stays signed in then redirects at expiry', async ({ page }) => {
   const state = await mount(page)

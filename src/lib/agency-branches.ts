@@ -41,3 +41,8 @@ export type AgencyBranch = {
 }
 
 export type BranchRecordKind = 'lead' | 'client' | 'application'
+
+/** Missing metadata must never be presented as a missing assignment. */
+export function recordBranchLabel(record: { branch_id?: string | null; branch_name?: string | null }): string {
+  return record.branch_name || (record.branch_id === null ? 'Not assigned' : 'Branch unavailable')
+}

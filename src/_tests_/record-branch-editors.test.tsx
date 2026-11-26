@@ -7,6 +7,7 @@ import { branchOptionsAction } from '@/app/actions/agency-branches'
 import { saveClientPersonalInfoAction } from '@/app/actions/client-personal-info'
 import { updateLead } from '@/app/actions/leads'
 import { AGENCY_LEAD_CONTEXT, ADMIN_LEAD_CONTEXT } from '@/lib/constants/lead-configs'
+import { recordBranchLabel } from '@/lib/agency-branches'
 
 jest.mock('@/app/actions/agency-branches', () => ({ branchOptionsAction: jest.fn() }))
 jest.mock('@/app/actions/client-personal-info', () => ({ saveClientPersonalInfoAction: jest.fn() }))
@@ -114,4 +115,20 @@ test('the existing lead table shows Branch and reuses accessible server sorting 
   fireEvent.click(screen.getByRole('button', { name: 'Sort by Branch' }))
   expect(push.mock.calls[0][0]).toContain('sortKey=branch_name')
   expect(branchOptionsAction).not.toHaveBeenCalled()
+})
+
+test.each([
+  [{ branch_id: main, branch_name: null }, 'Branch unavailable'],
+  [{ branch_id: null, branch_name: null }, 'Not assigned'],
+  [{ branch_id: main, branch_name: 'Main Branch' }, 'Main Branch'],
+  [{}, 'Branch unavailable'],
+])('list and detail use the same branch label semantics for %j', (record, expected) => {
+  expect(recordBranchLabel(record)).toBe(expected)
+})
+
+test('the table does not misreport an assigned lead when its branch name is missing', () => {
+  const row = { ...lead, branch_name: null, lead_type: 'patient', status: 'active', created_at: '2026-01-01T00:00:00Z', lead_owner_id: null, proposal_sent_date: null }
+  render(<LeadsContent leads={[row]} context={AGENCY_LEAD_CONTEXT} branchesEnabled />)
+  expect(screen.getByText('Branch unavailable')).toBeInTheDocument()
+  expect(screen.queryByText('Not assigned')).not.toBeInTheDocument()
 })

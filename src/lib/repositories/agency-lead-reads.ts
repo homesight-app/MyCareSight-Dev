@@ -6,6 +6,19 @@ import { withAgencyManagerFinancialRead } from '@/lib/repositories/visit-financi
 
 class LeadReadError extends Error {}
 
+/** List queries and their metadata joins must use the same verified actor context as detail reads. */
+export async function withAuthorizedAgencyLeadListRead<T>(agencyId: string, read: () => Promise<T>): Promise<T> {
+  if (!z.uuid().safeParse(agencyId).success) throw new LeadReadError('Invalid agency.')
+  return withAgencyManagerFinancialRead(async actor => {
+    if (actor.agencyId !== agencyId) throw new LeadReadError('Forbidden')
+    const result = await read()
+    await sql`INSERT INTO public.audit_log(agency_id, table_name, record_id, action, performed_by_user_id, details)
+      VALUES (${actor.agencyId}::uuid, 'leads', NULL, 'READ', ${actor.id}::uuid,
+        '{"operation":"read_patient_lead_list"}'::jsonb)`
+    return result
+  })
+}
+
 export async function authorizeAndAuditAgencyLeadRead(agencyId: string, leadId: string): Promise<{
   allowed: boolean
   error?: string

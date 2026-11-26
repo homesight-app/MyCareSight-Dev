@@ -7,6 +7,7 @@ import Button from '@/components/ui/PrimaryButton'
 import Tabs from '@/components/ui/Tabs'
 import Badge, { type BadgeColor } from '@/components/ui/Badge'
 import AddLeadModal from './AddLeadModal'
+import { recordBranchLabel } from '@/lib/agency-branches'
 import EditPatientLeadDetailsModal from './EditPatientLeadDetailsModal'
 import AddNewClientModal from './AddNewClientModal'
 import LeadSignedModal from './LeadSignedModal'
@@ -402,7 +403,7 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                     <div className="grid grid-cols-2 gap-x-4"><dt className="text-gray-500">Service Type</dt>
                       <dd className="text-gray-900">{serviceTypeLabel(lead.service_type)}</dd></div>
                     <div className="grid grid-cols-2 gap-x-4"><dt className="text-gray-500">Branch</dt>
-                      <dd className="text-gray-900">{lead.branch_name || 'Not assigned'}</dd></div>
+                      <dd className="text-gray-900">{recordBranchLabel(lead)}</dd></div>
                   </div> : <><dt className="text-gray-500">Service Type</dt>
                     <dd className="text-gray-900">{serviceTypeLabel(lead.service_type)}</dd></>}
                   {lead.service_states && lead.service_states.length > 0 && (

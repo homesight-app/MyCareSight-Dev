@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, Search, Archive, ArchiveRestore, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
 import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
+import { recordBranchLabel } from '@/lib/agency-branches'
 import AddLeadModal from './AddLeadModal'
 import LeadsKanbanBoard from './LeadsKanbanBoard'
 import LeadSignedModal from './LeadSignedModal'
@@ -14,6 +15,7 @@ import { type LeadContext, LEAD_STAGES, type AgencyLeadStage } from '@/lib/const
 import { archiveLead, unarchiveLead, updateLeadStage } from '@/app/actions/leads'
 
 interface Lead {
+  branch_id?: string | null
   branch_name?: string | null
   id: string
   lead_type: string
@@ -576,7 +578,7 @@ export default function LeadsContent({
                     <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                       {serviceTypeLabel(lead.service_type)}
                     </td>
-                    {branchesEnabled && context.leadType === 'patient' && <td className="px-4 py-3 text-sm text-gray-600">{lead.branch_name || 'Not assigned'}</td>}
+                    {branchesEnabled && context.leadType === 'patient' && <td className="px-4 py-3 text-sm text-gray-600">{recordBranchLabel(lead)}</td>}
                     <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                       {lead.status === 'archived' || isConvertedLead(lead) ? (
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'} opacity-60`}>

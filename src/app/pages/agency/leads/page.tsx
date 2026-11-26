@@ -1,3 +1,4 @@
+import { withAuthorizedAgencyLeadListRead } from '@/lib/repositories/agency-lead-reads'
 import { z } from 'zod'
 import { agencyBranchesEnabled } from '@/lib/agency-branches'
 import AgencyBranchFilter from '@/components/AgencyBranchFilter'
@@ -50,25 +51,30 @@ export default async function AgencyLeadsPage({
   const sortKey     = params.sortKey ?? 'created_at'
   const sortDir     = (params.sortDir === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc'
 
-  const [leadsResult, stageCounts, allSources, ownerOptionsResult, agencyStagesResult] = await Promise.all([
-    q.getLeadsPaginated({
-      leadType: 'patient', agencyId, page, pageSize: PAGE_SIZE,
-      search, stageFilter, serviceType, source, owner, sortKey, sortDir, branchId,
-    }),
-    q.getLeadStageCounts({ leadType: 'patient', agencyId, search, serviceType, source, owner, branchId }),
-    q.getLeadDistinctSources({ leadType: 'patient', agencyId }),
-    q.getLeadOwnerOptions({ leadType: 'patient', agencyId }),
-    q.getAgencyLeadStages(agencyId),
-  ])
+  const { leadsResult, stageCounts, allSources, ownerOptionsResult, agencyStages, leads, taskStatus } =
+    await withAuthorizedAgencyLeadListRead(agencyId, async () => {
+      const [leadsResult, stageCounts, allSources, ownerOptionsResult, agencyStagesResult] = await Promise.all([
+        q.getLeadsPaginated({
+          leadType: 'patient', agencyId, page, pageSize: PAGE_SIZE,
+          search, stageFilter, serviceType, source, owner, sortKey, sortDir, branchId,
+        }),
+        q.getLeadStageCounts({ leadType: 'patient', agencyId, search, serviceType, source, owner, branchId }),
+        q.getLeadDistinctSources({ leadType: 'patient', agencyId }),
+        q.getLeadOwnerOptions({ leadType: 'patient', agencyId }),
+        q.getAgencyLeadStages(agencyId),
+      ])
 
-  const leads = (leadsResult.data ?? []) as Parameters<typeof LeadsContent>[0]['leads']
-  const agencyStages = (agencyStagesResult.data ?? []) as import('@/lib/constants/lead-configs').AgencyLeadStage[]
-  const today = new Date().toISOString().slice(0, 10)
-  const visibleLeadIds = leads
-    .filter(lead => lead.status !== 'archived' && !lead.converted_at)
-    .map(lead => lead.id)
-  const { data: taskRows } = await q.getLeadTaskStatusByLeadIds(visibleLeadIds, today)
-  const taskStatus = buildLeadTaskUrgencyMap(taskRows ?? [], today)
+      const leads = (leadsResult.data ?? []) as Parameters<typeof LeadsContent>[0]['leads']
+      const agencyStages = (agencyStagesResult.data ?? []) as import('@/lib/constants/lead-configs').AgencyLeadStage[]
+      const today = new Date().toISOString().slice(0, 10)
+      const visibleLeadIds = leads
+        .filter(lead => lead.status !== 'archived' && !lead.converted_at)
+        .map(lead => lead.id)
+      const { data: taskRows } = await q.getLeadTaskStatusByLeadIds(visibleLeadIds, today)
+      const taskStatus = buildLeadTaskUrgencyMap(taskRows ?? [], today)
+
+      return { leadsResult, stageCounts, allSources, ownerOptionsResult, agencyStages, leads, taskStatus }
+    })
 
   return (
     <FeatureGate capability="client_management" agencyId={agencyId}>

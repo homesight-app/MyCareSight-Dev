@@ -4,7 +4,9 @@ import { getSession } from '@/lib/auth'
 import {
   authorizeAndAuditAgencyLeadRead,
   readAgencyLeadStageCounts,
+  withAuthorizedAgencyLeadListRead,
 } from '@/lib/repositories/agency-lead-reads'
+import sql from '@/db'
 
 jest.mock('server-only', () => ({}), { virtual: true })
 jest.mock('@/lib/auth', () => ({ getSession: jest.fn() }))
@@ -64,15 +66,23 @@ beforeEach(async () => {
     CREATE TABLE user_profiles(id uuid PRIMARY KEY,role text,agency_id uuid,is_active boolean);
     CREATE TABLE user_agency_roles(user_id uuid,agency_id uuid,role text,status text);
     CREATE TABLE leads(id uuid PRIMARY KEY,agency_id uuid,lead_type text,status text,stage text);
+    ALTER TABLE leads ADD COLUMN branch_id uuid;
+    CREATE TABLE agency_branches(id uuid PRIMARY KEY,agency_id uuid,name text);
+    ALTER TABLE agency_branches ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE agency_branches FORCE ROW LEVEL SECURITY;
+    CREATE POLICY branch_agency_scope ON agency_branches TO mycaresight_app
+      USING(agency_id = nullif(current_setting('app.current_agency_id',true),'')::uuid);
     CREATE TABLE audit_log(agency_id uuid,table_name text,record_id uuid,action text,performed_by_user_id uuid,details jsonb);
     INSERT INTO user_profiles VALUES('${USER}','company_owner','${AGENCY}',true);
     INSERT INTO user_agency_roles VALUES('${USER}','${AGENCY}','company_owner','active');
-    INSERT INTO leads VALUES
+    INSERT INTO leads(id,agency_id,lead_type,status,stage) VALUES
       ('${LEAD}','${AGENCY}','patient','active','new'),
       ('${id(6)}','${AGENCY}','patient','active','new'),
       ('${id(7)}','${AGENCY}','patient','inactive','closed'),
       ('${id(8)}','${AGENCY}','caregiver','active','new'),
       ('${FOREIGN_LEAD}','${FOREIGN_AGENCY}','patient','active','qualified');
+    INSERT INTO agency_branches VALUES('${id(9)}','${AGENCY}','Main Branch'),('${id(10)}','${FOREIGN_AGENCY}','Foreign Branch');
+    UPDATE leads SET branch_id='${id(9)}' WHERE id='${LEAD}';
   `)
   jest.mocked(getSession).mockResolvedValue({ user: { id: USER } } as Awaited<ReturnType<typeof getSession>>)
 })
@@ -97,4 +107,36 @@ test('audit failure suppresses lead data and authorization', async () => {
   failAudit = true
   expect((await readAgencyLeadStageCounts(AGENCY)).data).toBeNull()
   expect((await authorizeAndAuditAgencyLeadRead(AGENCY, LEAD)).allowed).toBe(false)
+})
+
+test('reproduces hidden branch metadata without RLS context and restores it through the list read boundary', async () => {
+  const query = `SELECT lead.branch_id, branch.name AS branch_name FROM leads lead
+    LEFT JOIN agency_branches branch ON branch.id=lead.branch_id AND branch.agency_id=lead.agency_id WHERE lead.id=$1`
+  await db.exec('SET ROLE mycaresight_app')
+  const unscoped = await db.query(query, [LEAD])
+  await db.exec('RESET ROLE')
+  expect(unscoped.rows).toEqual([{ branch_id: id(9), branch_name: null }])
+  const scoped = await withAuthorizedAgencyLeadListRead(AGENCY, () => sql`
+    SELECT lead.branch_id, branch.name AS branch_name FROM leads lead
+    LEFT JOIN agency_branches branch ON branch.id=lead.branch_id AND branch.agency_id=lead.agency_id
+    WHERE lead.id=${LEAD}::uuid AND lead.agency_id=${AGENCY}::uuid`)
+  expect(scoped).toEqual([{ branch_id: id(9), branch_name: 'Main Branch' }])
+  expect((await authorizeAndAuditAgencyLeadRead(AGENCY, LEAD)).allowed).toBe(true)
+  expect((await db.query(`SELECT details->>'operation' AS operation FROM audit_log WHERE action='READ'`)).rows).toEqual([{ operation: 'read_patient_lead_list' }])
+  // Transaction-local identity must not leak into the next unscoped pool read.
+  await db.exec('SET ROLE mycaresight_app')
+  expect((await db.query(query, [LEAD])).rows).toEqual([{ branch_id: id(9), branch_name: null }])
+  await db.exec('RESET ROLE')
+})
+
+test('list metadata rejects foreign/inactive actors and audit failure never returns the result', async () => {
+  const read = jest.fn(async () => 'synthetic list')
+  await expect(withAuthorizedAgencyLeadListRead(FOREIGN_AGENCY, read)).rejects.toThrow('Forbidden')
+  expect(read).not.toHaveBeenCalled()
+  failAudit = true
+  await expect(withAuthorizedAgencyLeadListRead(AGENCY, read)).rejects.toThrow('synthetic audit outage')
+  await db.query("UPDATE user_agency_roles SET status='inactive'")
+  read.mockClear()
+  await expect(withAuthorizedAgencyLeadListRead(AGENCY, read)).rejects.toThrow('Forbidden')
+  expect(read).not.toHaveBeenCalled()
 })

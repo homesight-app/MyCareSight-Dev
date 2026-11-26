@@ -7,6 +7,7 @@ import {
   revokeOpaqueSession,
 } from '@/lib/repositories/auth-identity'
 import type { UserRole } from '@/types/auth'
+import { SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session-policy'
 import {
   reportSessionVerificationFailure,
   SessionVerificationUnavailableError,
@@ -47,9 +48,9 @@ function requestIp(request: Request): string | null {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   // Credentials requires Auth.js's jwt strategy. These hooks replace its JWT
   // payload with a random opaque token backed by PostgreSQL.
-  session: { strategy: 'jwt', maxAge: 60 * 60 },
+  session: { strategy: 'jwt', maxAge: SESSION_MAX_AGE_SECONDS },
   jwt: {
-    maxAge: 60 * 60,
+    maxAge: SESSION_MAX_AGE_SECONDS,
     async encode({ token }) {
       if (!token?.sessionToken) throw new Error('Opaque session token is missing')
       return token.sessionToken
@@ -123,7 +124,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.role) session.user.role = token.role
       session.user.agencyId = token.agencyId ?? null
       session.user.fullName = token.fullName ?? null
-      return session
+      return { ...session, expires: token.exp ? new Date(token.exp * 1000).toISOString() : session.expires }
     },
   },
   events: {

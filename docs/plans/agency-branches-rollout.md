@@ -4,6 +4,8 @@ Updated: 2026-11-25. Local branch: `feature/agency-branches`, based on `main` at
 The user explicitly authorized development after confirming the migration fixes work.
 No push, remote merge, deployment, live schema query or database execution is authorized for the agent.
 
+November 25 follow-up on this same local branch: the operator approves notification polling reduction and a 20-minute idle / 8-hour absolute session policy with a 5-minute warning. This independent authentication/header slice requires no additional branch-foundation SQL. See `docs/migrations/uat-auth-session-foundation.md`, `uat-notification-lifecycle.md` and `docs/hipaa/compliance-log.md` for behavior, rollout impact, validation and rollback. Review/test it separately from branch schema application. The existing uncommitted operator edits to `AgencyBranchSettings.tsx` are preserved and excluded from this slice.
+
 ## Phase 1: agency-administrator onboarding
 
 - Configuration opens Agency Info for agency owners. The existing company editor is moved out of personal Profile, with shared validation, current owner/membership authorization and transactional audit. Existing legal/onboarding fields absent from that form are preserved. The old action delegates to the same boundary for previously opened profile tabs.

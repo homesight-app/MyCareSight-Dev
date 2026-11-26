@@ -70,6 +70,7 @@ export default function AppHeader({
         <div className="flex items-center gap-2 sm:gap-4 pr-4 sm:pr-6">
           {user?.id && (
             <NotificationDropdown
+              key={`${user.id}:${profile?.role ?? ''}`}
               userId={user.id}
               userRole={profile?.role ?? null}
             />

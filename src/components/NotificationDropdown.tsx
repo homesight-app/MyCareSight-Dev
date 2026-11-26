@@ -10,6 +10,7 @@ import {
 } from '@/app/actions/notification-dropdown'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import LoadingSpinner from './LoadingSpinner'
+import { useNotificationPolling } from '@/hooks/useNotificationPolling'
 
 interface ApplicationNotification {
   application_id: string
@@ -65,15 +66,14 @@ export default function NotificationDropdown({
   const [isLoading, setIsLoading] = useState(false)
   const [isNavigating, setIsNavigating] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const initialBadgeLoadedRef = useRef(false)
+  const requestSequence = useRef(0)
+  const appliedBadgeSequence = useRef(0)
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
   const pendingRouteRef = useRef<string | null>(null)
   const navTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const DEBOUNCE_MS = 500 // 500ms debounce for faster badge updates
 
   const currentRouteKey = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
 
@@ -129,69 +129,39 @@ export default function NotificationDropdown({
   }, [isOpen])
 
   const refreshDropdown = useCallback(async () => {
+    const sequence = ++requestSequence.current
     setIsLoading(true)
     try {
       const result = await getNotificationDropdownSnapshotAction()
       if (result.error || !result.data) throw new Error(result.error?.message ?? 'Unable to load notifications')
       setApplications(result.data.applications)
       setAdminNotifications(result.data.notifications)
-      setUnreadCount(result.data.unreadCount)
-    } catch (err) {
-      console.error('Error fetching applications with unread:', err)
+      if (sequence >= appliedBadgeSequence.current) { appliedBadgeSequence.current = sequence; setUnreadCount(result.data.unreadCount) }
+      return true
+    } catch {
+      console.error('[notifications] Dropdown refresh unavailable')
+      return false
     } finally {
       setIsLoading(false)
     }
   }, [])
 
   const refreshBadgeCount = useCallback(async () => {
+    const sequence = ++requestSequence.current
     try {
       const result = await getNotificationBadgeSnapshotAction()
       if (result.error || !result.data) throw new Error(result.error?.message ?? 'Unable to count notifications')
-      setUnreadCount(result.data.unreadCount)
-    } catch (err) {
-      console.error('Error refreshing badge:', err)
+      if (sequence >= appliedBadgeSequence.current) { appliedBadgeSequence.current = sequence; setUnreadCount(result.data.unreadCount) }
+      return true
+    } catch {
+      console.error('[notifications] Badge refresh unavailable')
+      return false
     }
   }, [])
 
-  useEffect(() => {
-    if (!userId || !userRole || initialBadgeLoadedRef.current) return
-    initialBadgeLoadedRef.current = true
-    void refreshBadgeCount()
-  }, [refreshBadgeCount, userId, userRole])
-
-  useEffect(() => {
-    if (isOpen && userId && userRole) void refreshDropdown()
-  }, [isOpen, refreshDropdown, userId, userRole])
-
-  const debouncedRefreshBadge = useCallback(() => {
-    if (fetchTimeoutRef.current) {
-      clearTimeout(fetchTimeoutRef.current)
-    }
-
-    fetchTimeoutRef.current = setTimeout(async () => {
-      await new Promise(resolve => setTimeout(resolve, 400))
-      if (isOpen) await refreshDropdown()
-      else await refreshBadgeCount()
-    }, DEBOUNCE_MS)
-  }, [isOpen, refreshBadgeCount, refreshDropdown])
-  // Poll through the application-owned server boundary until an Azure-compatible
-  // event channel is selected. Focus/visibility refreshes keep returning users current.
-  useEffect(() => {
-    if (!userId || !userRole) return
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') debouncedRefreshBadge()
-    }
-    const interval = window.setInterval(refreshWhenVisible, 30000)
-    window.addEventListener('focus', refreshWhenVisible)
-    document.addEventListener('visibilitychange', refreshWhenVisible)
-    return () => {
-      window.clearInterval(interval)
-      window.removeEventListener('focus', refreshWhenVisible)
-      document.removeEventListener('visibilitychange', refreshWhenVisible)
-      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current)
-      if (navTimeoutRef.current) clearTimeout(navTimeoutRef.current)
-    }
-  }, [userId, userRole, debouncedRefreshBadge])
+  useNotificationPolling({ enabled: !!userId && !!userRole, scopeKey: userId + ':' + (userRole ?? ''),
+    dropdownOpen: isOpen, loadBadge: refreshBadgeCount, loadDropdown: refreshDropdown })
+  useEffect(() => () => { if (navTimeoutRef.current) clearTimeout(navTimeoutRef.current) }, [])
 
   const handleApplicationClick = (applicationId: string) => {
     setIsOpen(false)

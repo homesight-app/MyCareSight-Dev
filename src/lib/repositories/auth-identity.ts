@@ -5,8 +5,8 @@ import sql from '@/db'
 import type { AgencyRole, UserRole } from '@/types/auth'
 import { hashPassword, verifyPassword } from '@/lib/auth/password'
 import { reportSessionRejection, type SessionRejectionReason } from '@/lib/auth/session-diagnostics'
+import { SESSION_IDLE_SECONDS, SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session-policy'
 
-const SESSION_MAX_AGE_SECONDS = 60 * 60
 const LOGIN_WINDOW_MINUTES = 15
 const LOGIN_ACCOUNT_LIMIT = 5
 const LOGIN_IP_LIMIT = 20
@@ -33,6 +33,8 @@ export type OpaqueSessionIdentity = {
   agencyId: string | null
   fullName: string | null
   expiresAt: Date
+  absoluteExpiresAt?: Date
+  serverNow?: Date
 }
 
 export type CurrentIdentity = {
@@ -211,6 +213,8 @@ export async function readOpaqueSession(sessionToken: string): Promise<OpaqueSes
     agency_id: string | null
     full_name: string | null
     expires_at: Date
+    idle_expires_at: Date
+    server_now: Date
     membership_active: boolean
   }[]>`
     SELECT
@@ -220,6 +224,8 @@ export async function readOpaqueSession(sessionToken: string): Promise<OpaqueSes
       profile.agency_id,
       profile.full_name,
       session.expires_at,
+      session.last_seen_at + (${SESSION_IDLE_SECONDS} * interval '1 second') AS idle_expires_at,
+      now() AS server_now,
       CASE
         WHEN profile.role IN ('admin', 'expert') THEN true
         ELSE EXISTS (
@@ -235,6 +241,7 @@ export async function readOpaqueSession(sessionToken: string): Promise<OpaqueSes
     WHERE session.token_hash = ${sha256(sessionToken)}
       AND session.revoked_at IS NULL
       AND session.expires_at > now()
+      AND session.last_seen_at > now() - (${SESSION_IDLE_SECONDS} * interval '1 second')
       AND profile.is_active = true
     LIMIT 1
   `
@@ -249,6 +256,7 @@ export async function readOpaqueSession(sessionToken: string): Promise<OpaqueSes
             WHEN rejected.token_hash IS NULL THEN 'not-found'
             WHEN rejected.revoked_at IS NOT NULL THEN 'revoked'
             WHEN rejected.expires_at <= now() THEN 'expired'
+            WHEN rejected.last_seen_at <= now() - (${SESSION_IDLE_SECONDS} * interval '1 second') THEN 'idle-expired'
             WHEN profile.id IS NULL THEN 'profile-unavailable'
             WHEN profile.is_active IS DISTINCT FROM true THEN 'profile-inactive'
             ELSE 'unclassified'
@@ -267,20 +275,6 @@ export async function readOpaqueSession(sessionToken: string): Promise<OpaqueSes
     return null
   }
 
-  // Session validity is established by the read above. last_seen_at is
-  // operational telemetry and must not sign out a verified user when that
-  // non-security-critical write is temporarily unavailable.
-  try {
-    await sql`
-      UPDATE auth_sessions
-      SET last_seen_at = now()
-      WHERE token_hash = ${sha256(sessionToken)}
-        AND last_seen_at < now() - interval '5 minutes'
-    `
-  } catch {
-    console.warn('[auth] Session last-seen update unavailable')
-  }
-
   return {
     sessionToken,
     userId: row.user_id,
@@ -288,17 +282,44 @@ export async function readOpaqueSession(sessionToken: string): Promise<OpaqueSes
     role: row.role,
     agencyId: row.agency_id,
     fullName: row.full_name,
-    expiresAt: new Date(row.expires_at),
+    expiresAt: new Date(Math.min(new Date(row.expires_at).getTime(), new Date(row.idle_expires_at).getTime())),
+    absoluteExpiresAt: new Date(row.expires_at),
+    serverNow: new Date(row.server_now),
+  }
+}
+
+/** Only the explicit, same-origin user-activity endpoint calls this. Never on reads. */
+export async function recordOpaqueSessionActivity(sessionToken: string): Promise<OpaqueSessionIdentity | null> {
+  const identity = await readOpaqueSession(sessionToken)
+  if (!identity) return null
+  const [row] = await sql<{ expires_at: Date; last_seen_at: Date; server_now: Date }[]>`
+    UPDATE auth_sessions SET last_seen_at = now()
+    WHERE token_hash = ${sha256(sessionToken)}
+      AND revoked_at IS NULL AND expires_at > now()
+      AND last_seen_at > now() - (${SESSION_IDLE_SECONDS} * interval '1 second')
+    RETURNING expires_at, last_seen_at, now() AS server_now
+  `
+  // A concurrent expiration/revocation cannot be resurrected by a delayed heartbeat.
+  if (!row) return null
+  return {
+    ...identity,
+    expiresAt: new Date(Math.min(new Date(row.expires_at).getTime(), new Date(row.last_seen_at).getTime() + SESSION_IDLE_SECONDS * 1000)),
+    absoluteExpiresAt: new Date(row.expires_at),
+    serverNow: new Date(row.server_now),
   }
 }
 
 export async function revokeOpaqueSession(sessionToken: string, reason = 'sign_out'): Promise<void> {
   if (!sessionToken) return
   await sql`
-    UPDATE auth_sessions
-    SET revoked_at = COALESCE(revoked_at, now()),
-        revoke_reason = COALESCE(revoke_reason, ${reason})
-    WHERE token_hash = ${sha256(sessionToken)}
+    WITH revoked AS (
+      UPDATE auth_sessions SET revoked_at = now(), revoke_reason = ${reason}
+      WHERE token_hash = ${sha256(sessionToken)} AND revoked_at IS NULL
+      RETURNING user_id
+    )
+    INSERT INTO audit_log (table_name, record_id, action, performed_by_user_id, details)
+    SELECT 'auth_sessions', user_id, 'REVOKE', user_id, ${sql.json({ reason })}
+    FROM revoked
   `
 }
 

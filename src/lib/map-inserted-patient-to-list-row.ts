@@ -13,6 +13,8 @@ export interface RepresentativeEmbed {
 }
 
 export interface ClientsListPatient {
+  branch_id?: string | null
+  branch_name?: string | null
   id: string
   first_name: string
   last_name: string

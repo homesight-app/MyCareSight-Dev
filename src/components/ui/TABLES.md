@@ -4,7 +4,7 @@ Use the shared `DataTable` for new standard record tables. Existing tables do no
 
 ## Shared DataTable: first approved adoption
 
-The November 25 user-approved batch adds `src/components/ui/DataTable.tsx` and adopts it only for Branches, shared by the agency and admin portals. Inventory first confirmed that no generic shell existed: `LicenseTypesTable` owns license-specific workflows, `TemplateEditor`'s table toolbar edits rich-text tables, and `useTableState`/the existing UI controls are building blocks. No new library is required.
+The initial November 25 user-approved batch adds `src/components/ui/DataTable.tsx` for Branches, shared by the agency and admin portals. The separately approved Clients adoption is documented below. Inventory first confirmed that no generic shell existed: `LicenseTypesTable` owns license-specific workflows, `TemplateEditor`'s table toolbar edits rich-text tables, and `useTableState`/the existing UI controls are building blocks. No new library is required.
 
 `DataTable` composes the existing `PrimaryButton`, `SearchInput`, `FilterSelect`, `SortableColumnHeader`, `RecordActionsMenu` and `TablePagination`. Do not rebuild the toolbar, table body, loading/empty/error states, row interaction handling or pagination for another standard table.
 
@@ -38,6 +38,14 @@ The complete typed API is exported from [DataTable.tsx](./DataTable.tsx). See [A
 - Adopt additional tables only in separately approved, independently checked batches. This batch changes no query, schema, authorization rule, density token, root font size or existing feature workflow.
 
 ## Legacy building-block recipe
+
+### Approved Clients adoption (November 25)
+
+`ClientsContent.tsx` now uses the existing shell without changing its public API. Active/Intake/Inactive/All remain feature-owned status controls above the table; the shared toolbar contains search, the branch filter, Refresh and the existing Add New Client workflow. With branches enabled, Branch replaces Representative #2 in the list only; both representative records and profile editing remain intact. Feature-off retains Representative #2 and makes no branch-options request.
+
+The server route and patient query own the whitelisted column ordering, status/search/branch predicates and stable ID ties. They return at most 50 clients with the complete filtered total; the shell does not sort or paginate that page again. Filter/sort changes reset to page zero in one navigation; search waits 400 ms. Current query state survives paging and browser history, and All is explicitly encoded rather than falling back to Active. Successful creation/status changes refresh the authoritative page instead of prepending or removing rows independently of its sort/filter/counts. Mutation errors preserve the displayed record and show a non-content error.
+
+`useAgencyBranchOptions` extracts the existing editor's authorized options loader for reuse by the table. It deduplicates a mounted surface's request (including Strict Mode), has explicit retry, and adds no polling, global identity cache or browser storage. It uses the existing 100-branch cap and does not block the initial client page. Existing tenant context, RLS, feature capability and mutation boundaries remain authoritative. Representative ordering uses the same display-order/ID tie-break for its sort expression and rendered array. Sorting a large filtered agency still requires database work across matching rows; offset paging, count queries and substring search retain their existing scale limits. Cloud latency and a 10x workload were not benchmarked; confirm index/query plans during UAT if needed.
 
 The following documents existing direct usage; prefer the shared shell for new standard tables.
 

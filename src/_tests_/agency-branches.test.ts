@@ -98,7 +98,7 @@ beforeAll(async () => {
       ADD COLUMN company_name text, ADD COLUMN contact_email text;
     ALTER TABLE leads ADD COLUMN converted_client_id uuid, ADD COLUMN converted_agency_id uuid;
     ALTER TABLE patients ADD COLUMN first_name text DEFAULT '', ADD COLUMN last_name text DEFAULT '', ADD COLUMN email_address text, ADD COLUMN phone_number text;
-    ALTER TABLE patients ADD COLUMN gender text, ADD COLUMN date_of_birth date, ADD COLUMN documents jsonb;
+    ALTER TABLE patients ADD COLUMN gender text, ADD COLUMN class text, ADD COLUMN date_of_birth date, ADD COLUMN documents jsonb;
     ALTER TABLE user_profiles ADD COLUMN full_name text;
     ALTER TABLE leads ADD COLUMN contact_phone text, ADD COLUMN price numeric, ADD COLUMN retainer_amount numeric,
       ADD COLUMN retainer_paid_date date, ADD COLUMN installments integer, ADD COLUMN installment_amount numeric, ADD COLUMN signed_date date,
@@ -334,6 +334,57 @@ test('lead stage aggregates, client page and counts use the same selected branch
   expect((await getPatientsByAgencyId(AGENCY, { branchId: main, pageSize: 1 })).data).toEqual([])
   expect(await getPatientCountsByAgencyId(AGENCY, west)).toEqual({ total: 1, active: 1 })
   expect(await getPatientCountsByAgencyId(AGENCY, main)).toEqual({ total: 0, active: 0 })
+})
+
+test('client branch names, sorting, filtered totals and stable paging use one agency context', async () => {
+  const west = await saveBranch(form)
+  await assignRecordBranches('client', CLIENT, [west])
+  await db.query(`UPDATE patients SET first_name='Synthetic',last_name='A',gender='Male',class='Private',phone_number='555-0102',emergency_contact_name='Contact B' WHERE id=$1`, [CLIENT])
+  await db.query(`INSERT INTO patients(id,agency_id,first_name,last_name,gender,class,phone_number,emergency_contact_name,branch_id)
+    VALUES ($1,$3,'Synthetic','B','Female','Medicaid','555-0101','Contact A',$4),($2,$3,'Synthetic','B','Female','Medicaid','555-0101','Contact A',$4)`, [id(131), id(132), AGENCY, main])
+  const selected = await getPatientsByAgencyId(AGENCY, { branchId: west, search: 'Synthetic', status: 'all', sortKey: 'branch_name', sortDir: 'asc', pageSize: 1 })
+  expect(selected.error).toBeNull()
+  expect(selected.count).toBe(1)
+  expect(selected.data).toEqual([expect.objectContaining({ id: CLIENT, branch_id: west, branch_name: form.name })])
+  const pages = await Promise.all([0, 1, 2].map(page => getPatientsByAgencyId(AGENCY, { search: 'Synthetic', status: 'all', sortKey: 'branch_name', sortDir: 'asc', pageSize: 1, page })))
+  expect(pages.map(result => result.count)).toEqual([3, 3, 3])
+  expect(pages.flatMap(result => result.data!.map(row => row.id))).toEqual([id(131), id(132), CLIENT])
+  const descending = await getPatientsByAgencyId(AGENCY, { sortKey: 'branch_name', sortDir: 'desc', pageSize: 1 })
+  expect(descending.data?.[0].id).toBe(CLIENT)
+  for (const sortKey of ['gender', 'class', 'phone', 'emergency_contact'] as const) {
+    const result = await getPatientsByAgencyId(AGENCY, { sortKey, sortDir: 'asc', pageSize: 1 })
+    expect(result.error).toBeNull()
+    expect(result.data?.[0].id).toBe(id(131))
+  }
+  expect((await getPatientsByAgencyId(OTHER, { sortKey: 'branch_name' })).data).toEqual([])
+  expect(queryShapes.filter(shape => /FROM patients p/.test(shape) && /LIMIT/.test(shape)).every(shape => /LIMIT \$\d+ OFFSET \$\d+/.test(shape))).toBe(true)
+})
+
+test('client representative sort matches displayed representative order and never adds per-row requests', async () => {
+  await saveBranch(form)
+  await db.query(`INSERT INTO patients(id,agency_id,first_name,last_name) VALUES ($1,$2,'Synthetic','Other')`, [id(133), AGENCY])
+  await db.exec('RESET ROLE')
+  await db.query(`INSERT INTO patients_representatives(id,patient_id,name,display_order) VALUES
+    ($1,$5,'Z first',0),($2,$5,'A second',1),($3,$6,'A first',0),($4,$6,'Z second',1)`, [id(141), id(142), id(143), id(144), CLIENT, id(133)])
+  await db.exec('SET LOCAL ROLE mycaresight_app')
+  queryShapes = []
+  const first = await getPatientsByAgencyId(AGENCY, { sortKey: 'representative_1', sortDir: 'asc', pageSize: 1 })
+  expect(first.error).toBeNull()
+  expect(first.data?.[0]).toMatchObject({ id: id(133), patients_representatives: [expect.objectContaining({ name: 'A first' }), expect.objectContaining({ name: 'Z second' })] })
+  expect(queryShapes).toHaveLength(2)
+  const second = await getPatientsByAgencyId(AGENCY, { sortKey: 'representative_2', sortDir: 'asc', pageSize: 1 })
+  expect(second.error).toBeNull()
+  expect(second.data?.[0].id).toBe(CLIENT)
+})
+
+test('feature-off client listing does not reference branch schema even with a stale branch sort', async () => {
+  await saveBranch(form)
+  delete process.env.AGENCY_BRANCHES_ENABLED
+  queryShapes = []
+  const result = await getPatientsByAgencyId(AGENCY, { sortKey: 'branch_name', pageSize: 1 })
+  expect(result.error).toBeNull()
+  expect(result.data).toHaveLength(1)
+  expect(queryShapes.some(shape => /agency_branches|branch\.name/.test(shape))).toBe(false)
 })
 
 test('program branch filtering uses existence so shared links cannot multiply rows, counts or progress', async () => {

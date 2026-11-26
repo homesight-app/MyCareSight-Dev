@@ -1,4 +1,5 @@
 import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import type { ClientListSortKey } from '@/lib/client-list'
 import sql from '@/db'
 import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
 import { readPatientDocuments } from '@/lib/patient-document-metadata'
@@ -104,6 +105,8 @@ export async function getPatientsByOwnerIds(ownerIds: string[]) {
 }
 
 export type GetPatientsByAgencyIdOpts = {
+  sortKey?: ClientListSortKey
+  sortDir?: 'asc' | 'desc'
   branchId?: string
   page?: number
   pageSize?: number
@@ -111,8 +114,8 @@ export type GetPatientsByAgencyIdOpts = {
   status?: string
 }
 
-/** Get patients by agency_id with optional server-side pagination, search, and status filter.
- *  Uses a separate count query because joining disrupts COUNT. */
+/** Current authorized agency page; sorting/filtering precede LIMIT, with a stable ID tie-break.
+ * The separate count query does not load representative or branch metadata. */
 export async function getPatientsByAgencyId(
   agencyId: string,
   opts?: GetPatientsByAgencyIdOpts
@@ -122,6 +125,20 @@ export async function getPatientsByAgencyId(
   const from = page * pageSize
   const searchTerm = opts?.search?.trim() ?? ''
   const statusFilter = opts?.status && opts.status !== 'all' ? opts.status : null
+  const showBranch = agencyBranchesEnabled()
+  const direction = opts?.sortDir === 'asc' ? sql`ASC` : sql`DESC`
+  const sort = opts?.sortKey
+  const column = sort === 'name' ? sql`p.last_name`
+    : sort === 'gender' ? sql`p.gender` : sort === 'class' ? sql`p.class`
+    : sort === 'phone' ? sql`p.phone_number` : sort === 'emergency_contact' ? sql`p.emergency_contact_name`
+    : sort === 'status' ? sql`p.status`
+    : sort === 'branch_name' && showBranch ? sql`branch.name`
+    : sort === 'representative_1' || sort === 'representative_2'
+      ? sql`(SELECT representative.name FROM patients_representatives representative WHERE representative.patient_id = p.id
+          ORDER BY representative.display_order, representative.id LIMIT 1 OFFSET ${sort === 'representative_2' ? 1 : 0})`
+      : null
+  const ordering = column ? sql`${column} ${direction} NULLS LAST, ${sort === 'name' ? sql`p.first_name ${direction},` : sql``} p.id`
+    : sql`p.status DESC, p.created_at ${direction}, p.id`
 
   try {
     const searchFragment = searchTerm
@@ -141,6 +158,7 @@ export async function getPatientsByAgencyId(
     const [dataRows, countRows] = await Promise.all([
       sql`
         SELECT p.*,
+          ${showBranch ? sql`branch.name AS branch_name,` : sql``}
           COALESCE(
             (
               SELECT json_agg(json_build_object(
@@ -149,17 +167,18 @@ export async function getPatientsByAgencyId(
                 'relationship', r.relationship,
                 'phone_number', r.phone_number,
                 'email_address', r.email_address
-              ) ORDER BY r.display_order)
+              ) ORDER BY r.display_order, r.id)
               FROM patients_representatives r
               WHERE r.patient_id = p.id
             ),
             '[]'
           ) AS patients_representatives
         FROM patients p
+        ${showBranch ? sql`LEFT JOIN public.agency_branches branch ON branch.id = p.branch_id AND branch.agency_id = p.agency_id` : sql``}
         WHERE p.agency_id = ${agencyId}
         ${searchFragment}
         ${statusFragment} ${branchFragment}
-        ORDER BY p.status DESC, p.created_at DESC, p.id
+        ORDER BY ${ordering}
         LIMIT ${pageSize} OFFSET ${from}
       `,
       sql`

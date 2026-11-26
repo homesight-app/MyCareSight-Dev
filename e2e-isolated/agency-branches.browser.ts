@@ -24,7 +24,7 @@ test.beforeAll(async () => {
   fs.writeFileSync(actions, `
     const ids = ${JSON.stringify({ main, west, recordId })};
     const branches = [{id:ids.main,name:'Main',status:'active',is_default:true},{id:ids.west,name:'West',status:'active',is_default:false}];
-    window.branchHarness = {reads:0, writes:[], refreshes:0, fail:false};
+    window.branchHarness = {reads:0, writes:[], refreshes:0, fail:false, pushes:[]};
     export async function getRecordBranchesAction(){window.branchHarness.reads++;return {success:true,data:{branchIds:[ids.main],branches,canEdit:true}}}
     export async function assignRecordBranchesAction(input){window.branchHarness.writes.push(input);return window.branchHarness.fail?{success:false,error:'Refresh before retrying.'}:{success:true}}
     export async function listBranchesAction(input){window.branchHarness.branchReads++;window.branchHarness.listRequests.push(input);return {success:true,data:{rows:[{id:ids.main,agency_id:ids.recordId,name:'Synthetic Main',code:'main',is_default:true,status:'active',timezone:'UTC',street_address:null,city:'Synthetic City',state:'California',zip_code:null,phone:null,email:null}],hasMore:false,totalCount:1}}}
@@ -41,9 +41,12 @@ test.beforeAll(async () => {
     export async function getActiveAgencyOptionsAction(){return {data:[]}}
     export async function getPeopleForAgency(){return {keyStaff:[]}}
     export async function requestProgramBranchesAction(input){window.branchHarness.writes.push(input);return {success:true,id:input.requestId}}
+    export async function updatePatientStatus(id,status){window.branchHarness.writes.push({id,status});window.clientRows=window.clientRows.map(row=>row.id===id?{...row,status}:row);return {error:null}}
   `)
   const navigation = path.join(directory, 'navigation.js')
-  fs.writeFileSync(navigation, 'export function useRouter(){return {refresh(){window.branchHarness.refreshes++},push(){}}}')
+  fs.writeFileSync(navigation, `const router={refresh(){window.branchHarness.refreshes++;window.refreshClient?.()},push(value){window.branchHarness.pushes.push(value);if(value.startsWith('?'))window.renderClientQuery?.(value)}};export function useRouter(){return router}`)
+  const addClient = path.join(directory, 'add-client.js')
+  fs.writeFileSync(addClient, `import React from 'react';export default function AddClient({isOpen,onClose,onSuccess}){return isOpen?React.createElement('div',{role:'dialog','aria-label':'Existing add client'},React.createElement('button',{onClick:onSuccess},'Save synthetic client'),React.createElement('button',{onClick:onClose},'Cancel')):null}`)
   const toast = path.join(directory, 'toast.js')
   fs.writeFileSync(toast, 'export const toast = {success(){},error(){}}')
   const entry = path.join(directory, 'entry.js')
@@ -53,6 +56,7 @@ test.beforeAll(async () => {
     import Request from '@/components/ProgramBranchRequestForm';
     import Info from '@/components/AgencyInfoPanel';
     import DataTable from '@/components/ui/DataTable';
+    import Clients from '@/components/ClientsContent';
     import Personal from '@/components/ClientPersonalInfo';
     import Lead from '@/components/AddLeadModal';
     import {AGENCY_LEAD_CONTEXT} from '@/lib/constants/lead-configs';
@@ -73,8 +77,17 @@ test.beforeAll(async () => {
         sort:{value:sort,onChange:key=>setSort(current=>({key,dir:current.dir==='asc'?'desc':'asc'}))},
         addAction:{label:'Add Fixture',onClick(){window.tableAdded=true}},rowNavigation:{columnKey:'name',onOpen(row){window.tableOpened=row.id}}});
     }
+    function ClientReview(){
+      const [query,setQuery]=React.useState(''),[,setVersion]=React.useState(0);
+      window.renderClientQuery=setQuery;window.refreshClient=()=>setVersion(value=>value+1);
+      window.clientRows??=Array.from({length:53},(_,index)=>({id:'synthetic-'+index,first_name:'Synthetic',last_name:'Client '+String(index).padStart(2,'0'),age:40,gender:'Female',class:'Private Pay',phone_number:'555-0100',emergency_contact_name:'Synthetic Contact',emergency_phone:'555-0101',patients_representatives:[{id:'rep-'+index,name:'Synthetic Representative',relationship:'Family',phone_number:'555-0102'}],status:'active',branch_id:index%2?'${west}':'${main}',branch_name:index%2?'West':'Main'}));
+      const params=new URLSearchParams(query),page=Number(params.get('page')||0),search=params.get('q')||'',status=params.get('status')||'active',branch=params.get('branch')||'',sortKey=params.get('sortKey')||'created_at',sortDir=params.get('sortDir')||'desc';
+      const rows=window.clientRows.filter(row=>(status==='all'||row.status===status)&&(!branch||row.branch_id===branch)&&(row.first_name+' '+row.last_name).toLowerCase().includes(search.toLowerCase()));
+      if(sortKey==='branch_name')rows.sort((a,b)=>(sortDir==='asc'?1:-1)*a.branch_name.localeCompare(b.branch_name)||a.id.localeCompare(b.id));
+      return React.createElement(Clients,{clients:rows.slice(page*50,page*50+50),totalCount:rows.length,activeCount:53,totalAllCount:53,page,pageSize:50,search,statusFilter:status,branchesEnabled:true,branchFilter:branch,sortKey,sortDir});
+    }
     const root = createRoot(document.getElementById('root'));
-    window.mountBranchReview = kind => root.render(kind==='profile'?React.createElement(PersonalReview):kind==='lead-edit'?React.createElement(Lead,{isOpen:true,onClose(){},onSuccess(){},context:AGENCY_LEAD_CONTEXT,editLead:lead,branchesEnabled:true,canEditBranch:true}):kind==='table'?React.createElement(SharedTableReview):kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
+    window.mountBranchReview = kind => root.render(kind==='clients'?React.createElement(ClientReview):kind==='profile'?React.createElement(PersonalReview):kind==='lead-edit'?React.createElement(Lead,{isOpen:true,onClose(){},onSuccess(){},context:AGENCY_LEAD_CONTEXT,editLead:lead,branchesEnabled:true,canEditBranch:true}):kind==='table'?React.createElement(SharedTableReview):kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
       React.createElement(Request,{playbookId:'${recordId}',state:'CA',onSaved(){window.branchHarness.refreshes++}}):
       React.createElement(Assignment,{kind,recordId:'${recordId}'}));`)
   await new Promise<void>((resolve, reject) => {
@@ -85,6 +98,7 @@ test.beforeAll(async () => {
         '@/app/actions/agency-branches$': actions, 'next/navigation$': navigation, 'sonner$': toast,
         '@/app/actions/client-personal-info$': actions, '@/app/actions/leads$': actions, '@/app/actions/agencies$': actions,
         '@/app/actions/agency-lead-stages$': actions, '@/app/actions/agency-people$': actions,
+        '@/app/actions/query-bridge$': actions, '@/components/AddNewClientModal$': addClient,
         '@': path.resolve('src'),
       } },
       module: { rules: [{ test: /\.tsx?$/, exclude: /node_modules/, use: loader }] },
@@ -122,6 +136,66 @@ test.beforeEach(async ({ page }) => {
   await page.addScriptTag({ content: bundle })
   if (!await page.evaluate(() => typeof (window as any).mountBranchReview === 'function')) throw new Error(`Synthetic harness failed: ${errors.slice(0, 3).join('; ')}`)
   await page.evaluate(() => { (window as any).branchHarness.branchReads = 0; (window as any).branchHarness.listRequests = [] })
+})
+
+test('client table preserves paging, branch filtering, sorting and keyboard record navigation', async ({ page }) => {
+  await page.evaluate(() => (window as any).mountBranchReview('clients'))
+  const table = page.getByRole('table', { name: 'Clients', exact: true })
+  const toolbar = page.getByRole('group', { name: 'Clients controls' })
+  await expect(table.getByRole('row')).toHaveCount(51)
+  await expect(page.getByText('Page 1 of 2')).toBeVisible()
+  await expect(toolbar.getByRole('button', { name: 'Add New Client' })).toBeVisible()
+  await expect(table.getByRole('columnheader', { name: 'Representative #2' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await expect(table.getByRole('row')).toHaveCount(4)
+  await expect(page.getByText('Page 2 of 2')).toBeVisible()
+  const branch = toolbar.getByRole('combobox', { name: 'Filter clients by branch' })
+  await branch.selectOption(west)
+  await expect(table.getByRole('row')).toHaveCount(27)
+  await expect(page.getByText('Page 1 of 1')).toBeVisible()
+  const sort = table.getByRole('button', { name: 'Sort by Branch' })
+  await sort.focus()
+  await page.keyboard.press('Enter')
+  await expect(sort.locator('..')).toHaveAttribute('aria-sort', 'ascending')
+  expect(await page.evaluate(() => (window as any).branchHarness.pushes.length)).toBe(3)
+  await toolbar.getByRole('textbox', { name: 'Search clients' }).fill('Client 01')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Actions for Synthetic Client 01' }).click()
+  await expect(page.getByRole('menuitem', { name: 'View Details' })).toHaveAttribute('href', '/pages/agency/clients/synthetic-1')
+  await page.keyboard.press('Escape')
+  await table.getByRole('button', { name: 'Open Synthetic Client 01' }).focus()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.pushes.at(-1))).toBe('/pages/agency/clients/synthetic-1')
+  expect(await page.evaluate(() => (window as any).branchHarness.reads)).toBe(1)
+})
+
+test('client table creation and status actions refresh existing workflows without row navigation', async ({ page }) => {
+  await page.evaluate(() => (window as any).mountBranchReview('clients'))
+  await page.getByRole('button', { name: 'Add New Client' }).click()
+  await expect(page.getByRole('dialog', { name: 'Existing add client' })).toBeVisible()
+  await page.getByRole('button', { name: 'Save synthetic client' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Actions for Synthetic Client 00' }).click()
+  await page.getByRole('menuitem', { name: 'Deactivate' }).click()
+  await expect(page.getByRole('button', { name: 'Open Synthetic Client 00' })).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).branchHarness.pushes)).toEqual([])
+  expect(await page.evaluate(() => (window as any).branchHarness.refreshes)).toBe(2)
+  await page.getByRole('button', { name: 'All', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open Synthetic Client 00' })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Inactive', exact: true })).toBeVisible()
+})
+
+test('client table synthetic visual review at desktop and narrow widths', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.evaluate(() => (window as any).mountBranchReview('clients'))
+  await expect(page.getByRole('table', { name: 'Clients', exact: true })).toBeVisible()
+  const captures = path.resolve('node_modules/.cache/client-table-review')
+  fs.mkdirSync(captures, { recursive: true })
+  await page.screenshot({ path: path.join(captures, 'clients-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByRole('combobox', { name: 'Filter clients by branch' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add New Client' })).toBeVisible()
+  await page.screenshot({ path: path.join(captures, 'clients-narrow.png') })
 })
 
 test('keyboard assignment loads on demand and submits a single selected branch', async ({ page }) => {

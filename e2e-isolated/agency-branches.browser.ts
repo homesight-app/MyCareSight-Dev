@@ -42,6 +42,7 @@ test.beforeAll(async () => {
     export async function getPeopleForAgency(){return {keyStaff:[]}}
     export async function requestProgramBranchesAction(input){window.branchHarness.writes.push(input);return {success:true,id:input.requestId}}
     export async function updatePatientStatus(id,status){window.branchHarness.writes.push({id,status});window.clientRows=window.clientRows.map(row=>row.id===id?{...row,status}:row);return {error:null}}
+    export async function cancelProgramRequest(id){window.branchHarness.writes.push({cancel:id});return {error:null}}
   `)
   const navigation = path.join(directory, 'navigation.js')
   fs.writeFileSync(navigation, `const router={refresh(){window.branchHarness.refreshes++;window.refreshClient?.()},push(value){window.branchHarness.pushes.push(value);if(value.startsWith('?'))window.renderClientQuery?.(value)}};export function useRouter(){return router}`)
@@ -49,6 +50,8 @@ test.beforeAll(async () => {
   fs.writeFileSync(addClient, `import React from 'react';export default function AddClient({isOpen,onClose,onSuccess}){return isOpen?React.createElement('div',{role:'dialog','aria-label':'Existing add client'},React.createElement('button',{onClick:onSuccess},'Save synthetic client'),React.createElement('button',{onClick:onClose},'Cancel')):null}`)
   const toast = path.join(directory, 'toast.js')
   fs.writeFileSync(toast, 'export const toast = {success(){},error(){}}')
+  const requestService = path.join(directory, 'request-service.js')
+  fs.writeFileSync(requestService, `import React from 'react';import Button from '@/components/ui/PrimaryButton';import {Plus} from 'lucide-react';export default function RequestService({label,programsOnly,branchSelectionEnabled}){return React.createElement(Button,{icon:Plus,onClick(){window.serviceRequest={programsOnly,branchSelectionEnabled}}},label)}`)
   const entry = path.join(directory, 'entry.js')
   fs.writeFileSync(entry, `import React from 'react'; import {createRoot} from 'react-dom/client';
     import Assignment from '@/components/RecordBranchAssignment';
@@ -57,6 +60,7 @@ test.beforeAll(async () => {
     import Info from '@/components/AgencyInfoPanel';
     import DataTable from '@/components/ui/DataTable';
     import Clients from '@/components/ClientsContent';
+    import Services from '@/components/AgencyProgramsContent';
     import Personal from '@/components/ClientPersonalInfo';
     import Lead from '@/components/AddLeadModal';
     import {AGENCY_LEAD_CONTEXT} from '@/lib/constants/lead-configs';
@@ -86,8 +90,16 @@ test.beforeAll(async () => {
       if(sortKey==='branch_name')rows.sort((a,b)=>(sortDir==='asc'?1:-1)*a.branch_name.localeCompare(b.branch_name)||a.id.localeCompare(b.id));
       return React.createElement(Clients,{clients:rows.slice(page*50,page*50+50),totalCount:rows.length,activeCount:53,totalAllCount:53,page,pageSize:50,search,statusFilter:status,branchesEnabled:true,branchFilter:branch,sortKey,sortDir});
     }
+    function ServicesReview(){
+      const [query,setQuery]=React.useState('');
+      window.renderClientQuery=setQuery;
+      const params=new URLSearchParams(query),page=Number(params.get('page')||0),search=params.get('q')||'',branch=params.get('branch')||'';
+      const all=Array.from({length:53},(_,index)=>({id:'service-'+index,application_name:'Synthetic Service '+String(index).padStart(2,'0'),state:'California',status:'in_progress',application_playbook_items:[],progress_summary:{approved:1,inProgress:2,reviewNeeded:1,notStarted:6,notApplicable:2,itemCount:12},branchIds:index===0?['${main}','${west}']:[index%2?'${west}':'${main}']}));
+      const rows=all.filter(row=>(!branch||row.branchIds.includes(branch))&&row.application_name.toLowerCase().includes(search.toLowerCase()));
+      return React.createElement(Services,{programs:rows.slice(page*50,page*50+50),totalCount:rows.length,page,pageSize:50,initialSearch:search,branchesEnabled:true,branchFilter:branch,branchSelectionEnabled:true,pendingRequests:[{id:'pending-service',application_name:'Synthetic Pending',state:'CA',status:'requested',created_at:'2026-01-01'}]});
+    }
     const root = createRoot(document.getElementById('root'));
-    window.mountBranchReview = kind => root.render(kind==='clients'?React.createElement(ClientReview):kind==='profile'?React.createElement(PersonalReview):kind==='lead-edit'?React.createElement(Lead,{isOpen:true,onClose(){},onSuccess(){},context:AGENCY_LEAD_CONTEXT,editLead:lead,branchesEnabled:true,canEditBranch:true}):kind==='table'?React.createElement(SharedTableReview):kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
+    window.mountBranchReview = kind => root.render(kind==='services'?React.createElement(ServicesReview):kind==='clients'?React.createElement(ClientReview):kind==='profile'?React.createElement(PersonalReview):kind==='lead-edit'?React.createElement(Lead,{isOpen:true,onClose(){},onSuccess(){},context:AGENCY_LEAD_CONTEXT,editLead:lead,branchesEnabled:true,canEditBranch:true}):kind==='table'?React.createElement(SharedTableReview):kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
       React.createElement(Request,{playbookId:'${recordId}',state:'CA',onSaved(){window.branchHarness.refreshes++}}):
       React.createElement(Assignment,{kind,recordId:'${recordId}'}));`)
   await new Promise<void>((resolve, reject) => {
@@ -99,6 +111,7 @@ test.beforeAll(async () => {
         '@/app/actions/client-personal-info$': actions, '@/app/actions/leads$': actions, '@/app/actions/agencies$': actions,
         '@/app/actions/agency-lead-stages$': actions, '@/app/actions/agency-people$': actions,
         '@/app/actions/query-bridge$': actions, '@/components/AddNewClientModal$': addClient,
+        '@/app/actions/applications$': actions, '@/components/ApplyForNewLicenseButton$': requestService,
         '@': path.resolve('src'),
       } },
       module: { rules: [{ test: /\.tsx?$/, exclude: /node_modules/, use: loader }] },
@@ -136,6 +149,54 @@ test.beforeEach(async ({ page }) => {
   await page.addScriptTag({ content: bundle })
   if (!await page.evaluate(() => typeof (window as any).mountBranchReview === 'function')) throw new Error(`Synthetic harness failed: ${errors.slice(0, 3).join('; ')}`)
   await page.evaluate(() => { (window as any).branchHarness.branchReads = 0; (window as any).branchHarness.listRequests = [] })
+})
+
+test('services table filters branches, preserves progress/paging and opens records by keyboard', async ({ page }) => {
+  await page.evaluate(() => (window as any).mountBranchReview('services'))
+  const table = page.getByRole('table', { name: 'Services', exact: true })
+  const controls = page.getByRole('group', { name: 'Services controls' })
+  await expect(table.getByRole('row')).toHaveCount(51)
+  await expect(page.getByText('Page 1 of 2')).toBeVisible()
+  await expect(table.getByText('10%', { exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await expect(table.getByRole('row')).toHaveCount(4)
+  await controls.getByRole('combobox', { name: 'Filter services by branch' }).selectOption(west)
+  await expect(table.getByRole('row')).toHaveCount(28)
+  await expect(page.getByText('Page 1 of 1')).toBeVisible()
+  await expect(table.getByRole('button', { name: 'Open service Synthetic Service 00' })).toBeVisible()
+  await controls.getByRole('textbox', { name: 'Search services' }).fill('Service 00')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Actions for Synthetic Service 00' }).click()
+  await expect(page.getByRole('menuitem', { name: 'View Service' })).toHaveAttribute('href', '/pages/agency/programs/service-0')
+  expect(await page.evaluate(() => (window as any).branchHarness.pushes)).toHaveLength(3)
+  await page.keyboard.press('Escape')
+  await table.getByRole('button', { name: 'Open service Synthetic Service 00' }).focus()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.pushes.at(-1))).toBe('/pages/agency/programs/service-0')
+  expect(await page.evaluate(() => (window as any).branchHarness.reads)).toBe(1)
+})
+
+test('services table keeps the Request Service entry and pending-request cancellation', async ({ page }) => {
+  await page.evaluate(() => (window as any).mountBranchReview('services'))
+  await page.getByRole('button', { name: 'Request Service' }).click()
+  expect(await page.evaluate(() => (window as any).serviceRequest)).toEqual({ programsOnly: true, branchSelectionEnabled: true })
+  await page.getByRole('button', { name: 'Pending Requests (1)' }).click()
+  await page.getByRole('button', { name: 'Cancel request' }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.writes)).toEqual([{ cancel: 'pending-service' }])
+  expect(await page.evaluate(() => (window as any).branchHarness.refreshes)).toBe(1)
+  expect(await page.evaluate(() => (window as any).branchHarness.pushes)).toEqual([])
+})
+
+test('services table synthetic visual review at desktop and narrow widths', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.evaluate(() => (window as any).mountBranchReview('services'))
+  await expect(page.getByRole('table', { name: 'Services', exact: true })).toBeVisible()
+  const captures = path.resolve('node_modules/.cache/services-table-review')
+  fs.mkdirSync(captures, { recursive: true })
+  await page.screenshot({ path: path.join(captures, 'services-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByRole('combobox', { name: 'Filter services by branch' })).toBeVisible()
+  await page.screenshot({ path: path.join(captures, 'services-narrow.png') })
 })
 
 test('client table preserves paging, branch filtering, sorting and keyboard record navigation', async ({ page }) => {

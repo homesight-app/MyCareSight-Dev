@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { agencyBranchesEnabled } from '@/lib/agency-branches'
-import AgencyBranchFilter from '@/components/AgencyBranchFilter'
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
@@ -62,10 +61,12 @@ export default async function AgencyProgramsPage({
   }
 
   return (
-    <>
-    {branchesEnabled && <AgencyBranchFilter value={branchId} />}
     <AgencyProgramsContent
+      key={actor.agencyId}
+      branchesEnabled={branchesEnabled}
+      branchFilter={branchId ?? ''}
       branchSelectionEnabled={branchesEnabled && actor.role === 'company_owner'}
+      error={result.error ? 'Unable to load services. Please try again.' : null}
       programs={(result.data ?? []) as unknown as RawRow[]}
       totalCount={result.count}
       page={page}
@@ -74,6 +75,5 @@ export default async function AgencyProgramsPage({
       pendingHasMore={pendingResult.hasMore ?? false}
       pendingRequests={(pendingResult.data ?? []) as unknown as PendingRow[]}
     />
-    </>
   )
 }

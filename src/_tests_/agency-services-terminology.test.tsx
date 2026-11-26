@@ -5,6 +5,7 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }),
 }))
 jest.mock('@/app/actions/applications', () => ({ cancelProgramRequest: jest.fn() }))
+jest.mock('@/app/actions/agency-branches', () => ({ branchOptionsAction: jest.fn() }))
 jest.mock('@/components/ApplyForNewLicenseButton', () => ({
   __esModule: true,
   default: ({ label }: { label: string }) => <button type="button">{label}</button>,

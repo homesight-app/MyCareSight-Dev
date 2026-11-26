@@ -1,3 +1,4 @@
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
 import sql from '@/db'
 import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
 import { readPatientDocuments } from '@/lib/patient-document-metadata'
@@ -335,6 +336,7 @@ export async function getPatientByIdAndAgencyId(patientId: string, agencyId: str
   try {
     const rows = await sql`
       SELECT p.*,
+        ${agencyBranchesEnabled() ? sql`branch.name AS branch_name,` : sql``}
         COALESCE(
           (
             SELECT json_agg(json_build_object(
@@ -350,6 +352,7 @@ export async function getPatientByIdAndAgencyId(patientId: string, agencyId: str
           '[]'
         ) AS patients_representatives
       FROM patients p
+      ${agencyBranchesEnabled() ? sql`LEFT JOIN public.agency_branches branch ON branch.id = p.branch_id AND branch.agency_id = p.agency_id` : sql``}
       WHERE p.id = ${patientId}
         AND p.agency_id = ${agencyId}
       LIMIT 1

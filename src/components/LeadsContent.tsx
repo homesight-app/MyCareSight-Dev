@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Search, Archive, ArchiveRestore, List, LayoutGrid, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
+import SortableColumnHeader from '@/components/ui/SortableColumnHeader'
 import AddLeadModal from './AddLeadModal'
 import LeadsKanbanBoard from './LeadsKanbanBoard'
 import LeadSignedModal from './LeadSignedModal'
@@ -13,6 +14,7 @@ import { type LeadContext, LEAD_STAGES, type AgencyLeadStage } from '@/lib/const
 import { archiveLead, unarchiveLead, updateLeadStage } from '@/app/actions/leads'
 
 interface Lead {
+  branch_name?: string | null
   id: string
   lead_type: string
   contact_first_name: string | null
@@ -43,6 +45,7 @@ function isConvertedLead(lead: Lead) {
 }
 
 interface LeadsContentProps {
+  branchesEnabled?: boolean
   leads: Lead[]
   totalCount?: number
   page?: number
@@ -63,6 +66,7 @@ interface LeadsContentProps {
 }
 
 export default function LeadsContent({
+  branchesEnabled = false,
   leads,
   totalCount = leads.length,
   page = 0,
@@ -82,7 +86,7 @@ export default function LeadsContent({
   stages,
 }: LeadsContentProps) {
   const router = useRouter()
-  type SortKey = 'name' | 'company' | 'service_type' | 'stage' | 'price' | 'signed_date' | 'source' | 'created_at'
+  type SortKey = 'name' | 'company' | 'service_type' | 'branch_name' | 'stage' | 'price' | 'signed_date' | 'source' | 'created_at'
 
   const [search, setSearch] = useState(initialSearch)
   const [stageFilter, setStageFilter] = useState<string>(initialStageFilter)
@@ -453,8 +457,10 @@ export default function LeadsContent({
                     </span>
                   </th>
                 )}
-                {(['service_type', 'stage'] as const).map(col => {
-                  const labels: Record<string, string> = { service_type: 'Service Type', stage: 'Stage' }
+                {(['service_type', ...(branchesEnabled && context.leadType === 'patient' ? ['branch_name' as const] : []), 'stage'] as const).map(col => {
+                  if (col === 'branch_name') return <SortableColumnHeader key={col} label="Branch" sortKey={col}
+                    currentSort={{ key: sortKey, dir: sortDir }} onSort={() => handleSort(col)} buttonHeader className="py-3 text-gray-600" />
+                  const labels: Record<string, string> = { service_type: 'Service Type', branch_name: 'Branch', stage: 'Stage' }
                   const active = sortKey === col
                   return (
                     <th
@@ -513,7 +519,7 @@ export default function LeadsContent({
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5 + (context.leadType === 'agency' ? 2 : 0) + (context.canAssign ? 2 : 0) + (context.billingVisible ? 1 : 0)}
+                    colSpan={5 + (context.leadType === 'agency' ? 2 : 0) + (context.canAssign ? 2 : 0) + (context.billingVisible ? 1 : 0) + (branchesEnabled && context.leadType === 'patient' ? 1 : 0)}
                     className="px-4 py-8 text-center text-gray-500 text-sm"
                   >
                     {stageFilter === 'archived'
@@ -570,6 +576,7 @@ export default function LeadsContent({
                     <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                       {serviceTypeLabel(lead.service_type)}
                     </td>
+                    {branchesEnabled && context.leadType === 'patient' && <td className="px-4 py-3 text-sm text-gray-600">{lead.branch_name || 'Not assigned'}</td>}
                     <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                       {lead.status === 'archived' || isConvertedLead(lead) ? (
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stageColorMap[lead.stage] ?? 'bg-gray-100 text-gray-600'} opacity-60`}>

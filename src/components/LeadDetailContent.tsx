@@ -35,6 +35,8 @@ import LeadDocumentsTab, { type LeadDocument } from './LeadDocumentsTab'
 interface ConvertedAgency { id: string; name: string }
 
 interface Lead {
+  branch_id?: string | null
+  branch_name?: string | null
   id: string
   lead_type: string
   agency_id: string | null
@@ -92,6 +94,8 @@ interface LeadTask {
 }
 
 interface LeadDetailContentProps {
+  branchesEnabled?: boolean
+  canEditBranch?: boolean
   lead: Lead
   notes: LeadNote[]
   tasks: LeadTask[]
@@ -152,7 +156,7 @@ const NOTE_TYPE_COLOR: Record<string, BadgeColor> = {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserId, currentUserRole, platformStaff = [], stages, patientDetails }: LeadDetailContentProps) {
+export default function LeadDetailContent({ lead, notes, tasks, documents, context, currentUserId, currentUserRole, platformStaff = [], stages, patientDetails, branchesEnabled = false, canEditBranch = false }: LeadDetailContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = (['overview', 'notes', 'tasks', 'documents'] as const).find(t => t === searchParams.get('tab')) ?? 'overview'
@@ -394,8 +398,13 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
                       <dd className="text-gray-900">{lead.company_name || '—'}</dd>
                     </>
                   )}
-                  <dt className="text-gray-500">Service Type</dt>
-                  <dd className="text-gray-900">{serviceTypeLabel(lead.service_type)}</dd>
+                  {branchesEnabled && context.leadType === 'patient' ? <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-x-4"><dt className="text-gray-500">Service Type</dt>
+                      <dd className="text-gray-900">{serviceTypeLabel(lead.service_type)}</dd></div>
+                    <div className="grid grid-cols-2 gap-x-4"><dt className="text-gray-500">Branch</dt>
+                      <dd className="text-gray-900">{lead.branch_name || 'Not assigned'}</dd></div>
+                  </div> : <><dt className="text-gray-500">Service Type</dt>
+                    <dd className="text-gray-900">{serviceTypeLabel(lead.service_type)}</dd></>}
                   {lead.service_states && lead.service_states.length > 0 && (
                     <>
                       <dt className="text-gray-500">Service State(s)</dt>
@@ -1081,6 +1090,8 @@ export default function LeadDetailContent({ lead, notes, tasks, documents, conte
         onSuccess={() => { setEditOpen(false); router.refresh() }}
         context={context}
         editLead={lead}
+        branchesEnabled={branchesEnabled}
+        canEditBranch={canEditBranch}
       />
 
       {context.leadType === 'patient' && (

@@ -1,5 +1,4 @@
 import { agencyBranchesEnabled } from '@/lib/agency-branches'
-import RecordBranchAssignment from '@/components/RecordBranchAssignment'
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { authorizeAndAuditAgencyLeadRead } from '@/lib/repositories/agency-lead-reads'
@@ -47,8 +46,9 @@ export default async function AgencyLeadDetailPage({
 
   return (
     <>
-    {agencyBranchesEnabled() && <RecordBranchAssignment key={id} kind="lead" recordId={id} />}
     <LeadDetailContent
+      branchesEnabled={agencyBranchesEnabled()}
+      canEditBranch={session!.profile?.role === 'company_owner'}
       lead={lead as unknown as LeadDetailProps['lead']}
       notes={(notes ?? []) as unknown as LeadDetailProps['notes']}
       tasks={tasks ?? []}

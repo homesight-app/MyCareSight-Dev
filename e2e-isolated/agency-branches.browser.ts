@@ -31,7 +31,15 @@ test.beforeAll(async () => {
     export async function saveBranchAction(input){window.branchHarness.writes.push(input);return {success:true,id:ids.west}}
     export async function saveAgencyInfoAction(input){window.branchHarness.writes.push(input);return {success:true}}
     export async function changeBranchStateAction(){return {success:true}}
-    export async function branchOptionsAction(){return {success:true,data:branches}}
+    export async function branchOptionsAction(){window.branchHarness.reads++;return {success:true,data:branches}}
+    export async function saveClientPersonalInfoAction(id,input){window.branchHarness.writes.push({id,...input});return {success:true}}
+    export async function updateLead(id,input){window.branchHarness.writes.push({id,...input});return {error:null}}
+    export async function createLead(){return {error:null}}
+    export async function updatePatientLeadDetailsAction(){return {error:null}}
+    export async function getLeadCollaboratorOptionsAction(){return {data:[],currentUserId:null}}
+    export async function getAgencyLeadStagesAction(){return {data:[]}}
+    export async function getActiveAgencyOptionsAction(){return {data:[]}}
+    export async function getPeopleForAgency(){return {keyStaff:[]}}
     export async function requestProgramBranchesAction(input){window.branchHarness.writes.push(input);return {success:true,id:input.requestId}}
   `)
   const navigation = path.join(directory, 'navigation.js')
@@ -45,6 +53,12 @@ test.beforeAll(async () => {
     import Request from '@/components/ProgramBranchRequestForm';
     import Info from '@/components/AgencyInfoPanel';
     import DataTable from '@/components/ui/DataTable';
+    import Personal from '@/components/ClientPersonalInfo';
+    import Lead from '@/components/AddLeadModal';
+    import {AGENCY_LEAD_CONTEXT} from '@/lib/constants/lead-configs';
+    function PersonalReview(){const [client,setClient]=React.useState({id:'${recordId}',first_name:'Synthetic',last_name:'Client',gender:'',date_of_birth:'1980-01-02',branch_id:'${main}',branch_name:'Main'});
+      return React.createElement(Personal,{client,branchesEnabled:true,canEditBranch:true,dobFromAge:()=> '1980-01-02',formatDate:value=>value,onSaved:data=>setClient(previous=>({...previous,...data}))});}
+    const lead={id:'${recordId}',contact_first_name:'Synthetic',contact_last_name:'Lead',contact_email:'',contact_phone:'',company_name:'',service_type:'other',service_states:[],stage:'new',source:'Other',price:null,retainer_amount:null,retainer_paid_date:null,installments:null,installment_amount:null,signed_date:null,notes:'',branch_id:'${main}',branch_name:'Main'};
     function SharedTableReview(){
       const [page,setPage]=React.useState(0),[search,setSearch]=React.useState(''),[group,setGroup]=React.useState('all');
       const [sort,setSort]=React.useState({key:'name',dir:'asc'});
@@ -60,7 +74,7 @@ test.beforeAll(async () => {
         addAction:{label:'Add Fixture',onClick(){window.tableAdded=true}},rowNavigation:{columnKey:'name',onOpen(row){window.tableOpened=row.id}}});
     }
     const root = createRoot(document.getElementById('root'));
-    window.mountBranchReview = kind => root.render(kind==='table'?React.createElement(SharedTableReview):kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
+    window.mountBranchReview = kind => root.render(kind==='profile'?React.createElement(PersonalReview):kind==='lead-edit'?React.createElement(Lead,{isOpen:true,onClose(){},onSuccess(){},context:AGENCY_LEAD_CONTEXT,editLead:lead,branchesEnabled:true,canEditBranch:true}):kind==='table'?React.createElement(SharedTableReview):kind==='agency'?React.createElement(Info,{initialAgency:{id:'${recordId}',name:'Synthetic Browser Agency',business_type:'Synthetic Type',tax_id:'SYNTHETIC',primary_license_number:'SYNTHETIC',physical_state:'California',same_as_physical:true},branchesEnabled:true}):kind==='settings'?React.createElement(Settings):kind==='request'?
       React.createElement(Request,{playbookId:'${recordId}',state:'CA',onSaved(){window.branchHarness.refreshes++}}):
       React.createElement(Assignment,{kind,recordId:'${recordId}'}));`)
   await new Promise<void>((resolve, reject) => {
@@ -68,7 +82,10 @@ test.beforeAll(async () => {
       plugins: [new webpack.DefinePlugin({ process: JSON.stringify({ env: { NODE_ENV: 'development' }, browser: true }) })],
       output: { path: directory, filename: 'review.js', publicPath: 'https://app.example.test/assets/' },
       resolve: { extensions: ['.ts', '.tsx', '.js'], alias: {
-        '@/app/actions/agency-branches$': actions, 'next/navigation$': navigation, 'sonner$': toast, '@': path.resolve('src'),
+        '@/app/actions/agency-branches$': actions, 'next/navigation$': navigation, 'sonner$': toast,
+        '@/app/actions/client-personal-info$': actions, '@/app/actions/leads$': actions, '@/app/actions/agencies$': actions,
+        '@/app/actions/agency-lead-stages$': actions, '@/app/actions/agency-people$': actions,
+        '@': path.resolve('src'),
       } },
       module: { rules: [{ test: /\.tsx?$/, exclude: /node_modules/, use: loader }] },
     })
@@ -122,6 +139,37 @@ test('keyboard assignment loads on demand and submits a single selected branch',
   await expect(page.getByRole('button', { name: 'Save Assignment' })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect.poll(() => page.evaluate(() => (window as any).branchHarness.writes)).toEqual([{ kind: 'client', recordId, branchIds: [west] }])
+})
+
+test('client Overview edits Branch with the existing profile Save and Cancel controls', async ({ page }) => {
+  await page.evaluate(() => (window as any).mountBranchReview('profile'))
+  await expect(page.getByText('Branch:', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Branches', exact: true })).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).branchHarness.reads)).toBe(0)
+  await page.getByRole('button', { name: 'Edit personal information' }).focus()
+  await page.keyboard.press('Enter')
+  const select = page.getByRole('combobox', { name: /Branch/ })
+  await expect(select).toBeEnabled()
+  await expect(select).toHaveValue(main)
+  await select.focus()
+  await page.keyboard.press('End')
+  await page.getByLabel('First Name', { exact: false }).fill('Synthetic revised')
+  await page.screenshot({ path: path.resolve('node_modules/.cache/client-profile-branch-review.png') })
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.writes)).toEqual([expect.objectContaining({ id: recordId, branchId: west, first_name: 'Synthetic revised' })])
+  await expect(page.getByRole('button', { name: 'Edit personal information' })).toBeVisible()
+  await expect(page.getByText('West', { exact: true })).toBeVisible()
+})
+
+test('lead modal edits Branch with all the other attributes in one save', async ({ page }) => {
+  await page.evaluate(() => (window as any).mountBranchReview('lead-edit'))
+  const select = page.getByRole('combobox', { name: /Branch/ })
+  await expect(select).toBeEnabled()
+  await select.selectOption(west)
+  await page.locator('input[name="contactFirstName"]').fill('Synthetic revised')
+  await page.screenshot({ path: path.resolve('node_modules/.cache/lead-edit-branch-review.png') })
+  await page.getByRole('button', { name: 'Save Changes', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).branchHarness.writes)).toEqual([expect.objectContaining({ id: recordId, branchId: west, contactFirstName: 'Synthetic revised' })])
 })
 
 test('branch setup validates accessibly and saves synthetic office information', async ({ page }, info) => {

@@ -17,6 +17,8 @@ import {
 } from '@/lib/repositories/lead-documents'
 import { leadConversionSchema, patientLeadDetailsSchema } from '@/lib/schemas/patient-lead'
 import { zodErrorToFieldErrors } from '@/lib/validation'
+import { leadCreateSchema, leadUpdateSchema } from '@/lib/schemas/lead'
+import { BranchError, saveRecordAttributesWithBranch } from '@/lib/repositories/agency-branches'
 
 type LeadCollaborator = {
   id: string
@@ -205,6 +207,9 @@ export async function createLead(payload: {
 }) {
   const actor = await getCurrentLeadActorScope()
   if (!actor) return { error: 'Forbidden' }
+  const parsed = leadCreateSchema.safeParse(payload)
+  if (!parsed.success) return { error: 'Check the highlighted fields.', fieldErrors: zodErrorToFieldErrors(parsed.error) }
+  payload = parsed.data
   if (payload.leadType === 'agency' && actor.role !== 'admin' && actor.role !== 'expert') {
     return { error: 'Forbidden' }
   }
@@ -222,7 +227,8 @@ export async function createLead(payload: {
   }
 
   try {
-    const data = await sql.begin(async tx => {
+    const data = await withUserContext(actor.id, actor.role, agencyId, async () => {
+      const tx = sql
       const [created] = await tx<{ id: string }[]>`
         INSERT INTO leads (
           lead_type, agency_id, created_by, assigned_to,
@@ -256,7 +262,7 @@ export async function createLead(payload: {
     revalidateLeadPaths()
     return { error: null, leadId: data.id }
   } catch (err: any) {
-    return { error: err.message || 'Failed to create lead' }
+    return { error: 'Failed to create lead. Refresh before retrying.' }
   }
 }
 
@@ -269,6 +275,7 @@ export async function updateLead(
     contactPhone?: string
     companyName?: string
     serviceType?: string
+    branchId?: string
     price?: number | null
     retainerAmount?: number | null
     retainerPaidDate?: string | null
@@ -286,6 +293,9 @@ export async function updateLead(
 ) {
   const access = await requireMutableLead(leadId)
   if (access.error || !access.session || !access.lead) return { error: access.error ?? 'Not authenticated' }
+  const parsed = leadUpdateSchema.safeParse(payload)
+  if (!parsed.success) return { error: 'Check the highlighted fields.', fieldErrors: zodErrorToFieldErrors(parsed.error) }
+  payload = parsed.data
   const ownerChanged = 'leadOwnerId' in payload && payload.leadOwnerId !== access.lead.lead_owner_id
   if ('leadOwnerId' in payload) {
     if (payload.leadOwnerId && !(await isEligibleLeadCollaborator(payload.leadOwnerId, access.lead.lead_type, access.lead.agency_id))) {
@@ -319,13 +329,16 @@ export async function updateLead(
   const updateData = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
 
   try {
-    await sql.begin(async tx => {
+    const write = async (tx: typeof sql) => {
       const updated = await tx<{ id: string }[]>`
         UPDATE leads SET ${tx(updateData)}
         WHERE id = ${leadId} AND converted_at IS NULL
         RETURNING id
       `
       if (!updated[0]) throw new Error('Converted leads are read-only')
+      await tx`INSERT INTO public.audit_log(agency_id, table_name, record_id, action, performed_by_user_id, details)
+        VALUES (${access.lead.agency_id}::uuid, 'leads', ${leadId}::uuid, 'UPDATE', ${access.session.user.id}::uuid,
+          '{"operation":"update_lead_attributes"}'::jsonb)`
       if (ownerChanged) {
         await tx`
           INSERT INTO public.audit_log (
@@ -337,11 +350,16 @@ export async function updateLead(
           )
         `
       }
-    })
+    }
+    if (payload.branchId !== undefined) {
+      await saveRecordAttributesWithBranch('lead', leadId, payload.branchId, () => write(sql))
+    } else {
+      await withUserContext(access.session.user.id, access.session.profile?.role ?? '', access.lead.agency_id, () => write(sql))
+    }
   } catch (err: any) {
-    return { error: err.message || 'Failed to update lead' }
+    return { error: err instanceof BranchError ? err.message : 'Failed to update lead. Refresh before retrying.' }
   }
-  revalidateLeadDetail(leadId)
+  try { revalidateLeadDetail(leadId); revalidateLeadPaths() } catch { /* Save already committed. */ }
   return { error: null }
 }
 

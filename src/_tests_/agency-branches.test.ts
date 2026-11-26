@@ -7,8 +7,12 @@ import { assignRecordBranches, branchOptions, changeBranchState, getRecordBranch
 import { getLeadStageCounts } from '@/lib/supabase/query/leads'
 import { getPatientsByAgencyId, getPatientCountsByAgencyId } from '@/lib/supabase/query/patients'
 import { getApplicationsWithProgramsPaginated } from '@/lib/supabase/query/playbooks'
-import { convertPatientLeadToClientAction } from '@/app/actions/leads'
+import { convertPatientLeadToClientAction, updateLead } from '@/app/actions/leads'
 import { branchFormSchema } from '@/lib/schemas/agency-branches'
+import { saveRecordAttributesWithBranch } from '@/lib/repositories/agency-branches'
+import { saveClientPersonalInfo } from '@/lib/repositories/client-personal-info'
+import { getLeadById, getLeadsPaginated } from '@/lib/supabase/query/leads'
+import { getPatientByIdAndAgencyId } from '@/lib/supabase/query/patients'
 
 jest.mock('server-only', () => ({}), { virtual: true })
 jest.mock('@/lib/auth', () => ({ getSession: jest.fn() }))
@@ -20,7 +24,12 @@ jest.mock('@/lib/feature-access', () => ({ assertAgencyCapability: jest.fn().moc
 let db: PGlite
 let queryShapes: string[] = []
 jest.mock('@/db', () => {
-  const tag = (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values,
+  const tag = (strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (!Array.isArray(strings)) {
+      const fields = Object.entries(strings)
+      return { strings: fields.map(([key], index) => `${index ? ', ' : ''}"${key}" = `).concat(['']), values: fields.map(([, value]) => value) }
+    }
+    return { strings, values,
     then(resolve: (rows: unknown[]) => unknown, reject: (error: unknown) => unknown) {
       const params: unknown[] = []
       const compile = (part: { strings: readonly string[]; values: unknown[] }): string => part.strings.reduce((text, chunk, index) => {
@@ -34,7 +43,8 @@ jest.mock('@/db', () => {
       queryShapes.push(query)
       return db.query(query, params).then(result => result.rows).then(resolve, reject)
     },
-  })
+    }
+  }
   tag.json = (value: unknown) => JSON.stringify(value)
   return { __esModule: true, default: tag, withUserContext: async (userId: string, role: string, agency: string, run: () => Promise<unknown>) => {
     await db.exec('SAVEPOINT actor_context')
@@ -86,8 +96,15 @@ beforeAll(async () => {
     ALTER TABLE leads ADD COLUMN stage text DEFAULT 'new', ADD COLUMN service_type text, ADD COLUMN source text,
       ADD COLUMN lead_owner_id uuid, ADD COLUMN contact_first_name text, ADD COLUMN contact_last_name text,
       ADD COLUMN company_name text, ADD COLUMN contact_email text;
-    ALTER TABLE leads ADD COLUMN converted_client_id uuid;
+    ALTER TABLE leads ADD COLUMN converted_client_id uuid, ADD COLUMN converted_agency_id uuid;
     ALTER TABLE patients ADD COLUMN first_name text DEFAULT '', ADD COLUMN last_name text DEFAULT '', ADD COLUMN email_address text, ADD COLUMN phone_number text;
+    ALTER TABLE patients ADD COLUMN gender text, ADD COLUMN date_of_birth date, ADD COLUMN documents jsonb;
+    ALTER TABLE user_profiles ADD COLUMN full_name text;
+    ALTER TABLE leads ADD COLUMN contact_phone text, ADD COLUMN price numeric, ADD COLUMN retainer_amount numeric,
+      ADD COLUMN retainer_paid_date date, ADD COLUMN installments integer, ADD COLUMN installment_amount numeric, ADD COLUMN signed_date date,
+      ADD COLUMN notes text, ADD COLUMN assigned_to uuid, ADD COLUMN created_by uuid, ADD COLUMN contact_address1 text,
+      ADD COLUMN contact_address2 text, ADD COLUMN contact_city text, ADD COLUMN contact_state text, ADD COLUMN contact_zip text,
+      ADD COLUMN proposal_sent_date date, ADD COLUMN service_states text[];
     ALTER TABLE patients ADD COLUMN street_address text, ADD COLUMN city text, ADD COLUMN state text, ADD COLUMN zip_code text,
       ADD COLUMN emergency_contact_name text, ADD COLUMN emergency_phone text;
     CREATE TABLE agency_lead_stages(agency_id uuid, key text, is_won boolean);
@@ -122,13 +139,13 @@ beforeAll(async () => {
     RESET ROLE;
   `)
   await db.query(`INSERT INTO agencies(id,name,physical_city) VALUES ($1,'Synthetic Agency','Synthetic City'),($2,'Synthetic Other',NULL)`, [AGENCY, OTHER])
-  await db.query(`INSERT INTO user_profiles VALUES ($1,$4,'company_owner',true),($2,$4,'care_coordinator',true),($3,$5,'company_owner',true)`, [OWNER, COORDINATOR, FOREIGN, AGENCY, OTHER])
+  await db.query(`INSERT INTO user_profiles(id,agency_id,role,is_active) VALUES ($1,$4,'company_owner',true),($2,$4,'care_coordinator',true),($3,$5,'company_owner',true)`, [OWNER, COORDINATOR, FOREIGN, AGENCY, OTHER])
   await db.query(`INSERT INTO user_agency_roles VALUES ($1,$4,'company_owner','active'),($2,$4,'care_coordinator','active'),($3,$5,'company_owner','active')`, [OWNER, COORDINATOR, FOREIGN, AGENCY, OTHER])
   await db.query(`INSERT INTO leads(id,agency_id,lead_type) VALUES ($1,$2,'patient'),($3,NULL,'agency')`, [LEAD, AGENCY, id(21)])
   await db.query(`INSERT INTO patients(id,agency_id) VALUES ($1,$2)`, [CLIENT, AGENCY])
   await db.query(`INSERT INTO applications(id,agency_id) VALUES ($1,$2)`, [APP, AGENCY])
   await db.query(`INSERT INTO playbooks VALUES ($1,'Synthetic Catalog',NULL,'CA',true)`, [id(50)])
-  await db.query(`INSERT INTO user_profiles VALUES ($1,NULL,'admin',true)`, [id(4)])
+  await db.query(`INSERT INTO user_profiles(id,agency_id,role,is_active) VALUES ($1,NULL,'admin',true)`, [id(4)])
   await db.query(`INSERT INTO agency_admins VALUES ($1,$3,'Synthetic Agency'),($2,$4,'Synthetic Other')`, [OWNER, FOREIGN, AGENCY, OTHER])
   await db.exec(readFileSync(path.join(process.cwd(), 'scripts/manual/agency-branches/001-foundation.sql'), 'utf8'))
   main = (await db.query<{ id: string }>(`SELECT id FROM agency_branches WHERE agency_id=$1 AND is_default`, [AGENCY])).rows[0].id
@@ -492,4 +509,92 @@ test('the upgrade stops for pre-existing unlinked programs instead of guessing t
     ALTER TABLE applications DISABLE TRIGGER application_branch_default`)
   await db.query('INSERT INTO applications(id,agency_id) VALUES ($1,$2)', [id(71), AGENCY])
   await expect(db.exec(upgradeWithinTestTransaction())).rejects.toMatchObject({ code: '23514' })
+})
+
+const personal = { first_name: 'Synthetic', last_name: 'Updated', gender: 'Other', date_of_birth: '1980-01-02' }
+
+test('the existing profile save commits its attributes and branch in one transaction', async () => {
+  const west = await saveBranch(form)
+  await saveClientPersonalInfo(CLIENT, { ...personal, branchId: west })
+  const result = await getPatientByIdAndAgencyId(CLIENT, AGENCY)
+  expect(result.error).toBeNull()
+  expect(result.data).toMatchObject({ ...personal, branch_id: west, branch_name: form.name })
+  const audit = await db.query<{ operation: string }>(`SELECT details->>'operation' AS operation FROM audit_log WHERE record_id=$1`, [CLIENT])
+  expect(audit.rows.map(row => row.operation)).toEqual(expect.arrayContaining(['assign_record_branches', 'update_personal_info']))
+})
+
+test('a rejected profile update rolls the branch assignment and its audit back', async () => {
+  const west = await saveBranch(form)
+  await db.exec("RESET ROLE; ALTER TABLE patients ADD CONSTRAINT synthetic_personal_failure CHECK(first_name <> 'Rejected'); SET LOCAL ROLE mycaresight_app")
+  await expect(saveClientPersonalInfo(CLIENT, { ...personal, first_name: 'Rejected', branchId: west })).rejects.toThrow()
+  expect((await getRecordBranchAssignment('client', CLIENT)).branchIds).toEqual([main])
+  expect((await db.query(`SELECT count(*)::int AS n FROM audit_log WHERE record_id=$1 AND action='UPDATE'`, [CLIENT])).rows).toEqual([{ n: 0 }])
+})
+
+test('a visit-transfer rejection preserves the other profile fields', async () => {
+  const west = await saveBranch(form)
+  await db.exec('RESET ROLE')
+  await db.query('INSERT INTO scheduled_visits VALUES ($1,$2,$3)', [id(90), AGENCY, CLIENT])
+  await db.exec('SET LOCAL ROLE mycaresight_app')
+  await expect(saveClientPersonalInfo(CLIENT, { ...personal, branchId: west })).rejects.toThrow('visits')
+  expect((await getPatientByIdAndAgencyId(CLIENT, AGENCY)).data).toMatchObject({ first_name: '', branch_id: main })
+  // Editing normal attributes with the unchanged branch remains supported.
+  await saveClientPersonalInfo(CLIENT, { ...personal, branchId: main })
+})
+
+test('coordinators keep normal profile editing but cannot submit a branch assignment', async () => {
+  login(COORDINATOR)
+  await saveClientPersonalInfo(CLIENT, personal)
+  expect((await getPatientByIdAndAgencyId(CLIENT, AGENCY)).data.first_name).toBe(personal.first_name)
+  await expect(saveClientPersonalInfo(CLIENT, { ...personal, branchId: main })).rejects.toThrow('Forbidden')
+  login(FOREIGN)
+  await expect(saveClientPersonalInfo(CLIENT, personal)).rejects.toThrow('not authorized')
+})
+
+test('the existing lead save callback shares branch rollback and tenant/converted guards', async () => {
+  const west = await saveBranch(form)
+  await saveRecordAttributesWithBranch('lead', LEAD, west, async () => {
+    await db.query(`UPDATE leads SET contact_first_name='Synthetic revised' WHERE id=$1`, [LEAD])
+  })
+  expect((await getLeadById(LEAD)).data).toMatchObject({ branch_id: west, branch_name: form.name, contact_first_name: 'Synthetic revised' })
+  await expect(saveRecordAttributesWithBranch('lead', LEAD, main, async () => { throw new Error('synthetic rejection') })).rejects.toThrow('synthetic rejection')
+  expect((await getRecordBranchAssignment('lead', LEAD)).branchIds).toEqual([west])
+  await db.query('UPDATE leads SET converted_at=now() WHERE id=$1', [LEAD])
+  const callback = jest.fn()
+  await expect(saveRecordAttributesWithBranch('lead', LEAD, main, callback)).rejects.toThrow('converted')
+  await expect(saveRecordAttributesWithBranch('lead', LEAD, west, callback)).rejects.toThrow('converted')
+  expect(callback).not.toHaveBeenCalled()
+})
+
+test('lead list branch names are joined in a bounded sorted page, with no per-row reads', async () => {
+  const west = await saveBranch(form)
+  await saveRecordAttributesWithBranch('lead', LEAD, west, async () => {})
+  await db.query(`INSERT INTO leads(id,agency_id,lead_type,branch_id) VALUES ($1,$2,'patient',$3)`, [id(22), AGENCY, main])
+  queryShapes = []
+  const first = await getLeadsPaginated({ leadType: 'patient', agencyId: AGENCY, pageSize: 1, page: 0, sortKey: 'branch_name', sortDir: 'asc' })
+  const second = await getLeadsPaginated({ leadType: 'patient', agencyId: AGENCY, pageSize: 1, page: 1, sortKey: 'branch_name', sortDir: 'asc' })
+  expect(first.error).toBeNull(); expect(second.error).toBeNull()
+  expect(first.count).toBe(2)
+  expect([...first.data, ...second.data].map(row => (row as Record<string, unknown>).branch_name)).toEqual(['Main Branch', form.name])
+  expect(new Set([...first.data, ...second.data].map(row => (row as Record<string, unknown>).id)).size).toBe(2)
+  expect(queryShapes).toHaveLength(4)
+  expect(queryShapes.filter(query => query.includes('LEFT JOIN public.agency_branches'))).toHaveLength(2)
+})
+
+test('feature-off profile saves and lead reads never query branch schema', async () => {
+  process.env.AGENCY_BRANCHES_ENABLED = 'false'
+  await saveClientPersonalInfo(CLIENT, personal)
+  const result = await getLeadsPaginated({ leadType: 'patient', agencyId: AGENCY, pageSize: 50 })
+  expect(result.error).toBeNull()
+  expect(queryShapes.some(query => query.includes('agency_branches') || query.includes('branch_id'))).toBe(false)
+})
+
+test('the actual Edit Lead action commits attributes and branch and returns safe errors after rollback', async () => {
+  const west = await saveBranch(form)
+  expect(await updateLead(LEAD, { contactFirstName: 'Synthetic revised', branchId: west })).toEqual({ error: null })
+  expect((await getLeadById(LEAD)).data).toMatchObject({ contact_first_name: 'Synthetic revised', branch_id: west })
+  await db.exec("RESET ROLE; ALTER TABLE leads ADD CONSTRAINT synthetic_lead_failure CHECK(contact_first_name <> 'Rejected'); SET LOCAL ROLE mycaresight_app")
+  const result = await updateLead(LEAD, { contactFirstName: 'Rejected', branchId: main })
+  expect(result.error).toBe('Failed to update lead. Refresh before retrying.')
+  expect((await getLeadById(LEAD)).data).toMatchObject({ contact_first_name: 'Synthetic revised', branch_id: west })
 })

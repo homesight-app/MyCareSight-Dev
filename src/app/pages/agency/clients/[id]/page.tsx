@@ -1,5 +1,4 @@
 import { agencyBranchesEnabled } from '@/lib/agency-branches'
-import RecordBranchAssignment from '@/components/RecordBranchAssignment'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
@@ -51,8 +50,9 @@ export default async function ClientDetailPage({
 
   return (
     <>
-    {agencyBranchesEnabled() && <RecordBranchAssignment key={id} kind="client" recordId={id} />}
     <ClientDetailContent
+      branchesEnabled={agencyBranchesEnabled()}
+      canEditBranch={role === 'company_owner'}
       key={`${id}:${activeTab}`}
       client={bundle.client}
       allClients={bundle.allClients || []}

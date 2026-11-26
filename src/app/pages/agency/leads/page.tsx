@@ -74,6 +74,7 @@ export default async function AgencyLeadsPage({
     <FeatureGate capability="client_management" agencyId={agencyId}>
       {branchesEnabled && <AgencyBranchFilter value={branchId} />}
       <LeadsContent
+        branchesEnabled={branchesEnabled}
         leads={leads}
         totalCount={leadsResult.count}
         page={page}

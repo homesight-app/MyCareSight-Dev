@@ -1,3 +1,4 @@
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
 import sql from '@/db'
 import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
 
@@ -127,8 +128,10 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
     const page     = opts.page     ?? 0
     const pageSize = opts.pageSize ?? 50
     const offset   = page * pageSize
+    const showBranch = agencyBranchesEnabled() && opts.leadType === 'patient' && !!opts.agencyId
 
-    const sortCol = opts.sortKey === 'price'       ? sql`l.price`
+    const sortCol = opts.sortKey === 'branch_name' && showBranch ? sql`branch.name`
+                  : opts.sortKey === 'price'       ? sql`l.price`
                   : opts.sortKey === 'signed_date'  ? sql`l.signed_date`
                   : opts.sortKey === 'name'          ? sql`l.contact_last_name`
                   : opts.sortKey === 'company'       ? sql`l.company_name`
@@ -143,6 +146,7 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
       sql`
         SELECT
           l.id, l.lead_type, l.agency_id,
+          ${showBranch ? sql`l.branch_id, branch.name AS branch_name,` : sql``}
           l.contact_first_name, l.contact_last_name, l.contact_email, l.contact_phone,
           l.company_name, l.service_type, l.stage, l.source, l.price, l.retainer_amount,
           l.retainer_paid_date, l.installments, l.installment_amount, l.signed_date, l.notes,
@@ -154,6 +158,7 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
           up.full_name AS lead_owner_full_name
         FROM leads l
         LEFT JOIN user_profiles up ON up.id = l.lead_owner_id
+        ${showBranch ? sql`LEFT JOIN public.agency_branches branch ON branch.id = l.branch_id AND branch.agency_id = l.agency_id` : sql``}
         WHERE ${where}
         ORDER BY ${sortCol} ${sortDir}, l.id
         LIMIT ${pageSize} OFFSET ${offset}
@@ -274,9 +279,11 @@ export async function getLeadDistinctSources(
 
 export async function getLeadById(leadId: string) {
   try {
+    const showBranch = agencyBranchesEnabled()
     const rows = await sql`
       SELECT
         l.id, l.lead_type, l.agency_id,
+        ${showBranch ? sql`l.branch_id, branch.name AS branch_name,` : sql``}
         l.contact_first_name, l.contact_last_name, l.contact_email, l.contact_phone,
         l.company_name, l.service_type, l.stage, l.source, l.price, l.retainer_amount,
         l.retainer_paid_date, l.installments, l.installment_amount, l.signed_date, l.notes,
@@ -290,6 +297,7 @@ export async function getLeadById(leadId: string) {
         ag.name      AS converted_agency_name
       FROM leads l
       LEFT JOIN user_profiles up ON up.id = l.lead_owner_id
+      ${showBranch ? sql`LEFT JOIN public.agency_branches branch ON branch.id = l.branch_id AND branch.agency_id = l.agency_id` : sql``}
       LEFT JOIN agencies ag ON ag.id = l.converted_agency_id
       WHERE l.id = ${leadId}
       LIMIT 1

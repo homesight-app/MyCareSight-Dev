@@ -181,9 +181,25 @@ export async function getRecordBranchAssignment(kind: BranchRecordKind, recordId
 }
 
 export async function assignRecordBranches(kind: BranchRecordKind, recordId: string, branchIds: string[]) {
+  return withBranchActor(true, actor => assignRecordBranchesInTransaction(actor, kind, recordId, branchIds))
+}
+
+/** Reuse the same authorization, locks, transfer checks and audit in an existing form save. */
+export async function saveRecordAttributesWithBranch<T>(kind: 'lead' | 'client', recordId: string, branchId: string, save: (actor: Actor) => Promise<T>) {
   return withBranchActor(true, async actor => {
+    await assignRecordBranchesInTransaction(actor, kind, recordId, [branchId], true)
+    return save(actor)
+  })
+}
+
+async function assignRecordBranchesInTransaction(actor: Actor, kind: BranchRecordKind, recordId: string, branchIds: string[], skipUnchanged = false) {
     await lockAgency(actor)
     const previousBranchIds = await recordBranches(actor, kind, recordId, true)
+    if (kind === 'lead') {
+      const [lead] = await sql`SELECT converted_at FROM public.leads WHERE id = ${recordId}::uuid AND agency_id = ${actor.agencyId}::uuid`
+      if (lead.converted_at) throw new BranchError('Change the branch on the converted client instead.')
+    }
+    if (skipUnchanged && previousBranchIds.length === 1 && previousBranchIds[0] === branchIds[0]) return
     const valid = await sql`SELECT id FROM public.agency_branches WHERE agency_id = ${actor.agencyId}::uuid
       AND id = ANY(${branchIds}::uuid[]) AND status = 'active' FOR SHARE`
     if (valid.length !== branchIds.length) throw new BranchError('Choose active branches belonging to this agency.')
@@ -192,8 +208,6 @@ export async function assignRecordBranches(kind: BranchRecordKind, recordId: str
       await sql`INSERT INTO public.application_branches(application_id, agency_id, branch_id)
         SELECT ${recordId}::uuid, ${actor.agencyId}::uuid, branch_id FROM unnest(${branchIds}::uuid[]) AS branch_id`
     } else if (kind === 'lead') {
-      const [lead] = await sql`SELECT converted_at FROM public.leads WHERE id = ${recordId}::uuid AND agency_id = ${actor.agencyId}::uuid`
-      if (lead.converted_at) throw new BranchError('Change the branch on the converted client instead.')
       const changed = await sql`UPDATE public.leads SET branch_id = ${branchIds[0]}::uuid, updated_at = now()
         WHERE id = ${recordId}::uuid AND agency_id = ${actor.agencyId}::uuid RETURNING id`
       if (changed.length !== 1) throw new BranchError('Lead assignment was not saved.')
@@ -212,7 +226,6 @@ export async function assignRecordBranches(kind: BranchRecordKind, recordId: str
     await audit(actor, 'assign_record_branches', recordId, kind === 'client' ? 'patients' : kind === 'lead' ? 'leads' : 'applications', {
       previous_branch_ids: previousBranchIds, branch_ids: branchIds,
     })
-  })
 }
 
 export async function readAgencyInfo() {

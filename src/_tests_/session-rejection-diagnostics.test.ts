@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { createHash } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { PGlite } from '@electric-sql/pglite'
 import { authenticateCredentials, readOpaqueSession, recordOpaqueSessionActivity, revokeOpaqueSession } from '@/lib/repositories/auth-identity'
 import { verifyPassword } from '@/lib/auth/password'
@@ -10,10 +10,18 @@ let db: PGlite
 let failDiagnostic = false
 let failTelemetry = false
 let revokeBeforeActivity = false
+let initialReadFailures = 0
+let failSessionInsert = false
+let loginRateReads = 0
 let warning: jest.SpyInstance
 const priorSecret = process.env.AUTH_SECRET
 jest.mock('@/db', () => ({ __esModule: true, default: Object.assign((parts: TemplateStringsArray, ...values: unknown[]) => {
   const query = parts.reduce((text, part, index) => text + part + (index < values.length ? '$' + (index + 1) : ''), '')
+  if (query.includes('FROM auth_rate_limit_events')) {
+    loginRateReads++
+    if (initialReadFailures-- > 0) return Promise.reject(new AggregateError([Object.assign(new Error('private connect failure'), { code: 'ETIMEDOUT' })]))
+  }
+  if (failSessionInsert && query.includes('INSERT INTO auth_sessions')) return Promise.reject(Object.assign(new Error('private write failure'), { code: 'ECONNRESET' }))
   if ((failDiagnostic && query.includes('FROM (SELECT 1) anchor')) || (failTelemetry && query.includes('UPDATE auth_sessions'))) {
     return Promise.reject(new Error('synthetic-private-provider-error'))
   }
@@ -42,6 +50,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   failDiagnostic = false; failTelemetry = false
   revokeBeforeActivity = false
+  initialReadFailures = 0; failSessionInsert = false; loginRateReads = 0
   warning = jest.spyOn(console, 'warn').mockImplementation(() => {})
   await db.exec('TRUNCATE auth_sessions, user_profiles, user_agency_roles, auth_rate_limit_events, audit_log')
   await db.query(`INSERT INTO user_profiles(id,email,role,agency_id,full_name,is_active) VALUES($1,'synthetic@example.test','admin',NULL,'Synthetic',true)`, [userId])
@@ -133,6 +142,37 @@ test('new credentials sessions have an eight-hour fixed cap and a twenty-minute 
   expect(confirmed!.expiresAt.getTime() - before).toBeGreaterThan(19 * 60 * 1000)
   expect(confirmed!.expiresAt.getTime() - before).toBeLessThan(21 * 60 * 1000)
   expect(confirmed!.absoluteExpiresAt).toEqual(identity!.expiresAt)
+})
+
+test('initial connection retry checks the password and writes the session, rate event and audit only once', async () => {
+  initialReadFailures = 1
+  jest.mocked(verifyPassword).mockClear().mockResolvedValue({ valid: true, needsRehash: false })
+  const identity = await authenticateCredentials({ email: 'synthetic@example.test', password: 'synthetic-only' })
+  expect(identity).not.toBeNull()
+  expect(loginRateReads).toBe(2)
+  expect(verifyPassword).toHaveBeenCalledTimes(1)
+  expect((await db.query('SELECT count(*)::int AS n FROM auth_sessions')).rows[0]).toEqual({ n: 2 })
+  expect((await db.query('SELECT count(*)::int AS n FROM auth_rate_limit_events')).rows[0]).toEqual({ n: 1 })
+  expect((await db.query("SELECT count(*)::int AS n FROM audit_log WHERE action='LOGIN'")).rows[0]).toEqual({ n: 1 })
+})
+
+test('retry does not bypass the account rate limit', async () => {
+  initialReadFailures = 1
+  const subject = createHmac('sha256', process.env.AUTH_SECRET!).update('login_account:synthetic@example.test').digest('hex')
+  await db.query("INSERT INTO auth_rate_limit_events SELECT 'login_account',$1,false,now() FROM generate_series(1,5)", [subject])
+  jest.mocked(verifyPassword).mockClear()
+  expect(await authenticateCredentials({ email: 'synthetic@example.test', password: 'synthetic-only' })).toBeNull()
+  expect(loginRateReads).toBe(2)
+  expect(verifyPassword).not.toHaveBeenCalled()
+})
+
+test('a later authentication write failure never retries the login or session insert', async () => {
+  failSessionInsert = true
+  jest.mocked(verifyPassword).mockClear().mockResolvedValue({ valid: true, needsRehash: false })
+  await expect(authenticateCredentials({ email: 'synthetic@example.test', password: 'synthetic-only' })).rejects.toMatchObject({ code: 'ECONNRESET' })
+  expect(loginRateReads).toBe(1)
+  expect(verifyPassword).toHaveBeenCalledTimes(1)
+  expect((await db.query('SELECT count(*)::int AS n FROM auth_sessions')).rows[0]).toEqual({ n: 1 })
 })
 
 test('logout and its identifier-only audit commit atomically and duplicate logout adds no audit', async () => {

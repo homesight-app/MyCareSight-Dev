@@ -6,6 +6,7 @@ import type { AgencyRole, UserRole } from '@/types/auth'
 import { hashPassword, verifyPassword } from '@/lib/auth/password'
 import { reportSessionRejection, type SessionRejectionReason } from '@/lib/auth/session-diagnostics'
 import { SESSION_IDLE_SECONDS, SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session-policy'
+import { withLoginConnectionRetry } from '@/lib/auth/login-connection'
 
 const LOGIN_WINDOW_MINUTES = 15
 const LOGIN_ACCOUNT_LIMIT = 5
@@ -124,7 +125,7 @@ export async function authenticateCredentials(input: {
   const email = normalizeEmail(input.email)
   const ipAddress = input.ipAddress?.trim() || null
 
-  if (await isRateLimited('login_account', email, LOGIN_WINDOW_MINUTES, LOGIN_ACCOUNT_LIMIT)) {
+  if (await withLoginConnectionRetry(() => isRateLimited('login_account', email, LOGIN_WINDOW_MINUTES, LOGIN_ACCOUNT_LIMIT))) {
     return null
   }
   if (ipAddress && await isRateLimited('login_ip', ipAddress, LOGIN_WINDOW_MINUTES, LOGIN_IP_LIMIT)) {

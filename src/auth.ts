@@ -1,4 +1,4 @@
-import NextAuth, { type DefaultSession } from 'next-auth'
+import NextAuth, { CredentialsSignin, type DefaultSession } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import type { JWT } from '@auth/core/jwt'
 import {
@@ -8,6 +8,8 @@ import {
 } from '@/lib/repositories/auth-identity'
 import type { UserRole } from '@/types/auth'
 import { SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session-policy'
+import { LOGIN_UNAVAILABLE_CODE } from '@/lib/auth/login-errors'
+import { isLoginConnectionFailure } from '@/lib/auth/login-connection'
 import {
   reportSessionVerificationFailure,
   SessionVerificationUnavailableError,
@@ -43,6 +45,10 @@ declare module '@auth/core/jwt' {
 function requestIp(request: Request): string | null {
   const forwarded = request.headers.get('x-forwarded-for')
   return forwarded?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null
+}
+
+class LoginUnavailableError extends CredentialsSignin {
+  code = LOGIN_UNAVAILABLE_CODE
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -88,12 +94,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null
         }
         if (credentials.password.length < 1 || credentials.password.length > 256) return null
-        const profile = await authenticateCredentials({
-          email: credentials.email,
-          password: credentials.password,
-          ipAddress: requestIp(request),
-          userAgent: request.headers.get('user-agent'),
-        })
+        let profile: Awaited<ReturnType<typeof authenticateCredentials>>
+        try {
+          profile = await authenticateCredentials({
+            email: credentials.email,
+            password: credentials.password,
+            ipAddress: requestIp(request),
+            userAgent: request.headers.get('user-agent'),
+          })
+        } catch (error) {
+          console.error('[auth] Login unavailable', { stage: 'credentials', reason: isLoginConnectionFailure(error) ? 'connection' : 'verification' })
+          // Auth.js serializes this fixed code; never attach the original error/cause.
+          throw new LoginUnavailableError()
+        }
         if (!profile) return null
         return {
           id: profile.userId,

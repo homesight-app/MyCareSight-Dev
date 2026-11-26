@@ -10,6 +10,7 @@ import * as z from 'zod'
 import { Mail, Lock, User, Shield, RefreshCw, GraduationCap, ArrowLeft } from 'lucide-react'
 import { signIn } from 'next-auth/react'
 import { getConfirmedLoginDestination, LoginSessionUnavailableError } from '@/lib/auth/login-session'
+import { loginFailureMessage } from '@/lib/auth/login-errors'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -73,10 +74,11 @@ function LoginPageContent() {
       // user can still sign in with email/password.
       const isPkceError =
         errorParam.includes('PKCE') || errorParam.toLowerCase().includes('code verifier')
-      setError(isPkceError ? null : errorParam)
+      setError(isPkceError ? null : loginFailureMessage({ error: errorParam, code: searchParams.get('code') }))
       // Always clear error from URL so it doesn't show on refresh
       const url = new URL(window.location.href)
       url.searchParams.delete('error')
+      url.searchParams.delete('code')
       window.history.replaceState({}, '', url)
     }
 
@@ -96,15 +98,7 @@ function LoginPageContent() {
       })
 
       if (!result?.ok || result.error) {
-        const msg = result?.error ?? 'Invalid email or password.'
-        // Hint for users who haven't set a password yet (existing accounts before migration)
-        if (msg.toLowerCase().includes('credentialssignin') || msg.toLowerCase().includes('credentials')) {
-          setError(
-            'Invalid email or password. If this is your first login after our system update, please use "Forgot password?" to set your new password.'
-          )
-        } else {
-          setError('Invalid email or password. Please try again.')
-        }
+        setError(loginFailureMessage(result))
         setIsLoading(false)
         return
       }

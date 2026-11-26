@@ -8,6 +8,7 @@ export const leadFormSchema = z.object({
   contactPhone: phoneZodField,
   companyName: z.string().optional(),
   serviceType: z.string().optional(),
+  branchId: z.uuid('Choose a valid branch').optional(),
   stage: z.string(),
   source: z.string(),
   price: z.string().optional(),
@@ -26,3 +27,22 @@ export const leadFormSchema = z.object({
 })
 
 export type LeadFormData = z.infer<typeof leadFormSchema>
+
+/** The same field rules at the server boundary, with the existing numeric API shape. */
+export const leadUpdateSchema = leadFormSchema.pick({ contactFirstName: true, contactLastName: true,
+  contactEmail: true, contactPhone: true, companyName: true, serviceType: true, branchId: true,
+  notes: true, source: true, leadOwnerId: true }).partial().extend({
+  notes: z.string().nullable().optional(), source: z.string().nullable().optional(),
+  leadOwnerId: z.uuid().nullable().optional(), assignedTo: z.uuid().nullable().optional(),
+  convertedAgencyId: z.uuid().nullable().optional(),
+  price: z.number().finite().nullable().optional(), retainerAmount: z.number().finite().nullable().optional(),
+  installments: z.number().int().nullable().optional(), installmentAmount: z.number().finite().nullable().optional(),
+  retainerPaidDate: z.string().nullable().optional(), signedDate: z.string().nullable().optional(),
+  proposalSentDate: z.string().nullable().optional(), serviceStates: z.array(z.string()).nullable().optional(),
+})
+
+export const leadCreateSchema = leadUpdateSchema.omit({ branchId: true }).extend({
+  leadType: z.enum(['agency', 'patient']), agencyId: z.uuid().optional(),
+  contactFirstName: leadFormSchema.shape.contactFirstName, contactLastName: leadFormSchema.shape.contactLastName,
+  stage: z.string().optional(), notes: z.string().optional(), source: z.string().optional(),
+})

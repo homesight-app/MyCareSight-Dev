@@ -4,6 +4,34 @@ import { z } from 'zod'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
 import { revalidatePath } from 'next/cache'
+import { withBranchActor } from '@/lib/repositories/agency-branches'
+
+/** Optional settings are fetched only when their configuration panel opens. */
+export async function loadAgencyConfigurationAction() {
+  try {
+    return await withBranchActor(false, async actor => {
+      const result = await q.getAgencyConfiguration(actor.agencyId)
+      if (result.error) throw new Error('Unavailable')
+      return { success: true as const, data: result.data }
+    }, false)
+  } catch { return { success: false as const, error: 'Unable to load configuration. Try again.' } }
+}
+
+export async function loadAgencyPipelineAction() {
+  try {
+    return await withBranchActor(true, async actor => {
+      const result = await q.getAgencyLeadStages(actor.agencyId)
+      if (result.error) throw new Error('Unavailable')
+      if (result.data?.length) return { success: true as const, data: result.data }
+      const seeded = await q.seedDefaultAgencyLeadStages(actor.agencyId)
+      if (seeded.error) throw new Error('Unavailable')
+      const audit = await q.insertAuditLog({ agency_id: actor.agencyId, table_name: 'agency_lead_stages', record_id: null,
+        action: 'CREATE', performed_by_user_id: actor.id, details: { operation: 'seed_default_pipeline' } })
+      if (audit.error) throw new Error('Unavailable')
+      return { success: true as const, data: seeded.data ?? [] }
+    }, false)
+  } catch { return { success: false as const, error: 'Unable to load pipeline settings. Try again.' } }
+}
 
 const holidaySchema = z.object({
   name: z.string().min(1),

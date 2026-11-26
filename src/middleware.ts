@@ -4,8 +4,8 @@ export const runtime = 'nodejs'
 
 export const config = {
   matcher: [
-    // The upload route authenticates its own session. Bypassing middleware
-    // prevents Next.js from cloning large multipart bodies before the route.
-    '/((?!api/storage/upload|_next/static|_next/image|favicon\\.ico|.*\\.png|.*\\.jpg|.*\\.svg|.*\\.webp).*)',
+    // These routes authenticate independently. Upload avoids cloning large bodies;
+    // lifecycle status preserves its explicit 503 versus 401 distinction on outages.
+    '/((?!api/storage/upload|api/session/status|_next/static|_next/image|favicon\\.ico|.*\\.png|.*\\.jpg|.*\\.svg|.*\\.webp).*)',
   ],
 }

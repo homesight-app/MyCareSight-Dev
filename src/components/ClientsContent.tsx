@@ -1,376 +1,165 @@
-'use client'
+"use client";
 
-import { useState, useEffect, useTransition, useCallback } from 'react'
-import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
-import { Users, CheckCircle2, FileText, Plus, Search, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
-import LoadingSpinner from '@/components/LoadingSpinner'
-import RecordActionsMenu from '@/components/ui/RecordActionsMenu'
-import AddNewClientModal from './AddNewClientModal'
-import * as q from '@/app/actions/query-bridge'
-import { mapInsertedPatientToListPatient, type ClientsListPatient } from '@/lib/map-inserted-patient-to-list-row'
-import { patientFullName } from '@/lib/patient-name'
+import { useState, useEffect, useTransition, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
+import { Users, Eye } from "lucide-react";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import DataTable, { type DataTableColumn } from "@/components/ui/DataTable";
+import Button from "@/components/ui/PrimaryButton";
+import AddNewClientModal from "@/components/AddNewClientModal";
+import * as q from "@/app/actions/query-bridge";
+import type { ClientsListPatient } from "@/lib/map-inserted-patient-to-list-row";
+import { patientFullName } from "@/lib/patient-name";
+import { recordBranchLabel } from "@/lib/agency-branches";
+import type { ClientListQuery, ClientListSortKey } from "@/lib/client-list";
+import { useAgencyBranchOptions } from "@/hooks/useAgencyBranchOptions";
+import { toast } from "sonner";
 
 interface ClientsContentProps {
-  clients: ClientsListPatient[]
-  totalCount: number
-  activeCount: number
-  totalAllCount: number
-  page: number
-  pageSize: number
-  search: string
-  statusFilter: string
+  clients: ClientsListPatient[];
+  totalCount: number;
+  activeCount: number;
+  totalAllCount: number;
+  page: number;
+  pageSize: number;
+  search: string;
+  statusFilter: string;
+  branchesEnabled?: boolean;
+  branchFilter?: string;
+  sortKey?: ClientListSortKey;
+  sortDir?: "asc" | "desc";
+  error?: string | null;
 }
 
-export default function ClientsContent({
-  clients: initialClients,
-  totalCount,
-  activeCount,
-  totalAllCount,
-  page,
-  pageSize,
-  search: initialSearch,
-  statusFilter: initialStatusFilter,
+export default function ClientsContent({ clients, totalCount, page, pageSize, search, statusFilter,
+  branchesEnabled = false, branchFilter = "", sortKey = "created_at", sortDir = "desc", error = null,
 }: ClientsContentProps) {
-  const router = useRouter()
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState(initialSearch)
-  const [statusFilter, setStatusFilter] = useState(initialStatusFilter)
-  const [clients, setClients] = useState<ClientsListPatient[]>(initialClients)
-  const [navigatingClientId, setNavigatingClientId] = useState<string | null>(null)
-  const [, startNavigationTransition] = useTransition()
-  const [portalMounted, setPortalMounted] = useState(false)
-
-  useEffect(() => { setPortalMounted(true) }, [])
+  const router = useRouter();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [navigatingClientId, setNavigatingClientId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [portalMounted, setPortalMounted] = useState(false);
+  const navigationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const branchOptions = useAgencyBranchOptions(branchesEnabled);
+  const serverQuery = useMemo<ClientListQuery>(() => ({ page, q: search, status: statusFilter, branch: branchFilter, sortKey, sortDir }),
+    [page, search, statusFilter, branchFilter, sortKey, sortDir]);
+  const serverKey = JSON.stringify(serverQuery);
+  const lastServerKey = useRef(serverKey);
+  const lastNavigation = useRef<string | null>(null);
+  const [query, setQuery] = useState(serverQuery);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const blocked = isPending || !!navigatingClientId || !!savingId;
 
   useEffect(() => {
-    setClients(initialClients)
-  }, [initialClients])
-
-  // Sync filter state when URL params change (e.g. browser back/forward)
-  useEffect(() => { setSearchQuery(initialSearch) }, [initialSearch])
-  useEffect(() => { setStatusFilter(initialStatusFilter) }, [initialStatusFilter])
-
-  const pushParams = useCallback(
-    (overrides: { page?: number; q?: string; status?: string }) => {
-      const p = new URLSearchParams()
-      const newPage   = overrides.page   ?? 0
-      const newSearch = overrides.q      ?? searchQuery
-      const newStatus = overrides.status ?? statusFilter
-      if (newPage   > 0)      p.set('page',   String(newPage))
-      if (newSearch.trim())   p.set('q',      newSearch.trim())
-      if (newStatus !== 'all') p.set('status', newStatus)
-      const qs = p.toString()
-      router.push(`?${qs}`, { scroll: false })
-    },
-    [router, searchQuery, statusFilter]
-  )
-
-  // Debounced search — fires 400 ms after the user stops typing
+    setPortalMounted(true);
+    return () => { if (navigationTimer.current) clearTimeout(navigationTimer.current); };
+  }, []);
   useEffect(() => {
-    const id = setTimeout(() => {
-      if (searchQuery !== initialSearch) {
-        pushParams({ q: searchQuery, page: 0 })
-      }
-    }, 400)
-    return () => clearTimeout(id)
-  }, [searchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleStatusChange = (value: string) => {
-    setStatusFilter(value)
-    pushParams({ status: value, page: 0 })
-  }
-
-  const handleOpenClientDetails = (clientId: string) => {
-    if (navigatingClientId) return
-    setNavigatingClientId(clientId)
-    const safetyMs = 25_000
-    setTimeout(() => {
-      setNavigatingClientId((cur) => (cur === clientId ? null : cur))
-    }, safetyMs)
-    startNavigationTransition(() => {
-      router.push(`/pages/agency/clients/${clientId}`)
-    })
-  }
-
-  const toggleStatus = async (clientId: string, currentStatus: 'active' | 'inactive' | 'pending') => {
-    const newStatus = currentStatus === 'active' ? 'inactive' : 'active'
-    if (statusFilter !== 'all') {
-      setClients((prev) => prev.filter((c) => c.id !== clientId))
-    } else {
-      setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: newStatus } : c)))
+    const timer = setTimeout(() => setDebouncedSearch(query.q), 400);
+    return () => clearTimeout(timer);
+  }, [query.q]);
+  // DataTable batches filter/sort and page-reset callbacks into one query update.
+  // Back/forward navigation restores server state without sending another request.
+  useEffect(() => {
+    if (lastServerKey.current !== serverKey) {
+      lastServerKey.current = serverKey;
+      lastNavigation.current = null;
+      setQuery(serverQuery);
+      setDebouncedSearch(serverQuery.q);
+      return;
     }
+    if (query.q !== debouncedSearch || JSON.stringify(query) === serverKey) return;
+    const params = new URLSearchParams(window.location.search);
+    ["page", "q", "status", "branch", "sortKey", "sortDir"].forEach(key => params.delete(key));
+    if (query.page > 0) params.set("page", String(query.page));
+    if (query.q.trim()) params.set("q", query.q.trim());
+    params.set("status", query.status);
+    if (branchesEnabled && query.branch) params.set("branch", query.branch);
+    if (query.sortKey !== "created_at" || query.sortDir !== "desc") {
+      params.set("sortKey", query.sortKey);
+      params.set("sortDir", query.sortDir);
+    }
+    const destination = `?${params.toString()}`;
+    if (lastNavigation.current === destination) return;
+    lastNavigation.current = destination;
+    startTransition(() => router.push(destination, { scroll: false }));
+  }, [serverKey, serverQuery, query, debouncedSearch, branchesEnabled, router]);
+
+  const changeQuery = (values: Partial<ClientListQuery>) => setQuery(current => ({ ...current, ...values }));
+  const refresh = () => startTransition(() => router.refresh());
+  const openClient = (clientId: string) => {
+    if (blocked) return;
+    setNavigatingClientId(clientId);
+    navigationTimer.current = setTimeout(() => setNavigatingClientId(null), 25_000);
+    startTransition(() => router.push(`/pages/agency/clients/${clientId}`));
+  };
+  const toggleStatus = async (client: ClientsListPatient) => {
+    if (blocked) return;
+    setSavingId(client.id);
     try {
-      const { error } = await q.updatePatientStatus(clientId, newStatus)
-      if (error) console.error('Error updating status:', error)
-    } catch (error) {
-      console.error('Error updating status:', error)
-    }
-    router.refresh()
-  }
+      const result = await q.updatePatientStatus(client.id, client.status === "active" ? "inactive" : "active");
+      if (result.error) { toast.error("Unable to update client status. Please try again."); return; }
+      refresh();
+    } catch {
+      toast.error("Unable to update client status. Please try again.");
+    } finally { setSavingId(null); }
+  };
+  const initials = (name: string) => name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+  const representative = (client: ClientsListPatient, index: number) => {
+    const person = client.patients_representatives[index];
+    return person ? <span className="block"><span className="block">{person.name}</span>
+      <span className="block text-xs text-gray-500">{person.relationship} {person.phone_number && `(${person.phone_number})`}</span></span> : "—";
+  };
+  const columns: DataTableColumn<ClientsListPatient>[] = [
+    { key: "name", label: "Client", sortable: true, render: client => <span className="flex items-center gap-3 whitespace-nowrap">
+      <span className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">{initials(patientFullName(client))}</span>
+      <span><span className="block text-sm font-medium text-gray-900">{patientFullName(client)}</span>
+        <span className="block text-sm text-gray-500">Age {client.age || "N/A"}</span></span></span> },
+    { key: "gender", label: "Gender", sortable: true, render: client => client.gender || "N/A" },
+    { key: "class", label: "Class", sortable: true, render: client => client.class
+      ? <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">{client.class}</span> : "N/A" },
+    { key: "phone", label: "Patient Phone", sortable: true, render: client => client.phone_number?.trim() || "—" },
+    { key: "emergency_contact", label: "Emergency Contact", sortable: true, render: client => client.emergency_contact_name?.trim()
+      ? <span className="block"><span className="block">{client.emergency_contact_name}</span><span className="block text-xs text-gray-500">{client.emergency_phone?.trim() || "No phone"}</span></span> : "—" },
+    { key: "representative_1", label: "Representative #1", sortable: true, render: client => representative(client, 0) },
+    branchesEnabled ? { key: "branch_name", label: "Branch", sortable: true, render: recordBranchLabel }
+      : { key: "representative_2", label: "Representative #2", sortable: true, render: client => representative(client, 1) },
+    { key: "status", label: "Status", sortable: true, retainEmphasis: true, render: client =>
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${client.status === "active" ? "bg-green-100 text-green-700" : client.status === "pending" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
+        {client.status === "active" ? "Active" : client.status === "pending" ? "Intake" : "Inactive"}</span> },
+  ];
+  const choices = branchOptions.result?.success ? branchOptions.result.data : [];
+  const branchFilters = branchesEnabled ? [{ key: "branch", label: "Filter clients by branch", value: query.branch,
+    options: [{ value: "", label: "All branches" }, ...choices.map(branch => ({ value: branch.id, label: branch.name + (branch.status !== "active" ? " (inactive)" : "") })),
+      ...(query.branch && !choices.some(branch => branch.id === query.branch) ? [{ value: query.branch, label: "Selected branch" }] : [])],
+    onChange: (branch: string) => changeQuery({ branch }) }] : [];
 
-  const getInitials = (name: string) =>
-    name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
-
-  // Pagination math
-  const totalPages  = Math.max(1, Math.ceil(totalCount / pageSize))
-  const displayFrom = totalCount === 0 ? 0 : page * pageSize + 1
-  const displayTo   = Math.min((page + 1) * pageSize, totalCount)
-
-  return (
-    <div className="space-y-6">
-      {portalMounted && navigatingClientId && createPortal(
-        <div aria-busy="true" aria-live="polite">
-          <LoadingSpinner overlayZClass="z-[200]" />
-        </div>,
-        document.body
-      )}
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Users className="w-7 h-7 text-blue-600" />
-            Client Management
-          </h1>
-          <p className="text-sm text-gray-600 mt-1">Manage your clients and their care plans</p>
-        </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Add New Client
-        </button>
+  return <div className="space-y-6">
+    {portalMounted && navigatingClientId && createPortal(<div aria-busy="true" aria-live="polite"><LoadingSpinner overlayZClass="z-[200]" /></div>, document.body)}
+    <div><h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Users className="w-7 h-7 text-blue-600" />Client Management</h1>
+      <p className="text-sm text-gray-600 mt-1">Manage your clients and their care plans</p></div>
+    <div className="flex flex-wrap items-center gap-3">
+      <div className="inline-flex bg-gray-100 rounded-xl p-1 gap-1" aria-label="Client status">
+        {(["active", "pending", "inactive", "all"] as const).map(status => <button key={status} type="button" disabled={blocked} aria-pressed={query.status === status}
+          onClick={() => changeQuery({ status, page: 0 })}
+          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${query.status === status ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+          {status === "all" ? "All" : status === "pending" ? "Intake" : status.charAt(0).toUpperCase() + status.slice(1)}</button>)}
       </div>
-
-      {/* Summary Cards — always show counts for all clients, not just the current page */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Users className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-900">{totalAllCount}</div>
-              <div className="text-sm text-gray-600">Total Clients</div>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <CheckCircle2 className="w-6 h-6 text-green-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-900">{activeCount}</div>
-              <div className="text-sm text-gray-600">Active Clients</div>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <FileText className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-900">0</div>
-              <div className="text-sm text-gray-600">Care Plans Created</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Search and Filter */}
-      <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search clients by name, email, or phone..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-          <div className="inline-flex bg-gray-100 rounded-xl p-1 gap-1">
-            {(['active', 'pending', 'inactive', 'all'] as const).map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => handleStatusChange(t)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                  statusFilter === t
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {t === 'all' ? 'All' : t === 'pending' ? 'Intake' : t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Clients Table */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="w-10 px-2" />
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Client</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Gender</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Class</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Patient Phone</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Emergency Contact</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Representative #1</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Representative #2</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {clients.length > 0 ? (
-                clients.map((client) => (
-                  <tr
-                    key={client.id}
-                    className={`hover:bg-gray-50/50 cursor-pointer transition-colors ${navigatingClientId ? 'opacity-70 pointer-events-none' : ''}`}
-                    onClick={() => handleOpenClientDetails(client.id)}
-                  >
-                    <td className="w-10 px-2 py-3" onClick={(e) => e.stopPropagation()}>
-                      <RecordActionsMenu
-                        label={`Actions for ${patientFullName(client)}`}
-                        actions={[
-                          { label: 'View Details', icon: Eye, href: `/pages/agency/clients/${client.id}` },
-                          {
-                            label: client.status === 'active' ? 'Deactivate' : 'Activate',
-                            onClick: () => toggleStatus(client.id, client.status),
-                            destructive: client.status === 'active',
-                            positive: client.status !== 'active',
-                          },
-                        ]}
-                      />
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                          {getInitials(patientFullName(client))}
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{patientFullName(client)}</div>
-                          <div className="text-sm text-gray-500">Age {client.age || 'N/A'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{client.gender || 'N/A'}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {client.class ? (
-                        <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">{client.class}</span>
-                      ) : (
-                        <span className="text-sm text-gray-500">N/A</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                      {client.phone_number?.trim() ? client.phone_number : <span className="text-gray-400">-</span>}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                      {client.emergency_contact_name?.trim() ? (
-                        <div>
-                          <div>{client.emergency_contact_name}</div>
-                          <div className="text-xs text-gray-500">{client.emergency_phone?.trim() || 'No phone'}</div>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                      {client.patients_representatives.length > 0 ? (
-                        <div>
-                          <div>{client.patients_representatives[0].name}</div>
-                          <div className="text-xs text-gray-500">
-                            {client.patients_representatives[0].relationship}{' '}
-                            {client.patients_representatives[0].phone_number && `(${client.patients_representatives[0].phone_number})`}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                      {client.patients_representatives.length > 1 ? (
-                        <div>
-                          <div>{client.patients_representatives[1].name}</div>
-                          <div className="text-xs text-gray-500">
-                            {client.patients_representatives[1].relationship}{' '}
-                            {client.patients_representatives[1].phone_number && `(${client.patients_representatives[1].phone_number})`}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${client.status === 'active' ? 'bg-green-100 text-green-700' : client.status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {client.status === 'active' ? 'Active' : client.status === 'pending' ? 'Intake' : 'Inactive'}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
-                    <Users className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                    <p>No clients found</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination footer */}
-        {totalCount > 0 && (
-          <div className="px-6 py-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50">
-            <p className="text-sm text-gray-600">
-              Showing <span className="font-medium">{displayFrom}–{displayTo}</span> of{' '}
-              <span className="font-medium">{totalCount}</span> clients
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={page === 0}
-                onClick={() => pushParams({ page: page - 1 })}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" /> Prev
-              </button>
-              <span className="text-sm text-gray-600">
-                Page {page + 1} of {totalPages}
-              </span>
-              <button
-                type="button"
-                disabled={page >= totalPages - 1}
-                onClick={() => pushParams({ page: page + 1 })}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Next <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Add New Client Modal */}
-      <AddNewClientModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={(insertedRow) => {
-          if (!insertedRow) return
-          const next = mapInsertedPatientToListPatient(insertedRow)
-          setClients((prev) => [next, ...prev.filter((c) => c.id !== next.id)])
-        }}
-      />
+      {branchesEnabled && branchOptions.loading && <p role="status" className="text-sm text-gray-500">Loading branch choices…</p>}
+      {branchesEnabled && !branchOptions.loading && branchOptions.result && !branchOptions.result.success &&
+        <div role="alert" className="text-sm text-danger">Unable to load branch choices. <Button type="button" variant="secondary" size="sm" onClick={branchOptions.retry}>Retry branch choices</Button></div>}
     </div>
-  )
+    <DataTable label="Clients" entityLabel="clients" rows={clients} columns={columns} getRowKey={client => client.id} getRowLabel={patientFullName}
+      pagination={{ page, pageSize, totalCount, onPageChange: next => changeQuery({ page: next }) }}
+      search={{ value: query.q, onChange: value => changeQuery({ q: value }), placeholder: "Search clients by name, email, or phone..." }} filters={branchFilters}
+      sort={{ value: { key: query.sortKey, dir: query.sortDir }, onChange: key => changeQuery({ sortKey: key as ClientListSortKey, sortDir: query.sortKey === key && query.sortDir === "asc" ? "desc" : "asc" }) }}
+      addAction={{ label: "Add New Client", onClick: () => setIsModalOpen(true) }} onRefresh={refresh} onRetry={refresh}
+      loading={isPending} disabled={blocked} error={error}
+      rowNavigation={{ columnKey: "name", onOpen: client => openClient(client.id) }}
+      rowActions={client => [{ label: "View Details", icon: Eye, href: `/pages/agency/clients/${client.id}` },
+        { label: client.status === "active" ? "Deactivate" : "Activate", onClick: () => toggleStatus(client), destructive: client.status === "active", positive: client.status !== "active" }]} />
+    <AddNewClientModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSuccess={() => { setIsModalOpen(false); refresh(); }} />
+  </div>;
 }

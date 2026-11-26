@@ -1,0 +1,25 @@
+'use client'
+
+import { useAgencyBranchOptions } from '@/hooks/useAgencyBranchOptions'
+import Button from '@/components/ui/PrimaryButton'
+
+/** Mounted only inside an existing editor. One authorized, bounded options read. */
+export default function BranchSelectField({ id, value, currentName, onChange, disabled, error }: {
+  id: string; value?: string; currentName?: string | null; onChange: (value: string, name?: string) => void; disabled?: boolean; error?: string
+}) {
+  const { result, loading, retry } = useAgencyBranchOptions()
+  const rows = result?.success ? result.data : []
+  return <div>
+    <label htmlFor={id} className="block text-sm text-gray-600 mb-1">Branch <span className="text-danger">*</span></label>
+    <select id={id} value={value ?? ''} onChange={event => onChange(event.target.value, rows.find(row => row.id === event.target.value)?.name)} disabled={disabled || loading || !result?.success}
+      aria-invalid={!!error} aria-describedby={error ? id + '-error' : undefined}
+      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+      {!value && <option value="">Choose a branch</option>}
+      {value && !rows.some(row => row.id === value) && <option value={value}>{currentName || 'Current branch'}</option>}
+      {rows.map(row => <option key={row.id} value={row.id} disabled={row.status !== 'active'}>{row.name}{row.status !== 'active' ? ' (inactive)' : ''}{row.is_default ? ' (default)' : ''}</option>)}
+    </select>
+    {loading && <p role="status" className="text-sm text-gray-500">Loading branches…</p>}
+    {!loading && result && !result.success && <p role="alert" className="text-sm text-danger">{result.error} <Button size="sm" variant="secondary" type="button" onClick={retry}>Retry</Button></p>}
+    {error && <p id={id + '-error'} role="alert" className="text-sm text-danger">{error}</p>}
+  </div>
+}

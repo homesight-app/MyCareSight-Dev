@@ -1,6 +1,63 @@
 # Standard Table Pattern
 
-Reference for building new data tables. Follow this pattern exactly so all tables behave and look the same.
+Use the shared `DataTable` for new standard record tables. Existing tables do not need a bulk rewrite; the legacy building-block recipe below remains for their maintenance and specialized exceptions.
+
+## Shared DataTable: first approved adoption
+
+The initial November 25 user-approved batch adds `src/components/ui/DataTable.tsx` for Branches, shared by the agency and admin portals. The separately approved Clients adoption is documented below. Inventory first confirmed that no generic shell existed: `LicenseTypesTable` owns license-specific workflows, `TemplateEditor`'s table toolbar edits rich-text tables, and `useTableState`/the existing UI controls are building blocks. No new library is required.
+
+`DataTable` composes the existing `PrimaryButton`, `SearchInput`, `FilterSelect`, `SortableColumnHeader`, `RecordActionsMenu` and `TablePagination`. Do not rebuild the toolbar, table body, loading/empty/error states, row interaction handling or pagination for another standard table.
+
+| Configuration | Responsibility |
+|---|---|
+| `rows`, `columns`, `getRowKey`, `getRowLabel` | Caller supplies the authorized current page, stable keys and feature-owned cell rendering. Never use array position as record identity. |
+| `pagination` (required) | Zero-based page, positive page size, complete filtered total and page-change callback. The existing pager is built in, outside the table container. |
+| `search`, `filters`, `sort` | Optional controlled values and callbacks. The component renders the controls and resets page to zero on a change. Filter definitions include their own options and any All choice. |
+| `addAction`, `toolbarActions`, `onRefresh` | Optional permitted actions in the shared toolbar. Use `addAction` for the standard callback button; `toolbarActions` accepts an existing feature-owned action/flow component without duplicating it. The feature owns creation, modals, requests and refresh invalidation. |
+| `rowNavigation` | Optional record-opening callback and primary column key. The primary cell has a native keyboard-accessible button; clicking ordinary cells opens the same record. |
+| `rowActions`, `isRowInactive` | Feature-supplied permitted actions and visual inactive state. Status columns can set `retainEmphasis`; action cells are never dimmed. Inactive styling does not authorize or deny access. |
+| `loading`, `error`, `onRetry`, `disabled` | Standard feedback and interaction locks. Loading/error replaces stale rows; headers stay mounted. Retry uses the caller callback, defaulting to Refresh. |
+
+The complete typed API is exported from [DataTable.tsx](./DataTable.tsx). See [AgencyBranchSettings.tsx](../AgencyBranchSettings.tsx) for the real bounded-query integration, including request deduplication, stale-response handling and cache invalidation.
+
+### Data, performance and authorization contract
+
+- `DataTable` never fetches, authorizes, filters, sorts or slices record collections itself. It renders the page the feature supplied. Search/filter/sort controls emit state changes; feature repositories retain the actual matching, sorting and pagination semantics.
+- For server pages, pass the filtered server total, not `rows.length`. Never apply `applyPageSlice` or client sorting/filtering to an already fetched server page. `useTableState` remains useful for controlled interaction state; query on the resulting state changes rather than issuing separate requests from each callback. Its redundant page-zero state updates are batched, not extra fetches.
+- Every actual deferred request must independently authorize tenant/record scope, validate query inputs, enforce limits and write required audits. Only expose permitted actions. The shared table is not an access boundary, generic CRUD endpoint or store for PHI/session data.
+- Keep record/tab caches and request cancellation/deduplication in the owning feature. The shell adds no database request, browser storage, global row cache, logging or third-party integration.
+- Branches retains a 25-row page plus one-row lookahead, server count, a 100-branch creation limit and its current-record cache. Only the visible page reaches the DOM. No 10x cloud benchmark is implied by generic synthetic fixtures.
+- The primary navigation cell must render noninteractive text/badges. Put independent controls in other columns; native inputs, buttons and links do not open the row. Custom widgets can mark their container `data-table-no-row-click`. Portalled menus do not trigger row opening.
+- Keep calendar, scheduling, EVV, clinical, document-editor and other specialized interactions in their feature components. Do not force them into this shell.
+
+### Compatibility and current rollout
+
+- `SortableColumnHeader` adds opt-in `buttonHeader` and `disabled` props. `DataTable` opts into keyboard buttons and `aria-sort`; existing callers keep their legacy markup/click behavior by default.
+- `TablePagination` adds optional `disabled=false`. Existing callers retain their page sizes, labels, totals and behavior. The shared shell blocks paging during a request or feature mutation.
+- Existing direct consumers were inventoried: `AdminProgramsContent`, `AgencyCaregiversTab`, `AgencyCertificationsContent`, `AgencyDocumentsTab`, `AgencyPeopleTab`, `LicenseTypesTable`, `PlaybookLibraryContent`, `StaffManagementClient`, `TemplatesContent`, and `UserManagementTabs`. They are not migrated in this batch.
+- Adopt additional tables only in separately approved, independently checked batches. This batch changes no query, schema, authorization rule, density token, root font size or existing feature workflow.
+
+## Legacy building-block recipe
+
+### Approved Clients adoption (November 25)
+
+`ClientsContent.tsx` now uses the existing shell without changing its public API. Active/Intake/Inactive/All remain feature-owned status controls above the table; the shared toolbar contains search, the branch filter, Refresh and the existing Add New Client workflow. With branches enabled, Branch replaces Representative #2 in the list only; both representative records and profile editing remain intact. Feature-off retains Representative #2 and makes no branch-options request.
+
+The server route and patient query own the whitelisted column ordering, status/search/branch predicates and stable ID ties. They return at most 50 clients with the complete filtered total; the shell does not sort or paginate that page again. Filter/sort changes reset to page zero in one navigation; search waits 400 ms. Current query state survives paging and browser history, and All is explicitly encoded rather than falling back to Active. Successful creation/status changes refresh the authoritative page instead of prepending or removing rows independently of its sort/filter/counts. Mutation errors preserve the displayed record and show a non-content error.
+
+`useAgencyBranchOptions` extracts the existing editor's authorized options loader for reuse by the table. It deduplicates a mounted surface's request (including Strict Mode), has explicit retry, and adds no polling, global identity cache or browser storage. It uses the existing 100-branch cap and does not block the initial client page. Existing tenant context, RLS, feature capability and mutation boundaries remain authoritative. Representative ordering uses the same display-order/ID tie-break for its sort expression and rendered array. Sorting a large filtered agency still requires database work across matching rows; offset paging, count queries and substring search retain their existing scale limits. Cloud latency and a 10x workload were not benchmarked; confirm index/query plans during UAT if needed.
+
+### Approved My Services adoption (November 26)
+
+`AgencyProgramsContent.tsx` adopts `DataTable` for the agency My Services list. Search, the Branch filter, Refresh and Request Service share the table toolbar. The same-day correction removes the screen's centered width cap and redundant inner padding so it fills the agency working area. The existing `ApplyForNewLicenseButton` is rendered through the optional `toolbarActions` slot and continues to own its state/program/review/branch-selection flow. Existing table consumers keep their existing APIs/behavior; the slot defaults to absent and inherits the toolbar fieldset's disabled state. No separate trigger API or duplicate request flow is introduced. Service columns, progress bars/status totals, item totals, View Service menu, record destination and pending-request panel/cancellation remain feature-owned.
+
+The existing service query still returns a 50-row authorized page and complete matching total in stable creation-date/ID order. Search/branch filtering and page selection execute on the server; a shared application's multiple branch links cannot multiply rows or progress. Search waits 400 ms, changing search/branch resets page in one navigation, paging preserves both values, and browser history restores them without a navigation loop. The shell never filters, sorts or slices that page again. The existing server order is preserved; this adoption does not introduce new service sorting rules. Pending requests keep their existing 50-row display limit plus lookahead and branch scope.
+
+Branch choices reuse `useAgencyBranchOptions` (100 maximum, per-mounted-agency deduplication, no polling/storage), load independently of service rows, and have local Retry without losing the selected UUID. Capability/membership checks, role-specific request branch selection, transaction context and all existing SQL remain unchanged. Generic list-load failure uses the shared Retry state. Cancellation preserves returned business errors in Sonner, clears busy state after thrown errors and refreshes the authoritative page on success. Pending expansion now exposes `aria-expanded`; row opening uses the shared native keyboard button. UAT must confirm these feature workflows and hosted performance; no live/10x benchmark is implied by synthetic fixtures.
+
+The toolbar correction's isolated browser coverage uses the actual request-flow component and modals through state/program selection, branch selection and submission with synthetic action adapters. A pre-existing limitation surfaced: Browse National with no state supplies an empty required `programBranchRequestSchema.state` and cannot submit through the branch form. State-selected requests work. This requires a separate national-program jurisdiction rule; the UI placement correction does not relax that validation.
+
+The following documents existing direct usage; prefer the shared shell for new standard tables.
 
 ---
 

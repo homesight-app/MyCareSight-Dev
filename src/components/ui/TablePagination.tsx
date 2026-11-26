@@ -8,6 +8,7 @@ interface TablePaginationProps {
   totalCount: number
   onPageChange: (page: number) => void
   entityLabel: string   // e.g. "caregivers"
+  disabled?: boolean
 }
 
 export default function TablePagination({
@@ -16,6 +17,7 @@ export default function TablePagination({
   totalCount,
   onPageChange,
   entityLabel,
+  disabled = false,
 }: TablePaginationProps) {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
   const from = totalCount === 0 ? 0 : page * pageSize + 1
@@ -33,7 +35,7 @@ export default function TablePagination({
         <button
           type="button"
           onClick={() => onPageChange(page - 1)}
-          disabled={page === 0}
+          disabled={disabled || page === 0}
           className="inline-flex items-center gap-1 px-2.5 py-1.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronLeft className="w-3.5 h-3.5" />
@@ -42,7 +44,7 @@ export default function TablePagination({
         <button
           type="button"
           onClick={() => onPageChange(page + 1)}
-          disabled={page >= totalPages - 1}
+          disabled={disabled || page >= totalPages - 1}
           className="inline-flex items-center gap-1 px-2.5 py-1.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           Next

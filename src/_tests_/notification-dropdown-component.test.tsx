@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import NotificationDropdown from '@/components/NotificationDropdown'
 import {
   getNotificationBadgeSnapshotAction,
@@ -49,4 +49,18 @@ test('uses one server action for the initial badge and one when the dropdown ope
   expect(getNotificationBadgeSnapshotAction).toHaveBeenCalledTimes(1)
 
   view.unmount()
+})
+
+test('a late badge read cannot replace the newer dropdown count', async () => {
+  let resolveBadge!: (value: Awaited<ReturnType<typeof getNotificationBadgeSnapshotAction>>) => void
+  jest.mocked(getNotificationBadgeSnapshotAction).mockReturnValueOnce(new Promise(resolve => { resolveBadge = resolve }))
+  jest.mocked(getNotificationDropdownSnapshotAction).mockResolvedValueOnce({ data: { unreadCount: 9, role: 'admin', applications: [], notifications: [] }, error: null })
+  render(<NotificationDropdown userId="76000000-0000-4000-8000-000000000001" userRole="admin" />)
+  await waitFor(() => expect(getNotificationBadgeSnapshotAction).toHaveBeenCalledTimes(1))
+  const bell = screen.getByRole('button', { name: 'Notifications' })
+  fireEvent.click(bell)
+  await waitFor(() => expect(within(bell).getByText('9')).toBeInTheDocument())
+  await act(async () => resolveBadge({ data: { unreadCount: 3, role: 'admin' }, error: null }))
+  expect(within(bell).getByText('9')).toBeInTheDocument()
+  expect(within(bell).queryByText('3')).not.toBeInTheDocument()
 })

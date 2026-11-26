@@ -1,3 +1,4 @@
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
 import sql from '@/db'
 import { normalizeDatabaseRow, normalizeDatabaseRows } from '@/lib/database-date-contract'
 
@@ -75,6 +76,7 @@ export async function getLeads(
 }
 
 export interface GetLeadsPaginatedOpts {
+  branchId?: string
   leadType: 'agency' | 'patient'
   agencyId?: string
   page?: number
@@ -92,6 +94,7 @@ function buildLeadFilterFragments(opts: GetLeadsPaginatedOpts) {
   const frags = [sql`l.lead_type = ${opts.leadType}`]
 
   if (opts.agencyId) frags.push(sql`l.agency_id = ${opts.agencyId}`)
+  if (opts.branchId) frags.push(sql`l.branch_id = ${opts.branchId}::uuid`)
 
   if (opts.stageFilter === 'archived') {
     frags.push(sql`(l.status = 'archived' OR l.converted_at IS NOT NULL)`)
@@ -125,8 +128,10 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
     const page     = opts.page     ?? 0
     const pageSize = opts.pageSize ?? 50
     const offset   = page * pageSize
+    const showBranch = agencyBranchesEnabled() && opts.leadType === 'patient' && !!opts.agencyId
 
-    const sortCol = opts.sortKey === 'price'       ? sql`l.price`
+    const sortCol = opts.sortKey === 'branch_name' && showBranch ? sql`branch.name`
+                  : opts.sortKey === 'price'       ? sql`l.price`
                   : opts.sortKey === 'signed_date'  ? sql`l.signed_date`
                   : opts.sortKey === 'name'          ? sql`l.contact_last_name`
                   : opts.sortKey === 'company'       ? sql`l.company_name`
@@ -141,6 +146,7 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
       sql`
         SELECT
           l.id, l.lead_type, l.agency_id,
+          ${showBranch ? sql`l.branch_id, branch.name AS branch_name,` : sql``}
           l.contact_first_name, l.contact_last_name, l.contact_email, l.contact_phone,
           l.company_name, l.service_type, l.stage, l.source, l.price, l.retainer_amount,
           l.retainer_paid_date, l.installments, l.installment_amount, l.signed_date, l.notes,
@@ -152,8 +158,9 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
           up.full_name AS lead_owner_full_name
         FROM leads l
         LEFT JOIN user_profiles up ON up.id = l.lead_owner_id
+        ${showBranch ? sql`LEFT JOIN public.agency_branches branch ON branch.id = l.branch_id AND branch.agency_id = l.agency_id` : sql``}
         WHERE ${where}
-        ORDER BY ${sortCol} ${sortDir}
+        ORDER BY ${sortCol} ${sortDir}, l.id
         LIMIT ${pageSize} OFFSET ${offset}
       `,
       sql`
@@ -183,10 +190,11 @@ export async function getLeadsPaginated(opts: GetLeadsPaginatedOpts) {
 
 /** Lightweight — returns only stage + status, used to compute tab counts. */
 export async function getLeadStageCounts(
-  opts: Pick<GetLeadsPaginatedOpts, 'leadType' | 'agencyId' | 'search' | 'serviceType' | 'source' | 'owner'>
+  opts: Pick<GetLeadsPaginatedOpts, 'leadType' | 'agencyId' | 'search' | 'serviceType' | 'source' | 'owner' | 'branchId'>
 ) {
   try {
     const agencyFrag      = opts.agencyId ? sql`AND l.agency_id = ${opts.agencyId}` : sql``
+    const branchFrag = opts.branchId ? sql`AND l.branch_id = ${opts.branchId}::uuid` : sql``
     const serviceTypeFrag = opts.serviceType && opts.serviceType !== 'all' ? sql`AND l.service_type = ${opts.serviceType}` : sql``
     const sourceFrag      = opts.source    && opts.source      !== 'all' ? sql`AND l.source = ${opts.source}`             : sql``
     const ownerFrag       = opts.owner === 'unassigned'
@@ -199,22 +207,24 @@ export async function getLeadStageCounts(
       : sql``
 
     const rows = await sql`
-      SELECT l.stage, l.status, l.converted_at
+      SELECT l.stage, l.status, (l.converted_at IS NOT NULL) AS is_converted, count(*)::int AS row_count
       FROM leads l
       WHERE l.lead_type = ${opts.leadType}
-      ${agencyFrag} ${serviceTypeFrag} ${sourceFrag} ${ownerFrag} ${searchFrag}
+      ${agencyFrag} ${branchFrag} ${serviceTypeFrag} ${sourceFrag} ${ownerFrag} ${searchFrag}
+      GROUP BY l.stage, l.status, (l.converted_at IS NOT NULL)
     `
 
-    const allRows = rows as unknown as { stage: string; status: string; converted_at: string | null }[]
-    const nonArchived = allRows.filter(r => r.status !== 'archived' && !r.converted_at)
+    const allRows = rows as unknown as { stage: string; status: string; is_converted: boolean; row_count: number }[]
     const TERMINAL = ['on_hold', 'unresponsive', 'lost', 'signed']
-    const counts: Record<string, number> = {
-      all:      nonArchived.length,
-      active:   nonArchived.filter(r => !TERMINAL.includes(r.stage)).length,
-      archived: allRows.filter(r => r.status === 'archived' || Boolean(r.converted_at)).length,
-    }
-    for (const r of nonArchived) {
-      counts[r.stage] = (counts[r.stage] ?? 0) + 1
+    const counts: Record<string, number> = { all: 0, active: 0, archived: 0 }
+    for (const row of allRows) {
+      const count = Number(row.row_count)
+      if (row.status === 'archived' || row.is_converted) counts.archived += count
+      else {
+        counts.all += count
+        if (!TERMINAL.includes(row.stage)) counts.active += count
+        counts[row.stage] = (counts[row.stage] ?? 0) + count
+      }
     }
     return counts
   } catch {
@@ -269,9 +279,11 @@ export async function getLeadDistinctSources(
 
 export async function getLeadById(leadId: string) {
   try {
+    const showBranch = agencyBranchesEnabled()
     const rows = await sql`
       SELECT
         l.id, l.lead_type, l.agency_id,
+        ${showBranch ? sql`l.branch_id, branch.name AS branch_name,` : sql``}
         l.contact_first_name, l.contact_last_name, l.contact_email, l.contact_phone,
         l.company_name, l.service_type, l.stage, l.source, l.price, l.retainer_amount,
         l.retainer_paid_date, l.installments, l.installment_amount, l.signed_date, l.notes,
@@ -285,6 +297,7 @@ export async function getLeadById(leadId: string) {
         ag.name      AS converted_agency_name
       FROM leads l
       LEFT JOIN user_profiles up ON up.id = l.lead_owner_id
+      ${showBranch ? sql`LEFT JOIN public.agency_branches branch ON branch.id = l.branch_id AND branch.agency_id = l.agency_id` : sql``}
       LEFT JOIN agencies ag ON ag.id = l.converted_agency_id
       WHERE l.id = ${leadId}
       LIMIT 1

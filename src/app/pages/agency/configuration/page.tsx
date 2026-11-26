@@ -1,10 +1,12 @@
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import * as q from '@/lib/supabase/query'
 import AgencyConfigurationContent from '@/components/AgencyConfigurationContent'
-import { getAgencyBrandingAction } from '@/app/actions/agencies'
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import { Suspense } from 'react'
+import AgencyInfoServer from '@/components/AgencyInfoServer'
 
-export default async function AgencyConfigurationPage() {
+export default async function AgencyConfigurationPage({ searchParams }: { searchParams: Promise<{ section?: string }> }) {
+  const params = await searchParams
   const session = await getSession()
   if (!session) redirect('/pages/auth/login')
 
@@ -18,31 +20,20 @@ export default async function AgencyConfigurationPage() {
 
   const agencyId = profile.agency_id ?? null
   const userRole = profile.role ?? null
-
-  const [configResult, stagesResult, branding] = await Promise.all([
-    agencyId ? q.getAgencyConfiguration(agencyId) : Promise.resolve({ data: null }),
-    agencyId ? q.getAgencyLeadStages(agencyId) : Promise.resolve({ data: null }),
-    agencyId ? getAgencyBrandingAction(agencyId) : Promise.resolve({ logoUrl: null, logoIconUrl: null, primaryColor: null, sidebarColor: null }),
-  ])
-
-  let stages = stagesResult.data ?? []
-  if (stages.length === 0 && agencyId) {
-    const seeded = await q.seedDefaultAgencyLeadStages(agencyId)
-    stages = seeded.data ?? []
-  }
+  const branchesEnabled = agencyBranchesEnabled()
 
   return (
     <AgencyConfigurationContent
-      initialConfig={configResult.data}
+      key={`${agencyId}:${userRole}`}
+      initialConfig={null}
       agencyId={agencyId}
       userRole={userRole}
-      initialStages={stages}
-      initialBranding={{
-        logoUrl: branding.logoUrl,
-        logoIconUrl: branding.logoIconUrl,
-        primaryColor: branding.primaryColor,
-        sidebarColor: branding.sidebarColor,
-      }}
+      initialStages={[]}
+      branchesEnabled={branchesEnabled}
+      initialSection={params.section}
+      agencyPanel={userRole === 'company_owner' && agencyId ? <Suspense fallback={<p role="status">Loading agency information…</p>}>
+        <AgencyInfoServer branchesEnabled={branchesEnabled} initialTab={params.section === 'branches' ? 'branches' : 'overview'} />
+      </Suspense> : undefined}
     />
   )
 }

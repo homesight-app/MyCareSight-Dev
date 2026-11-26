@@ -1,3 +1,4 @@
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { withUserContext } from '@/db'
@@ -48,7 +49,10 @@ export default async function ClientDetailPage({
     role === 'company_owner' || role === 'care_coordinator'
 
   return (
+    <>
     <ClientDetailContent
+      branchesEnabled={agencyBranchesEnabled()}
+      canEditBranch={role === 'company_owner'}
       key={`${id}:${activeTab}`}
       client={bundle.client}
       allClients={bundle.allClients || []}
@@ -70,5 +74,6 @@ export default async function ClientDetailPage({
       canSchedule={canSchedule}
       convertedLeadDocuments={bundle.convertedLeadDocuments}
     />
+    </>
   )
 }

@@ -1,5 +1,7 @@
 'use client'
 
+import ClientPersonalInfo from './ClientPersonalInfo'
+
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -207,6 +209,8 @@ function buildAssignedVisitTaskSlotSet(
 }
 
 interface SmallClient {
+  branch_id?: string | null
+  branch_name?: string | null
   id: string
   first_name: string
   last_name: string
@@ -242,6 +246,8 @@ type BillingCodeOption = { id: string; code: string; name: string; unit_type: 'h
 const BILLING_CODE_PICKLIST_ORDER = ['S5125', 'S5126', 'T1019', 'T1020', 'G0156', 'G0159', '97110', '97530', '99509', 'W1726'] as const
 
 interface ClientDetailContentProps {
+  branchesEnabled?: boolean
+  canEditBranch?: boolean
   client: SmallClient
   allClients: Array<{ id: string; first_name: string; last_name: string }>
   representatives?: PatientRepresentative[]
@@ -274,7 +280,7 @@ export default function ClientDetailContent({ client, allClients, representative
   canManageNotes = false,
   agencyId,
   canSchedule = true,
-  convertedLeadDocuments = [] }: ClientDetailContentProps) {
+  convertedLeadDocuments = [], branchesEnabled = false, canEditBranch = false }: ClientDetailContentProps) {
   const initialSkilledSchedules = skilledSchedulesProp ?? EMPTY_SKILLED_SCHEDULES
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -286,16 +292,6 @@ export default function ClientDetailContent({ client, allClients, representative
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [clientStatus, setClientStatus] = useState(client.status)
   const [loginAccess, setLoginAccess] = useState(client.login_access ?? true)
-  const [isEditingPersonal, setIsEditingPersonal] = useState(false)
-  const [editPersonalForm, setEditPersonalForm] = useState({
-    first_name: client.first_name,
-    last_name: client.last_name,
-    gender: client.gender ?? '',
-    date_of_birth: client.date_of_birth,
-    age: ageFromDateOfBirth(client.date_of_birth) ?? 0,
-  })
-  const [isSavingPersonal, setIsSavingPersonal] = useState(false)
-  const [personalEditError, setPersonalEditError] = useState<string | null>(null)
   const [isEditingMedical, setIsEditingMedical] = useState(false)
   const [editMedicalForm, setEditMedicalForm] = useState({
     primary_diagnosis: client.primary_diagnosis ?? '',
@@ -874,58 +870,6 @@ export default function ClientDetailContent({ client, allClients, representative
     } catch (error) {
       console.error('Error updating login access:', error)
       setLoginAccess(!checked)
-    }
-  }
-
-  const startEditPersonal = () => {
-    const age = ageFromDateOfBirth(localClient.date_of_birth) ?? 0
-    setEditPersonalForm({
-      first_name: localClient.first_name,
-      last_name: localClient.last_name,
-      gender: localClient.gender ?? '',
-      date_of_birth: localClient.date_of_birth,
-      age,
-    })
-    setPersonalEditError(null)
-    setIsEditingPersonal(true)
-  }
-
-  const cancelEditPersonal = () => {
-    setIsEditingPersonal(false)
-    setPersonalEditError(null)
-  }
-
-  const handleSavePersonal = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!editPersonalForm.first_name.trim()) {
-      setPersonalEditError('First name is required.')
-      return
-    }
-    setIsSavingPersonal(true)
-    setPersonalEditError(null)
-    try {
-      const { error } = await q.updatePatient(client.id, {
-        first_name: editPersonalForm.first_name.trim(),
-        last_name: editPersonalForm.last_name.trim(),
-        gender: editPersonalForm.gender || null,
-        date_of_birth: editPersonalForm.date_of_birth,
-      })
-      if (error) throw error
-      const newAge = ageFromDateOfBirth(editPersonalForm.date_of_birth)
-      setLocalClient((prev) => ({
-        ...prev,
-        first_name: editPersonalForm.first_name.trim(),
-        last_name: editPersonalForm.last_name.trim(),
-        gender: editPersonalForm.gender || null,
-        date_of_birth: editPersonalForm.date_of_birth,
-        age: newAge,
-      }))
-      setIsEditingPersonal(false)
-      router.refresh()
-    } catch (err: unknown) {
-      setPersonalEditError(err instanceof Error ? err.message : 'Failed to update. Please try again.')
-    } finally {
-      setIsSavingPersonal(false)
     }
   }
 
@@ -3944,140 +3888,10 @@ export default function ClientDetailContent({ client, allClients, representative
         <div className="p-6">
           {activeTab === 'overview' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Personal Information Card */}
-              <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Personal Information</h3>
-                  {isEditingPersonal ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={cancelEditPersonal}
-                        disabled={isSavingPersonal}
-                        className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 rounded-lg disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-                      <Button
-                        variant="primary"
-                        type="submit"
-                        form="form-personal"
-                        disabled={isSavingPersonal}
-                        loading={isSavingPersonal}
-                        size="sm"
-                      >
-                        Save
-                      </Button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={startEditPersonal}
-                      className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-                      aria-label="Edit personal information"
-                    >
-                    <Edit className="w-4 h-4 text-gray-600" />
-                  </button>
-                  )}
-                </div>
-                {isEditingPersonal ? (
-                  <form id="form-personal" onSubmit={handleSavePersonal} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {personalEditError && (
-                      <div className="md:col-span-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
-                        {personalEditError}
-                      </div>
-                    )}
-                    <div>
-                      <label className="block text-sm text-gray-600 mb-1">First Name</label>
-                      <input
-                        type="text"
-                        value={editPersonalForm.first_name}
-                        onChange={(e) => setEditPersonalForm((p) => ({ ...p, first_name: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={isSavingPersonal}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-gray-600 mb-1">Last Name</label>
-                      <input
-                        type="text"
-                        value={editPersonalForm.last_name}
-                        onChange={(e) => setEditPersonalForm((p) => ({ ...p, last_name: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={isSavingPersonal}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-gray-600 mb-1">Gender</label>
-                      <select
-                        value={editPersonalForm.gender}
-                        onChange={(e) => setEditPersonalForm((p) => ({ ...p, gender: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={isSavingPersonal}
-                      >
-                        <option value="">Select...</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                        <option value="Prefer not to say">Prefer not to say</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm text-gray-600 mb-1">Date of Birth</label>
-                      <input
-                        type="date"
-                        value={editPersonalForm.date_of_birth}
-                        onChange={(e) => {
-                          const date_of_birth = e.target.value
-                          setEditPersonalForm((p) => ({
-                            ...p,
-                            date_of_birth,
-                            age: ageFromDateOfBirth(date_of_birth) ?? 0,
-                          }))
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={isSavingPersonal}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-gray-600 mb-1">Age</label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={150}
-                        value={editPersonalForm.age || ''}
-                        onChange={(e) => {
-                          const v = e.target.value === '' ? 0 : parseInt(e.target.value, 10)
-                          const age = isNaN(v) ? 0 : Math.min(150, Math.max(0, v))
-                          setEditPersonalForm((p) => ({ ...p, age, date_of_birth: dobFromAge(age) }))
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={isSavingPersonal}
-                        placeholder="Age"
-                      />
-                    </div>
-                  </form>
-                ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm text-gray-600">Full Name:</span>
-                      <p className="text-sm font-medium text-gray-900">{patientFullName(localClient)}</p>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Gender:</span>
-                      <p className="text-sm font-medium text-gray-900">{localClient.gender || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Date of Birth:</span>
-                      <p className="text-sm font-medium text-gray-900">{formatDate(localClient.date_of_birth)}</p>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Age:</span>
-                      <p className="text-sm font-medium text-gray-900">{displayedAge === null ? 'N/A' : `${displayedAge} years`}</p>
-                  </div>
-                </div>
-                )}
-              </div>
+              {/* Existing Overview profile editor; Branch saves with its other attributes. */}
+              <ClientPersonalInfo client={localClient} branchesEnabled={branchesEnabled} canEditBranch={canEditBranch}
+                dobFromAge={dobFromAge} formatDate={formatDate}
+                onSaved={data => { setLocalClient(previous => ({ ...previous, ...data })); router.refresh() }} />
 
               {/* Status Management Card */}
               <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">

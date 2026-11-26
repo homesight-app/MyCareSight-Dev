@@ -1,4 +1,4 @@
-import NextAuth, { type DefaultSession } from 'next-auth'
+import NextAuth, { CredentialsSignin, type DefaultSession } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import type { JWT } from '@auth/core/jwt'
 import {
@@ -7,6 +7,9 @@ import {
   revokeOpaqueSession,
 } from '@/lib/repositories/auth-identity'
 import type { UserRole } from '@/types/auth'
+import { SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session-policy'
+import { LOGIN_UNAVAILABLE_CODE } from '@/lib/auth/login-errors'
+import { isLoginConnectionFailure } from '@/lib/auth/login-connection'
 import {
   reportSessionVerificationFailure,
   SessionVerificationUnavailableError,
@@ -44,12 +47,16 @@ function requestIp(request: Request): string | null {
   return forwarded?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null
 }
 
+class LoginUnavailableError extends CredentialsSignin {
+  code = LOGIN_UNAVAILABLE_CODE
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   // Credentials requires Auth.js's jwt strategy. These hooks replace its JWT
   // payload with a random opaque token backed by PostgreSQL.
-  session: { strategy: 'jwt', maxAge: 60 * 60 },
+  session: { strategy: 'jwt', maxAge: SESSION_MAX_AGE_SECONDS },
   jwt: {
-    maxAge: 60 * 60,
+    maxAge: SESSION_MAX_AGE_SECONDS,
     async encode({ token }) {
       if (!token?.sessionToken) throw new Error('Opaque session token is missing')
       return token.sessionToken
@@ -87,12 +94,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null
         }
         if (credentials.password.length < 1 || credentials.password.length > 256) return null
-        const profile = await authenticateCredentials({
-          email: credentials.email,
-          password: credentials.password,
-          ipAddress: requestIp(request),
-          userAgent: request.headers.get('user-agent'),
-        })
+        let profile: Awaited<ReturnType<typeof authenticateCredentials>>
+        try {
+          profile = await authenticateCredentials({
+            email: credentials.email,
+            password: credentials.password,
+            ipAddress: requestIp(request),
+            userAgent: request.headers.get('user-agent'),
+          })
+        } catch (error) {
+          console.error('[auth] Login unavailable', { stage: 'credentials', reason: isLoginConnectionFailure(error) ? 'connection' : 'verification' })
+          // Auth.js serializes this fixed code; never attach the original error/cause.
+          throw new LoginUnavailableError()
+        }
         if (!profile) return null
         return {
           id: profile.userId,
@@ -123,7 +137,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.role) session.user.role = token.role
       session.user.agencyId = token.agencyId ?? null
       session.user.fullName = token.fullName ?? null
-      return session
+      return { ...session, expires: token.exp ? new Date(token.exp * 1000).toISOString() : session.expires }
     },
   },
   events: {

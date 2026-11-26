@@ -1,6 +1,6 @@
 export type SessionVerificationStage = 'opaque-session' | 'current-identity'
 
-export type SessionRejectionReason = 'not-found' | 'revoked' | 'expired'
+export type SessionRejectionReason = 'not-found' | 'revoked' | 'expired' | 'idle-expired'
   | 'profile-unavailable' | 'profile-inactive' | 'membership-inactive' | 'unclassified'
 
 /** Fixed classifications only; never include a token/hash or user/session identifier. */

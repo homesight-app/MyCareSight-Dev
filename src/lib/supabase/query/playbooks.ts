@@ -467,88 +467,64 @@ export async function getApplicationsWithProgramsByAgencyId(agencyId: string) {
 }
 
 export interface GetApplicationsWithProgramsPaginatedOpts {
+  branchId?: string
   page?: number
   pageSize?: number
   search?: string
 }
 
 /** Paginated program applications for one agency. Agency scope is mandatory. */
-export async function getApplicationsWithProgramsPaginated(
-  agencyId: string,
-  opts?: GetApplicationsWithProgramsPaginatedOpts
-) {
-  const page     = opts?.page     ?? 0
-  const pageSize = opts?.pageSize ?? 50
-  const from     = page * pageSize
-
+export async function getApplicationsWithProgramsPaginated(agencyId: string, opts?: GetApplicationsWithProgramsPaginatedOpts) {
+  const page = Math.max(0, opts?.page ?? 0)
+  const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 50))
   try {
-    const searchTerm = opts?.search?.trim()
-
-    let dataRows: Record<string, unknown>[]
-    let countRows: Record<string, unknown>[]
-
-    if (searchTerm) {
-      const term = `%${searchTerm}%`
-      ;[dataRows, countRows] = await Promise.all([
-        sql`
-          SELECT a.id, a.application_name, a.state, a.status, a.agency_id, a.assigned_expert_id,
-            json_build_object('id', ag.id, 'name', ag.name) AS agencies,
-            COALESCE(json_agg(json_build_object('status', api.status, 'requirement_type', api.requirement_type)) FILTER (WHERE api.id IS NOT NULL), '[]') AS application_playbook_items
-          FROM applications a
-          LEFT JOIN agencies ag ON ag.id = a.agency_id
-          LEFT JOIN application_playbook_items api ON api.application_id = a.id
-          WHERE a.agency_id = ${agencyId}
-            AND a.playbook_id IS NOT NULL
-            AND a.application_name ILIKE ${term}
-          GROUP BY a.id, ag.id
-          ORDER BY a.created_at DESC
-          LIMIT ${pageSize} OFFSET ${from}
-        `,
-        sql`SELECT COUNT(*) AS count FROM applications WHERE agency_id = ${agencyId} AND playbook_id IS NOT NULL AND application_name ILIKE ${term}`,
-      ])
-    } else {
-      ;[dataRows, countRows] = await Promise.all([
-        sql`
-          SELECT a.id, a.application_name, a.state, a.status, a.agency_id, a.assigned_expert_id,
-            json_build_object('id', ag.id, 'name', ag.name) AS agencies,
-            COALESCE(json_agg(json_build_object('status', api.status, 'requirement_type', api.requirement_type)) FILTER (WHERE api.id IS NOT NULL), '[]') AS application_playbook_items
-          FROM applications a
-          LEFT JOIN agencies ag ON ag.id = a.agency_id
-          LEFT JOIN application_playbook_items api ON api.application_id = a.id
-          WHERE a.agency_id = ${agencyId}
-            AND a.playbook_id IS NOT NULL
-          GROUP BY a.id, ag.id
-          ORDER BY a.created_at DESC
-          LIMIT ${pageSize} OFFSET ${from}
-        `,
-        sql`SELECT COUNT(*) AS count FROM applications WHERE agency_id = ${agencyId} AND playbook_id IS NOT NULL`,
-      ])
-    }
-
-    return {
-      data: dataRows as unknown as any[],
-      count: Number(countRows[0]?.count ?? 0),
-      error: null,
-    }
-  } catch (err) {
-    return { data: [], count: 0, error: err as Error }
+    const branchFragment = opts?.branchId ? sql`AND EXISTS (SELECT 1 FROM public.application_branches ab WHERE ab.application_id = a.id AND ab.agency_id = a.agency_id AND ab.branch_id = ${opts.branchId}::uuid)` : sql``
+    const searchFragment = opts?.search?.trim() ? sql`AND a.application_name ILIKE ${'%' + opts.search.trim() + '%'}` : sql``
+    const [dataRows, countRows] = await Promise.all([
+      sql`WITH selected_page AS (
+        SELECT a.id, a.application_name, a.state, a.status, a.agency_id, a.assigned_expert_id, a.created_at
+        FROM public.applications a WHERE a.agency_id = ${agencyId}::uuid AND a.playbook_id IS NOT NULL ${branchFragment} ${searchFragment}
+        ORDER BY a.created_at DESC, a.id LIMIT ${pageSize} OFFSET ${page * pageSize}
+      )
+      SELECT a.id, a.application_name, a.state, a.status, a.agency_id, a.assigned_expert_id,
+        json_build_object('id', ag.id, 'name', ag.name) AS agencies,
+        '[]'::json AS application_playbook_items,
+        progress.summary AS progress_summary
+      FROM selected_page a
+      LEFT JOIN public.agencies ag ON ag.id = a.agency_id
+      LEFT JOIN LATERAL (SELECT json_build_object(
+        'approved', count(*) FILTER (WHERE status = 'approved'),
+        'inProgress', count(*) FILTER (WHERE status = 'in_progress'),
+        'reviewNeeded', count(*) FILTER (WHERE status = 'review_needed'),
+        'notStarted', count(*) FILTER (WHERE status = 'not_started'),
+        'notApplicable', count(*) FILTER (WHERE status = 'not_applicable'),
+        'itemCount', count(*)
+      ) AS summary FROM public.application_playbook_items WHERE application_id = a.id) progress ON true
+      ORDER BY a.created_at DESC, a.id`,
+      sql`SELECT count(*)::int AS count FROM public.applications a
+        WHERE a.agency_id = ${agencyId}::uuid AND a.playbook_id IS NOT NULL ${branchFragment} ${searchFragment}`,
+    ])
+    return { data: dataRows as unknown as any[], count: Number(countRows[0]?.count ?? 0), error: null }
+  } catch {
+    return { data: [], count: 0, error: new Error('Unable to load agency programs.') }
   }
 }
 
 /** Pending program requests for one agency. Agency scope is mandatory. */
-export async function getRequestedProgramsForAgency(agencyId: string) {
+export async function getRequestedProgramsForAgency(agencyId: string, branchId?: string) {
   try {
+    const branchFragment = branchId ? sql`AND EXISTS (SELECT 1 FROM public.application_branches ab WHERE ab.application_id = a.id AND ab.agency_id = a.agency_id AND ab.branch_id = ${branchId}::uuid)` : sql``
     const rows = await sql`
       SELECT a.id, a.application_name, a.state, a.status, a.created_at, a.playbook_id,
         json_build_object('name', p.name) AS playbooks
       FROM applications a
       LEFT JOIN playbooks p ON p.id = a.playbook_id
-      WHERE a.agency_id = ${agencyId}
+      WHERE a.agency_id = ${agencyId} ${branchFragment}
         AND a.status = 'requested'
         AND a.playbook_id IS NOT NULL
-      ORDER BY a.created_at DESC
+      ORDER BY a.created_at DESC, a.id LIMIT 51
     `
-    return { data: rows as unknown as any[], error: null }
+    return { data: rows.slice(0, 50) as unknown as any[], hasMore: rows.length > 50, error: null }
   } catch (err) {
     return { data: null, error: err as Error }
   }

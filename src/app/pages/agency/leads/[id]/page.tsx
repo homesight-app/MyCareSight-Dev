@@ -1,3 +1,4 @@
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { authorizeAndAuditAgencyLeadRead } from '@/lib/repositories/agency-lead-reads'
@@ -44,7 +45,10 @@ export default async function AgencyLeadDetailPage({
   const { data: collaborators } = await getLeadCollaboratorOptionsAction()
 
   return (
+    <>
     <LeadDetailContent
+      branchesEnabled={agencyBranchesEnabled()}
+      canEditBranch={session!.profile?.role === 'company_owner'}
       lead={lead as unknown as LeadDetailProps['lead']}
       notes={(notes ?? []) as unknown as LeadDetailProps['notes']}
       tasks={tasks ?? []}
@@ -56,5 +60,6 @@ export default async function AgencyLeadDetailPage({
       stages={agencyStages}
       patientDetails={patientDetails as unknown as LeadDetailProps['patientDetails']}
     />
+    </>
   )
 }

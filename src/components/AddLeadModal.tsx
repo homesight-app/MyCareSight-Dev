@@ -15,6 +15,7 @@ import PhoneInput from '@/components/ui/PhoneInput'
 import EmailInput from '@/components/ui/EmailInput'
 import { showValidationToast, showSuccessToast } from '@/lib/form-validation-toast'
 import Button from '@/components/ui/PrimaryButton'
+import BranchSelectField from './BranchSelectField'
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
@@ -26,6 +27,8 @@ const US_STATES = [
 
 interface Lead {
   id: string
+  branch_id?: string | null
+  branch_name?: string | null
   contact_first_name: string | null
   contact_last_name: string | null
   contact_email: string | null
@@ -52,6 +55,8 @@ interface AddLeadModalProps {
   onSuccess: (leadId?: string) => void
   context: LeadContext
   editLead?: Lead | null
+  branchesEnabled?: boolean
+  canEditBranch?: boolean
 }
 
 const PATIENT_SOURCE_OPTIONS = [
@@ -107,6 +112,8 @@ export default function AddLeadModal({
   onSuccess,
   context,
   editLead,
+  branchesEnabled = false,
+  canEditBranch = false,
 }: AddLeadModalProps) {
   const [contactMode, setContactMode] = useState<'new' | 'existing'>('new')
   const [serviceStates, setServiceStates] = useState<string[]>([])
@@ -127,6 +134,8 @@ export default function AddLeadModal({
     formState: { errors, isSubmitting },
     reset,
     setValue,
+    setError,
+    watch,
   } = useForm<LeadFormData>({
     resolver: zodResolver(leadFormSchema),
     mode: 'onBlur',
@@ -149,6 +158,7 @@ export default function AddLeadModal({
         contactPhone: editLead.contact_phone ?? '',
         companyName: editLead.company_name ?? '',
         serviceType: editLead.service_type ?? '',
+        branchId: editLead.branch_id ?? undefined,
         stage: editLead.stage ?? 'new',
         source: editLead.source ?? 'Other',
         price: editLead.price != null ? String(editLead.price) : '',
@@ -275,6 +285,7 @@ export default function AddLeadModal({
         contactPhone: data.contactPhone || undefined,
         companyName: data.companyName || undefined,
         serviceType: data.serviceType || undefined,
+        branchId: branchesEnabled && canEditBranch ? data.branchId : undefined,
         price: context.billingVisible ? numericOrNull(data.price ?? '') : undefined,
         retainerAmount: context.billingVisible ? numericOrNull(data.retainerAmount ?? '') : undefined,
         retainerPaidDate: context.billingVisible ? dateOrNull(data.retainerPaidDate ?? '') : undefined,
@@ -287,7 +298,11 @@ export default function AddLeadModal({
         leadOwnerId: context.canAssign ? (data.leadOwnerId || null) : undefined,
         serviceStates: serviceStates.length > 0 ? serviceStates : null,
       })
-      if (result.error) { showValidationToast({ error: result.error }); return }
+      if (result.error) {
+        if (result.fieldErrors) Object.entries(result.fieldErrors).forEach(([key, messages]) => setError(key as keyof LeadFormData, { message: messages[0] }))
+        else showValidationToast({ error: result.error })
+        return
+      }
       showSuccessToast('Lead updated successfully')
       onSuccess(editLead.id)
     } else {
@@ -313,7 +328,11 @@ export default function AddLeadModal({
         leadOwnerId: context.canAssign ? (data.leadOwnerId || null) : null,
         serviceStates: serviceStates.length > 0 ? serviceStates : null,
       })
-      if (result.error) { showValidationToast({ error: result.error }); return }
+      if (result.error) {
+        if (result.fieldErrors) Object.entries(result.fieldErrors).forEach(([key, messages]) => setError(key as keyof LeadFormData, { message: messages[0] }))
+        else showValidationToast({ error: result.error })
+        return
+      }
 
       // Save patient details if any were provided
       if (context.leadType === 'patient' && result.leadId) {
@@ -502,6 +521,9 @@ export default function AddLeadModal({
               ))}
             </select>
           </div>
+          {isEdit && branchesEnabled && context.leadType === 'patient' && <BranchSelectField id="lead-branch" value={watch('branchId')}
+            currentName={editLead?.branch_name} onChange={value => setValue('branchId', value, { shouldDirty: true, shouldValidate: true })}
+            disabled={isSubmitting || !canEditBranch} error={errors.branchId?.message} />}
           <div className="col-span-2">
             <label className={labelCls}>Service State(s)</label>
             <div className="border border-gray-300 rounded-lg p-2 max-h-32 overflow-y-auto grid grid-cols-6 gap-1">

@@ -94,7 +94,7 @@ The likely future primitive set is:
 - Consistent inline/page loading, empty, error, and form-summary feedback.
 - Composable table shell, toolbar, empty state, sortable button header, pagination, and density variants.
 
-Status: **Deferred decision.** Names and public APIs must be validated against actual consumers before implementation. No proposed primitive should be described as present until merged and adopted.
+Status: **Deferred decision**, except the November 25 user-approved `DataTable` foundation on `feature/agency-branches`. That local batch composes existing controls, includes pagination and adopts only Branches in the two agency views; see [the table contract](../../src/components/ui/TABLES.md). It is not a claim that this branch is merged or deployed. Other proposed primitives and broader table adoption remain deferred; validate their names/public APIs against actual consumers before implementation.
 
 ### Portal-specific extensions
 

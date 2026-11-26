@@ -1,3 +1,5 @@
+import { agencyBranchesEnabled } from '@/lib/agency-branches'
+import RecordBranchAssignment from '@/components/RecordBranchAssignment'
 ﻿import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import * as q from '@/lib/supabase/query'
@@ -37,9 +39,12 @@ export default async function ApplicationDetailPage({
   })
 
   return (
+    <>
+    {agencyBranchesEnabled() && <RecordBranchAssignment key={id} kind="application" recordId={id} />}
     <ApplicationDetailWrapper
       application={application}
       documents={documents}
     />
+    </>
   )
 }
